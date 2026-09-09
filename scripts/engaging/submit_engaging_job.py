@@ -5,7 +5,15 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
+
+# Add project root to sys.path so `scripts` is importable without PYTHONPATH=.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+# pylint: disable=wrong-import-position
+from scripts.engaging.claude_accounts import LOGIN_ACCOUNT, POLICY_USAGE, \
+    TOKEN_DIR, account_block, account_policy, describe_assignment, \
+    resolve_accounts
 
 START_SEED = 456
 NUM_SEEDS = 10
@@ -100,13 +108,19 @@ exit "$_RC"
 """
 
 
-def _build_batch_script(entry_point: str, args_and_flags_str: str,
-                        requeue: bool) -> str:
+def _build_batch_script(entry_point: str,
+                        args_and_flags_str: str,
+                        requeue: bool,
+                        accounts: Sequence[str] = (LOGIN_ACCOUNT, ),
+                        account_offset: int = 0,
+                        token_dir: Path = TOKEN_DIR) -> str:
     """Compose the batch script sbatch runs for every array task.
 
     With ``requeue``, the script backgrounds python and installs the
     self-requeue trap (see ``_SELF_REQUEUE_BLOCK``); without it, the
-    python command simply runs in the foreground.
+    python command simply runs in the foreground. Each array task picks
+    its Claude account from ``accounts`` by (``account_offset`` + seed)
+    and exports that account's token (see claude_accounts.py).
     """
     header = [
         "#!/bin/bash -l",  # -l => login shell, so /etc/profile.d (module) loads
@@ -118,6 +132,13 @@ def _build_batch_script(entry_point: str, args_and_flags_str: str,
         f"module load {_MINIFORGE_MODULE}",
         f"conda activate {_CONDA_ENV}",
         f"cd {_REPO_ROOT}",
+        # Bind the job to the tree it was launched from. predicators is an
+        # editable install of the main tree, and `python predicators/main.py`
+        # puts predicators/ (not the root) first on sys.path, so without
+        # this a job launched from a worktree silently imports the main
+        # tree, and a requeue re-imports whatever that tree holds by then.
+        f"export PYTHONPATH={_REPO_ROOT}",
+        account_block(accounts, account_offset, token_dir),
     ]
     run_cmd = (f"python predicators/{entry_point} "
                f"{args_and_flags_str} --seed $SLURM_ARRAY_TASK_ID")
@@ -231,13 +252,22 @@ def submit_engaging_job(entry_point: str,
                         use_gpu: bool = False,
                         use_mujoco: bool = False,
                         partition: Optional[str] = None,
-                        requeue: Optional[bool] = None) -> None:
+                        requeue: Optional[bool] = None,
+                        accounts: Optional[Sequence[str]] = None,
+                        account_offset: int = 0) -> None:
     """Launch one Slurm array job (one array task per seed) on Engaging.
 
     partition defaults to mit_normal (or mit_normal_gpu for GPU jobs),
     and requeue defaults to True on preemptable partitions. Both can
     also be set via the PREDICATORS_ENGAGING_PARTITION and
     PREDICATORS_ENGAGING_REQUEUE environment variables.
+
+    accounts is the launch's Claude account list (see
+    claude_accounts.py; None means the PREDICATORS_CLAUDE_ACCOUNTS
+    environment variable, else the CLI's stored login) and
+    account_offset this experiment's index in its launch, which
+    staggers the round-robin so sibling experiments' seeds do not all
+    start on the same account.
     """
     del use_mujoco  # unused
     os.makedirs(log_dir, exist_ok=True)
@@ -247,10 +277,20 @@ def submit_engaging_job(entry_point: str,
 
     partition = _resolve_partition(partition, use_gpu)
     requeue = _resolve_requeue(requeue, partition)
+    if accounts is None:
+        accounts = resolve_accounts(None)
+    assignment = describe_assignment(accounts, account_offset, start_seed,
+                                     num_seeds)
+    if account_policy() == POLICY_USAGE and len(accounts) > 1:
+        print("Claude accounts: picked by leftover usage at each task's "
+              f"start; round-robin fallback {assignment}")
+    else:
+        print(f"Claude accounts: {assignment}")
     time_limit = _clamp_time_limit(_GPU_TIME if use_gpu else _CPU_TIME,
                                    partition)
 
-    mystr = _build_batch_script(entry_point, args_and_flags_str, requeue)
+    mystr = _build_batch_script(entry_point, args_and_flags_str, requeue,
+                                accounts, account_offset)
     # A unique name per submission, so that a leftover file from a crashed
     # launch cannot block later ones and so concurrent launches cannot race.
     fd, temp_run_file = tempfile.mkstemp(prefix="temp_run_file_",

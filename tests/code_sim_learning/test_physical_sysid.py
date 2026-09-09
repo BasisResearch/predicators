@@ -612,8 +612,8 @@ def test_trimming_all_dropped_pins_result_at_inits(monkeypatch):
     assert result.point_estimate["friction"] == 0.5
 
 
-def test_mcmc_samples_bypass_probe():
-    """With a real chain, widths come from the samples, not the probe."""
+def test_multi_row_samples_bypass_probe():
+    """With multi-row samples, widths come from the samples, not the probe."""
     rng = np.random.default_rng(0)
     samples = np.column_stack([
         rng.normal(0.1, 0.01, size=200),  # contracted -> identified
@@ -868,6 +868,37 @@ def test_compute_residual_scaling_floors_static_features(monkeypatch):
                                                        {"spinner": ["x"]})
     assert scaling is not None
     assert abs(scaling.scales[("spinner", "x")] - 0.05) < 1e-12
+
+
+def test_compute_residual_scaling_folds_declared_noise(monkeypatch):
+    """A declared observation-noise channel widens each scale by its feature's
+    sigma relative to the fit's noise_sigma; an undeclared one leaves the fit
+    as blind as the agent."""
+    from predicators.settings import CFG
+    monkeypatch.setattr(CFG, "continual_obs_noise_position", 0.02)
+    monkeypatch.setattr(CFG, "continual_obs_noise_orientation", 0.1)
+    monkeypatch.setattr(CFG, "continual_obs_noise_declared", True)
+    traj = _angular_trajectory([0.0, 0.1, 0.4], [0.0, 1.0, 3.0])
+    scaling = trajectory_prep.compute_residual_scaling(
+        [traj], {"spinner": ["x", "yaw"]})
+    assert scaling is not None
+    assert abs(scaling.scales[("spinner", "x")] -
+               np.sqrt(0.4**2 + (0.02 / 0.05)**2)) < 1e-12
+    assert abs(scaling.scales[("spinner", "yaw")] -
+               np.sqrt(np.pi**2 + (0.1 / 0.05)**2)) < 1e-12
+    # The fold is relative to the fit's own noise width.
+    wide = trajectory_prep.compute_residual_scaling([traj],
+                                                    {"spinner": ["x", "yaw"]},
+                                                    noise_sigma=0.1)
+    assert wide is not None
+    assert abs(wide.scales[("spinner", "x")] -
+               np.sqrt(0.4**2 + (0.02 / 0.1)**2)) < 1e-12
+    monkeypatch.setattr(CFG, "continual_obs_noise_declared", False)
+    blind = trajectory_prep.compute_residual_scaling([traj],
+                                                     {"spinner": ["x", "yaw"]})
+    assert blind is not None
+    assert abs(blind.scales[("spinner", "x")] - 0.4) < 1e-12
+    assert abs(blind.scales[("spinner", "yaw")] - np.pi) < 1e-12
 
 
 def test_compute_residual_scaling_disabled(monkeypatch):

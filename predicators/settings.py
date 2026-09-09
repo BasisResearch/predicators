@@ -32,12 +32,15 @@ class GlobalSettings:
     num_online_learning_cycles = 10
     online_learning_max_transitions = float("inf")
     online_learning_early_stopping = False
+    # When True, the online loop tests only the final model (last cycle or
+    # the early-stopping cycle). The pre-loop test is governed separately
+    # by skip_initial_test.
     skip_test_until_last_ite_or_early_stopping = False
     # When True, skip only the pre-loop (cycle-0) test that evaluates the
     # offline-learned model before any online learning. Per-cycle testing is
     # unaffected, so the learning-progression curve is still measured; only
     # the (usually predictable) evaluation of the uncalibrated initial model
-    # is saved. Subsumed by skip_test_until_last_ite_or_early_stopping.
+    # is saved.
     skip_initial_test = False
     # just for plotting
     online_learning_early_stopping_by_test_solve_rate = False
@@ -54,6 +57,109 @@ class GlobalSettings:
     # per task) must succeed before early stopping is triggered. Catches
     # "lucky single-sample" successes that mask a buggy learned model.
     online_learning_early_stopping_require_all_attempts = False
+    # ── Continual protocol (docs/continual-protocol.md) ─────────────
+    # "phased": today's explore/learn/test loop. "continual": one run per
+    # env plays its levels in order; every env step is counted, resets
+    # are counted separately, the sandbox is free, and the scorecard is
+    # the result. Selected on the command line; the phased loop is
+    # untouched when it is off.
+    experiment_protocol = "phased"
+    # Level order: the env's train tasks then its test tasks (4.1).
+    continual_levels = "train_then_test"
+    # Whether the agent may reset a test level (4.6). Off by default: a
+    # test level is one shot, so GAME_OVER on it ends the level as lost
+    # and, under the no-skipping rule, the run. Train levels always
+    # allow resets.
+    continual_allow_test_resets = False
+    # Pooled step cap per run: this many low-level steps per level,
+    # summed over the run's levels (4.8). A guard, not a scoring term.
+    continual_steps_per_level = 5000
+    # Steps an episode may take before GAME_OVER, or None for no episode
+    # horizon: the pooled cap is then the only step budget (4.3). None
+    # since 2026-09-06: with the env's own horizon (busyboard 2000) three
+    # of four busyboard test levels ended at step 2000 of their one
+    # episode while 5000+ pooled steps sat unused, so on a level without
+    # resets the horizon was a second, hidden cap. A number restores the
+    # per-episode GAME_OVER (tests of that path, ablations); the phased
+    # loop's `horizon` is not read here.
+    continual_episode_horizon: Optional[int] = None
+    # Active wall-clock cap per env run, in hours (6.5).
+    continual_wall_clock_hours = 48.0
+    # One directory per run (predicators/run/paths.py):
+    # <continual_runs_dir>/<approach>/<experiment_id>/seed<k>/run_<stamp>/
+    # holds the scorecard, the level recordings, the agent's files and
+    # the video, beside the launch's logs (the same subdir --log_file
+    # names, so keep this equal to the log root).
+    continual_runs_dir = "logs"
+    # Save a PNG render at level start, after each skill invocation, on
+    # resets and at episode ends (4.7).
+    continual_render = True
+    # Primitive-only arms flush the recording every N steps; skill arms
+    # flush at every invocation regardless.
+    continual_flush_every_steps = 50
+    # Write recordings/<run_id>/run.mp4 when the run ends: the recorded
+    # actions replayed through the env with a label panel (level, goal,
+    # the skill running, steps against the cap, resets) beside the
+    # render. One frame every continual_video_stride steps at video_fps;
+    # a 900 px PyBullet render costs about 1 s on a CPU node, so stride 2
+    # keeps a 5000-step run's video under an hour. The offline builder
+    # scripts/continual_video.py takes the same flags.
+    continual_make_video = False
+    continual_video_stride = 2
+    # The oracle controller gives up a level after this many planning or
+    # execution failures (6.7).
+    continual_max_replans_per_level = 20
+    # An agent that plays this many consecutive rounds of its
+    # conversation without an env step or model work has stalled; the
+    # run ends (6.5). A round is one harness message and the agent's
+    # turn on it. There is no per-round clock: the run's wall-clock cap
+    # is the only clock.
+    continual_max_idle_rounds = 5
+    # Observation-noise channel (docs/continual-uncertainty.md, 3.1):
+    # additive zero-mean Gaussian noise on every non-robot object's
+    # position features (x, y, z; metres) and orientation features (rot,
+    # roll, pitch, yaw and a Type's angular_features; radians) in the
+    # frame the agent sees and in the data it reads. Discrete features
+    # and the robot's own state stay exact, one draw per env step keyed
+    # by (seed, level, episode, step), and everything the harness judges
+    # (evaluators, checkpoints, the level index) keeps the true state.
+    # 0 disables a class; both 0 is the exact-observation protocol.
+    continual_obs_noise_position = 0.0
+    continual_obs_noise_orientation = 0.0
+    # The scalar-reading class (section 3.1, build-order step 7):
+    # additive, unclipped Gaussian noise on bubbling_level, water_volume,
+    # spilled_level and any feature a Type declares in sensor_features,
+    # in the reading's own units; switch states stay exact. Boil's sweep
+    # points sit against its ramp step of 0.15 and its 0.07 boil margin,
+    # about 0.03, 0.07 and 0.15, swept as an axis separate from pose
+    # noise.
+    continual_obs_noise_scalar = 0.0
+    # Whether the channel is declared: the agent's contract states the
+    # sigmas and the model arm's fit folds them into its likelihood
+    # (predicators/observation_noise.py). Off is the harder ablation
+    # where the agent has to find the noise itself and the harness's
+    # model tools know nothing about it either.
+    continual_obs_noise_declared = True
+    # The execution-time belief (docs/continual-uncertainty.md, sections
+    # 3.3 and 3.6; predicators/observation_belief.py). Under a declared
+    # channel the observation carries, beside the raw frame, the
+    # smoothed frame: per object, the mean of its noisy features over
+    # the frames it has rested through (up to continual_belief_window,
+    # rest judged at continual_belief_sigmas standard errors, like the
+    # fit-side filter), with the spread sigma / sqrt(frames). The atoms
+    # the agent is unsure about are listed with the fraction of
+    # continual_belief_draws draws of the belief on which they hold; an
+    # invocation's expected outcome is checked by the same fraction (an
+    # atom is missing when it holds on fewer than half the draws), so one
+    # noisy frame never aborts a healthy plan; and sim.run(plan,
+    # belief_draws=K) rolls a plan from K draws of the belief, which
+    # certifies a placement over where its target may really be. Off,
+    # or an exact channel: the raw frame, the hard atom check and no
+    # belief draws.
+    continual_belief_frame = False
+    continual_belief_window = 8
+    continual_belief_sigmas = 3.0
+    continual_belief_draws = 16
     # Slack (in reward units) below a task's ``early_stop_min_reward`` bar
     # that still counts as solved for early stopping. Only tasks that set
     # ``EnvironmentTask.early_stop_min_reward`` are affected (e.g. domino
@@ -311,6 +417,25 @@ class GlobalSettings:
     # re-commands of the same waypoint, advance anyway (an unreachable
     # waypoint otherwise stalls the phase until the episode horizon).
     pybullet_birrt_replay_max_hold_steps = 10
+    # Direct paths (Phase.direct_descend: a grasp or place descend) are
+    # IK-chained straight Cartesian lines - lift to the higher of the two
+    # heights, cross to the target xy, descend - sampled every this many
+    # metres; the samples are the replayed waypoints, so this is also
+    # the executed step. A joint-space segment traces an arc instead: a
+    # bridge grasp descent bowed 26 mm off its vertical and set a finger
+    # pad on top of the standing block it was to straddle (2026-09-07).
+    pybullet_direct_path_step = 0.01
+    # Consecutive samples of a direct path that differ by more than this
+    # (radians) on any arm joint are a branch discontinuity the arm could
+    # only execute as a sweep through the scene: the path is refused.
+    pybullet_direct_path_max_joint_step = 0.5
+    # Tracking-gate hold cap for a direct path's waypoints (see
+    # pybullet_birrt_replay_max_hold_steps). A waypoint on a straight
+    # descent that the arm cannot reach means it is blocked - a held
+    # block on a neighbour's corner, a finger on the target's top - so
+    # the phase reacts (Phase.on_blocked) instead of pressing on through
+    # the remaining waypoints.
+    pybullet_direct_path_max_hold_steps = 5
     pybullet_control_mode = "position"
     pybullet_max_vel_norm = 0.05
     # env -> robot -> quaternion
@@ -996,6 +1121,272 @@ class GlobalSettings:
     # push-throughs.
     boil_mobile_base_align_x = True
 
+    # busyboard env
+    # Use skill-factory-based option implementations
+    busyboard_use_skill_factories = True
+    # Board size. Test boards are larger than train boards and EXTEND them:
+    # every lamp of the smallest train board keeps its drive condition on
+    # every board, and the buttons and lamps a test board adds are decoys or
+    # a new lamp that goals only ever ask to keep dark. So what a learner
+    # finds out about the train board is true at test; test asks whether it
+    # trusts that on a busier board and leaves unfamiliar buttons alone.
+    # Four training buttons rather than three: with every lamp an
+    # interlock, three buttons have exactly three distinct pairs, so a
+    # three-lamp board uses them all and no button setting lights two lamps
+    # without lighting the third. Four buttons give six pairs and leave
+    # room for goals that light two lamps and keep one dark.
+    busyboard_num_buttons_train = [4]
+    busyboard_num_buttons_test = [7, 8]
+    busyboard_num_lamps_train = [3]
+    busyboard_num_lamps_test = [4]
+    # Fewest lamps a goal asks to be lit, per split. Test goals need at
+    # least two, so solving one means composing two learned conditions
+    # (and holding their shared buttons) rather than reproducing a single
+    # training goal on a bigger board. Only core lamps can be lit targets,
+    # so the count has to be realizable from the training lamps alone;
+    # with every core lamp wired to core buttons, latching every core
+    # button lights them all and keeps the extension lamp dark, so a
+    # value up to the number of training lamps is always satisfiable.
+    busyboard_min_lit_train = 1
+    busyboard_min_lit_test = 2
+    # Whether a test goal may ask for a lamp the training board never
+    # showed to be lit. Off, an extension lamp is only ever a dark
+    # target and leaving the unfamiliar buttons alone is always safe;
+    # on, a test level can require a condition the agent has to find
+    # among the buttons it never saw.
+    busyboard_test_extension_lit = True
+    # Probability that a lamp's drive is conjunctive (needs an "enabler"
+    # button on as well as its driver). This is the many-to-one relation
+    # that undirected play confounds. At 1.0 every lamp is an interlock,
+    # so every goal needs a combination of buttons rather than a single
+    # press; 0.5 mixes plain and conjunctive drives; 0.0 ablates the
+    # interlock and recovers a one-to-one board.
+    busyboard_interlock_prob = 1.0
+    # Given a conjunctive drive, the probability that it needs TWO
+    # enablers (a three-input condition) rather than one.
+    busyboard_double_enabler_prob = 0.5
+    # Probability that a lamp has an inhibitor: a button that must stay
+    # OFF for the lamp to respond. With one, "press everything" is never
+    # a solution even for a single lamp.
+    busyboard_inhibitor_prob = 0.5
+    # Probability that a core (training) lamp's inhibitor is a button the
+    # training board does not have. The rule learned in training stays
+    # true at test while that button stays off; pressing it, as a policy
+    # that probes every button does, breaks the lamp.
+    busyboard_extension_inhibitor_prob = 0.5
+    # The arming latch: a lamp responds to its driver only if the driver
+    # was pressed while every enabler was already on, and is disarmed
+    # when the driver goes off. The board is then not a function of the
+    # button setting - the same setting reached in two orders behaves
+    # differently - which is what makes a model with state necessary.
+    # False ablates the latch: a lamp is driven whenever its buttons are.
+    busyboard_latch = True
+    # Driving more than this many lamps at once trips the breaker: every
+    # charge drops to zero and nothing charges until every button has
+    # been released. Test goals ask for at least busyboard_min_lit_test
+    # lamps lit, so the limit must be at least that. 0 disables it.
+    busyboard_breaker_limit = 2
+    # One wiring per run (extended onto each board size) rather than a fresh
+    # one per task. True is what today's fitting stack supports: PARAM_SPECS
+    # resolves once, before any task is chosen, so a hidden quantity that
+    # varied per task would have no home in a fitted model. False is the
+    # harder setting held in reserve - a model whose STRUCTURE is
+    # re-identified every episode by a policy that experiments before it
+    # commits - and needs a per-task parameter scope and a belief simulator
+    # that can represent an unknown wiring.
+    busyboard_fixed_wiring = True
+    # Decorrelates the wiring draw from every other use of CFG.seed, so
+    # changing the wiring does not also reshuffle the task distribution.
+    busyboard_wiring_salt = 7919
+    # Hidden charge accumulated / bled per low-level step. A lamp is slow to
+    # light and quick to die: the build-up delay is what makes a naive
+    # press-and-look policy mis-attribute causes, and the fast decay is what
+    # keeps plans short. Calibrated against the measured cost of a button
+    # operation on this board (~22 low-level steps for a press or release):
+    # a lamp lights after ~48 driven steps, so roughly two button operations
+    # pass between a cause and its visible effect and a press-then-press
+    # sequence genuinely confounds which press was responsible. Full decay
+    # takes ~20 steps, under one button operation, so undoing is cheap.
+    busyboard_charge_rate = 0.017
+    busyboard_decay_rate = 0.05
+    # Rejection-sampling budget for finding a wiring plus a goal assignment
+    # that some button setting realizes exactly.
+    busyboard_max_sampling_attempts = 200
+
+    # ice rink env
+    # Tiles per rink. Test rinks carry more tiles, so more paths cross a
+    # tile or the patch; the materials keep their colours and friction.
+    icerink_num_tiles_train = [2]
+    icerink_num_tiles_test = [3]
+    # Sliding friction per material, in palette order (blue ice, black
+    # rubber, green felt, grey steel). The learning target: a tile's
+    # travel from one push is v^2 / (2 mu g), so blue reaches a wall from
+    # anywhere, black stops within a hand's width, green and grey in
+    # between. The base sim gives every tile 0.1.
+    icerink_material_frictions = [0.03, 0.35, 0.12, 0.06]
+    # The dark strip: a tile crossing it is braked by this much extra
+    # friction (a coefficient, on top of its own). False disables the
+    # strip's effect.
+    icerink_patch = True
+    icerink_patch_friction = 0.25
+    # The push skill's speed parameter: the gripper moves through the
+    # stroke at this many m/s and the tile leaves at about that speed.
+    # The range is what the arm tracks on this rink: travel grows with
+    # the commanded speed up to about 0.38 m/s and collapses above it
+    # (the position-controlled stroke lags and strikes late). The task
+    # generator draws a tile's target from a speed in the range, and the
+    # oracle's sampler searches it.
+    icerink_push_speed_range = [0.15, 0.38]
+    # Approach distance and contact height (the push skill's first two
+    # parameters) the generator's and the oracle's probes use.
+    icerink_push_approach = 0.07
+    icerink_push_contact_z = 0.03
+    # A tile is at rest below this planar speed (m/s), and a level is won
+    # only once every tile is.
+    icerink_settle_speed = 0.01
+    # A tile is on a target when both centre offsets are within this.
+    icerink_on_tol = 0.03
+    # Cap on a slide probe's env actions.
+    icerink_probe_max_steps = 150
+    # Rejection-sampling budget for a rink whose every tile has a
+    # single-push target.
+    icerink_max_sampling_attempts = 300
+
+    # launcher env
+    # Blocks in the tower. Test towers are taller and farther, with
+    # fewer spare balls.
+    launcher_num_blocks_train = [2]
+    launcher_num_blocks_test = [3]
+    launcher_stand_x_train = [0.84, 0.92]
+    launcher_stand_x_test = [0.88, 0.98]
+    launcher_balls_left_train = 3
+    launcher_balls_left_test = 1
+    # The launch law: the ball leaves the muzzle at spring_k times the
+    # deepest compression reached, in m/s per metre. The learning target.
+    launcher_spring_k = 24.0
+    # A snap from less compression than this fires nothing.
+    launcher_min_compression = 0.01
+    # Mass per block material, in palette order (wood, stone). The base
+    # sim gives every block 0.3 kg.
+    launcher_block_masses = [0.12, 0.8]
+    # The ball is at rest below this speed (m/s).
+    launcher_settle_speed = 0.02
+    # The push skill's approach and contact-height parameters the probes
+    # use on the handle.
+    launcher_push_approach = 0.07
+    launcher_push_contact_z = 0.012
+    launcher_probe_max_steps = 200
+    launcher_max_sampling_attempts = 60
+
+    # magnets env
+    # Pieces on the mat. Test mats carry more pieces; the colours keep
+    # their polarity and range.
+    magnets_num_pieces_train = [2]
+    magnets_num_pieces_test = [3]
+    # Per colour, in palette order (red, blue, green, yellow): +1 if the
+    # wand pulls the colour, -1 if it pushes it; and the range (metres
+    # from the point under the tip) within which the colour moves. The
+    # learning target.
+    magnets_polarities = [1, 1, -1, 1]
+    magnets_ranges = [0.10, 0.06, 0.08, 0.13]
+    # Speed law shared by every colour: a piece right at the edge of its
+    # range is still, one under the tip would move at max_speed, and it
+    # stops inside the dead zone.
+    magnets_max_speed = 0.25
+    magnets_dead_zone = 0.008
+    # The field only acts on pieces within this height below the tip.
+    magnets_field_height = 0.10
+    # A piece is in a slot when both centre offsets are within this (a
+    # carried piece settles within the dead zone of a tip that itself
+    # stops within the hover's tolerance).
+    magnets_in_tol = 0.03
+    # The tip is over a piece when their ground points are this close.
+    magnets_over_tol = 0.02
+    magnets_settle_speed = 0.01
+    magnets_probe_max_steps = 300
+    magnets_max_sampling_attempts = 60
+
+    # balloons env
+    # Balloons in the rack and box colours per split. A test level holds
+    # the whole palette in its rack, one more balloon than any train
+    # level; its box is a material training showed (the train levels
+    # together cover both materials and every colour, see
+    # PyBulletBalloonsEnv._make_tasks). The teak box (index 2) has no
+    # level the generator accepts under the ceiling with these lifts.
+    balloons_num_balloons_train = [2, 3]
+    balloons_num_balloons_test = [4]
+    balloons_box_colors_train = [0, 1]
+    balloons_box_colors_test = [0, 1]
+    # Lift per balloon colour at table height, in newtons, palette order
+    # (red, blue, green, gold); it fades linearly to zero this many
+    # metres above the table. The learning target, with the box masses
+    # (pine, oak, kilograms) and the air's drag.
+    balloons_lifts = [0.35, 0.5, 0.7, 1.0]
+    balloons_fade_height = 0.8
+    balloons_box_masses = [0.05, 0.08, 0.11]
+    # The air's drag (linear damping). Low enough that the fading lift
+    # makes the box an underdamped oscillator: it overshoots its
+    # equilibrium on the way up, and an in-band subset can overshoot into
+    # the ceiling and burst. The overshoot is set by this drag, which the
+    # rest height does not reveal, so identifying the safe subset needs a
+    # fitted dynamics model, not a static reading. The learning target,
+    # with the lifts and box masses.
+    balloons_drag = 2.2
+    # Half the band's height.
+    balloons_band_half = 0.025
+    # The box is at rest below this speed (m/s).
+    balloons_settle_speed = 0.01
+    # The push skill's approach and contact-height parameters that open
+    # a clip, for the oracle's and the generator's probes.
+    balloons_push_approach = 0.07
+    balloons_push_contact_z = 0.05
+    balloons_probe_max_steps = 400
+    # Test levels need two subsets in one band with only one overshoot-safe,
+    # a rarer draw than a single in-band subset, so allow more attempts.
+    balloons_max_sampling_attempts = 80
+    # Contact-only test levels (the default): require an in-band decoy that
+    # fails by JAM (the tilted box wedges in the chute), not by height or
+    # burst, whose equilibrium sits within balloons_contact_height_tol of the
+    # unique safe subset's. Then the safe subset and the decoy are
+    # indistinguishable by rest height or net lift - only a contact rollout
+    # (sim.run) tells them apart - so a model that reasons from equilibrium
+    # height alone cannot pick the winner and must trial-and-error (real
+    # steps, resets, or an irreversible burst). False keeps the original chute
+    # generation, where an in-band decoy may instead fail by overshoot burst.
+    balloons_require_jam_decoy = True
+    balloons_contact_height_tol = 0.02
+
+    # crane env
+    # Cable lengths and crate colours per split. Test levels bring a
+    # longer cable and a crate material the training levels never show.
+    crane_length_train = [0.5, 0.55]
+    crane_length_test = [0.65, 0.7]
+    crane_crate_colors_train = [0, 1]
+    crane_crate_colors_test = [0, 1, 2]
+    # Where the crate stands along the lane from the ball's rest
+    # position, where the lane runs across the table, and the bin pad's
+    # half length along the lane.
+    crane_gap_range = [0.20, 0.23]
+    crane_lane_y_range = [1.24, 1.36]
+    crane_bin_half = 0.06
+    # The learning target: mass (kilograms) and table friction of each
+    # crate material, palette order (foam, iron, stone), and the air's
+    # drag on the swinging ball (the engine's linear damping).
+    crane_crate_masses = [0.06, 0.3, 0.45]
+    crane_crate_frictions = [0.25, 0.15, 0.12]
+    crane_swing_damping = 0.02
+    # How far the Pull skill can draw the ball back, in metres.
+    crane_pull_range = [0.10, 0.26]
+    # The crate and the ball are still below this speed (m/s).
+    crane_settle_speed = 0.02
+    # The push skill's approach and contact-height parameters for the
+    # oracle's and the generator's swings.
+    # Leave room for the open fingertips during the descent beside the ram.
+    crane_push_approach = 0.10
+    crane_push_contact_z = 0.0
+    crane_probe_max_steps = 300
+    crane_max_sampling_attempts = 30
+
     # parameters for random options approach
     random_options_max_tries = 100
 
@@ -1022,6 +1413,17 @@ class GlobalSettings:
     gnn_use_validation_set = True
 
     # parameters for GNN option policy approach
+    # GNN dynamics + shooting baseline (gnn_dynamics_shooting, paper arm
+    # C5): how many previous pre-option states ride along as node
+    # features (so a hidden mechanism is inferable from the recent
+    # past), the longest option sequence one shooting try samples, how
+    # many tries a plan query gets before failing, and whether the plan
+    # is re-shot from the observed state after every option (MPC) or
+    # executed open-loop.
+    gnn_dynamics_history_len = 2
+    gnn_dynamics_max_plan_length = 30
+    gnn_dynamics_shooting_max_tries = 200
+    gnn_dynamics_replan_every_option = True
     gnn_option_policy_solve_with_shooting = True
     gnn_option_policy_shooting_variance = 0.1
     gnn_option_policy_shooting_max_samples = 100
@@ -1795,9 +2197,22 @@ class GlobalSettings:
     # sweep cannot catch these: it perturbs identified base-physics
     # params, while a learned rule constant baked near a data boundary
     # carries its own posterior uncertainty. No-op unless the approach
-    # installs the ensemble providers (see rule_param_margin_provider),
-    # which requires agent_explorer_info_seeking's ensemble.
+    # installs the ensemble providers (see rule_param_margin_provider);
+    # this flag alone is enough for the ensemble to be built.
     agent_plan_validation_rule_param_margin = False
+    # Necessity gate on captures: after a goal-reaching plan passes every
+    # other gate, re-run it once per step with that step removed. If the
+    # goal is still reached without a step, the plan is refused as
+    # REDUNDANT naming that step. A captured plan is an explanation of the
+    # goal, and a step whose absence changes nothing explains nothing: it
+    # is padding (a Wait on atoms that already hold, a press of a button
+    # the model says does nothing) that costs real episode steps and, when
+    # the model is wrong about the step, can break the plan for real.
+    # run_20260902_152811: a validated capture pressed three of four
+    # buttons and released one that was never on, for a goal its own
+    # model reached with two presses and a Wait. Costs one rollout per
+    # plan step, run in parallel with the other sweeps' workers.
+    agent_plan_validation_necessity = False
     # Fork-parallel rollouts: the capture gate's repeat rollouts, its
     # physics/rule-param margin sweeps, the belief probe's
     # trials/physics_sweep modes, and the rollout-sysID objective (each
@@ -1825,8 +2240,35 @@ class GlobalSettings:
     # ensemble's disagreement on a step's subgoal atoms
     # (sim.suggest_probes) and the capture gate can sweep the rule-param
     # margin. The agent decides what to run; the harness never moves
-    # its parameters. Off => no ensemble is built.
+    # its parameters. Off => the ensemble is built only when the
+    # rule-param margin gate asks for it.
     agent_explorer_info_seeking = False
+    # Adaptive info-seeking: with this on (and agent_explorer_info_seeking
+    # on), the proactive half of info-seeking - the probe-ranking
+    # sim.suggest_probes result and the disagreement guidance - stays
+    # dormant until the
+    # capture gate has refused a plan as PARAM-SENSITIVE
+    # (ctx.param_sensitive_refusal_pending). The rule-param margin gate
+    # and its (Laplace) ensemble stay always on, so the FIRST refusal can
+    # still fire; only then does the agent start spending real steps to
+    # reduce the uncertainty the gate named. This removes the info-seeking
+    # step tax on easy levels no plan is ever refused on, while keeping
+    # the robustness on levels where a fragile plan is caught. Off =>
+    # info-seeking is always active (the original behaviour).
+    agent_explorer_info_seeking_adaptive = False
+    # Noise-aware probe value (docs/continual-uncertainty.md, section
+    # 3.5): under a declared observation-noise channel the ensemble
+    # disagreement that ranks probes (sim.suggest_probes, the
+    # info-seeking sampler, the explorer's disagreement summary) is the
+    # mutual information between the ensemble member and the atom's
+    # truth as READ from a noisy observation. Each member's predicted
+    # state is jittered by the declared sigmas; members whose
+    # predictions differ by less than sigma all read the atom as a coin
+    # flip and the score goes to 0, because one noisy observation
+    # cannot tell them apart and the probe is not worth real steps.
+    # Exact channel, undeclared channel or flag off: the plain Bernoulli
+    # entropy of the members' truth split (the original score).
+    agent_explorer_info_seeking_noise_aware = False
     # Ensemble size used to estimate disagreement. 1 disables scoring
     # (every candidate scores 0) and reduces to first-feasible.
     agent_explorer_info_ensemble_size = 6
@@ -1845,24 +2287,13 @@ class GlobalSettings:
     # Per-parameter jitter as a fraction of the ParamSpec box width, for
     # the uniform-fallback ensemble only (see calibrated flag below).
     agent_explorer_info_perturb_frac = 0.15
-    # Prefer a *calibrated* ensemble when the fit provides one: posterior
-    # subsample when MCMC ran, else a Laplace draw from the LM Jacobian
-    # (per-transition or recurrent); uniform jitter only when neither is
-    # available (e.g. oracle params, where no fit runs).
+    # Prefer a *calibrated* ensemble when the fit provides one: a Laplace
+    # draw from the LM Jacobian (per-transition or recurrent); uniform
+    # jitter only when it is not available (e.g. oracle params, where no
+    # fit runs).
     agent_explorer_info_calibrated_ensemble = True
-    # Extra MCMC budget for the once-per-cycle active-experiment posterior
-    # fit. The solver/test-time fit still follows
-    # code_sim_learning_num_mcmc_steps; this budget is used only when it
-    # exceeds the global solver budget, and only to calibrate the
-    # info-seeking ensemble. Keep >= ~250: emcee burn-in (200) eats the
-    # budget first. See _exploration_fit_num_steps for the rationale
-    # (posterior subsampling covers gate/threshold params that a Laplace
-    # approximation cannot).
-    agent_explorer_info_mcmc_steps = 300
 
     # Code sim-learning parameter fitting settings.
-    # Set to 0 to skip MCMC and use initial parameter values directly.
-    code_sim_learning_num_mcmc_steps = 0
     # Persist the raw rollout-fit trajectories (states + actions per
     # recorded episode) to <log_dir>/fit_data/ at every cycle-level
     # fit. The fit data otherwise lives only in memory, which made the
@@ -1919,6 +2350,38 @@ class GlobalSettings:
     # of an arbitrary interior grid point. 0 disables the flat set (the
     # raw per-candidate argmin wins, the legacy behavior).
     code_sim_learning_rollout_grid_flat_frac = 0.05
+    # Interval-first parameter belief (docs/continual-uncertainty.md,
+    # section 3.7): the planner's belief about a physical parameter is
+    # the fit's posterior - the most likely value with its +-1 sigma
+    # interval - for every parameter the data moved off its anchor, not
+    # only for the ones whose posterior contracted below a fixed
+    # fraction of the prior. A parameter that moved but whose posterior
+    # stayed wide gets the dedicated verdict "wide posterior"
+    # (Verdict.WIDE): its most likely value is deployed, and the capture
+    # gate's physics-margin sweep and sim.run(physics_sweep=True)
+    # certify plans across its whole interval. A mixed sweep (some
+    # points pass, some fail) is reported as the interval straddling the
+    # plan's success boundary, with the passing and failing ranges, and
+    # arms adaptive info-seeking (the probe trigger). The fit report
+    # states each interval in words with the anchor's position relative
+    # to it. The grid sweep's data-equivalence tolerance then measures
+    # the model-bias part of the SSE only: the declared noise channel's
+    # expected SSE is subtracted first (see expected_noise_sse) and a
+    # likelihood-ratio floor of flat_sigmas^2 * noise_sigma^2 applies,
+    # so a wider posterior under noise reads as the honest answer rather
+    # than as failure. Motivated by the sigma sweep (section 8): at 1 cm
+    # domino noise the friction posterior 0.40 [0.22, 0.72] did not
+    # contract below 0.7 of the prior, so the verdict switch discarded
+    # it for the 0.1 anchor (outside the interval) and never swept.
+    # Off keeps the verdict switch (ablation).
+    code_sim_learning_interval_belief = False
+    # Likelihood-ratio floor of the grid sweep's flat tolerance under
+    # the interval belief, in posterior sigmas: candidates whose SSE
+    # differ by less than flat_sigmas^2 * noise_sigma^2 are
+    # data-equivalent at that confidence (delta chi-square = k^2 for
+    # one parameter under the objective's own Gaussian). Only used with
+    # code_sim_learning_interval_belief.
+    code_sim_learning_rollout_flat_sigmas = 1.0
     # Bisection evaluations per moved param that refine the anchor-side
     # edge of its flat set to sub-grid resolution (0 disables). The
     # 7-point log grid has ~2.4x spacing, so a true value mid-gap is
@@ -2096,6 +2559,39 @@ class GlobalSettings:
     # Consecutive settled steps (per settle_tol) required for a rest
     # point to become a segment boundary.
     code_sim_learning_rollout_segment_min_rest_steps = 10
+    # The fit-side filter (docs/continual-uncertainty.md, section 3.3,
+    # the errors-in-variables fallback): under a declared
+    # observation-noise channel the settled-tail truncation and the
+    # rest-point segmentation detect motion sigma-relatively. A step is
+    # active when the mean of the next noise_window frames differs from
+    # the mean of the previous noise_window frames by more than
+    # settle_sigmas standard errors of that difference
+    # (sigma_f * sqrt(2 / window)), floored at settle_tol, instead of
+    # the per-step delta, which under a centimetre of noise flags every
+    # step (1 cm noise against a 1 mm tolerance) so no rest point is
+    # ever found and no tail is ever cut. Each rest-anchored segment
+    # then starts from the mean of its preceding rest window: the
+    # rollout's initial condition is the denoised rest pose (noise
+    # sigma / sqrt(window)) rather than one noisy frame, which is what
+    # an initial-condition latent under the declared sigma resolves to
+    # while the objects are at rest, without extra fit parameters. Off,
+    # or an exact channel, keeps the per-step detector and the observed
+    # first frame.
+    code_sim_learning_rollout_noise_filter = False
+    code_sim_learning_rollout_noise_window = 8
+    code_sim_learning_rollout_settle_sigmas = 3.0
+    # Carried posterior (section 3.3): the most likely value of every
+    # physical parameter the last applied fit deployed becomes the prior
+    # centre (the anchor) of the next fit - the value data-flat
+    # directions stay at, the grid sweep's anchor-nearest choice, the
+    # anchor ablation's baseline and the fallback for an uninformative
+    # parameter - so a level's fit starts where the last one ended
+    # instead of at the env registry's default (domino at 2 cm noise:
+    # friction stayed at the 0.1 registry anchor for the whole run).
+    # The width is not carried: the fit pools every level's data, so a
+    # carried width would count the earlier levels twice. Off keeps the
+    # registry anchor for every fit.
+    code_sim_learning_carry_posterior = False
     # Pre-fit sensitivity screen: a physical param whose SSE span over
     # its own grid sweep does not exceed factor * the same-theta SSE
     # noise floor is "insensitive" on this data - the rollouts do not
@@ -2122,17 +2618,61 @@ class GlobalSettings:
     # Diagnostic: log the Hessian eigendecomposition at the MAP to
     # spot unidentifiable parameter combinations. Adds ~5-15s per fit.
     code_sim_learning_log_hessian_identifiability = False
-    # If True, run an LM fit and center MCMC walkers on its MAP estimate
-    # instead of init_values. Adds ~5-15s per fit.
+    # The Laplace evidence (docs/continual-uncertainty.md, section 3.4):
+    # every rollout fit with a Jacobian at the MAP reports its log
+    # evidence next to its SSE, and the sim.fit report quotes the delta
+    # against the previous canonical simulator version when both score
+    # the same residual set. A version that adds parameters has to win
+    # on evidence, not on residual: the evidence integrates over the
+    # parameters, so under noise a rule that only fits the noise lowers
+    # it while the SSE falls. Off: no evidence is computed or reported.
+    code_sim_learning_fit_evidence = False
+    # If True, run the LM fit from a grid-seeded start rather than the
+    # declared init_values, and attach its MAP + Jacobian. Adds ~5-15s
+    # per fit.
     code_sim_learning_warm_start_with_lm = True
 
     # Sim-learning oracle flags (for ablation / debugging).
     # When True, load GT residual rules instead of running agent synthesis.
-    # Parameters init_values are perturbed so MCMC still has work to do.
+    # Parameters init_values are perturbed so the fit still has work to do.
     agent_sim_learn_oracle_sim_program = False
-    # Relative scale for perturbing oracle parameter init_values before MCMC.
+    # Relative scale for perturbing oracle parameter init_values before the fit.
     agent_sim_learn_oracle_sim_param_noise_scale = 0.2
-    # When True, use GT parameter values directly, skipping MCMC fitting.
+    # Ablations A6+A7 combined ("no uncertainty"): when False, nothing
+    # consumes a posterior over the model parameters. The physics-margin sigma
+    # points are never built (so the capture gate's physics margin and
+    # the probe's physics_sweep have nothing to sweep) and the
+    # rule-parameter ensemble stays empty (so the rule-param margin and
+    # the info-seeking disagreement score have nothing to score). Fits
+    # still run; only their point estimates are used.
+    agent_sim_learn_param_uncertainty = True
+    # Ablation A4 ("no parameter fitting"): when True, no parameter
+    # estimation runs anywhere - not sim.fit (it refuses), not the
+    # harness-side fallback fit, not the residual report's fit_params /
+    # sweep_params. Each parameter's
+    # declared init_value is its point estimate and its declared
+    # [lo, hi] box is its plausible interval: the physics-margin points
+    # span the box and the rule-parameter ensemble is drawn uniformly
+    # from it, so sampling and perturbed rollouts are untouched and
+    # only estimation is removed.
+    agent_sim_learn_declared_params_only = False
+    # Program world model arm (agent_program_world_model, paper arm C4 in
+    # the form of Pinductor): the belief over the program's hidden state
+    # is a particle set of this size (drawn from the program's
+    # initial_latent; the capture gate re-rolls every submission under
+    # each particle), the score's distance kernel is
+    # exp(-distance / bandwidth) with distances in feature-std units,
+    # and the score report shows this many worst transitions.
+    agent_program_belief_particles = 6
+    agent_program_kernel_bandwidth = 0.2
+    agent_program_score_max_examples = 3
+    # Ablation A2 ("zero-shot synthesis"): when True, the synthesis
+    # session runs even when no transition has been recorded, so the
+    # agent writes its artifacts from the task description, the scene
+    # and its own knowledge. Pair with no demos and
+    # num_online_learning_cycles 0 for one learn, one solve, done.
+    agent_sim_learn_zero_shot = False
+    # When True, use GT parameter values directly, skipping the fit.
     # Also grants planning base sims the TRUE physical params (e.g. the true
     # domino friction even when domino_planning_friction is set) — as if all
     # param learning, rule-level and physical, had already succeeded. Task
@@ -2170,7 +2710,9 @@ class GlobalSettings:
     # (keep every env predicate), {"Holding"} for the invention approach.
     # Setting it on agent_sim_learning strips the named-out predicates -
     # even goal predicates - from the agent's prompts/tools; tasks whose
-    # goal atoms are stripped must then carry goal_nl.
+    # goal atoms are stripped must then carry goal_nl. An empty list
+    # keeps the approach's own default; ["none"] keeps no env predicate.
+    # The continual arms default to none (agent_continual_approach).
     agent_sim_learn_kept_predicates_names: List[str] = []
     # Ablation axis ("the robot knows its own simulator"): when True,
     # copy the env's declared base-sim source modules
@@ -2218,6 +2760,25 @@ class GlobalSettings:
                     "pybullet_bridge": 3000,
                     "pybullet_switch": 2000,
                     "pybullet_barrier": 2000,
+                    # Busyboard plans are short in options (a few presses
+                    # and a wait) but not in steps: a push is ~22 low-level
+                    # steps and a lamp needs ~48 driven ones to light, so a
+                    # three-press plan runs past the default 100 and every
+                    # refinement would be rejected on the horizon check.
+                    "pybullet_busyboard": 2000,
+                    # A push is ~60 low-level steps and a slide settles
+                    # within ~40 more; a four-tile level needs room for
+                    # a few probes on top of its four pushes.
+                    "pybullet_icerink": 2000,
+                    # A cock-and-fire is ~60 steps plus a ~40-step
+                    # flight and settle; a level allows a few shots.
+                    "pybullet_launcher": 1500,
+                    # A hover is ~60 steps; a level is a few hovers and
+                    # jumps per piece.
+                    "pybullet_magnets": 1500,
+                    # A pick and a tie are ~150 steps; a level ties up to
+                    # three balloons and waits for the box to settle.
+                    "pybullet_balloons": 1500,
                     "doors": 1000,
                     "coffee": 1000,
                     "kitchen": 1000,

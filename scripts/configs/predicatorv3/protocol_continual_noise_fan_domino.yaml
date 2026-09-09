@@ -1,0 +1,69 @@
+# Fan and domino under the observation-noise channel
+# (docs/continual-uncertainty.md): both agent arms see every non-robot
+# object's position with 5 mm Gaussian noise and its orientation with
+# 0.02 rad, one draw per env step, declared in their contract; the
+# evaluators and the recording keep the true state. Fan's target
+# tolerance is 1 cm on a 4 cm ball and a domino is 7 cm wide, so the
+# sigma is about half the tightest scale of each. The arms and flags are
+# the m4 pair (protocol_continual_domino_r2.yaml in worktree
+# predicators-domino-r2), whose exact-observation runs are the baseline:
+# domino seed 0 model-based 2/2 in 297 steps vs model-free 1/2 in 555;
+# fan m3 seed 0 model-based 2/2 in 350 steps vs model-free 2/2 in 1399.
+# Four experiments x two seeds, so --accounts a,b splits the eight runs
+# four and four.
+---
+START_SEED: 0
+NUM_SEEDS: 2
+includes:
+  - common.yaml
+  - envs/all.yaml
+  - approaches/all.yaml
+ARGS:
+  - auto_resume
+FLAGS:
+  experiment_protocol: "continual"
+  continual_levels: "train_then_test"
+  continual_steps_per_level: 5000
+  continual_wall_clock_hours: 48.0
+  continual_render: True
+  continual_make_video: True
+  test_fresh_env_per_episode: True
+  continual_runs_dir: "/home/ycliang/predicators/logs"
+  log: "/home/ycliang/predicators/logs/"
+  continual_obs_noise_position: 0.005
+  continual_obs_noise_orientation: 0.02
+  continual_obs_noise_declared: True
+ENVS:
+  boil:
+    SKIP: True
+  domino_high_friction_turn:
+    SKIP: False
+  fan:
+    SKIP: False
+APPROACHES:
+  oracle:
+    SKIP: True
+  agent_continual_noise5mm:
+    NAME: "agent_continual"
+    SKIP: False
+    FLAGS:
+      agent_sdk_use_local_sandbox: True
+      partially_observable: True
+      agent_sdk_max_agent_turns_per_iteration: 10000
+      agent_sdk_image_max_px: 900
+      agent_bilevel_use_llm_initial_params: True
+      agent_solve_use_journal: True
+      agent_validation_parallel_workers: 6
+      code_sim_learning_rollout_min_posterior_width: 0.1
+      continual_max_idle_rounds: 5
+  agent_continual_model_free_noise5mm:
+    NAME: "agent_continual_model_free"
+    SKIP: False
+    FLAGS:
+      agent_sdk_use_local_sandbox: True
+      partially_observable: True
+      agent_planner_use_simulator: False
+      agent_solve_use_journal: True
+      agent_sdk_max_agent_turns_per_iteration: 10000
+      agent_sdk_image_max_px: 900
+      continual_max_idle_rounds: 5

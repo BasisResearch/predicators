@@ -33,6 +33,7 @@ of the normal ``AgentSessionManager``::
     responses = await manager.query("Solve this task...")
     await manager.close()
 """
+import asyncio
 import datetime
 import logging
 import os
@@ -42,12 +43,18 @@ from typing import Any, Dict, List, Optional
 from predicators.agent_sdk.config import SessionConfig
 from predicators.agent_sdk.log_formatter import format_conversation_markdown
 from predicators.agent_sdk.sandbox_prompts import build_sandbox_system_prompt
-from predicators.agent_sdk.sandbox_setup import git_commit_all
+from predicators.agent_sdk.sandbox_setup import export_trajectories, \
+    git_commit_all, pyguard_env
 from predicators.agent_sdk.session_base import SandboxSessionManagerBase, \
     build_agent_options, build_sandbox_mcp, max_session_log_number
 from predicators.agent_sdk.tools import ToolContext, session_log_filename
 
 logger = logging.getLogger(__name__)
+
+# The CLI's wall-clock limit per MCP tool call, in milliseconds, unless
+# the environment sets MCP_TOOL_TIMEOUT: six hours, room for a learning
+# session run inside one tool call.
+MCP_TOOL_TIMEOUT_MS = 6 * 3600 * 1000
 
 # Grace period past the solve-attempt deadline before interrupting a
 # still-streaming agent turn (cooperative tool refusals normally end
@@ -128,6 +135,16 @@ class LocalSandboxSessionManager(SandboxSessionManagerBase):
             cwd=self._sandbox_dir,
             setting_sources=["project", "local"],
             hooks=extra_hooks,
+            # Every python the agent starts loads the sandbox's
+            # sitecustomize guard (sandbox_setup.write_pyguard); a
+            # single run_python call may fit a model or run a rollout
+            # sweep, so the CLI's per-call tool timeout is raised.
+            env={
+                "MCP_TOOL_TIMEOUT":
+                os.environ.get("MCP_TOOL_TIMEOUT", str(MCP_TOOL_TIMEOUT_MS)),
+                **pyguard_env(self._sandbox_dir),
+            },
+            resume=self.resume_session_id,
         )
 
         self._client = ClaudeSDKClient(options=options)
@@ -152,6 +169,7 @@ class LocalSandboxSessionManager(SandboxSessionManagerBase):
 
         # Ensure sandbox exists before creating the log file.
         self._ensure_sandbox_dir()
+        self.refresh_data()
 
         # Create and commit the log file BEFORE starting the session so that
         # Claude Code's Glob (which indexes files at session startup) can
@@ -184,13 +202,34 @@ class LocalSandboxSessionManager(SandboxSessionManagerBase):
             except Exception as e:  # pylint: disable=broad-except
                 logger.warning("Interrupt failed: %s", e)
 
-        collected = await self._run_streamed_query(
-            message,
-            log_path=log_path,
-            kind=kind,
-            on_entry=_maybe_interrupt_on_deadline)
+        async def _on_entry(entry: Dict[str, Any]) -> None:
+            # The context counters behind the play tools' [context] line.
+            self._tool_context.note_stream_entry(entry)
+            await _maybe_interrupt_on_deadline(entry)
+
+        collected = await self._run_streamed_query(message,
+                                                   log_path=log_path,
+                                                   kind=kind,
+                                                   on_entry=_on_entry)
+        await self._note_context_window()
 
         return collected
+
+    async def _note_context_window(self) -> None:
+        """Record the context window size the CLI reports, once per run: the
+        play tools show the conversation's size against it."""
+        ctx = self._tool_context
+        if ctx.context_window_tokens is not None or self._client is None:
+            return
+        try:
+            usage = await asyncio.wait_for(self._client.get_context_usage(),
+                                           timeout=15.0)
+        except Exception as e:  # pylint: disable=broad-except
+            logger.debug("get_context_usage failed: %s", e)
+            return
+        max_tokens = int((usage or {}).get("maxTokens") or 0)
+        if max_tokens > 0:
+            ctx.context_window_tokens = max_tokens
 
     def _session_info_extras(self) -> Dict[str, Any]:
         """Extra session-info keys: manager type + sandbox location."""
@@ -268,6 +307,28 @@ class LocalSandboxSessionManager(SandboxSessionManagerBase):
             # own logs, so it is worth a visible warning.
             logger.warning("git commit of session log failed: %s", e)
         return filepath
+
+    def refresh_data(self, commit: bool = True) -> None:
+        """Refresh ``data/trajectories.pkl`` from the tool context so the
+        agent's own scripts read the same training data the prompts and tool
+        namespace expose.
+
+        Every query starts with a committed refresh; a caller that
+        refreshes between the agent's turns (the continual play loop,
+        after every environment call) passes ``commit=False`` and the
+        next query's refresh commits the file once.
+        """
+        ctx = self._tool_context
+        trajectories = list(getattr(ctx, "offline_trajectories", []) or []) + \
+            list(getattr(ctx, "online_trajectories", []) or [])
+        try:
+            if export_trajectories(self._sandbox_dir,
+                                   trajectories,
+                                   commit=commit):
+                logger.info("Sandbox data refreshed: %d trajectories.",
+                            len(trajectories))
+        except Exception as e:  # pylint: disable=broad-except
+            logger.warning("Sandbox data export failed: %s", e)
 
     def _flush_log(self, filepath: str, response: List[Dict[str,
                                                             Any]]) -> None:

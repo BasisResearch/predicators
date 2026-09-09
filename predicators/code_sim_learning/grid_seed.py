@@ -46,24 +46,54 @@ def grid_candidates(spec: ParamSpec, num_points: int) -> np.ndarray:
     return np.linspace(spec.lo, spec.hi, num_points)
 
 
+def flat_tolerance(best_sse: float,
+                   noise_floor: float,
+                   flat_frac: float,
+                   noise_sse: float = 0.0,
+                   sigma_tol: float = 0.0) -> float:
+    """The SSE band above ``best_sse`` within which candidates are data-
+    equivalent.
+
+    ``max(noise_floor, flat_frac * excess, sigma_tol)``, where
+    ``excess`` is the best SSE above the declared noise channel's
+    expected SSE (``noise_sse``, 0 without a channel: see
+    :func:`trajectory_prep.expected_noise_sse`). The relative term
+    measures the model-bias part of the objective - what a
+    deterministic replay's flat set has always meant - so a noisy
+    dataset's floor no longer widens it: at 1 cm domino noise the floor
+    was most of the SSE, and 5% of it spanned friction 0.22 to 0.72
+    around a true 0.5. ``sigma_tol`` is the likelihood-ratio floor,
+    ``flat_sigmas^2 * noise_sigma^2``: the SSE change of a
+    ``flat_sigmas``-sigma move of one parameter under the objective's
+    own Gaussian. Both extra terms are 0 outside the interval belief,
+    which reduces to the legacy ``max(noise_floor, flat_frac *
+    best_sse)``.
+    """
+    excess = max(best_sse - noise_sse, 0.0)
+    return max(noise_floor, flat_frac * excess, sigma_tol)
+
+
 def _flat_candidates(
     pool: Sequence[Tuple[float, float]],
     noise_floor: float,
     flat_frac: float,
+    noise_sse: float = 0.0,
+    sigma_tol: float = 0.0,
 ) -> Tuple[List[Tuple[float, float]], float, float]:
     """Split a ``(value, SSE)`` pool into its data-equivalent flat set.
 
-    Candidates whose SSE is within ``max(noise_floor, flat_frac *
-    best_SSE)`` of the best candidate are indistinguishable on this
-    data: the tolerance is relative to the best achievable SSE, so a
-    sharp basin (tiny best SSE) admits only true equals while a
-    misfit-dominated landscape (large best SSE) treats its whole
-    saturated shelf as one plateau. Returns ``(flat_members, best_sse,
-    tolerance)``; with ``flat_frac`` and ``noise_floor`` both 0 the
-    flat set degenerates to the exact argmin.
+    Candidates whose SSE is within :func:`flat_tolerance` of the best
+    candidate are indistinguishable on this data: the tolerance is
+    relative to the best achievable SSE (above the noise floor), so a
+    sharp basin (tiny best SSE) admits only true equals while a misfit-
+    dominated landscape (large best SSE) treats its whole saturated
+    shelf as one plateau. Returns ``(flat_members, best_sse,
+    tolerance)``; with every tolerance term 0 the flat set degenerates
+    to the exact argmin.
     """
     best_sse = min(sse for _v, sse in pool)
-    tol = max(noise_floor, flat_frac * best_sse)
+    tol = flat_tolerance(best_sse, noise_floor, flat_frac, noise_sse,
+                         sigma_tol)
     flat = [(v, sse) for v, sse in pool if sse <= best_sse + tol]
     return flat, best_sse, tol
 
@@ -87,10 +117,15 @@ def _closest_to_anchor(spec: ParamSpec, flat: Sequence[Tuple[float, float]],
     return min(flat, key=_rank)[0]
 
 
-def _refine_flat_edge(spec: ParamSpec, pool: List[Tuple[float, float]],
-                      anchor: float, noise_floor: float, refine_evals: int,
-                      sse_for: Callable[[ParamSpec, float],
-                                        float], flat_frac: float) -> float:
+def _refine_flat_edge(spec: ParamSpec,
+                      pool: List[Tuple[float, float]],
+                      anchor: float,
+                      noise_floor: float,
+                      refine_evals: int,
+                      sse_for: Callable[[ParamSpec, float], float],
+                      flat_frac: float,
+                      noise_sse: float = 0.0,
+                      sigma_tol: float = 0.0) -> float:
     """Bisect the anchor-side edge of ``spec``'s flat set to sub-grid
     resolution.
 
@@ -112,7 +147,8 @@ def _refine_flat_edge(spec: ParamSpec, pool: List[Tuple[float, float]],
     """
     z_anchor = scalar_to_fit_space(spec, anchor)
     for _ in range(refine_evals):
-        flat, _best, _tol = _flat_candidates(pool, noise_floor, flat_frac)
+        flat, _best, _tol = _flat_candidates(pool, noise_floor, flat_frac,
+                                             noise_sse, sigma_tol)
         chosen = _closest_to_anchor(spec, flat, anchor)
         z_chosen = scalar_to_fit_space(spec, chosen)
         if z_chosen == z_anchor:
@@ -130,7 +166,8 @@ def _refine_flat_edge(spec: ParamSpec, pool: List[Tuple[float, float]],
             break
         mid = scalar_from_fit_space(spec, 0.5 * (z_chosen + z_far))
         pool.append((mid, sse_for(spec, mid)))
-    flat, _best, _tol = _flat_candidates(pool, noise_floor, flat_frac)
+    flat, _best, _tol = _flat_candidates(pool, noise_floor, flat_frac,
+                                         noise_sse, sigma_tol)
     return _closest_to_anchor(spec, flat, anchor)
 
 
@@ -177,6 +214,8 @@ def _grid_seed_physical_specs(
     anchors: Optional[Dict[str, float]] = None,
     noise_floor: float = 0.0,
     config: Optional[SysIdConfig] = None,
+    noise_sse: float = 0.0,
+    sigma_tol: float = 0.0,
 ) -> Tuple[List[ParamSpec], Dict[str, Dict[str, Any]]]:
     """Relocate each physical param's LM start via coordinate grid sweeps.
 
@@ -213,6 +252,9 @@ def _grid_seed_physical_specs(
     and the refinement; a pool's held-at context can be one refinement
     tolerance stale for params refined before it, which is within the
     flat set's own resolution.
+
+    ``noise_sse`` and ``sigma_tol`` are the interval belief's extra
+    flat-tolerance terms (:func:`flat_tolerance`); 0 outside it.
     """
     config = config or SysIdConfig.from_cfg()
     num_points = config.grid_seed_points
@@ -257,7 +299,8 @@ def _grid_seed_physical_specs(
             ]
             pool = [(v, _sse_for(spec, v)) for v in dict.fromkeys(values)]
             pools[spec.name] = pool
-            flat, _best, tol = _flat_candidates(pool, noise_floor, flat_frac)
+            flat, _best, tol = _flat_candidates(pool, noise_floor, flat_frac,
+                                                noise_sse, sigma_tol)
             chosen = _closest_to_anchor(spec, flat, anchor_of[spec.name])
             sse_of = dict(pool)
             if chosen != current[spec.name]:
@@ -286,7 +329,8 @@ def _grid_seed_physical_specs(
                 continue
             refined = _refine_flat_edge(spec, pools[spec.name],
                                         anchor_of[spec.name], noise_floor,
-                                        refine_evals, _sse_for, flat_frac)
+                                        refine_evals, _sse_for, flat_frac,
+                                        noise_sse, sigma_tol)
             if refined != current[spec.name]:
                 logger.info(
                     "Rollout grid refine: %s %.4g -> %.4g (anchor-side "
@@ -299,7 +343,8 @@ def _grid_seed_physical_specs(
     for spec in physical_specs:
         pool = pools[spec.name]
         sses = [sse for _v, sse in pool]
-        flat, _best, _tol = _flat_candidates(pool, noise_floor, flat_frac)
+        flat, _best, _tol = _flat_candidates(pool, noise_floor, flat_frac,
+                                             noise_sse, sigma_tol)
         flat_values = [v for v, _sse in flat]
         sweep_info[spec.name] = {
             "span": float(max(sses) - min(sses)),

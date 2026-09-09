@@ -1,0 +1,10 @@
+domain	noise	arm	seeds	finished_seeds	successful_seeds	solve_rate_pct	mean_steps_successful	mean_resets	status
+Bridge	5 mm / 0.02 rad	MF	2	0	0				Incomplete
+Bridge	5 mm / 0.02 rad	MB without features	2	0	0				Incomplete
+Bridge	5 mm / 0.02 rad	MB with features	2	0	0				Incomplete
+Fan	5 mm / 0.02 rad	MF	2	0	0				Incomplete
+Fan	5 mm / 0.02 rad	MB without features	2	0	0				Incomplete
+Fan	5 mm / 0.02 rad	MB with features	2	0	0				Incomplete
+Balloons	10 mm / 0.02 rad	MF	2	0	0				Incomplete
+Balloons	10 mm / 0.02 rad	MB without features	2	0	0				Incomplete
+Balloons	10 mm / 0.02 rad	MB with features	2	0	0				Incomplete

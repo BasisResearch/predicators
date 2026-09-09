@@ -1,24 +1,27 @@
 """Active-experiment-design primitives for sim-learning exploration.
 
 Pure, dependency-light helpers used to turn the explorer's refinement
-from *feasibility-seeking* into *information-seeking*. Three pieces:
+from *feasibility-seeking* into *information-seeking*. The pieces:
 
 * :func:`perturbation_ensemble` — build a small ensemble of plausible
   parameter vectors around a point estimate (the MAP), by perturbing
   each parameter within its ``ParamSpec`` bounds. This is the universal
   fallback that works for both per-transition and recurrent simulators
-  (neither a Jacobian nor MCMC samples are required).
+  (no Jacobian required).
 
-* :func:`posterior_subsample_ensemble` / :func:`laplace_ensemble` — the
-  *calibrated* upgrades, preferred when the fit supplies the inputs. The
-  former subsamples real MCMC posterior draws (``num_mcmc_steps > 0``);
-  the latter draws from the Laplace covariance ``(J^T J / sigma^2 +
-  diag(1/prior^2))^-1`` at the MAP using the LM Jacobian — per-transition
-  or recurrent — when MCMC was skipped (``num_mcmc_steps == 0``). Both
-  let the ensemble spread reflect what the data actually leaves
-  uncertain — per-parameter, with correlations — rather than uniform
-  jitter, so disagreement concentrates on genuinely under-constrained
-  parameters instead of merely sensitive ones.
+* :func:`subsample_ensemble` — subsample an explicit sample set the fit
+  already carries (the declared-params ablation's
+  ``declared_interval_fit_result`` fills it with uniform draws over the
+  declared boxes), anchoring at the fit's own combined point estimate.
+
+* :func:`laplace_ensemble` — the *calibrated* upgrade, preferred when
+  the fit supplies a Jacobian. It draws from the Laplace covariance
+  ``(J^T J / sigma^2 + diag(1/prior^2))^-1`` at the MAP using the LM
+  Jacobian — per-transition or recurrent. This lets the ensemble spread
+  reflect what the data actually leaves uncertain — per-parameter, with
+  correlations — rather than uniform jitter, so disagreement concentrates
+  on genuinely under-constrained parameters instead of merely sensitive
+  ones.
 
 * :func:`mean_bernoulli_entropy` — score how much an ensemble
   *disagrees* about a set of boolean atoms in a given state. High
@@ -94,7 +97,8 @@ def perturbation_ensemble(
 
     Parameters absent from ``point`` are skipped (the caller's point
     estimate is the source of truth for which params exist); parameters
-    in ``point`` without a matching spec are carried through unperturbed.
+    in ``point`` without a matching spec, and ``discrete`` parameters,
+    are carried through unperturbed.
     """
     if num_members < 1:
         raise ValueError("num_members must be >= 1")
@@ -105,7 +109,7 @@ def perturbation_ensemble(
         member = dict(anchor)
         for name, value in anchor.items():
             spec = spec_by_name.get(name)
-            if spec is None:
+            if spec is None or spec.discrete:
                 continue
             sigma = perturb_frac * _param_width(spec)
             if is_log(spec) and value > 0:
@@ -117,25 +121,26 @@ def perturbation_ensemble(
     return members
 
 
-def posterior_subsample_ensemble(
+def subsample_ensemble(
     point: Dict[str, float],
     names: Sequence[str],
     samples: np.ndarray,
     num_members: int,
     rng: np.random.Generator,
 ) -> List[Dict[str, float]]:
-    """Build an ensemble by subsampling MCMC posterior ``samples``.
+    """Build an ensemble by subsampling an EXPLICIT sample set ``samples``.
 
-    The calibrated counterpart to :func:`perturbation_ensemble` for the
-    ``num_mcmc_steps > 0`` case: ``samples`` (shape ``(num_draws,
-    len(names))``) already *is* the posterior, so each non-anchor member
-    is a random posterior draw rather than synthetic jitter — the spread
-    therefore reflects what the data actually leaves uncertain.
+    Used when the fit already carries its own draws rather than a
+    Jacobian - the declared-params ablation, whose
+    ``declared_interval_fit_result`` fills ``samples`` (shape
+    ``(num_draws, len(names))``) with uniform draws over each parameter's
+    declared box. Each non-anchor member is one of those rows verbatim,
+    so the spread is the declared plausible range.
 
-    Member 0 is always ``point`` (the ensemble anchor), so a size-1 ensemble
-    reduces to the point estimate. Draws are without replacement when the
-    pool is large enough, with replacement otherwise. Keys of ``point``
-    not in ``names`` are carried through each member unperturbed.
+    Member 0 is always ``point`` (the ensemble anchor), so a size-1
+    ensemble reduces to the point estimate. Draws are without replacement
+    when the pool is large enough, with replacement otherwise. Keys of
+    ``point`` not in ``names`` are carried through each member unperturbed.
     """
     if num_members < 1:
         raise ValueError("num_members must be >= 1")
@@ -167,10 +172,9 @@ def laplace_ensemble(
 ) -> List[Dict[str, float]]:
     """Build an ensemble from the Laplace posterior at the MAP.
 
-    The calibrated counterpart to :func:`perturbation_ensemble` for the
-    ``num_mcmc_steps == 0`` case (the Jacobian comes from the
-    per-transition or recurrent LM fit). Under a Laplace approximation
-    the negative-log-posterior Hessian at the MAP is
+    The calibrated counterpart to :func:`perturbation_ensemble` (the
+    Jacobian comes from the per-transition or recurrent LM fit). Under a
+    Laplace approximation the negative-log-posterior Hessian at the MAP is
 
         ``H = J^T J / sigma^2 + diag(1 / prior_sigma^2)``
 
@@ -264,3 +268,35 @@ def mean_bernoulli_entropy(truth_matrix: np.ndarray) -> float:
         raise ValueError("truth_matrix must be 2D (members x atoms)")
     fracs = arr.mean(axis=0)  # P(atom holds) across members
     return float(np.mean([_bernoulli_entropy(p) for p in fracs]))
+
+
+def noisy_read_information(prob_matrix: np.ndarray) -> float:
+    """Mean per-atom mutual information between the ensemble member and the
+    atom's truth as read from a noisy observation.
+
+    ``prob_matrix`` is a ``(num_members, num_atoms)`` array: entry
+    ``[k, m]`` is the probability that atom ``m`` READS true under
+    member ``k`` once the member's predicted state is observed through
+    the declared noise channel (the fraction of noise draws in which
+    the classifier fires). Per atom the score is ``H(mean_k p_k) -
+    mean_k H(p_k)``, the information one noisy observation of the atom
+    carries about which member is right: it equals
+    :func:`mean_bernoulli_entropy` when every ``p_k`` is 0 or 1 (an exact
+    channel, or predictions far from the atom's boundary relative to
+    sigma) and falls to 0 when every member reads the atom as the same
+    coin flip (predictions within sigma of the boundary, which one
+    observation cannot resolve). Averaged over atoms; 0 for an empty
+    matrix.
+    """
+    arr = np.asarray(prob_matrix, dtype=float)
+    if arr.size == 0:
+        return 0.0
+    if arr.ndim != 2:
+        raise ValueError("prob_matrix must be 2D (members x atoms)")
+    scores = []
+    for m in range(arr.shape[1]):
+        col = arr[:, m]
+        marginal = _bernoulli_entropy(float(col.mean()))
+        conditional = float(np.mean([_bernoulli_entropy(p) for p in col]))
+        scores.append(max(marginal - conditional, 0.0))
+    return float(np.mean(scores))

@@ -151,7 +151,9 @@ def create_place_skill(
     With ``use_move_above=True``, an extra phase is prepended:
 
         0. **MoveAbove** -- Move to ``(target_x, target_y, transport_z)``.
-        1. **Descend** -- Lower to ``release_z``.
+        1. **Descend** -- Lower to ``release_z`` along the straight
+           Cartesian path from directly above (``Phase.direct_descend``);
+           blocked early, it hands over to the settle stroke below.
         2. **OpenFingers** -- Release the object.
         3. **Retreat** -- Rise to ``config.transport_z``.
 
@@ -415,14 +417,26 @@ def create_place_skill(
             _drop_pose,
             "closed",
             # Without a move-above, this is the post-pick first move
-            # (see above). With a settle stroke, a failed verification
-            # rewinds HERE while the held object rests on its support
-            # (the stroke ended at contact); that start contact is
-            # escapable -- the first motion is back up to release_z.
+            # (see above). With a settle stroke and no move-above, a
+            # failed verification rewinds HERE while the held object
+            # rests on its support (the stroke ended at contact); that
+            # start contact is escapable -- the first motion is back up
+            # to release_z.
             allow_shallow_held_object_contacts=(not use_move_above
                                                 or settle_to_contact_depth
                                                 is not None),
-            check_release_clearance=True))
+            check_release_clearance=True,
+            # From directly above, the descent is the straight Cartesian
+            # path down (see Phase.direct_descend), never a planned
+            # joint-space arc: a BiRRT descend once carried a held span
+            # 50 mm sideways onto its neighbour's corner and the step
+            # that corrected it launched the welded pair off the table
+            # (bridge seed 1, 2026-09-07). A blocked descend hands over
+            # to the settle stroke, whose verification lifts and
+            # re-approaches from above.
+            direct_descend=use_move_above,
+            on_blocked=("advance"
+                        if settle_to_contact_depth is not None else "fail")))
     if settle_to_contact_depth is not None:
 
         def _held_xy_on_target(
@@ -455,20 +469,25 @@ def create_place_skill(
         # the joint-jump guard -- single-shot IK once answered a plain
         # 2 cm descent with a wrist-flipped branch, and the flipped
         # retreat then batted the released block across the table.
+        # A failed verification rewinds to the move-above when there is
+        # one: the re-approach lifts clear of the scene before it moves
+        # sideways by the learned aim offset, then descends straight.
+        # Rewinding to the (direct) descend would cross at the settled
+        # height, dragging the held object along whatever stopped it.
         phases.append(
-            make_move_to_phase(
-                "SettleToContact",
-                _settle_pose,
-                "closed",
-                expect_contact=True,
-                use_motion_planning=False,
-                terminal_fn=_settled_or_at_depth,
-                max_step_norm=0.003,
-                verify_fn=(_held_xy_on_target
-                           if verify_xy_tol is not None else None),
-                retry_to_phase=("Descend" if use_move_above else "MoveToDrop"),
-                max_retries=(verify_max_retries
-                             if verify_xy_tol is not None else 0)))
+            make_move_to_phase("SettleToContact",
+                               _settle_pose,
+                               "closed",
+                               expect_contact=True,
+                               use_motion_planning=False,
+                               terminal_fn=_settled_or_at_depth,
+                               max_step_norm=0.003,
+                               verify_fn=(_held_xy_on_target if verify_xy_tol
+                                          is not None else None),
+                               retry_to_phase=("MoveAbove" if use_move_above
+                                               else "MoveToDrop"),
+                               max_retries=(verify_max_retries if verify_xy_tol
+                                            is not None else 0)))
     if partial_release:
         phases.extend([
             Phase(
@@ -490,7 +509,23 @@ def create_place_skill(
                 # terminate the phase before the fingers move.
                 finger_tol=1e-6,
             ),
-            make_move_to_phase("Retreat", _above_pose, "hold"),
+            # Straight vertical lift back to transport height by
+            # incremental IK, never a planned path. Retreat only rises at
+            # the placement xy (``_above_pose`` shares the drop xy), so it
+            # never needs to route around anything: a BiRRT retreat here
+            # can instead fail to plan - stranding the arm at hold width
+            # straddling the just-released object, so ``FullyOpenFingers``
+            # never runs and the next motion drags it - or detour
+            # laterally and rake the scene. A straight lift moves only up
+            # and off the object, then opens clear of the neighbours at
+            # transport height (domino seed-0 L2, 2026-09-07: a planned
+            # Retreat failed and left the gripper pinching a placed
+            # domino, and the recovery move swept a staged blue off the
+            # table before the push, voiding an otherwise-clean cascade).
+            make_move_to_phase("Retreat",
+                               _above_pose,
+                               "hold",
+                               use_motion_planning=False),
             Phase(
                 name="FullyOpenFingers",
                 action_type=PhaseAction.CHANGE_FINGERS,
@@ -506,7 +541,13 @@ def create_place_skill(
                 target_fn=_open_fingers_target,
                 finger_direction="open",
             ),
-            make_move_to_phase("Retreat", _above_pose, "open"),
+            # Straight vertical lift (see the partial-release Retreat):
+            # rise at the placement xy by incremental IK, never a planned
+            # detour that could rake the scene as the fingers open.
+            make_move_to_phase("Retreat",
+                               _above_pose,
+                               "open",
+                               use_motion_planning=False),
         ])
 
     return PhaseSkill(name,

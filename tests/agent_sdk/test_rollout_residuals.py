@@ -1,7 +1,7 @@
 """Tests for ``sim.residuals(rollout=True)`` - the open-loop report.
 
 Regression for run_20260728_111805: the synthesis agent declined
-PHYSICAL_PARAMS because teacher-forced residuals structurally cannot see
+PHYSICAL_PARAM_SPECS because teacher-forced residuals structurally cannot see
 compounding divergence (they predict each step from the recorded state),
 so "the base sim replicates the data" looked true at a friction that was
 wrong by 5x open-loop. The rollout mode replays trajectories free-running;
@@ -171,9 +171,9 @@ def test_rollout_residuals_default_reports_without_sweep(tmp_path) -> None:
     # The registry listing with baselines and boxes.
     assert "friction: baseline 0.1, box [0.01, 2] (log scale)" in report
     assert "bounce: baseline 0, box [0, 1] (linear scale)" in report
-    # The nudge toward the PHYSICAL_PARAMS decision.
+    # The nudge toward the PHYSICAL_PARAM_SPECS decision.
     assert "sweep_params" in report and "phys_params" in report
-    assert "BEFORE deciding the PHYSICAL_PARAMS declaration" in report
+    assert "BEFORE deciding the PHYSICAL_PARAM_SPECS declaration" in report
     # And no sweep actually ran.
     assert "Physical-parameter sweep" not in report
 

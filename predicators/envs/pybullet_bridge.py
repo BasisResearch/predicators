@@ -36,7 +36,9 @@ Mechanics:
 - While a wet face is in aligned resting contact with another block
   (neither block held), that joint's hidden ``cure_*`` counter ticks;
   at ``cure_threshold`` the joint irreversibly latches: the wet glue is
-  consumed, both blocks record the attachment (``attached_*`` = partner
+  consumed on both faces of the joint (one wet face is enough to cure;
+  a wet mate face is consumed with it, never left wet on an attached
+  face), both blocks record the attachment (``attached_*`` = partner
   block index), and a physical weld constraint is created.
 - Interrupting the contact resets the counter (wet glue persists).
 
@@ -59,6 +61,7 @@ Example command (oracle demo via bilevel process planning)::
         --sesame_check_expected_atoms False
 """
 
+import itertools
 from typing import Any, ClassVar, Dict, FrozenSet, List, Optional, Sequence, \
     Set, Tuple
 
@@ -245,8 +248,17 @@ class PyBulletBridgeEnv(PyBulletEnv):
     # left built bridges with one seat joint that could never cure.
     lateral_perp_tol: ClassVar[float] = 0.03
     lateral_z_tol: ClassVar[float] = 0.015
-    # Seat tolerances for SeatedOn(span, leg).
-    seat_x_window: ClassVar[float] = 0.045
+    # Seat tolerances for SeatedOn(span, leg). The x window is measured
+    # from the leg's centre along the row. A three-span row (0.30 m) over
+    # sites 0.25 m apart puts each outer span's centre 25 mm past its leg
+    # by construction; on top of that, Place lands legs 8-14 mm off their
+    # command and a glued row shortens 5-8 mm per joint under the seat
+    # (welded partners do not collide, see _create_weld), so a bridge
+    # that is physically standing measured 47 mm (seed-3 cycle-0 test,
+    # 2026-09-03) and failed the old 45 mm gate. 60 mm still leaves the
+    # span end 10 mm short of the leg centre, i.e. 15 mm of the 50 mm
+    # leg top under the span, which is a seated joint by any reading.
+    seat_x_window: ClassVar[float] = 0.06
     seat_y_tol: ClassVar[float] = 0.035
     seat_z_tol: ClassVar[float] = 0.02
     # AtSite xy tolerance (plus a z check that the block rests on the
@@ -445,6 +457,16 @@ class PyBulletBridgeEnv(PyBulletEnv):
                                    self._SeatedOn_holds)
         self._AtSite = Predicate("AtSite", [self._block_type, self._site_type],
                                  self._AtSite_holds)
+        # The goal: a three-span row, butted end to end, resting across
+        # a leg standing at each site. Role-free by construction (any
+        # block may be either leg, the spans may sit in any order): the
+        # blocks are identical, and pinning roles by name turned a
+        # perfectly good bridge into a lost level (2026-09-07 seed 2:
+        # the row was welded span0|span2|span1 for reach convenience,
+        # the NL goal never said which order, and welds are permanent).
+        self._Bridged = Predicate("Bridged",
+                                  [self._site_type, self._site_type],
+                                  self._Bridged_holds)
         self._SiteFree = Predicate("SiteFree", [self._site_type],
                                    self._SiteFree_holds)
         self._Attached = Predicate("Attached",
@@ -496,20 +518,20 @@ class PyBulletBridgeEnv(PyBulletEnv):
         return {
             self._HandEmpty, self._Holding, self._HoldingBottle,
             self._GlueEndB, self._NextToEnd, self._SeatedOn, self._AtSite,
-            self._SiteFree, self._Attached, self._Standing, self._Lying,
-            self._Loose, self._Resting, self._TopFree, self._EndsFree
+            self._Bridged, self._SiteFree, self._Attached, self._Standing,
+            self._Lying, self._Loose, self._Resting, self._TopFree,
+            self._EndsFree
         }
 
     @property
     def goal_predicates(self) -> Set[Predicate]:
-        # Goals pin the full geometric layout: the atoms force the
-        # planner's bindings to a physically consistent left-to-right
-        # build (see processes.py docstring) and all of them persist in
-        # the finished bridge. Attached is deliberately absent - the
-        # goal is fully observable, and the row welds it implies are
-        # certified physically by the settle check in
-        # check_episode_trajectory.
-        return {self._AtSite, self._NextToEnd, self._SeatedOn}
+        # The goal is the one role-free layout atom, Bridged(site, site),
+        # defined over the geometric atoms (AtSite / NextToEnd /
+        # SeatedOn) that the oracle's operators achieve. Attached is
+        # deliberately absent - the goal is fully observable, and the
+        # row welds it implies are certified physically by the settle
+        # check in check_episode_trajectory.
+        return {self._Bridged}
 
     # Settle duration for the episode certificate below: three actions'
     # worth of physics. An unsupported span in free fall leaves the
@@ -1479,6 +1501,13 @@ class PyBulletBridgeEnv(PyBulletEnv):
         self._set_attr(mate, f"attached_{mate_slot}",
                        float(self._block_index[blk.name]))
         self._set_attr(blk, f"glue_{face}", 0.0)
+        if mate_slot in GLUE_FACES:
+            # The joint consumes the mate's wet face too. An attached
+            # face never cures again, so glue left on it would be a
+            # wet flag that can never clear: the continual agent glued
+            # both faces of every joint and waited 360 steps for the
+            # second flag (bridge seed 0, 2026-09-04).
+            self._set_attr(mate, f"glue_{mate_slot}", 0.0)
         assert blk.id is not None and mate.id is not None
         if self._face_world_dir(state, blk, face)[2] > np.cos(np.pi / 4):
             # The mate rests on blk's upward face: a vertical joint.
@@ -1628,6 +1657,41 @@ class PyBulletBridgeEnv(PyBulletEnv):
             if self._AtSite_holds(state, [blk, site]):
                 return False
         return True
+
+    def _Bridged_holds(self, state: State, objects: Sequence[Object]) -> bool:
+        """A row of all the spans, butted end to end, rests across a block
+        standing at each site.
+
+        Role-free: any standing block serves as either leg and the
+        lying blocks may form the row in any order, butted in either
+        direction (``NextToEnd`` is directional, right against the
+        left's end_b face, and a row built right-to-left or from a
+        turned block reads the other way round). Symmetric in the two
+        sites.
+        """
+        site_a, site_b = objects
+        if site_a == site_b:
+            return False
+        blocks = state.get_objects(self._block_type)
+        legs_a = [b for b in blocks if self._AtSite_holds(state, [b, site_a])]
+        legs_b = [b for b in blocks if self._AtSite_holds(state, [b, site_b])]
+        if not legs_a or not legs_b:
+            return False
+        lying = [b for b in blocks if not self._stands(state, b)]
+        for chain in itertools.permutations(lying, self.n_spans):
+            if not all(
+                    self._NextToEnd_holds(state, [right, left])
+                    or self._NextToEnd_holds(state, [left, right])
+                    for left, right in zip(chain, chain[1:])):
+                continue
+            for leg_a in legs_a:
+                for leg_b in legs_b:
+                    if leg_a == leg_b:
+                        continue
+                    if self._SeatedOn_holds(state, [chain[0], leg_a]) and \
+                            self._SeatedOn_holds(state, [chain[-1], leg_b]):
+                        return True
+        return False
 
     def _Attached_holds(self, state: State, objects: Sequence[Object]) -> bool:
         """The two blocks share a cured glue joint (symmetric)."""
@@ -1811,12 +1875,11 @@ class PyBulletBridgeEnv(PyBulletEnv):
                     for blk in legs + spans
                 }
 
-            # Goal: the n-bridge standing at the two sites. Roles are
-            # task-assigned by block name, and the goal pins the full
-            # geometric layout (AtSite / NextToEnd / SeatedOn): every
-            # atom persists in the finished bridge, and the pinning
-            # forces the planner's bindings to the physically
-            # consistent left-to-right build. The SEAT joints are
+            # Goal: the n-bridge standing at the two sites, as the one
+            # role-free layout atom Bridged(site0, site1): a leg standing
+            # at each site and the spans butted into one row resting
+            # across them, whichever block plays which role and in
+            # whichever order (see _Bridged_holds). The SEAT joints are
             # deliberately NOT in the goal: they are not structural
             # (the welded row rests on the legs by gravity). Neither is
             # Attached: the row welds are physically implied (the
@@ -1828,14 +1891,8 @@ class PyBulletBridgeEnv(PyBulletEnv):
             # that the row must be glued and cured stays the agent's
             # job - it is a physical necessity, not read off the goal.
             goal_atoms = {
-                GroundAtom(self._AtSite, [legs[0], self._sites[0]]),
-                GroundAtom(self._AtSite, [legs[1], self._sites[1]]),
-                GroundAtom(self._SeatedOn, [spans[0], legs[0]]),
-                GroundAtom(self._SeatedOn, [spans[-1], legs[1]]),
+                GroundAtom(self._Bridged, [self._sites[0], self._sites[1]]),
             }
-            for left_span, right_span in zip(spans, spans[1:]):
-                goal_atoms.add(
-                    GroundAtom(self._NextToEnd, [right_span, left_span]))
             # Outcome-only description: it says WHAT must stand at the
             # end, never how (no glue recipe) -- discovering that the
             # row must be glued and cured before it can be seated is

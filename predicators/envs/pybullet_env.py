@@ -117,6 +117,10 @@ class ActionExecutor(Protocol):
 
 class PyBulletEnv(BaseEnv):
     """Base class for a PyBullet environment."""
+    # The subclass model form declares its learnable constants here (a
+    # list of ParamSpec); a stock env leaves it empty. See
+    # ``_agent_param_values`` in __init__ and ``agent_param``.
+    AGENT_PARAM_SPECS: ClassVar[List[Any]] = []
     # Parameters that aren't important enough to need to clog up settings.py
 
     # General robot parameters.
@@ -301,6 +305,18 @@ class PyBulletEnv(BaseEnv):
         # When True, _domain_specific_step() is skipped in step().
         # Used by sim-learning to create base-sim-only envs.
         self._skip_domain_specific_dynamics: bool = skip_residual_dynamics
+        # The subclass model form (a learning agent subclasses a base-sim
+        # env and overrides _domain_specific_step with its own hidden
+        # dynamics): AGENT_PARAM_SPECS are the learnable constants that
+        # step reads via self.agent_param(name). They are surfaced through
+        # get_physical_param_info / apply_physical_param_overrides, so the
+        # same rollout system-ID that fits an env's physical parameters
+        # fits these too. Empty on every stock env, so the physical-param
+        # path is byte-identical there.
+        self._agent_param_values: Dict[str, float] = {
+            spec.name: float(spec.init_value)
+            for spec in type(self).AGENT_PARAM_SPECS
+        }
 
         # Drives real hardware from this env's rollouts; None means pure sim,
         # which is what every env built by the planner stays.
@@ -828,6 +844,73 @@ class PyBulletEnv(BaseEnv):
         filling, heating, balance beam physics, etc.). Skipped when
         ``skip_residual_dynamics=True`` is passed to the constructor.
         """
+
+    # ── Subclass model form: agent parameters ───────────────────
+
+    def agent_param(self, name: str) -> float:
+        """The current value of one ``AGENT_PARAM_SPECS`` parameter.
+
+        Read from inside a subclass model's ``_domain_specific_step`` so
+        the fit stack can identify it: the value comes from the last
+        ``apply_physical_param_overrides`` (the fitter's candidate) and
+        falls back to the spec's ``init_value``.
+        """
+        return self._agent_param_values[name]
+
+    def _agent_param_info(self) -> Dict[str, Dict]:
+        """``get_physical_param_info`` entries for the AGENT_PARAM_SPECS, with
+        the box the specs declare (empty on a stock env)."""
+        info: Dict[str, Dict] = {}
+        for spec in type(self).AGENT_PARAM_SPECS:
+            lo = spec.lo if spec.lo is not None else 0.0
+            hi = spec.hi if spec.hi is not None else max(
+                1.0,
+                float(spec.init_value) * 10.0)
+            entry: Dict[str, Any] = {
+                "default": self._agent_param_values[spec.name],
+                "lo": float(lo),
+                "hi": float(hi),
+                "description": f"agent-declared parameter {spec.name}",
+            }
+            if getattr(spec, "scale", "linear") == "log":
+                entry["scale"] = "log"
+            info[spec.name] = entry
+        return info
+
+    def _on_agent_params_changed(self) -> None:
+        """Hook a subclass model overrides to push agent parameters that set
+        engine properties (a mass, a friction) into PyBullet after they change;
+        a no-op by default, since most parameters are read live in
+        ``_domain_specific_step``."""
+
+    def get_physical_param_info(self) -> Dict[str, Dict]:
+        """Merge the AGENT_PARAM_SPECS into whatever the env exposes.
+
+        A stock env leaves ``AGENT_PARAM_SPECS`` empty, so this returns
+        exactly ``super().get_physical_param_info()`` — the physical-
+        param surface is unchanged. A subclass model exposes its
+        declared parameters here so the rollout system-ID fits them.
+        """
+        info = dict(super().get_physical_param_info())
+        info.update(self._agent_param_info())
+        return info
+
+    def apply_physical_param_overrides(self, params: Dict[str, float]) -> None:
+        """Accept AGENT_PARAM_SPECS overrides here; pass the rest through.
+
+        Agent parameters are stored (read live by ``agent_param``); any
+        remaining keys go to ``super`` (the env's own physical params,
+        or the base class, which rejects unknown names). Empty
+        ``AGENT_PARAM_SPECS`` means nothing is peeled off and the call
+        is the stock env's.
+        """
+        agent_names = {spec.name for spec in type(self).AGENT_PARAM_SPECS}
+        mine = {k: float(v) for k, v in params.items() if k in agent_names}
+        rest = {k: v for k, v in params.items() if k not in agent_names}
+        if mine:
+            self._agent_param_values.update(mine)
+            self._on_agent_params_changed()
+        super().apply_physical_param_overrides(rest)
 
     # ── Residual physics commands ───────────────────────────────
 
@@ -1787,6 +1870,53 @@ class PyBulletEnv(BaseEnv):
         update_object(obj.id, (px, py, pz),
                       orn,
                       physics_client_id=self._physics_client_id)
+        # 3) Velocity: a state _get_state produced carries every body's
+        # velocities (simulator_state["body_velocities"]), so a state
+        # read mid-flight restores as mid-flight and its derived
+        # ``speed`` feature round-trips. A state without them (a level
+        # state, an agent-built one) starts still: a teleport keeps the
+        # body's old velocities, and a ball still spinning from the
+        # previous episode would fly off the moment a probe placed it.
+        linear, angular = self._body_velocity_in_state(obj, state)
+        p.resetBaseVelocity(obj.id,
+                            linear,
+                            angular,
+                            physicsClientId=self._physics_client_id)
+
+    @staticmethod
+    def _body_velocity_in_state(
+        obj: Object, state: State
+    ) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
+        """The linear and angular velocity ``state`` records for ``obj``, zero
+        when it records none."""
+        still = ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0))
+        sim_state = getattr(state, "simulator_state", None)
+        if not isinstance(sim_state, dict):
+            return still
+        velocities = sim_state.get("body_velocities")
+        if not isinstance(velocities, dict) or obj.name not in velocities:
+            return still
+        linear, angular = velocities[obj.name]
+        return (tuple(float(v) for v in linear),
+                tuple(float(v) for v in angular))  # type: ignore[return-value]
+
+    def _body_velocity_records(
+        self
+    ) -> Dict[str, Tuple[Tuple[float, float, float], Tuple[float, float,
+                                                           float]]]:
+        """Every physical object's (linear, angular) velocity by NAME, so a
+        state restores on any env instance mid-motion."""
+        records = {}
+        for obj in self._objects:
+            if obj.type.name == "robot" or \
+                    obj.type.name in self._VIRTUAL_OBJECT_TYPES or \
+                    obj.id is None:
+                continue
+            linear, angular = p.getBaseVelocity(
+                obj.id, physicsClientId=self._physics_client_id)
+            records[obj.name] = (tuple(float(v) for v in linear),
+                                 tuple(float(v) for v in angular))
+        return records  # type: ignore[return-value]
 
     @abc.abstractmethod
     def _set_domain_specific_state(self, state: State) -> None:
@@ -1949,6 +2079,12 @@ class PyBulletEnv(BaseEnv):
         command_welds = self._command_weld_records()
         if command_welds:
             sim_state_dict["command_welds"] = command_welds
+        # Body velocities ride along by object NAME: a state read while
+        # something flies or slides restores as flying or sliding (see
+        # _reset_single_object), so a derived ``speed`` feature
+        # round-trips and a rollout resumed from it continues the motion
+        # instead of dropping the body from rest.
+        sim_state_dict["body_velocities"] = self._body_velocity_records()
         pyb_state = PyBulletState(state.data, simulator_state=sim_state_dict)
         return pyb_state
 

@@ -2,7 +2,7 @@
 
 Extends AgentModelBasedApproach to learn residual dynamics via an
 agent-synthesized step-level simulator with parameterized process
-rules. Parameters are fitted via emcee ensemble MCMC (training.py).
+rules. Parameters are fitted by Levenberg-Marquardt (fitting.py).
 
 The approach creates a base oracle (PyBullet with process
 dynamics disabled) and composes it with the learned step-level
@@ -22,6 +22,7 @@ import dataclasses
 import hashlib
 import inspect
 import logging
+import math
 import os
 import subprocess
 from contextlib import contextmanager
@@ -48,10 +49,12 @@ from predicators.approaches.sampler_learning_mixin import SamplerLearningMixin
 from predicators.approaches.synthesis_validation import \
     build_candidate_option_model
 from predicators.code_sim_learning.active_experiment import laplace_ensemble, \
-    mean_bernoulli_entropy, perturbation_ensemble, \
-    posterior_subsample_ensemble
+    mean_bernoulli_entropy, noisy_read_information, perturbation_ensemble, \
+    subsample_ensemble
 from predicators.code_sim_learning.commands import CommandBuffer
-from predicators.code_sim_learning.fit_space import FitResult, ParamSpec
+from predicators.code_sim_learning.evidence import LaplaceEvidence
+from predicators.code_sim_learning.fit_space import FitResult, ParamSpec, \
+    declared_interval_fit_result, declared_interval_report
 from predicators.code_sim_learning.fitting import FIT_NOISE_SIGMA, \
     compute_sse, compute_sse_recurrent, fit_rule_parameters, \
     fit_rule_parameters_latent, log_param_changes, log_sse_breakdown
@@ -70,9 +73,10 @@ from predicators.code_sim_learning.utils import LearnedSimulator, \
     apply_rules, apply_rules_with_latent, has_latent_rules, \
     has_physics_rules, init_latent, iter_feature_residuals, merge_updates, \
     observation_view, read_latent_init, read_physical_param_specs, \
-    read_simulator_components, stamp_physical_spec_scales
+    read_residual_env, read_simulator_components, stamp_physical_spec_scales
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_simulator
+from predicators.observation_noise import ObservationNoise
 from predicators.option_model import _OptionModelBase, _OracleOptionModel
 from predicators.settings import CFG
 from predicators.structs import Action, Dataset, DerivedPredicate, \
@@ -80,6 +84,10 @@ from predicators.structs import Action, Dataset, DerivedPredicate, \
     Predicate, State, Task, Type, step_option_labels
 
 logger = logging.getLogger(__name__)
+
+# Rows in the stand-in fit result under agent_sim_learn_declared_params_only:
+# uniform draws over the declared boxes that the ensemble subsamples.
+_DECLARED_INTERVAL_SAMPLES = 64
 
 
 def _fit_space_dist(a: float, b: float, scale: str) -> float:
@@ -127,6 +135,58 @@ def _describe_git_revision() -> str:
 
 # ── Approach ─────────────────────────────────────────────────────
 
+# The allowlist value that keeps no env predicate at all: an empty list
+# means "not set" (keep the class default), so "none" is the explicit
+# spelling of an empty vocabulary.
+NO_KEPT_PREDICATES = "none"
+
+
+def resolve_kept_predicate_names(
+        default: Optional[FrozenSet[str]]) -> Optional[FrozenSet[str]]:
+    """Names of the env predicates an agent starts with: the CFG allowlist
+    ``agent_sim_learn_kept_predicates_names`` when non-empty (``["none"]``
+    keeps none), else ``default`` (``None`` = every env predicate)."""
+    override = getattr(CFG, "agent_sim_learn_kept_predicates_names", None)
+    if override:
+        names = frozenset(override)
+        if names == {NO_KEPT_PREDICATES}:
+            return frozenset()
+        return names
+    return default
+
+
+def count_residual_hits(
+    base_pred_triples: Sequence[Tuple[State, Action, State]],
+    hits: Dict[Tuple[str, str], int],
+    abs_tol: float = 1e-4,
+    rel_tol: float = 1e-3,
+) -> None:
+    """Add to ``hits``, per ``(type, feature)``, the number of triples on which
+    the base-sim prediction diverges from the observation by more.
+
+    than ``rel_tol * |obs| + abs_tol``.
+
+    Split from :func:`residual_hint_from_hits` so a caller whose data
+    grows (the continual play loop, after every environment call) scans
+    only the new triples and keeps the counts.
+    """
+    pairs = [(s_base, s_obs) for s_base, _, s_obs in base_pred_triples]
+    for _, _, tn, feat, pred, obs in iter_feature_residuals(pairs):
+        if abs(pred - obs) > rel_tol * abs(obs) + abs_tol:
+            hits[(tn, feat)] = hits.get((tn, feat), 0) + 1
+
+
+def residual_hint_from_hits(hits: Dict[Tuple[str, str], int],
+                            min_hits: int = 3) -> Dict[str, List[str]]:
+    """The ``{type: [features]}`` hint of the features that diverged on at
+    least ``min_hits`` triples; the floor keeps one-off PyBullet jitter from
+    leaking base-handled features into the set."""
+    out: Dict[str, List[str]] = {}
+    for (t, f), n in hits.items():
+        if n >= min_hits:
+            out.setdefault(t, []).append(f)
+    return {t: sorted(fs) for t, fs in out.items()}
+
 
 class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
     """Bilevel planning with a learned step-level simulator.
@@ -135,7 +195,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
     1. Collect trajectories (inherited from AgentModelBasedApproach)
     2. Segment into option-level transitions
     3. Synthesize parameterized residual rules via Claude agent
-    4. Fit rule parameters via emcee ensemble MCMC
+    4. Fit rule parameters via Levenberg-Marquardt
     5. Compose with base oracle into a combined simulator
     6. Build _OracleOptionModel with the combined simulator
 
@@ -194,6 +254,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # Physics-margin points for the capture gate (+-1 posterior sigma
         # of the latest applied fit): a callable so the tool always sees
         # the current fit, not the one deployed when the session opened.
+        # Under agent_sim_learn_param_uncertainty False the points are
+        # never built (see _physics_margin_points), so this returns [].
         self._tool_context.physics_margin_provider = \
             lambda: list(self._identified_physical_sigma_points)
         # Rule-parameter margin points for the capture gate: the
@@ -230,6 +292,20 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                 f"affected tasks must supply `goal_nl` as the goal signal. "
                 f"Missing on train task indices: {missing_nl}")
         self._learned_simulator: Optional[LearnedSimulator] = None
+        # The subclass model form: when the loaded simulator.py exports a
+        # RESIDUAL_ENV, the planning base env is an instance of that
+        # subclass (its own _domain_specific_step runs, so
+        # skip_residual_dynamics is False) and there are no residual
+        # rules; its AGENT_PARAM_SPECS ride in _physical_param_specs and
+        # are fit by the rollout system-ID. None on the rule form and on
+        # every stock arm, where the base env is the fixed base-sim class
+        # with skip_residual_dynamics=True.
+        self._residual_env_cls: Optional[type] = None
+        # Content key (simulator.py SHA256) of the installed subclass, so
+        # repeated execs of unchanged content reuse the planning base env
+        # instead of rebuilding it every probe/fit call (each exec makes
+        # a fresh class object, so identity comparison never matches).
+        self._residual_env_key: Optional[str] = None
         # Loss-scope mask for parameter fitting (compute_sse).
         self._residual_features: Dict[str, List[str]] = {}
         self._residual_rules: Optional[List] = None
@@ -248,9 +324,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # falls back to ``_fitted_params``. Empty when info-seeking is
         # disabled or no fit has run yet.
         self._param_ensemble: List[Dict[str, float]] = []
-        # Full result used for ensemble calibration. Usually this is the
-        # solver fit; when info-seeking runs extra MCMC, it is the
-        # exploration-only posterior. ``None`` after an oracle-param run.
+        # Full result used for ensemble calibration (the solver fit's LM
+        # MAP + Laplace Jacobian). ``None`` after an oracle-param run.
         self._last_fit_result: Optional[FitResult] = None
         self._fit_sse: float = float("inf")
         self._learning_mode: bool = False
@@ -273,13 +348,21 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # base_pred_triples back into per-trajectory chunks (latent
         # threads within a trajectory, not across).
         self._fit_trajectories: List[LowLevelTrajectory] = []
-        # System identification: PHYSICAL_PARAMS export (agent-declared
+        # System identification: PHYSICAL_PARAM_SPECS export (agent-declared
         # sparse subset of self._base_env.get_physical_param_info()),
         # identified values applied in place to the base env. The rollout
         # fit itself builds a fresh headless env per rollout (see
         # _get_rollout_fit_env), never touching the planning base env.
         self._physical_param_specs: List[ParamSpec] = []
         self._identified_physical_params: Dict[str, float] = {}
+        # The carried posterior (code_sim_learning_carry_posterior): the
+        # most likely value of every physical param the last applied fit
+        # deployed, the prior centre of the next fit.
+        self._carried_physical_prior: Dict[str, float] = {}
+        # Per canonical simulator version, the fit's Laplace evidence
+        # record (code_sim_learning_fit_evidence): the sim.fit report's
+        # delta against the previous version reads from here.
+        self._fit_evidence_history: Dict[str, Dict[str, float]] = {}
         # +-1-posterior-sigma perturbations of the applied params (the
         # capture gate's physics-margin points). Set only by the joint
         # rollout fit, which has the identifiability report; cleared by
@@ -343,11 +426,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
 
         The CFG flag overrides the class default.
         """
-        cfg_override = getattr(CFG, "agent_sim_learn_kept_predicates_names",
-                               None)
-        if cfg_override:
-            return frozenset(cfg_override)
-        return self.KEPT_INITIAL_PREDICATE_NAMES
+        return resolve_kept_predicate_names(self.KEPT_INITIAL_PREDICATE_NAMES)
 
     def _compute_kept_initial_predicates(self) -> Set[Predicate]:
         """Apply the allowlist, then closure-strip derived predicates.
@@ -603,12 +682,16 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
 
     _save_suffix: str = "AgentSimLearner"
 
-    _CHECKPOINT_SANDBOX_FILES = ("simulator.py", "predicates.py",
-                                 "samplers.py", "ground_samplers.py",
-                                 "notes.md", "journal.md", "attempts.md",
-                                 "strategy.md", "open_questions.md")
-    _CHECKPOINT_SANDBOX_DIRS = ("simulator_versions", "predicates_versions",
-                                "samplers_versions")
+    _CHECKPOINT_SANDBOX_FILES: Tuple[str,
+                                     ...] = ("simulator.py", "predicates.py",
+                                             "samplers.py",
+                                             "ground_samplers.py", "notes.md",
+                                             "journal.md", "attempts.md",
+                                             "strategy.md",
+                                             "open_questions.md")
+    _CHECKPOINT_SANDBOX_DIRS: Tuple[str, ...] = ("simulator_versions",
+                                                 "predicates_versions",
+                                                 "samplers_versions")
     _CHECKPOINT_MAX_FILE_BYTES = 2 * 1024 * 1024
 
     def _checkpoint_sandbox_dir(self) -> str:
@@ -685,6 +768,10 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             list(self._param_ensemble),
             "identified_physical_params":
             dict(self._identified_physical_params),
+            "carried_physical_prior":
+            dict(self._carried_physical_prior),
+            "fit_evidence_history":
+            dict(self._fit_evidence_history),
             "identified_physical_sigma_points":
             list(self._identified_physical_sigma_points),
             "sysid_fit_history":
@@ -728,6 +815,10 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         self._param_ensemble = list(save_dict.get("param_ensemble") or [])
         self._identified_physical_params = dict(
             save_dict.get("identified_physical_params") or {})
+        self._carried_physical_prior = dict(
+            save_dict.get("carried_physical_prior") or {})
+        self._fit_evidence_history = dict(
+            save_dict.get("fit_evidence_history") or {})
         self._sysid_fit_history = dict(
             save_dict.get("sysid_fit_history") or {})
         self._residual_features = dict(
@@ -772,21 +863,41 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         rules, specs, declared_features, sim_ns = (
             self._load_simulator_from_module_file(paths.simulator_file,
                                                   trajectories))
-        if not rules or specs is None:
+        residual_env_cls = read_residual_env(sim_ns) if isinstance(
+            sim_ns, dict) else None
+        # The subclass model form carries its dynamics on the class, so
+        # its rules load empty; every other form must have non-empty
+        # rules to be loadable.
+        if (not rules and residual_env_cls is None) or specs is None:
             logger.warning(
                 "Restored simulator.py failed to load; continuing with "
                 "the initial option model (the next learn cycle will "
                 "rebuild it).")
             self._rehydrate_extra_artifacts(paths.base)
             return
+        # Past the guard rules is a list (empty only for the subclass form,
+        # whose dynamics live on the class); coerce a None the guard let
+        # through (subclass present) so the downstream step_fn sees a list.
+        rules = rules or []
+        self._install_residual_env_cls(residual_env_cls)
         self._residual_rules = rules
         if declared_features:
             self._residual_features = declared_features
+        elif residual_env_cls is not None:
+            self._residual_features = dict(
+                getattr(residual_env_cls, "RESIDUAL_FEATURES", {}))
         self._latent_init = (read_latent_init(sim_ns) if isinstance(
             sim_ns, dict) else None)
-        self._physical_param_specs = stamp_physical_spec_scales(
-            list((read_physical_param_specs(sim_ns) if isinstance(
-                sim_ns, dict) else None) or []), self._base_env)
+        # Subclass form: the physical params to identify are the class's
+        # AGENT_PARAM_SPECS (stamped against the now-installed subclass
+        # instance); otherwise the optional PHYSICAL_PARAM_SPECS export.
+        if residual_env_cls is not None:
+            self._physical_param_specs = stamp_physical_spec_scales(
+                list(residual_env_cls.AGENT_PARAM_SPECS), self._base_env)
+        else:
+            self._physical_param_specs = stamp_physical_spec_scales(
+                list((read_physical_param_specs(sim_ns) if isinstance(
+                    sim_ns, dict) else None) or []), self._base_env)
         # The agent may have edited simulator.py after the last fit:
         # pickled fitted params are only valid for matching spec names.
         spec_names = {s.name for s in specs}
@@ -854,7 +965,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         #   base sim's one-step prediction. The rules run on top of that
         #   prediction; SSE compares against s_{t+1}.
         obs_triples = self._extract_obs_triples(trajectories)
-        if not obs_triples and not CFG.agent_sim_learn_oracle_sim_program:
+        if (not obs_triples and not CFG.agent_sim_learn_oracle_sim_program
+                and not CFG.agent_sim_learn_zero_shot):
             logger.warning("No step transitions; skipping simulator learning.")
             return
         if obs_triples:
@@ -879,13 +991,22 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                 obs_triples, base_pred_triples)
             logger.info("Residual features (data-driven hint): %s",
                         inferred_hint)
-        else:
+        elif CFG.agent_sim_learn_oracle_sim_program:
             # The oracle sim program is data-free (rules and parameter
             # inits come from get_gt_simulator), so a run whose every
             # demo failed still gets a working option model; the fit
             # below degrades to the declared inits.
             logger.warning("No step transitions; loading oracle sim "
                            "program without data.")
+            base_pred_triples = []
+            inferred_hint = {}
+        else:
+            # Zero-shot synthesis (ablation A2): the session runs with
+            # nothing recorded, so the artifacts come from the task
+            # description, the scene and the agent's own knowledge; the
+            # params deploy at their declared inits.
+            logger.info("Zero-shot synthesis: no step transitions; the "
+                        "agent writes its artifacts without data.")
             base_pred_triples = []
             inferred_hint = {}
 
@@ -977,6 +1098,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         sse: float = float("nan"),
         applied_physical: Optional[Dict[str, float]] = None,
         sigma_points: Optional[List[Dict[str, float]]] = None,
+        pinned: bool = False,
     ) -> None:
         """Deploy a canonical ``sim.fit`` result to the candidate probe.
 
@@ -989,18 +1111,40 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         physical values actually applied to the planning env are kept
         so the cycle's deployed model can be exactly this fit (see
         :meth:`_published_fit_for_file`).
+
+        ``pinned`` marks a fit that never ran: rollout sysID found no
+        trajectory explainable at any candidate parameters and left the
+        values at the declared inits. Such a publish must not displace
+        a real fit of the SAME file content: the earlier finite fit
+        stays canonical and the pinned attempt is only logged, so the
+        deployed model is never silently downgraded from a validated
+        fit to unvalidated inits (bridge seed 3, 2026-09-03: an "SSE
+        nan" model was deployed and every certification that cycle
+        ran against it). ``sse`` must be finite; a pinned fit reports
+        the SSE at the inits over all segments rather than nan.
         """
-        self._fitted_params.clear()
-        self._fitted_params.update(params)
         digest = None
         if os.path.isfile(simulator_file):
             with open(simulator_file, "rb") as f:
                 digest = hashlib.sha256(f.read()).hexdigest()
         state = self._probe_fit_state()
+        if pinned and state.get("fit_result") is not None and \
+                state.get("digest") == digest and \
+                not state.get("pinned", False) and \
+                math.isfinite(float(state.get("sse", float("nan")))):
+            logger.warning(
+                "sim.fit (%s) ran no fit (nothing explainable at any "
+                "params); keeping the earlier finite fit %s (SSE %.6f) of "
+                "the same simulator.py as canonical.", version_tag,
+                state.get("version"), float(state["sse"]))
+            return
+        self._fitted_params.clear()
+        self._fitted_params.update(params)
         state["digest"] = digest
         state["version"] = version_tag
         state["fit_result"] = fit_result
         state["sse"] = sse
+        state["pinned"] = bool(pinned)
         state["applied_physical"] = dict(applied_physical or {})
         state["sigma_points"] = list(sigma_points or [])
         self._probe_model_cache().clear()
@@ -1020,7 +1164,9 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         and over exactly ``expected_names``; ``None`` when nothing was
         published, the file changed after the fit (an UNFITTED edit), or
         the parameter set differs (a spec added or dropped after the
-        fit).
+        fit). A pinned publish (see :meth:`_publish_probe_fit`) is
+        returned like any other; :meth:`_published_fit_is_pinned` says
+        whether the values were ever fit.
         """
         state = self._probe_fit_state()
         fit = state.get("fit_result")
@@ -1034,6 +1180,10 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             return None
         return fit, float(state.get("sse",
                                     float("nan"))), str(state.get("version"))
+
+    def _published_fit_is_pinned(self) -> bool:
+        """Whether the canonical published fit never actually ran."""
+        return bool(self._probe_fit_state().get("pinned", False))
 
     def _make_candidate_probe_model_provider(
         self,
@@ -1086,6 +1236,19 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                                  if features is not None else inferred_hint)
             latent_init = read_latent_init(ns) if isinstance(ns,
                                                              dict) else None
+            # The subclass model form: install the candidate's RESIDUAL_ENV
+            # as the planning base env (keyed on content so identical
+            # re-execs reuse it) and take its AGENT_PARAM_SPECS as the
+            # physical params to fit, so the option model built below runs
+            # over an instance of the subclass and sim.run / sim.fit /
+            # sim.residuals all exercise its dynamics. None on the rule
+            # form, which clears any previously installed subclass.
+            residual_env_cls = read_residual_env(ns) if isinstance(
+                ns, dict) else None
+            self._install_residual_env_cls(residual_env_cls, digest)
+            if residual_env_cls is not None:
+                self._physical_param_specs = stamp_physical_spec_scales(
+                    list(residual_env_cls.AGENT_PARAM_SPECS), self._base_env)
             # Never fit here: fitting is the agent's explicit ``sim.fit``
             # (its own budget, its own report). The candidate runs at
             # the last published fit's values (declared init values for
@@ -1102,7 +1265,11 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                 base_pred_triples,
                 latent_init=latent_init,
                 fit=False)
-            if fit_state.get("digest") == digest:
+            if CFG.agent_sim_learn_declared_params_only:
+                status = ("at the DECLARED values of the current "
+                          "simulator.py (parameter estimation is disabled "
+                          "in this run)")
+            elif fit_state.get("digest") == digest:
                 status = f"fitted ({fit_state.get('version')})"
             else:
                 status = (
@@ -1123,58 +1290,49 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
 
     # ── Active-experiment ensemble (info-seeking exploration) ────
 
-    @staticmethod
-    def _exploration_fit_num_steps() -> Optional[int]:
-        """MCMC budget for the active-experiment posterior fit.
+    def _info_seeking_active(self) -> bool:
+        """Whether the proactive info-seeking apparatus should run now.
 
-        The synthesis fit surfaces (``sim.fit``, ``sim.residuals``)
-        share the fit statics and run repeatedly inside the agent loop,
-        so they always use the global
-        ``CFG.code_sim_learning_num_mcmc_steps`` (typically 0 - LM +
-        Laplace only). The solver/test-time fit also uses that global
-        setting. The exploration posterior fit is different: it runs
-        once per learning cycle, only when it needs more MCMC than the
-        solver fit already ran, and its posterior feeds only the
-        info-seeking ensemble. With real posterior samples,
-        ``_select_param_ensemble`` upgrades from the Laplace draw to a
-        posterior subsample, calibrating ensemble spread for
-        gate/threshold params whose flat likelihood has a near-zero
-        Jacobian column at the MAP (invisible to Laplace).
-
-        Returns ``None`` (no override; ``fit_params`` falls back to the
-        global setting) when info-seeking is off, else the max of the
-        global and exploration budgets so the override never *reduces*
-        an explicitly configured global MCMC run.
+        Delegates to the run context's adaptive gate. Partial unit-test
+        objects have no ``_tool_context``; there, fall back to the plain
+        flag (adaptive gating needs the run-scoped refusal signal the
+        context carries).
         """
-        if not CFG.agent_explorer_info_seeking:
-            return None
-        return max(CFG.code_sim_learning_num_mcmc_steps,
-                   CFG.agent_explorer_info_mcmc_steps)
-
-    @staticmethod
-    def _separate_exploration_fit_num_steps() -> Optional[int]:
-        """Return an exploration-only MCMC budget, if one is needed."""
-        fit_num_steps = AgentSimLearningApproach._exploration_fit_num_steps()
-        if fit_num_steps is None:
-            return None
-        if fit_num_steps <= CFG.code_sim_learning_num_mcmc_steps:
-            return None
-        return fit_num_steps
+        ctx = getattr(self, "_tool_context", None)
+        if ctx is not None:
+            return ctx.info_seeking_active()
+        return CFG.agent_explorer_info_seeking
 
     def _rebuild_param_ensemble(self) -> None:
-        """Rebuild the active-experiment parameter ensemble.
+        """Rebuild the learned model's rule-parameter ensemble.
 
-        No-op (clears the ensemble) unless info-seeking exploration is
-        enabled and a fit has populated ``_fitted_params``. The ensemble
-        can use an exploration-only posterior even when solver params
-        remain at the global-budget point estimate.
+        Two consumers share it: info-seeking exploration (off under
+        ablation A6) and the capture gate's rule-param margin (off under
+        ablation A7). Built when either is on, a fit has populated
+        ``_fitted_params`` and parameter uncertainty is in use; cleared
+        otherwise. The ensemble can use an exploration-only posterior
+        even when solver params remain at the global-budget point
+        estimate.
 
         Picks the most *calibrated* ensemble the fit affords, preferring
         spreads that reflect real posterior uncertainty over uniform
         jitter (see :meth:`_select_param_ensemble`).
         """
-        if (not CFG.agent_explorer_info_seeking or not self._fitted_params):
+        wanted = (CFG.agent_explorer_info_seeking
+                  or CFG.agent_plan_validation_rule_param_margin)
+        if (not wanted or not self._fitted_params
+                or not CFG.agent_sim_learn_param_uncertainty):
             self._param_ensemble = []
+            return
+        if CFG.agent_sim_learn_oracle_sim_params:
+            # Oracle params carry no uncertainty: no fit ran, so the only
+            # ensemble on offer would be box jitter around the truth,
+            # which manufactures wrong models (a zero rate, a rewired
+            # lamp) that the capture gate would then demand every plan
+            # survive. Nothing to hedge against, so no ensemble.
+            self._param_ensemble = []
+            logger.info("Oracle sim params: no rule-parameter ensemble "
+                        "(nothing uncertain to sweep).")
             return
         num_members = CFG.agent_explorer_info_ensemble_size
         self._param_ensemble, method = self._select_param_ensemble(num_members)
@@ -1189,12 +1347,13 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
 
         Dispatch, most- to least-calibrated:
 
-        * ``posterior`` - when MCMC ran (``num_mcmc_steps > 0``), subsample
-          the real posterior ``samples`` (works for both per-transition and
-          recurrent fits).
-        * ``laplace`` - else, when the fit attached an LM Jacobian
-          (``num_mcmc_steps == 0``, per-transition or recurrent), draw
-          from the Laplace covariance at the MAP.
+        * ``subsample`` - when the fit carries an explicit multi-row
+          sample set (the declared-params ablation's
+          ``declared_interval_fit_result`` fills it with uniform draws
+          over the declared boxes), subsample those rows and anchor at
+          the fit's own combined point estimate (physical + rule params).
+        * ``laplace`` - when the fit attached an LM Jacobian, draw from the
+          Laplace covariance at the MAP (per-transition or recurrent).
         * ``uniform`` - otherwise (oracle params, LM skipped/failed, or
           calibration disabled), fall back to box-relative jitter.
         """
@@ -1203,13 +1362,13 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         if calibrated and fit is not None:
             samples = np.asarray(fit.samples, dtype=float)
             if samples.ndim == 2 and samples.shape[0] > 1:
-                return posterior_subsample_ensemble(
+                return subsample_ensemble(
                     fit.point_estimate,
                     fit.names,
                     samples,
                     num_members=num_members,
                     rng=self._rng,
-                ), "posterior-subsample"
+                ), "subsample"
             if (fit.jacobian is not None and fit.noise_sigma is not None
                     and fit.prior_sigma is not None):
                 return laplace_ensemble(
@@ -1245,21 +1404,62 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         Wired into refinement as the info-scorer for the agent_model_based
         explorer; a read-only query that leaves ``_fitted_params``
         unchanged on return.
+
+        Under ``agent_explorer_info_seeking_noise_aware`` with a declared
+        observation-noise channel, each member reads the atoms from
+        noisy views of ``state`` (:meth:`_noisy_read_views`) and the
+        score is the mutual information between the member and the
+        read truth (:func:`noisy_read_information`): members whose
+        predictions differ by less than sigma all read a coin flip and
+        contribute nothing, because one noisy observation cannot tell
+        them apart.
         """
         atom_list = list(atoms)
         if len(self._param_ensemble) <= 1 or not atom_list:
             return 0.0
+        views = self._noisy_read_views(state)
         saved = dict(self._fitted_params)
         try:
-            rows: List[List[bool]] = []
+            rows: List[List[float]] = []
             for member in self._param_ensemble:
                 self._fitted_params.clear()
                 self._fitted_params.update(member)
-                rows.append([bool(a.holds(state)) for a in atom_list])
+                if views is None:
+                    rows.append([float(a.holds(state)) for a in atom_list])
+                else:
+                    rows.append([
+                        float(np.mean([bool(a.holds(v)) for v in views]))
+                        for a in atom_list
+                    ])
         finally:
             self._fitted_params.clear()
             self._fitted_params.update(saved)
-        return mean_bernoulli_entropy(np.asarray(rows, dtype=bool))
+        if views is None:
+            return mean_bernoulli_entropy(np.asarray(rows, dtype=bool))
+        return noisy_read_information(np.asarray(rows, dtype=float))
+
+    # Noisy views per scored state: enough to resolve a coin flip from
+    # a near-certain read, few enough that scoring stays cheap.
+    _NOISY_READ_DRAWS = 8
+
+    def _noisy_read_views(self, state: State) -> Optional[List[State]]:
+        """The observations a real step ending at ``state`` could return under
+        the declared noise channel, or None when the score is exact (flag off,
+        channel off or undeclared).
+
+        Common random numbers: the draws are seeded identically for
+        every scored state, so candidate scores are comparable and a re-
+        score is repeatable.
+        """
+        if not CFG.agent_explorer_info_seeking_noise_aware:
+            return None
+        noise = ObservationNoise.from_cfg()
+        if not (noise.enabled and noise.declared):
+            return None
+        rng = np.random.default_rng(CFG.seed)
+        return [
+            noise.perturb(state, rng) for _ in range(self._NOISY_READ_DRAWS)
+        ]
 
     @contextmanager
     def _rule_param_override_scope(
@@ -1301,7 +1501,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         ``agent_sim_learn_oracle_sim_program`` short-circuits the agent
         session by loading the GT simulator instead (and
         ``agent_sim_learn_oracle_sim_params`` additionally skips the
-        MCMC fit; see :meth:`_fit_params_after_synthesis`).
+        parameter fit; see :meth:`_fit_params_after_synthesis`).
         """
         if CFG.agent_sim_learn_oracle_sim_program:
             rules, specs, residual_features = \
@@ -1501,11 +1701,11 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                                             max_timesteps=max_timesteps)
 
         exec_ns["describe_trajectory"] = describe_trajectory
-        # Env ground-truth scoring, next to is_goal_state (see
-        # Task.evaluator). Verdict-only surface: dict of reward/solved
-        # on a concrete state sequence - real trajectories or the
+        # The task's reward model, next to is_goal_state (see
+        # Task.evaluator). Verdict-only surface: dict of reward/solved/
+        # note on a concrete state sequence - real trajectories or the
         # agent's own simulator rollouts (there the verdict is only as
-        # good as the sim).
+        # good as the sim, and the note says what was simulated).
         if any(t.evaluator is not None for t in self._train_tasks):
             exec_ns["evaluate_trajectory"] = \
                 self._make_evaluate_trajectory_fn()
@@ -1625,10 +1825,12 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # mismatch is an unmodeled mechanism.
         prior_state_block = self._format_prior_state_block(paths.base)
         divergence_block = ""
-        if self._tool_context.probe_residuals_provider is not None:
+        if (self._tool_context.probe_residuals_provider is not None
+                and obs_triples):
             try:
                 report = self._tool_context.probe_residuals_provider(
-                    max_transitions=100000, fit_params=True)
+                    max_transitions=100000,
+                    fit_params=not CFG.agent_sim_learn_declared_params_only)
                 divergence_block = learn_prompts.render_divergence_block(
                     report, has_prior_model=bool(prior_state_block))
             except Exception as e:  # pylint: disable=broad-except
@@ -1637,6 +1839,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         session_tool_names = (self._agent_session.tool_names
                               if self._agent_session is not None else [])
         extra_messages = []
+        if not trajectories and CFG.agent_sim_learn_zero_shot:
+            extra_messages.append(learn_prompts.render_zero_shot_message())
         extra_message = self._extra_synthesis_message(extra_paths)
         if extra_message:
             extra_messages.append(extra_message)
@@ -1679,9 +1883,9 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
 
         Returns ``(rules, specs, residual_features)`` or None when no
         loadable simulator exists. The optional LATENT_INIT /
-        PHYSICAL_PARAMS side exports are recorded on ``self`` before the
-        loadability check, so they are picked up even from an artifact
-        whose rules fail to load.
+        PHYSICAL_PARAM_SPECS side exports are recorded on ``self``
+        before the loadability check, so they are picked up even from an
+        artifact whose rules fail to load.
         """
         final_sim_tag = finalize_versioned_snapshot(
             paths.simulator_file,
@@ -1701,13 +1905,27 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # leaves every latent path dormant.
         self._latent_init = (read_latent_init(sim_ns) if isinstance(
             sim_ns, dict) else None)
-        # Optional PHYSICAL_PARAMS export: base-sim parameters to
-        # identify jointly with the rule params (system ID). The fit
-        # scale (log vs linear) is stamped from the env registry; agents
-        # copy name/init/bounds but need not know about it.
-        self._physical_param_specs = stamp_physical_spec_scales(
-            list((read_physical_param_specs(sim_ns) if isinstance(
-                sim_ns, dict) else None) or []), self._base_env)
+        # The subclass model form (RESIDUAL_ENV): install the subclass as
+        # the planning base env, and take its AGENT_PARAM_SPECS as the
+        # physical params to system-ID (they are already fully-specified
+        # ParamSpecs, so stamp them against an INSTANCE of the subclass -
+        # which _install_residual_env_cls has just made self._base_env -
+        # never the stock base env, which does not carry them). None on
+        # the rule form and every stock arm, which keep today's behavior.
+        residual_env_cls = read_residual_env(sim_ns) if isinstance(
+            sim_ns, dict) else None
+        self._install_residual_env_cls(residual_env_cls)
+        if residual_env_cls is not None:
+            self._physical_param_specs = stamp_physical_spec_scales(
+                list(residual_env_cls.AGENT_PARAM_SPECS), self._base_env)
+        else:
+            # Optional PHYSICAL_PARAM_SPECS export: base-sim parameters to
+            # identify jointly with the rule params (system ID). The fit
+            # scale (log vs linear) is stamped from the env registry;
+            # agents copy name/init/bounds but need not know about it.
+            self._physical_param_specs = stamp_physical_spec_scales(
+                list((read_physical_param_specs(sim_ns) if isinstance(
+                    sim_ns, dict) else None) or []), self._base_env)
         if self._physical_param_specs:
             logger.info("Agent declared %d physical params for system ID: %s",
                         len(self._physical_param_specs),
@@ -1753,14 +1971,24 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             else:
                 logger.info("No transitions; skipping oracle-param SSE.")
                 self._fit_sse = float("inf")
+        elif CFG.agent_sim_learn_declared_params_only:
+            self._deploy_declared_params(rules, specs, base_pred_triples,
+                                         residual_features)
         elif not base_pred_triples:
-            # No data to fit against (e.g. every demo failed): seed from
-            # the declared inits so the simulator still builds; later
-            # cycles refit once transitions arrive.
+            # No data to fit against (e.g. every demo failed, or a
+            # zero-shot learn): seed from the declared inits so the
+            # simulator still builds; later cycles refit once
+            # transitions arrive. The declared physical inits go to the
+            # planning env too - the agent's stated belief, not the
+            # registry default, is what its plans were written against.
             logger.warning("No transitions to fit; seeding params from "
                            "declared inits.")
             self._fitted_params.clear()
             self._fitted_params.update({s.name: s.init_value for s in specs})
+            if self._physical_param_specs:
+                self._apply_identified_physical_params(
+                    {s.name: s.init_value
+                     for s in self._physical_param_specs})
             self._last_fit_result = None
             self._fit_sse = float("inf")
         else:
@@ -1778,10 +2006,30 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                     self._resolve_synthesis_paths().simulator_file, expected)
             if published is not None:
                 fit_result, self._fit_sse, version = published
-                logger.info(
-                    "Deploying the agent's published sim.fit (%s) of the "
-                    "final simulator.py: %d params, SSE %.6f.", version,
-                    len(expected), self._fit_sse)
+                if self._published_fit_is_pinned() or \
+                        not math.isfinite(self._fit_sse):
+                    # Deployed all the same - the cycle has no better
+                    # model, and refusing outright would strand the run
+                    # on a structure the next learn session is meant to
+                    # fix - but never as a validated fit: the SSE is the
+                    # value AT THE DECLARED INITS, and the certification
+                    # gates that trust this model are trusting an
+                    # unvalidated guess.
+                    logger.error(
+                        "UNVALIDATED MODEL: the agent's canonical sim.fit "
+                        "(%s) ran no fit - no recorded motion segment was "
+                        "explainable at any candidate parameters - so the "
+                        "deployed %d params are the DECLARED INITS "
+                        "(SSE at inits %.6f). Plans certified against "
+                        "this model are not evidence about the real "
+                        "environment; the next learn session must change "
+                        "the simulator's structure, not its numbers.", version,
+                        len(expected), self._fit_sse)
+                else:
+                    logger.info(
+                        "Deploying the agent's published sim.fit (%s) of "
+                        "the final simulator.py: %d params, SSE %.6f.",
+                        version, len(expected), self._fit_sse)
                 applied = self._probe_fit_state().get("applied_physical")
                 if self._physical_param_specs and applied:
                     # Mirror _fit_parameters_joint_rollout's deploy: the
@@ -1790,8 +2038,9 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                     # resets the points, so set them after).
                     self._apply_identified_physical_params(dict(applied))
                     self._cycle_applied_physical = dict(applied)
-                    self._identified_physical_sigma_points = list(
-                        self._probe_fit_state().get("sigma_points") or [])
+                    if CFG.agent_sim_learn_param_uncertainty:
+                        self._identified_physical_sigma_points = list(
+                            self._probe_fit_state().get("sigma_points") or [])
             else:
                 if CFG.agent_sim_learn_oracle_sim_program:
                     logger.info("Oracle sim program: fitting its "
@@ -1819,15 +2068,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             self._last_fit_result = fit_result
             self._fitted_params.clear()
             self._fitted_params.update(fit_result.point_estimate)
-            if CFG.code_sim_learning_num_mcmc_steps == 0:
-                logger.info("Skipped solver MCMC; using %d fitted params.",
-                            len(specs))
-            else:
-                logger.info("Fitted %d solver params.", len(specs))
-
-            self._maybe_refit_exploration_posterior(rules, specs,
-                                                    base_pred_triples,
-                                                    residual_features)
+            logger.info("Fitted %d solver params.", len(specs))
 
         # Remember the specs (names + bounds) and rebuild the active-
         # experiment ensemble. Cheap and only consumed when info-seeking
@@ -1836,60 +2077,73 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         self._param_specs = list(self._physical_param_specs) + list(specs)
         self._rebuild_param_ensemble()
 
-    def _maybe_refit_exploration_posterior(
+    def _physics_margin_points(
+        self,
+        applied: Dict[str, float],
+        report: Dict[str, Dict[str, Any]],
+        physical_specs: List[ParamSpec],
+    ) -> List[Dict[str, float]]:
+        """The capture gate's physics-margin grid for ``applied``.
+
+        Empty under ``agent_sim_learn_param_uncertainty`` False (ablations
+        A6+A7 combined: point estimates only, so there is no width to
+        sweep) - the
+        single place that decides, so the joint fit, the published-fit
+        deploy and the declared-params deploy cannot disagree.
+        """
+        if not CFG.agent_sim_learn_param_uncertainty:
+            return []
+        return physics_sigma_points(
+            applied,
+            report,
+            physical_specs,
+            num_points=CFG.agent_plan_validation_physics_margin_points)
+
+    def _deploy_declared_params(
         self,
         rules: List,
         specs: List[ParamSpec],
         base_pred_triples: List[Tuple[State, Action, State]],
         residual_features: Dict[str, List[str]],
     ) -> None:
-        """Run the exploration-only posterior fit, when one is needed.
+        """Deploy the agent's declaration as the estimate (ablation A4).
 
-        A no-op unless info-seeking exploration asks for more MCMC than
-        the solver fit already ran (see
-        :meth:`_separate_exploration_fit_num_steps`). The resulting
-        posterior replaces ``_last_fit_result`` for ensemble calibration
-        only; ``_fitted_params`` (the solver's point estimate) is left
-        untouched.
+        No fit runs. Every rule param takes its ``init_value``; the
+        declared physical inits are applied to the planning env; the
+        physics-margin grid spans each physical param's declared
+        ``[lo, hi]`` box (the plausible interval) and the standing fit
+        result is a uniform draw over every declared box, so the
+        rule-parameter ensemble - the rule-param margin and the
+        info-seeking disagreement score - samples the agent's intervals
+        exactly as it would sample a posterior. The SSE is logged for
+        the record only.
         """
-        num_steps = self._separate_exploration_fit_num_steps()
-        if num_steps is None:
-            return
-        if self._physical_param_specs or has_physics_rules(rules):
-            logger.info("Skipping separate active-experiment fit: the joint "
-                        "rollout sysID posterior is reused for exploration.")
-            return
-        # Reuse the solver fit's LM MAP + jacobian instead of re-running
-        # the (expensive, full-data) LM fit for the identical objective.
-        # Only safe when the solver fit was LM-only: with real solver
-        # MCMC its point_estimate is the MCMC MAP, not the LM MAP the
-        # jacobian was computed at.
-        lm_seed: Optional[Tuple[np.ndarray, Optional[np.ndarray]]] = None
-        prev = self._last_fit_result
-        if (prev is not None and CFG.code_sim_learning_num_mcmc_steps == 0
-                and prev.samples.shape[0] == 1
-                and list(prev.names) == [s.name for s in specs]):
-            theta = np.array([prev.point_estimate[n] for n in prev.names])
-            lm_seed = (theta, prev.jacobian)
-        if has_latent_rules(rules):
-            fit_result, sse = self._fit_parameters_recurrent(
-                rules,
-                specs,
-                base_pred_triples,
-                residual_features,
-                num_steps=num_steps,
-                lm_seed=lm_seed)
+        physical_specs = list(self._physical_param_specs)
+        self._fitted_params.clear()
+        self._fitted_params.update({s.name: s.init_value for s in specs})
+        if physical_specs:
+            applied = {s.name: s.init_value for s in physical_specs}
+            self._apply_identified_physical_params(applied)
+            self._cycle_applied_physical = dict(applied)
+            self._identified_physical_sigma_points = \
+                self._physics_margin_points(
+                    applied, declared_interval_report(physical_specs),
+                    physical_specs)
+        self._last_fit_result = declared_interval_fit_result(
+            physical_specs + list(specs),
+            num_samples=_DECLARED_INTERVAL_SAMPLES,
+            rng=self._rng)
+        if base_pred_triples:
+            self._fit_sse = self._oracle_param_sse(rules, base_pred_triples,
+                                                   residual_features,
+                                                   FIT_NOISE_SIGMA)
         else:
-            fit_result, sse = fit_rule_parameters(rules,
-                                                  specs,
-                                                  base_pred_triples,
-                                                  residual_features,
-                                                  num_steps=num_steps,
-                                                  lm_seed=lm_seed)
-        self._last_fit_result = fit_result
+            self._fit_sse = float("inf")
         logger.info(
-            "Fitted active-experiment posterior with %d MCMC steps "
-            "for exploration planning only (SSE: %.6f).", num_steps, sse)
+            "Parameter estimation disabled: deployed %d rule and %d "
+            "physical params at their declared inits (SSE %.6f); margins "
+            "and ensemble span the declared intervals.", len(specs),
+            len(physical_specs), self._fit_sse)
 
     # ── Parameter fitting ────────────────────────────────────────
 
@@ -1933,7 +2187,27 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                           label="oracle")
         return sse
 
-    # ── System identification (PHYSICAL_PARAMS) support ──────────
+    # ── System identification (PHYSICAL_PARAM_SPECS) support ──────────
+
+    def _make_planning_base_env(self, use_gui: bool = False) -> Any:
+        """A fresh planning base env.
+
+        The subclass model form (``_residual_env_cls`` set) runs an
+        instance of the agent's subclass with its own
+        ``_domain_specific_step`` firing (``skip_residual_dynamics``
+        False); every rule-form or stock arm gets the fixed base-sim
+        class with ``skip_residual_dynamics`` True, i.e. exactly
+        ``create_new_env(CFG.env, skip_residual_dynamics=True)`` as
+        before.
+        """
+        residual_env_cls = getattr(self, "_residual_env_cls", None)
+        if residual_env_cls is not None:
+            return residual_env_cls(use_gui=use_gui,
+                                    skip_residual_dynamics=False)
+        return create_new_env(CFG.env,
+                              do_cache=False,
+                              use_gui=use_gui,
+                              skip_residual_dynamics=True)
 
     def _get_rollout_fit_env(self) -> Any:
         """Factory for the headless envs the rollout fit rolls out in.
@@ -1953,10 +2227,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         """
 
         def _make() -> Any:
-            return create_new_env(CFG.env,
-                                  do_cache=False,
-                                  use_gui=False,
-                                  skip_residual_dynamics=True)
+            return self._make_planning_base_env(use_gui=False)
 
         return _make
 
@@ -2075,11 +2346,11 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
 
         The applied set exactly mirrors ``identified``: params applied
         by an earlier fit but absent here (e.g. dropped from a later
-        artifact's PHYSICAL_PARAMS) are reverted to the env's registry
-        defaults, because the env-side override is sticky per param and
-        a stale value from a superseded fit would otherwise silently
-        keep steering the planner. The override survives resets but not
-        env recreation; ``_recreate_base_env`` re-applies from
+        artifact's PHYSICAL_PARAM_SPECS) are reverted to the env's
+        registry defaults, because the env-side override is sticky per
+        param and a stale value from a superseded fit would otherwise
+        silently keep steering the planner. The override survives resets
+        but not env recreation; ``_recreate_base_env`` re-applies from
         ``self._identified_physical_params``.
         """
         stale = set(self._identified_physical_params) - set(identified)
@@ -2106,6 +2377,62 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                     {k: f"{v:.4f}"
                      for k, v in identified.items()})
 
+    def fit_prior_anchors(
+            self, physical_specs: Sequence[ParamSpec]) -> Dict[str, float]:
+        """The prior centres of a rollout fit: the env-registry anchors, or
+        under ``code_sim_learning_carry_posterior`` the carried posterior's
+        most likely values where one exists (see the flag in settings).
+
+        Shared by the harness fit and the ``sim.fit`` tool, so both fits
+        start from the same belief.
+        """
+        anchors = physical_param_anchors(self._base_env, physical_specs)
+        if not CFG.code_sim_learning_carry_posterior:
+            return anchors
+        carried = {
+            s.name: self._carried_physical_prior[s.name]
+            for s in physical_specs if s.name in self._carried_physical_prior
+        }
+        if carried:
+            logger.info(
+                "Rollout sysID: prior centres carried from the last applied "
+                "fit: %s (registry anchors for the rest).",
+                {k: f"{v:.4f}"
+                 for k, v in carried.items()})
+        anchors.update(carried)
+        return anchors
+
+    def note_carried_posterior(self, applied: Dict[str, float],
+                               report: Dict[str, Dict[str, Any]]) -> None:
+        """Record the values a fit just deployed as the next fit's prior
+        centres (``code_sim_learning_carry_posterior``): only params whose
+        verdict applied the fitted value, so an anchor fallback is never
+        carried as a belief."""
+        if not CFG.code_sim_learning_carry_posterior:
+            return
+        for name, value in applied.items():
+            verdict = report.get(name, {}).get("verdict")
+            if verdict is not None and verdict.applies_fitted:
+                self._carried_physical_prior[name] = float(value)
+
+    def note_fit_evidence(self, version_tag: str,
+                          evidence: LaplaceEvidence) -> None:
+        """Record a canonical fit's Laplace evidence under its simulator
+        version, the history the report's version delta reads from."""
+        self._fit_evidence_history[version_tag] = evidence.as_dict()
+
+    def previous_fit_evidence(
+            self, version_tag: str) -> Optional[Dict[str, LaplaceEvidence]]:
+        """The most recently recorded evidence of a version other than
+        ``version_tag``, as a one-entry dict, or None."""
+        for tag in reversed(list(self._fit_evidence_history)):
+            if tag != version_tag:
+                return {
+                    tag:
+                    LaplaceEvidence.from_dict(self._fit_evidence_history[tag])
+                }
+        return None
+
     def _fit_parameters_joint_rollout(
         self,
         rules: List,
@@ -2114,7 +2441,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
     ) -> Tuple[FitResult, float]:
         """Joint physical+rule fit against free-running base-sim rollouts.
 
-        Reached when the artifact declares ``PHYSICAL_PARAMS``. Consumes
+        Reached when the artifact declares ``PHYSICAL_PARAM_SPECS``. Consumes
         the RAW observed trajectories rather than ``base_pred_triples``:
         physical parameters only manifest when momentum free-runs, which
         the teacher-forced triples destroy (``State`` has no
@@ -2136,7 +2463,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             s.name: s.init_value
             for s in physical_specs + rule_specs
         }
-        anchors = physical_param_anchors(self._base_env, physical_specs)
+        anchors = self.fit_prior_anchors(physical_specs)
         if not rollouts:
             logger.warning(
                 "No complete trajectories for rollout sysID; keeping the "
@@ -2192,6 +2519,10 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                     format_identifiability(outcome.report))
         log_param_changes(init_params, outcome.fitted)
         self._apply_identified_physical_params(outcome.applied)
+        self.note_carried_posterior(outcome.applied, outcome.report)
+        if outcome.evidence is not None:
+            self.note_fit_evidence(
+                self._current_simulator_version or "harness", outcome.evidence)
         # Snapshot the cycle-level decision: this (not whatever the
         # agent's in-session sim.fit last applied) is what a future
         # INCONSISTENT verdict holds on to.
@@ -2199,11 +2530,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # Physics-margin points for the capture gate: the fit's posterior
         # widths (floored, see identifiability_report) turned into a grid
         # of perturbations spanning +-1 sigma of the applied values.
-        self._identified_physical_sigma_points = physics_sigma_points(
-            outcome.applied,
-            outcome.report,
-            physical_specs,
-            num_points=CFG.agent_plan_validation_physics_margin_points)
+        self._identified_physical_sigma_points = self._physics_margin_points(
+            outcome.applied, outcome.report, physical_specs)
         if self._identified_physical_sigma_points:
             logger.info("Physics-margin points for capture validation: %s",
                         [{k: f"{v:.4f}"
@@ -2428,6 +2756,25 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                         "interaction that excites this parameter and "
                         "little else would collapse the hull.")
                 continue
+            belief = entry.get("belief_interval")
+            if verdict is Verdict.WIDE and belief is not None:
+                anchor = entry.get("anchor")
+                if anchor is None:
+                    where = ""
+                elif anchor < belief[0] or anchor > belief[1]:
+                    where = (f"; the baseline {anchor:.4g} lies outside it, "
+                             "so the data already exclude the baseline")
+                else:
+                    where = f"; the baseline {anchor:.4g} lies inside it"
+                lines.append(
+                    f"- physical param '{name}': the data moved it to "
+                    f"{entry.get('map', float('nan')):.4g} but only weakly; "
+                    f"the planner's belief is the interval [{belief[0]:.4g}, "
+                    f"{belief[1]:.4g}]{where}. Plans are certified across "
+                    "the whole interval, so an experiment whose observable "
+                    "outcome DIFFERS across it would narrow the belief and "
+                    "widen the set of certifiable plans.")
+                continue
             interval = entry.get("flat_interval")
             if (verdict in (Verdict.WEAKLY_IDENTIFIED, Verdict.NOT_IDENTIFIED)
                     and interval is not None and interval[0] != interval[1]):
@@ -2462,7 +2809,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                 f"- physical param '{name}': {label}. An experiment whose "
                 "observable outcome CHANGES when this parameter changes "
                 "would identify it; if none exists, drop it from "
-                "PHYSICAL_PARAMS.")
+                "PHYSICAL_PARAM_SPECS.")
         self._last_sysid_diagnostics = ("\n".join(lines) if lines else "")
 
     def _sync_tool_context(self) -> None:
@@ -2522,10 +2869,9 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         specs: List[ParamSpec],
         base_pred_triples: List[Tuple[State, Action, State]],
         residual_features: Dict[str, List[str]],
-        num_steps: Optional[int] = None,
         lm_seed: Optional[Tuple[np.ndarray, Optional[np.ndarray]]] = None,
     ) -> Tuple[FitResult, float]:
-        """MCMC over the recurrent (per-trajectory) SSE.
+        """LM fit over the recurrent (per-trajectory) SSE.
 
         Counterpart to :func:`fitting.fit_rule_parameters` for rules
         that carry a latent block. Re-groups the flat
@@ -2547,7 +2893,6 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                                           groups,
                                           self._latent_init,
                                           residual_features,
-                                          num_steps=num_steps,
                                           lm_seed=lm_seed)
 
     def _oracle_param_sse_recurrent(
@@ -2684,7 +3029,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             "_build_latent_combined_simulator called before rules loaded")
         rules: List = self._residual_rules
         latent_init = self._latent_init
-        # Reference the dict (not its values) so MCMC param updates are
+        # Reference the dict (not its values) so fitted-param updates are
         # picked up by the closure live.
         params = self._fitted_params
         # Physics-command hand-off across sequential calls; see the
@@ -2766,16 +3111,9 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         one-off PyBullet jitter from leaking base-handled features into the set.
         """
         del obs_triples  # objects are identical across both triple lists
-        pairs = [(s_base, s_obs) for s_base, _, s_obs in base_pred_triples]
         hits: Dict[Tuple[str, str], int] = {}
-        for _, _, tn, feat, pred, obs in iter_feature_residuals(pairs):
-            if abs(pred - obs) > rel_tol * abs(obs) + abs_tol:
-                hits[(tn, feat)] = hits.get((tn, feat), 0) + 1
-        out: Dict[str, List[str]] = {}
-        for (t, f), n in hits.items():
-            if n >= min_hits:
-                out.setdefault(t, []).append(f)
-        return {t: sorted(fs) for t, fs in out.items()}
+        count_residual_hits(base_pred_triples, hits, abs_tol, rel_tol)
+        return residual_hint_from_hits(hits, min_hits)
 
     @staticmethod
     def _log_feature_set_diff(
@@ -2820,22 +3158,55 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         """Build the ``evaluate_trajectory`` helper exposed in the synthesis
         exec namespace (next to ``is_goal_state``).
 
-        The returned function scores a concrete state sequence with the
-        task's env-defined ``TaskEvaluator`` and returns only the public
-        pair (dict of reward/solved) - never the evaluator itself, and
-        never the certificate's internal legitimacy verdict or reason
-        (the agent infers the scoring rules from the stated objective
-        and the outcomes it observes; goal-atom termination it can
-        check itself via ``is_goal_state``). ``actions`` may be
-        ``Action`` objects (labeled via their producing options),
-        pre-built ``(option_name, object_names[, params])`` labels, or
-        ``None`` (kinematics-only scoring).
+        The returned function is the task's reward model: it scores a
+        concrete state sequence with the task's env-defined
+        ``TaskEvaluator`` and returns the public triple (dict of
+        reward/solved/note) - never the evaluator itself, and never the
+        certificate's internal legitimacy verdict or reason (the agent
+        infers the scoring rules from the stated objective and the
+        outcomes it observes; goal-atom termination it can check itself
+        via ``is_goal_state``). A certificate that needs physics (the
+        domino counterfactual push) gets the approach's planning base
+        env, i.e. the agent's belief simulator at its current fit, so
+        on a sequence the agent assembled the verdict is a prediction
+        of that model; ``note`` says what it replayed and on what.
+        ``actions`` may be ``Action`` objects (labeled via their
+        producing options), pre-built ``(option_name, object_names[,
+        params])`` labels with ``None`` for an unlabeled transition, or
+        ``None`` (no labels: a replaying certificate then falls back to
+        its canonical action).
         """
         tasks = self._train_tasks
 
         def evaluate_trajectory(states: Sequence[State],
                                 actions: Optional[Sequence[Any]] = None,
-                                task_idx: int = 0) -> Dict[str, Any]:
+                                task_idx: int = 0,
+                                physics_sweep: bool = False) -> Dict[str, Any]:
+            """Score ``states`` with the task's reward model.
+
+            ``states``: the sequence, ``states[t]`` before action ``t``.
+            ``actions``: the recorded ``Action`` objects, or one label
+            per transition, ``(option_name, (object_name, ...),
+            (param, ...))``, ``None`` for a transition you do not
+            attribute to a skill; omit for no labels. A rule that
+            replays an action replays the labeled one with its
+            parameters, and its canonical action when the sequence
+            carries none. Returns ``{"reward", "solved", "note"}``;
+            ``note`` says what a replaying rule simulated and on which
+            substrate ("" when nothing was replayed). On a rollout of
+            your simulator, or a sequence you assembled, the substrate
+            is your belief simulator at its current fit.
+
+            ``physics_sweep=True`` also scores the sequence at every
+            point of the identified physical parameters' belief
+            interval (the same grid ``sim.run(physics_sweep=True)`` and
+            the capture gate use), each on a fresh env at that physics,
+            and adds ``sweep``: the per-point verdicts and the fraction
+            scored solved. A verdict that replays physics can flip
+            across the interval; a sequence is certified only when it
+            is scored a solve at every point. ``sweep`` is None with a
+            note when no identified parameter carries a width.
+            """
             if not 0 <= task_idx < len(tasks):
                 raise ValueError(f"task_idx {task_idx} out of range "
                                  f"(0-{len(tasks) - 1}).")
@@ -2858,12 +3229,56 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                                            sim_env=getattr(
                                                self._option_model, "sim_env",
                                                None))
-            return {
+            result = {
                 "reward": verdict["reward"],
                 "solved": verdict["solved"],
+                "note": verdict.get("note", ""),
             }
+            if physics_sweep:
+                result["sweep"] = self._sweep_evaluation(
+                    evaluator, list(states), step_options)
+            return result
 
         return evaluate_trajectory
+
+    def _sweep_evaluation(self, evaluator: Any, states: List[State],
+                          step_options: Optional[Sequence[Any]]) -> Any:
+        """``evaluate_trajectory``'s ``physics_sweep``: the verdict at every
+        physics-margin point on a fresh env at that physics, and the fraction
+        scored solved; None with a note when there is nothing to sweep."""
+        points = list(self._identified_physical_sigma_points)
+        if not points:
+            return None
+        per_point: List[Dict[str, Any]] = []
+        for point in points:
+            with self._fresh_validation_env_scope(physical_overrides=point):
+                try:
+                    verdict = evaluate_states_with(evaluator,
+                                                   states,
+                                                   step_options,
+                                                   sim_env=getattr(
+                                                       self._option_model,
+                                                       "sim_env", None))
+                    entry = {
+                        "params": dict(point),
+                        "solved": bool(verdict["solved"]),
+                        "reward": float(verdict["reward"]),
+                        "note": str(verdict.get("note") or ""),
+                    }
+                except Exception as e:  # pylint: disable=broad-except
+                    entry = {
+                        "params": dict(point),
+                        "solved": None,
+                        "reward": None,
+                        "note": f"verdict failed: {e}",
+                    }
+            per_point.append(entry)
+        solved = sum(1 for p in per_point if p["solved"])
+        return {
+            "points": per_point,
+            "solved_fraction": solved / len(per_point),
+            "certified": solved == len(per_point),
+        }
 
     @staticmethod
     def _format_trajectory_listing(
@@ -2967,25 +3382,35 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             return None, None, None, None
 
         rules, specs, features = read_simulator_components(ns)
-        # A physics-only artifact (PHYSICAL_PARAMS with no residual rules)
-        # is valid: the base sim carries all the dynamics once its
-        # parameters are identified, so rules/specs default to empty.
+        residual_env_cls = read_residual_env(ns)
+        # A physics-only artifact (PHYSICAL_PARAM_SPECS with no residual
+        # rules) or a subclass artifact (RESIDUAL_ENV, whose overridden
+        # _domain_specific_step is the dynamics) is valid without
+        # RESIDUAL_RULES/PARAM_SPECS: the base sim / subclass carries all
+        # the dynamics once its parameters are identified, so rules/specs
+        # default to empty.
         physics_only = read_physical_param_specs(ns) is not None
+        allow_no_rules = physics_only or residual_env_cls is not None
         if rules is None:
-            if not physics_only:
+            if not allow_no_rules:
                 logger.warning("Simulator file %s missing RESIDUAL_RULES.",
                                path)
                 return None, None, None, ns
             rules = []
         if specs is None:
-            if not physics_only:
+            if not allow_no_rules:
                 logger.warning("Simulator file %s missing PARAM_SPECS.", path)
                 return None, None, None, ns
             specs = []
+        # The subclass declares the features it owns on the class; use it
+        # as the fallback when the file omits the module-level export.
+        if residual_env_cls is not None and features is None:
+            features = getattr(residual_env_cls, "RESIDUAL_FEATURES", None)
 
+        kind = (" (subclass artifact)" if residual_env_cls is not None else
+                " (physics-only artifact)" if physics_only else "")
         logger.info("Loaded %d rules, %d param specs from %s%s.", len(rules),
-                    len(specs), path,
-                    " (physics-only artifact)" if physics_only else "")
+                    len(specs), path, kind)
         return rules, specs, features, ns
 
     # ── Static helpers ───────────────────────────────────────────
@@ -3062,6 +3487,22 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
 
     def _recreate_base_env(self) -> None:
         """Reconnect after a PyBullet physics-server crash."""
+        self._rebuild_base_env("PyBullet physics client crashed; recreating "
+                               "base env")
+
+    def _rebuild_base_env(self, reason: str) -> None:
+        """Dispose the current base env and build a fresh planning base env.
+
+        Shared by the PyBullet-crash recovery
+        (:meth:`_recreate_base_env`) and the subclass-form install
+        (:meth:`_install_residual_env_cls`): both need a fresh env from
+        :meth:`_make_planning_base_env` (the stock base sim, or an
+        instance of the agent's ``RESIDUAL_ENV`` subclass when one is
+        installed) with the identified physical params re-applied (the
+        in-place override does not survive env recreation) and the
+        option model's certificate env and probe substrate re-pointed at
+        the new instance.
+        """
         try:
             # dispose_env releases the secondary probe world too; the
             # domino override disposes it BEFORE the (possibly dead)
@@ -3069,13 +3510,9 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             dispose_env(self._base_env)
         except Exception:  # pylint: disable=broad-except  # client may already be dead
             pass
-        logging.warning(
-            "PyBullet physics client crashed; recreating base env "
-            "(use_gui=%s).", CFG.option_model_use_gui)
-        self._base_env = create_new_env(CFG.env,
-                                        do_cache=False,
-                                        use_gui=CFG.option_model_use_gui,
-                                        skip_residual_dynamics=True)
+        logging.warning("%s (use_gui=%s).", reason, CFG.option_model_use_gui)
+        self._base_env = self._make_planning_base_env(
+            use_gui=CFG.option_model_use_gui)
         # A fresh env comes up with built-in physics; re-assert any
         # identified physical params (the in-place override does not
         # survive env recreation).
@@ -3091,6 +3528,42 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # The probe's combined substrate rides on the env instance too.
         self._base_env.probe_process_model_factory = \
             self._make_probe_process_model_factory()
+
+    def _install_residual_env_cls(self,
+                                  residual_env_cls: Optional[type],
+                                  content_key: Optional[str] = None) -> None:
+        """Install (or clear) the subclass model form's base-env class.
+
+        The subclass model form (``simulator.py`` exports ``RESIDUAL_ENV``)
+        supplies its dynamics by overriding ``_domain_specific_step``, so
+        the planning base env must be an INSTANCE of the subclass
+        (``skip_residual_dynamics`` False) rather than the stock base sim:
+        then the deployed option model, the combined simulator and the
+        rollout system-ID all step the agent's dynamics, and the fit
+        identifies its ``AGENT_PARAM_SPECS``. Clearing it (``None``, the
+        rule form and every stock arm) restores the stock base sim.
+
+        ``content_key`` (the simulator.py SHA256) makes the install
+        idempotent across the many re-execs of one file within a session:
+        each exec defines a fresh class object, so an identity check would
+        rebuild the base env every probe/fit call. When the key is
+        unchanged the existing base env (whose class carries the identical
+        code) is kept; a genuine edit changes the key and rebuilds. A
+        ``None`` key forces a rebuild whenever the class presence changes
+        (the once-per-cycle finalize/rehydrate paths).
+        """
+        cur_cls = getattr(self, "_residual_env_cls", None)
+        cur_key = getattr(self, "_residual_env_key", None)
+        unchanged = ((residual_env_cls is None and cur_cls is None) or
+                     (residual_env_cls is not None and cur_cls is not None
+                      and content_key is not None and content_key == cur_key))
+        if unchanged:
+            return
+        self._residual_env_cls = residual_env_cls
+        self._residual_env_key = content_key
+        self._rebuild_base_env(
+            "Installing subclass model base env" if residual_env_cls
+            is not None else "Restoring stock base env (no subclass model)")
 
     @contextmanager
     def _fresh_validation_env_scope(
@@ -3123,10 +3596,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         including the replacement env a mid-rollout PyBullet-crash
         recovery (``_recreate_base_env``) may have installed.
         """
-        fresh = create_new_env(CFG.env,
-                               do_cache=False,
-                               use_gui=False,
-                               skip_residual_dynamics=True)
+        fresh = self._make_planning_base_env(use_gui=False)
         if self._identified_physical_params:
             fresh.apply_physical_param_overrides(
                 self._identified_physical_params)
@@ -3310,7 +3780,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         ``CFG.partially_observable``, which also swaps the env's
         observation and the GT simulator module, so prompt and world
         never disagree; under the flag only the recurrent 5-arg form is
-        shown), the optional PHYSICAL_PARAMS section (env parameter
+        shown), the optional PHYSICAL_PARAM_SPECS section (env parameter
         menu), the scene-visualization hint, and the subclass extras.
         """
         return learn_prompts.build_learn_system_prompt(
@@ -3321,6 +3791,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             extra_sections=self._extra_synthesis_system_prompt_sections(),
             latent_extra_sections=self._extra_synthesis_latent_sections(),
             workflow_extra=self._synthesis_workflow_extra(),
+            declared_params_only=CFG.agent_sim_learn_declared_params_only,
         )
 
     def _synthesis_workflow_extra(self) -> str:
@@ -3347,7 +3818,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                 "positions where the effect did vs. did not fire")
 
     def _physical_params_prompt_section(self) -> str:
-        """Markdown for the optional PHYSICAL_PARAMS (system-ID) block.
+        """Markdown for the optional PHYSICAL_PARAM_SPECS (system-ID) block.
 
         Built from the base env's revealed parameter menu
         (``get_physical_param_info``); empty when the env reveals none,
@@ -3371,6 +3842,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         doesn't contradict it.
         """
         if CFG.partially_observable:
+            # The example's body reads `state`; bind it so the recurrent
+            # form is a runnable rule, not a signature over a foreign name.
             return ("def residual_rule(observation, latent, history, "
-                    "updates, params):")
+                    "updates, params):\n    state = observation")
         return "def residual_rule(state, updates, params):"

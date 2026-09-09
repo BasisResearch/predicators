@@ -43,7 +43,6 @@ dependencies = [
     "psutil",
     "claude-agent-sdk>=0.1.73",
     "nest_asyncio",
-    "emcee",
     "open3d",
     "cotracker",
     # gym_sokoban (below) does `import pkg_resources`, which setuptools

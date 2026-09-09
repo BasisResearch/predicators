@@ -5,6 +5,7 @@ from predicators.agent_sdk.config import ToolSurfaceConfig
 from predicators.agent_sdk.tools.context import ToolContext
 from predicators.agent_sdk.tools.python_exec import _make_python_exec_tool
 from predicators.agent_sdk.tools.results import _region_syntax_blurb
+from predicators.settings import CFG
 
 
 def belief_probe_blurb(synthesis_probe: bool) -> str:
@@ -33,12 +34,16 @@ def belief_probe_blurb(synthesis_probe: bool) -> str:
             "feature overrides (`mods={'obj': {'x': 1.05}}`); ")
         task_desc = ("`sim.task(task_idx)` describes a train task (goal, "
                      "objects, initial atoms and state) without touching "
-                     "the current state; "
-                     "`sim.fit(traj_idxs=None, fixed=None)` MCMC-fits "
+                     "the current state; " +
+                     ("`sim.fit` is DISABLED in this run (parameter "
+                      "estimation is off: every parameter is used as "
+                      "declared - see the system prompt); "
+                      if CFG.agent_sim_learn_declared_params_only else "") +
+                     "`sim.fit(traj_idxs=None, fixed=None)` fits "
                      "PARAM_SPECS (loaded fresh from simulator.py) against "
                      "the recorded data and returns the report (SSE "
                      "init->fit, fitted values, identifiability when "
-                     "PHYSICAL_PARAMS is declared). No arguments = the "
+                     "PHYSICAL_PARAM_SPECS is declared). No arguments = the "
                      "CANONICAL fit the probe deploys (system-ID values "
                      "applied to the planning env); traj_idxs (subset of "
                      "trajectories; on the system-ID path a "
@@ -73,7 +78,7 @@ def belief_probe_blurb(synthesis_probe: bool) -> str:
                      "registry) but it is the ONLY residual view that can "
                      "see physical-parameter error - run one (e.g. "
                      "sweep_params='all') BEFORE deciding whether to "
-                     "declare PHYSICAL_PARAMS, in either direction; ")
+                     "declare PHYSICAL_PARAM_SPECS, in either direction; ")
     else:
         sim_desc = "`sim` (a BeliefProbe over the belief simulator)"
         reset_desc = (
@@ -106,7 +111,11 @@ def belief_probe_blurb(synthesis_probe: bool) -> str:
             "unmodified reset() state) also scores each trial with the "
             "TASK EVALUATOR (per-trial solved/reward) - reaching the goal "
             "atoms is NOT the same as being scored a solve, so check this "
-            "BEFORE submitting; contacts=True (single run) reports, per "
+            "BEFORE submitting; under a declared observation-noise channel "
+            "belief_draws=K rolls the plan from K draws of where the "
+            "objects may really be (the belief the last observation "
+            "showed) and `sim.belief()` lists that belief with the atoms "
+            "it is unsure about; contacts=True (single run) reports, per "
             "step, which robot links touched which objects and which "
             "object pairs touched, with action spans - use it to verify "
             "WHAT caused motion (e.g. an intended push vs. the arm "

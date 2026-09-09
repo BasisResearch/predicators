@@ -1,0 +1,622 @@
+{
+  "generated_by": "make_figures.py; do not edit manually",
+  "observed_at": "2026-09-08T13:05:10.283352+00:00",
+  "rows": [
+    {
+      "domain": "Domino",
+      "noise": "No noise",
+      "arm": "MB",
+      "historical_unsanitized": false,
+      "runs": [
+        {
+          "seed": 0,
+          "source": "logs/agent_continual/domino_high_friction_turn-agent_continual_m4/seed0/run_20260906_065659/scorecard.json",
+          "source_git_sha": "04f0f7d1f091",
+          "finished_at": 1788697004.632807,
+          "end_reason": "all_levels_won",
+          "levels_solved": 2,
+          "levels_total": 2,
+          "steps": 297,
+          "resets": 0,
+          "noise_sigmas": {
+            "position_m": 0.0,
+            "orientation_rad": 0.0,
+            "scalar": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "domain": "Domino",
+      "noise": "No noise",
+      "arm": "MF",
+      "historical_unsanitized": false,
+      "runs": [
+        {
+          "seed": 0,
+          "source": "logs/agent_continual_model_free/domino_high_friction_turn-agent_continual_model_free_m4/seed0/run_20260906_065647/scorecard.json",
+          "source_git_sha": "04f0f7d1f091",
+          "finished_at": 1788696958.5550444,
+          "end_reason": "agent_ended",
+          "levels_solved": 1,
+          "levels_total": 2,
+          "steps": 555,
+          "resets": 0,
+          "noise_sigmas": {
+            "position_m": 0.0,
+            "orientation_rad": 0.0,
+            "scalar": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "domain": "Domino",
+      "noise": "Pose 0.5 cm / 0.02 rad",
+      "arm": "MB",
+      "historical_unsanitized": false,
+      "runs": [
+        {
+          "seed": 0,
+          "source": "logs/agent_continual/domino_high_friction_turn-agent_continual_noise5mm/seed0/run_20260907_071102/scorecard.json",
+          "source_git_sha": "ab100053b757",
+          "finished_at": 1788791608.9556987,
+          "end_reason": "all_levels_won",
+          "levels_solved": 2,
+          "levels_total": 2,
+          "steps": 397,
+          "resets": 0,
+          "noise_sigmas": {
+            "position_m": 0.005,
+            "orientation_rad": 0.02,
+            "scalar": 0.0
+          }
+        },
+        {
+          "seed": 1,
+          "source": "logs/agent_continual/domino_high_friction_turn-agent_continual_noise5mm/seed1/run_20260907_071102/scorecard.json",
+          "source_git_sha": "ab100053b757",
+          "finished_at": 1788789539.9012415,
+          "end_reason": "all_levels_won",
+          "levels_solved": 2,
+          "levels_total": 2,
+          "steps": 526,
+          "resets": 0,
+          "noise_sigmas": {
+            "position_m": 0.005,
+            "orientation_rad": 0.02,
+            "scalar": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "domain": "Domino",
+      "noise": "Pose 0.5 cm / 0.02 rad",
+      "arm": "MF",
+      "historical_unsanitized": false,
+      "runs": [
+        {
+          "seed": 0,
+          "source": "logs/agent_continual_model_free/domino_high_friction_turn-agent_continual_model_free_noise5mm/seed0/run_20260907_071623/scorecard.json",
+          "source_git_sha": "ab100053b757",
+          "finished_at": 1788785981.562519,
+          "end_reason": "level_lost",
+          "levels_solved": 1,
+          "levels_total": 2,
+          "steps": 1153,
+          "resets": 0,
+          "noise_sigmas": {
+            "position_m": 0.005,
+            "orientation_rad": 0.02,
+            "scalar": 0.0
+          }
+        },
+        {
+          "seed": 1,
+          "source": "logs/agent_continual_model_free/domino_high_friction_turn-agent_continual_model_free_noise5mm/seed1/run_20260907_071059/scorecard.json",
+          "source_git_sha": "ab100053b757",
+          "finished_at": 1788784322.617621,
+          "end_reason": "agent_ended",
+          "levels_solved": 1,
+          "levels_total": 2,
+          "steps": 652,
+          "resets": 0,
+          "noise_sigmas": {
+            "position_m": 0.005,
+            "orientation_rad": 0.02,
+            "scalar": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "domain": "Domino",
+      "noise": "Pose 1 cm / 0.04 rad",
+      "arm": "MB",
+      "historical_unsanitized": false,
+      "runs": [
+        {
+          "seed": 0,
+          "source": "logs/agent_continual/domino_high_friction_turn-agent_continual_noise10mm/seed0/run_20260907_102757/scorecard.json",
+          "source_git_sha": "ab100053b757",
+          "finished_at": 1788810983.6043532,
+          "end_reason": "agent_ended",
+          "levels_solved": 1,
+          "levels_total": 2,
+          "steps": 786,
+          "resets": 0,
+          "noise_sigmas": {
+            "position_m": 0.01,
+            "orientation_rad": 0.04,
+            "scalar": 0.0
+          }
+        },
+        {
+          "seed": 1,
+          "source": "logs/agent_continual/domino_high_friction_turn-agent_continual_noise10mm/seed1/run_20260907_102752/scorecard.json",
+          "source_git_sha": "ab100053b757",
+          "finished_at": 1788810772.1956031,
+          "end_reason": "agent_ended",
+          "levels_solved": 1,
+          "levels_total": 2,
+          "steps": 528,
+          "resets": 0,
+          "noise_sigmas": {
+            "position_m": 0.01,
+            "orientation_rad": 0.04,
+            "scalar": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "domain": "Domino",
+      "noise": "Pose 1 cm / 0.04 rad",
+      "arm": "MF",
+      "historical_unsanitized": false,
+      "runs": [
+        {
+          "seed": 0,
+          "source": "logs/agent_continual_model_free/domino_high_friction_turn-agent_continual_model_free_noise10mm/seed0/run_20260907_102801/scorecard.json",
+          "source_git_sha": "ab100053b757",
+          "finished_at": 1788802596.7476614,
+          "end_reason": "agent_ended",
+          "levels_solved": 1,
+          "levels_total": 2,
+          "steps": 858,
+          "resets": 0,
+          "noise_sigmas": {
+            "position_m": 0.01,
+            "orientation_rad": 0.04,
+            "scalar": 0.0
+          }
+        },
+        {
+          "seed": 1,
+          "source": "logs/agent_continual_model_free/domino_high_friction_turn-agent_continual_model_free_noise10mm/seed1/run_20260907_102757/scorecard.json",
+          "source_git_sha": "ab100053b757",
+          "finished_at": 1788802010.1432374,
+          "end_reason": "agent_ended",
+          "levels_solved": 1,
+          "levels_total": 2,
+          "steps": 1719,
+          "resets": 0,
+          "noise_sigmas": {
+            "position_m": 0.01,
+            "orientation_rad": 0.04,
+            "scalar": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "domain": "Domino",
+      "noise": "Pose 1 cm / 0.04 rad",
+      "arm": "MB + uncertainty",
+      "historical_unsanitized": false,
+      "runs": [
+        {
+          "seed": 0,
+          "source": "logs/agent_continual/domino_high_friction_turn-agent_continual_noise10mm_v2/seed0/run_20260908_063304/scorecard.json",
+          "source_git_sha": "88df0b68b38f",
+          "finished_at": 1788870321.182049,
+          "end_reason": "all_levels_won",
+          "levels_solved": 2,
+          "levels_total": 2,
+          "steps": 436,
+          "resets": 0,
+          "noise_sigmas": {
+            "position_m": 0.01,
+            "orientation_rad": 0.04,
+            "scalar": 0.0
+          }
+        },
+        {
+          "seed": 1,
+          "source": "logs/agent_continual/domino_high_friction_turn-agent_continual_noise10mm_v2/seed1/run_20260908_063304/scorecard.json",
+          "source_git_sha": "88df0b68b38f",
+          "finished_at": 1788869266.2863991,
+          "end_reason": "all_levels_won",
+          "levels_solved": 2,
+          "levels_total": 2,
+          "steps": 317,
+          "resets": 0,
+          "noise_sigmas": {
+            "position_m": 0.01,
+            "orientation_rad": 0.04,
+            "scalar": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "domain": "Domino",
+      "noise": "Pose 2 cm / 0.08 rad",
+      "arm": "MB",
+      "historical_unsanitized": false,
+      "runs": [
+        {
+          "seed": 0,
+          "source": "logs/agent_continual/domino_high_friction_turn-agent_continual_noise20mm/seed0/run_20260907_110211/scorecard.json",
+          "source_git_sha": "ab100053b757",
+          "finished_at": 1788830098.5997086,
+          "end_reason": "agent_ended",
+          "levels_solved": 1,
+          "levels_total": 2,
+          "steps": 660,
+          "resets": 0,
+          "noise_sigmas": {
+            "position_m": 0.02,
+            "orientation_rad": 0.08,
+            "scalar": 0.0
+          }
+        },
+        {
+          "seed": 1,
+          "source": "logs/agent_continual/domino_high_friction_turn-agent_continual_noise20mm/seed1/run_20260907_110211/scorecard.json",
+          "source_git_sha": "ab100053b757",
+          "finished_at": 1788850842.7123497,
+          "end_reason": "agent_ended",
+          "levels_solved": 1,
+          "levels_total": 2,
+          "steps": 402,
+          "resets": 0,
+          "noise_sigmas": {
+            "position_m": 0.02,
+            "orientation_rad": 0.08,
+            "scalar": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "domain": "Domino",
+      "noise": "Pose 2 cm / 0.08 rad",
+      "arm": "MF",
+      "historical_unsanitized": false,
+      "runs": [
+        {
+          "seed": 0,
+          "source": "logs/agent_continual_model_free/domino_high_friction_turn-agent_continual_model_free_noise20mm/seed0/run_20260907_110209/scorecard.json",
+          "source_git_sha": "ab100053b757",
+          "finished_at": 1788815177.705298,
+          "end_reason": "level_lost",
+          "levels_solved": 1,
+          "levels_total": 2,
+          "steps": 926,
+          "resets": 0,
+          "noise_sigmas": {
+            "position_m": 0.02,
+            "orientation_rad": 0.08,
+            "scalar": 0.0
+          }
+        },
+        {
+          "seed": 1,
+          "source": "logs/agent_continual_model_free/domino_high_friction_turn-agent_continual_model_free_noise20mm/seed1/run_20260907_110218/scorecard.json",
+          "source_git_sha": "ab100053b757",
+          "finished_at": 1788828870.2054126,
+          "end_reason": "agent_ended",
+          "levels_solved": 1,
+          "levels_total": 2,
+          "steps": 1555,
+          "resets": 0,
+          "noise_sigmas": {
+            "position_m": 0.02,
+            "orientation_rad": 0.08,
+            "scalar": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "domain": "Boil",
+      "noise": "No noise",
+      "arm": "MB",
+      "historical_unsanitized": true,
+      "runs": [
+        {
+          "seed": 0,
+          "source": "logs/agent_continual/boil-agent_continual_m3/seed0/run_20260905_151521/scorecard.json",
+          "source_git_sha": "547b26dba5b2",
+          "finished_at": 1788637581.989689,
+          "end_reason": "all_levels_won",
+          "levels_solved": 2,
+          "levels_total": 2,
+          "steps": 524,
+          "resets": 0,
+          "noise_sigmas": {
+            "position_m": 0.0,
+            "orientation_rad": 0.0,
+            "scalar": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "domain": "Boil",
+      "noise": "No noise",
+      "arm": "MF",
+      "historical_unsanitized": true,
+      "runs": [
+        {
+          "seed": 0,
+          "source": "logs/agent_continual_model_free/boil-agent_continual_model_free_m3/seed0/run_20260905_151453/scorecard.json",
+          "source_git_sha": "547b26dba5b2",
+          "finished_at": 1788641174.3459313,
+          "end_reason": "all_levels_won",
+          "levels_solved": 2,
+          "levels_total": 2,
+          "steps": 4648,
+          "resets": 8,
+          "noise_sigmas": {
+            "position_m": 0.0,
+            "orientation_rad": 0.0,
+            "scalar": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "domain": "Boil",
+      "noise": "Pose 1.25 cm / 0.05 rad",
+      "arm": "MB",
+      "historical_unsanitized": false,
+      "runs": [
+        {
+          "seed": 0,
+          "source": "logs/agent_continual/boil-agent_continual_noise12mm_r2/seed0/run_20260907_152906/scorecard.json",
+          "source_git_sha": "ab100053b757",
+          "finished_at": 1788810875.629023,
+          "end_reason": "all_levels_won",
+          "levels_solved": 2,
+          "levels_total": 2,
+          "steps": 701,
+          "resets": 0,
+          "noise_sigmas": {
+            "position_m": 0.0125,
+            "orientation_rad": 0.05,
+            "scalar": 0.0
+          }
+        },
+        {
+          "seed": 1,
+          "source": "logs/agent_continual/boil-agent_continual_noise12mm_r2/seed1/run_20260907_152905/scorecard.json",
+          "source_git_sha": "ab100053b757",
+          "finished_at": 1788811472.3544831,
+          "end_reason": "all_levels_won",
+          "levels_solved": 2,
+          "levels_total": 2,
+          "steps": 1171,
+          "resets": 1,
+          "noise_sigmas": {
+            "position_m": 0.0125,
+            "orientation_rad": 0.05,
+            "scalar": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "domain": "Boil",
+      "noise": "Pose 1.25 cm / 0.05 rad",
+      "arm": "MF",
+      "historical_unsanitized": false,
+      "runs": [
+        {
+          "seed": 0,
+          "source": "logs/agent_continual_model_free/boil-agent_continual_model_free_noise12mm/seed0/run_20260907_102802/scorecard.json",
+          "source_git_sha": "ab100053b757",
+          "finished_at": 1788812032.0025866,
+          "end_reason": "all_levels_won",
+          "levels_solved": 2,
+          "levels_total": 2,
+          "steps": 5409,
+          "resets": 18,
+          "noise_sigmas": {
+            "position_m": 0.0125,
+            "orientation_rad": 0.05,
+            "scalar": 0.0
+          }
+        },
+        {
+          "seed": 1,
+          "source": "logs/agent_continual_model_free/boil-agent_continual_model_free_noise12mm/seed1/run_20260907_102905/scorecard.json",
+          "source_git_sha": "ab100053b757",
+          "finished_at": 1788807942.7785141,
+          "end_reason": "all_levels_won",
+          "levels_solved": 2,
+          "levels_total": 2,
+          "steps": 1525,
+          "resets": 0,
+          "noise_sigmas": {
+            "position_m": 0.0125,
+            "orientation_rad": 0.05,
+            "scalar": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "domain": "Boil",
+      "noise": "Pose 2.5 cm / 0.10 rad",
+      "arm": "MB",
+      "historical_unsanitized": false,
+      "runs": [
+        {
+          "seed": 0,
+          "source": "logs/agent_continual/boil-agent_continual_noise25mm/seed0/run_20260907_160038/scorecard.json",
+          "source_git_sha": "ab100053b757",
+          "finished_at": 1788812720.9046767,
+          "end_reason": "all_levels_won",
+          "levels_solved": 2,
+          "levels_total": 2,
+          "steps": 527,
+          "resets": 0,
+          "noise_sigmas": {
+            "position_m": 0.025,
+            "orientation_rad": 0.1,
+            "scalar": 0.0
+          }
+        },
+        {
+          "seed": 1,
+          "source": "logs/agent_continual/boil-agent_continual_noise25mm/seed1/run_20260907_160047/scorecard.json",
+          "source_git_sha": "ab100053b757",
+          "finished_at": 1788813746.1841745,
+          "end_reason": "all_levels_won",
+          "levels_solved": 2,
+          "levels_total": 2,
+          "steps": 539,
+          "resets": 0,
+          "noise_sigmas": {
+            "position_m": 0.025,
+            "orientation_rad": 0.1,
+            "scalar": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "domain": "Boil",
+      "noise": "Pose 2.5 cm / 0.10 rad",
+      "arm": "MF",
+      "historical_unsanitized": false,
+      "runs": [
+        {
+          "seed": 0,
+          "source": "logs/agent_continual_model_free/boil-agent_continual_model_free_noise25mm/seed0/run_20260907_110211/scorecard.json",
+          "source_git_sha": "ab100053b757",
+          "finished_at": 1788851586.1744676,
+          "end_reason": "all_levels_won",
+          "levels_solved": 2,
+          "levels_total": 2,
+          "steps": 2929,
+          "resets": 1,
+          "noise_sigmas": {
+            "position_m": 0.025,
+            "orientation_rad": 0.1,
+            "scalar": 0.0
+          }
+        },
+        {
+          "seed": 1,
+          "source": "logs/agent_continual_model_free/boil-agent_continual_model_free_noise25mm/seed1/run_20260907_110212/scorecard.json",
+          "source_git_sha": "ab100053b757",
+          "finished_at": 1788825436.5441544,
+          "end_reason": "all_levels_won",
+          "levels_solved": 2,
+          "levels_total": 2,
+          "steps": 1736,
+          "resets": 2,
+          "noise_sigmas": {
+            "position_m": 0.025,
+            "orientation_rad": 0.1,
+            "scalar": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "domain": "Boil",
+      "noise": "Pose 1.25 cm / 0.05 rad + reading 0.07",
+      "arm": "MB + uncertainty",
+      "historical_unsanitized": false,
+      "runs": [
+        {
+          "seed": 0,
+          "source": "logs/agent_continual/boil-agent_continual_noise_p12_r07/seed0/run_20260908_063739/scorecard.json",
+          "source_git_sha": "b780c93d43d8",
+          "finished_at": 1788867233.9880016,
+          "end_reason": "all_levels_won",
+          "levels_solved": 2,
+          "levels_total": 2,
+          "steps": 728,
+          "resets": 0,
+          "noise_sigmas": {
+            "position_m": 0.0125,
+            "orientation_rad": 0.05,
+            "scalar": 0.07
+          }
+        },
+        {
+          "seed": 1,
+          "source": "logs/agent_continual/boil-agent_continual_noise_p12_r07/seed1/run_20260908_063739/scorecard.json",
+          "source_git_sha": "b780c93d43d8",
+          "finished_at": 1788866477.94103,
+          "end_reason": "all_levels_won",
+          "levels_solved": 2,
+          "levels_total": 2,
+          "steps": 532,
+          "resets": 0,
+          "noise_sigmas": {
+            "position_m": 0.0125,
+            "orientation_rad": 0.05,
+            "scalar": 0.07
+          }
+        }
+      ]
+    },
+    {
+      "domain": "Boil",
+      "noise": "Pose 1.25 cm / 0.05 rad + reading 0.07",
+      "arm": "MF",
+      "historical_unsanitized": false,
+      "runs": [
+        {
+          "seed": 0,
+          "source": "logs/agent_continual_model_free/boil-agent_continual_model_free_noise_p12_r07/seed0/run_20260908_063739/scorecard.json",
+          "source_git_sha": "b780c93d43d8",
+          "finished_at": 1788871831.6791015,
+          "end_reason": "agent_ended",
+          "levels_solved": 0,
+          "levels_total": 2,
+          "steps": 9961,
+          "resets": 9,
+          "noise_sigmas": {
+            "position_m": 0.0125,
+            "orientation_rad": 0.05,
+            "scalar": 0.07
+          }
+        },
+        {
+          "seed": 1,
+          "source": "logs/agent_continual_model_free/boil-agent_continual_model_free_noise_p12_r07/seed1/run_20260908_063818/scorecard.json",
+          "source_git_sha": "b780c93d43d8",
+          "finished_at": 1788867944.110451,
+          "end_reason": "agent_ended",
+          "levels_solved": 1,
+          "levels_total": 2,
+          "steps": 3114,
+          "resets": 1,
+          "noise_sigmas": {
+            "position_m": 0.0125,
+            "orientation_rad": 0.05,
+            "scalar": 0.07
+          }
+        }
+      ]
+    }
+  ]
+}

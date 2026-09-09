@@ -1,0 +1,61 @@
+# Boil under the observation-noise sweep (docs/continual-uncertainty.md,
+# section 3.2), half-tolerance point: position sigma 2.5 cm and
+# orientation sigma 0.1 rad against the burner alignment threshold of
+# 5 cm. Same arms and flags as the quarter point
+# (protocol_continual_noise_boil_12mm.yaml).
+---
+START_SEED: 0
+NUM_SEEDS: 2
+includes:
+  - common.yaml
+  - envs/all.yaml
+  - approaches/all.yaml
+ARGS:
+  - auto_resume
+FLAGS:
+  experiment_protocol: "continual"
+  continual_levels: "train_then_test"
+  continual_steps_per_level: 5000
+  continual_wall_clock_hours: 48.0
+  continual_render: True
+  continual_make_video: True
+  test_fresh_env_per_episode: True
+  continual_runs_dir: "/home/ycliang/predicators/logs"
+  log: "/home/ycliang/predicators/logs/"
+  continual_obs_noise_position: 0.025
+  continual_obs_noise_orientation: 0.1
+  continual_obs_noise_declared: True
+ENVS:
+  boil:
+    SKIP: False
+  domino_high_friction_turn:
+    SKIP: True
+  fan:
+    SKIP: True
+APPROACHES:
+  oracle:
+    SKIP: True
+  agent_continual_noise25mm:
+    NAME: "agent_continual"
+    SKIP: False
+    FLAGS:
+      agent_sdk_use_local_sandbox: True
+      partially_observable: True
+      agent_sdk_max_agent_turns_per_iteration: 10000
+      agent_sdk_image_max_px: 900
+      agent_bilevel_use_llm_initial_params: True
+      agent_solve_use_journal: True
+      agent_validation_parallel_workers: 6
+      code_sim_learning_rollout_min_posterior_width: 0.1
+      continual_max_idle_rounds: 5
+  agent_continual_model_free_noise25mm:
+    NAME: "agent_continual_model_free"
+    SKIP: False
+    FLAGS:
+      agent_sdk_use_local_sandbox: True
+      partially_observable: True
+      agent_planner_use_simulator: False
+      agent_solve_use_journal: True
+      agent_sdk_max_agent_turns_per_iteration: 10000
+      agent_sdk_image_max_px: 900
+      continual_max_idle_rounds: 5

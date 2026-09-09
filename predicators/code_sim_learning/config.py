@@ -8,20 +8,25 @@ Public entry points resolve ``config = config or SysIdConfig.from_cfg()``
 at call time - never at import time - because tests reconfigure the
 global settings via ``utils.reset_config`` between calls.
 
-``warm_start_with_lm``, ``num_mcmc_steps`` and
-``log_hessian_identifiability`` are carried here for completeness of the
-sysID knob surface, but :mod:`fitting` and :mod:`lm` keep their direct
-``CFG`` reads for them (their use is small and shared with the
-non-sysID, per-transition fitting paths).
+``warm_start_with_lm`` and ``log_hessian_identifiability`` are carried
+here for completeness of the sysID knob surface, but :mod:`fitting` and
+:mod:`lm` keep their direct ``CFG`` reads for them (their use is small
+and shared with the non-sysID, per-transition fitting paths).
 """
 
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Optional, Tuple
 
+from predicators.observation_noise import ObservationNoise
 from predicators.settings import CFG, LAUNCH_CWD
+
+# Width of the rollout objective's Gaussian likelihood on scaled
+# residuals (dimensionless fractions of typical motion): the
+# model-error floor, 5% of a feature's motion span.
+DEFAULT_NOISE_SIGMA = 0.05
 
 
 def _anchor_at_launch_cwd(path: str) -> str:
@@ -39,6 +44,14 @@ def _anchor_at_launch_cwd(path: str) -> str:
     return os.path.join(LAUNCH_CWD, path)
 
 
+def _declared_observation_noise() -> Optional[ObservationNoise]:
+    """The channel the fit may know about: enabled and declared."""
+    noise = ObservationNoise.from_cfg()
+    if noise.enabled and noise.declared:
+        return noise
+    return None
+
+
 @dataclass(frozen=True)
 class SysIdConfig:
     """Frozen view of the ``code_sim_learning_*`` flags used by sysID.
@@ -49,11 +62,15 @@ class SysIdConfig:
     """
 
     warm_start_with_lm: bool
-    num_mcmc_steps: int
     grid_seed_points: int
     grid_sweep_passes: int
     grid_refine_evals: int
     grid_flat_frac: float
+    # The interval-first parameter belief (settings
+    # code_sim_learning_interval_belief) and its flat-tolerance floor in
+    # posterior sigmas (code_sim_learning_rollout_flat_sigmas).
+    interval_belief: bool
+    flat_sigmas: float
     min_posterior_width: float
     anchor_ablation: bool
     trim_rms_factor: float
@@ -62,11 +79,20 @@ class SysIdConfig:
     feature_scale_floor: float
     sensitivity_factor: float
     segment_min_rest_steps: int
+    # The fit-side filter (settings code_sim_learning_rollout_noise_*):
+    # sigma-relative windowed motion detection and denoised segment
+    # starts under a declared channel.
+    noise_filter: bool
+    noise_window: int
+    settle_sigmas: float
     scale_residuals: bool
     huber_delta: float
     summary_weight: float
     consistency_factor: float
     log_hessian_identifiability: bool
+    # The Laplace evidence in the fit report (settings
+    # code_sim_learning_fit_evidence).
+    fit_evidence: bool
     score_observed_only: bool
     track_path: str
     onset_confirm_deg: float
@@ -77,6 +103,10 @@ class SysIdConfig:
     track_wait_s: float
     track_frame_yaw: float
     track_frame_xy: Tuple[float, float]
+    # The declared observation-noise channel, folded into the residual
+    # scales (predicators/observation_noise.py); None when observations
+    # are exact or the channel is undeclared.
+    observation_noise: Optional[ObservationNoise] = None
 
     @classmethod
     def from_cfg(cls) -> SysIdConfig:
@@ -88,13 +118,14 @@ class SysIdConfig:
         """
         return cls(
             warm_start_with_lm=CFG.code_sim_learning_warm_start_with_lm,
-            num_mcmc_steps=CFG.code_sim_learning_num_mcmc_steps,
             grid_seed_points=CFG.code_sim_learning_rollout_grid_seed_points,
             grid_sweep_passes=(
                 CFG.code_sim_learning_rollout_grid_sweep_passes),
             grid_refine_evals=(
                 CFG.code_sim_learning_rollout_grid_refine_evals),
             grid_flat_frac=CFG.code_sim_learning_rollout_grid_flat_frac,
+            interval_belief=CFG.code_sim_learning_interval_belief,
+            flat_sigmas=CFG.code_sim_learning_rollout_flat_sigmas,
             min_posterior_width=(
                 CFG.code_sim_learning_rollout_min_posterior_width),
             anchor_ablation=(CFG.code_sim_learning_rollout_anchor_ablation),
@@ -107,6 +138,9 @@ class SysIdConfig:
                 CFG.code_sim_learning_rollout_sensitivity_factor),
             segment_min_rest_steps=(
                 CFG.code_sim_learning_rollout_segment_min_rest_steps),
+            noise_filter=CFG.code_sim_learning_rollout_noise_filter,
+            noise_window=CFG.code_sim_learning_rollout_noise_window,
+            settle_sigmas=CFG.code_sim_learning_rollout_settle_sigmas,
             scale_residuals=CFG.code_sim_learning_rollout_scale_residuals,
             huber_delta=CFG.code_sim_learning_rollout_huber_delta,
             summary_weight=CFG.code_sim_learning_rollout_summary_weight,
@@ -114,6 +148,7 @@ class SysIdConfig:
                 CFG.code_sim_learning_rollout_consistency_factor),
             log_hessian_identifiability=(
                 CFG.code_sim_learning_log_hessian_identifiability),
+            fit_evidence=CFG.code_sim_learning_fit_evidence,
             score_observed_only=(
                 CFG.code_sim_learning_rollout_score_observed_only),
             track_path=_anchor_at_launch_cwd(
@@ -126,4 +161,5 @@ class SysIdConfig:
             track_wait_s=CFG.code_sim_learning_track_wait_s,
             track_frame_yaw=CFG.code_sim_learning_track_frame_yaw,
             track_frame_xy=tuple(CFG.code_sim_learning_track_frame_xy),
+            observation_noise=_declared_observation_noise(),
         )

@@ -325,6 +325,41 @@ def test_seat_weld_holds_pose(env_and_task):
     assert abs(final.get(span, "pitch")) < 0.05
 
 
+def test_seat_window_covers_measured_scatter(env_and_task):
+    """SeatedOn(span, leg) accepts a span whose centre sits 47 mm past the
+    leg's centre, and rejects one 70 mm past it.
+
+    47 mm is what a physically standing bridge measured on the seed-3
+    test (2026-09-03): 25 mm by construction (a 0.30 m row over sites
+    0.25 m apart), plus the leg's Place scatter and the row's weld
+    compression. At 60 mm the span end is still 10 mm short of the leg
+    centre, so 15 mm of the leg top carries it; at 70 mm the span end
+    is inside the leg top's far half and the joint is no seat.
+    """
+    env, task = env_and_task
+    env._set_state(task.init)
+    state = env._get_state()
+    blocks = state.get_objects(env._block_type)
+    leg = next(b for b in blocks if b.name == "leg0")
+    span = next(b for b in blocks if b.name == "span0")
+
+    def _seated_at(dx: float) -> bool:
+        s = state.copy()
+        s.set(span, "x", s.get(leg, "x") + dx)
+        s.set(span, "y", s.get(leg, "y"))
+        s.set(
+            span, "z",
+            s.get(leg, "z") + env.leg_half_extents[2] +
+            env.span_half_extents[2])
+        for feat in ("roll", "pitch", "yaw"):
+            s.set(span, feat, 0.0)
+        return env._SeatedOn_holds(s, [span, leg])
+
+    assert _seated_at(0.047)
+    assert _seated_at(-0.047)
+    assert not _seated_at(0.070)
+
+
 def test_welded_pair_does_not_creep(env_and_task):
     """A freshly welded resting pair must stay put while the scene idles.
 
@@ -405,6 +440,30 @@ def _stage_flush_pair(env, task):
     return span0, span1
 
 
+def test_latch_consumes_both_wet_faces(env_and_task):
+    """A joint whose two faces are both wet latches once and consumes both.
+
+    An attached face never cures again, so glue left on the mate would
+    be a wet flag that can never clear (the continual agent glued both
+    faces of every joint and waited 360 steps for the second flag,
+    bridge seed 0, 2026-09-04).
+    """
+    env, task = env_and_task
+    span0, span1 = _stage_flush_pair(env, task)
+    env._set_attr(span1, "glue_end_a", 1.0)
+
+    for _ in range(env.cure_threshold + 5):
+        env.step(_hold_action(env))
+    state = env._get_state()
+    assert state.get(span0, "attached_end_b") == \
+        float(env._block_index[span1.name])
+    assert state.get(span1, "attached_end_a") == \
+        float(env._block_index[span0.name])
+    assert state.get(span0, "glue_end_b") == 0.0
+    assert state.get(span1, "glue_end_a") == 0.0
+    assert set(env._weld_constraints) == {frozenset({span0.id, span1.id})}
+
+
 def test_wet_joint_is_tacked_until_it_welds(env_and_task):
     """A curing joint carries a weak tack constraint, replaced by the weld."""
     env, task = env_and_task
@@ -462,6 +521,7 @@ def test_wet_joint_survives_a_release_impulse(env_and_task):
     before = env._get_state()
     rel_before = np.array(
         [before.get(span2, f) - before.get(span1, f) for f in ("x", "y", "z")])
+    yaw_before = before.get(span2, "yaw") - before.get(span1, "yaw")
     # The shove the arm leaves behind when it releases and retreats.
     p.resetBaseVelocity(span2.id, (-2.0, 0.0, 0.0), (0.0, 0.0, 0.0),
                         physicsClientId=env._physics_client_id)
@@ -473,7 +533,9 @@ def test_wet_joint_survives_a_release_impulse(env_and_task):
     assert abs(after.get(span1, "x") - before.get(span1, "x")) > 0.005, \
         "the shove should still move the assembly"
     assert np.linalg.norm(rel_after - rel_before) < 0.001
-    assert abs(after.get(span2, "yaw") - after.get(span1, "yaw")) < 0.01
+    # The tack preserves the pose at contact, including any initial yaw.
+    yaw_after = after.get(span2, "yaw") - after.get(span1, "yaw")
+    assert abs(yaw_after - yaw_before) < 0.01
     assert after.get(span1, "attached_end_b") == \
         float(env._block_index[span2.name])
 
@@ -615,8 +677,8 @@ def test_degenerate_top_edge_grasp_fails_honestly():
 
 
 def test_goal_is_fully_observable(env_and_task):
-    """The task goal contains no Attached atoms: it pins the geometric layout
-    only, so a learned belief model can represent every goal atom without
+    """The task goal is the one geometric layout atom, Bridged(site0, site1),
+    with no Attached atom: a learned belief model can represent it without
     access to the hidden attachment state.
 
     The row welds the goal implies are certified physically instead (see
@@ -624,9 +686,59 @@ def test_goal_is_fully_observable(env_and_task):
     """
     env, task = env_and_task
     goal_preds = {atom.predicate.name for atom in task.goal_description}
-    assert "Attached" not in goal_preds
-    assert {"AtSite", "SeatedOn", "NextToEnd"} <= goal_preds
-    assert "Attached" not in {p_.name for p_ in env.goal_predicates}
+    assert goal_preds == {"Bridged"}
+    assert {p_.name for p_ in env.goal_predicates} == {"Bridged"}
+    assert "Bridged" in {p_.name for p_ in env.predicates}
+
+
+def test_bridged_is_role_free(env_and_task):
+    """Bridged(site, site) accepts any block as either leg and the spans in any
+    order: the blocks are identical, and a bridge welded in the order
+    span0|span2|span1 with the legs swapped is still the bridge the NL goal
+    asks for (a name-pinned goal lost a level to exactly that layout,
+    2026-09-07 seed 2)."""
+    env, task = env_and_task
+    state = task.init.copy()
+    blocks = state.get_objects(env._block_type)
+    by_name = {b.name: b for b in blocks}
+    site0, site1 = env._sites
+    sx0, sy = state.get(site0, "x"), state.get(site0, "y")
+    sx1 = state.get(site1, "x")
+    mid = (sx0 + sx1) / 2
+    top_z = env.table_height + 2 * env.leg_half_extents[2] + \
+        env.span_half_extents[2]
+
+    def _layout(legs_at_sites, row_order):
+        s = state.copy()
+        for leg_name, sx in zip(legs_at_sites, (sx0, sx1)):
+            leg = by_name[leg_name]
+            s.set(leg, "x", sx)
+            s.set(leg, "y", sy)
+            s.set(leg, "z", env.table_height + env.leg_half_extents[2])
+        for i, span_name in enumerate(row_order):
+            span = by_name[span_name]
+            s.set(span, "x", mid + (i - 1) * 2 * env.span_half_extents[0])
+            s.set(span, "y", sy)
+            s.set(span, "z", top_z)
+            for feat in ("roll", "pitch", "yaw"):
+                s.set(span, feat, 0.0)
+        return s
+
+    bridged = next(p_ for p_ in env.predicates if p_.name == "Bridged")
+    # Name order, and the swapped-and-permuted bridge, both count.
+    for legs, row in ((("leg0", "leg1"), ("span0", "span1", "span2")),
+                      (("leg1", "leg0"), ("span2", "span0", "span1"))):
+        s = _layout(legs, row)
+        assert bridged.holds(s, [site0, site1]), (legs, row)
+        assert bridged.holds(s, [site1, site0]), (legs, row)
+    # A broken row (middle span pulled out of line) is not a bridge.
+    s = _layout(("leg1", "leg0"), ("span2", "span0", "span1"))
+    s.set(by_name["span0"], "y", sy + 0.05)
+    assert not bridged.holds(s, [site0, site1])
+    # Nor is a row resting on a single leg with the other site empty.
+    s = _layout(("leg1", "leg0"), ("span2", "span0", "span1"))
+    s.set(by_name["leg0"], "x", sx1 + 0.3)
+    assert not bridged.holds(s, [site0, site1])
 
 
 def test_settle_certificate_rejects_dry_row(env_and_task):

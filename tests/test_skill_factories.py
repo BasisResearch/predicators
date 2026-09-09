@@ -12,9 +12,10 @@ import pytest
 from gym.spaces import Box
 
 from predicators import utils
+from predicators.ground_truth_models.skill_factories import base as skill_base
 from predicators.ground_truth_models.skill_factories.base import \
-    _BIRRT_STEP_KEY, _BIRRT_TRAJ_KEY, Phase, PhaseAction, PhaseSkill, \
-    SkillConfig, _fmt_option_params
+    _BIRRT_HOLD_KEY, _BIRRT_STEP_KEY, _BIRRT_TRAJ_KEY, Phase, PhaseAction, \
+    PhaseSkill, SkillConfig, _fmt_option_params
 from predicators.ground_truth_models.skill_factories.move_to import \
     create_move_to_skill, make_move_to_phase
 from predicators.ground_truth_models.skill_factories.pick import \
@@ -31,6 +32,7 @@ from predicators.pybullet_helpers.inverse_kinematics import \
 from predicators.pybullet_helpers.objects import create_pybullet_block
 from predicators.pybullet_helpers.robots import \
     create_single_arm_pybullet_robot
+from predicators.settings import CFG
 from predicators.structs import Action, Object, ParameterizedOption, Type
 
 # ---------------------------------------------------------------------------
@@ -99,6 +101,12 @@ def _make_robot_obj() -> Object:
 
 def _make_obj() -> Object:
     return Object("obj0", _OBJ_TYPE)
+
+
+def _phases_of(opt: ParameterizedOption):
+    """The PhaseSkill phases behind a built option (its policy is the skill's
+    bound method)."""
+    return opt.policy.__self__._phases  # type: ignore[attr-defined]  # pylint: disable=protected-access
 
 
 def _build_state(
@@ -709,6 +717,249 @@ class TestBiRRT:
 
 
 # ===========================================================================
+# 4b. Executor rails: joint-jump guard, stall abort, direct paths
+# ===========================================================================
+
+
+def _flipped_action(joints, robot, delta: float) -> Action:
+    """The joints with one arm joint moved by ``delta`` (a branch flip when
+    ``delta`` is large)."""
+    arr = np.array(joints, dtype=np.float32)
+    arm_idx = next(i for i in range(len(arr))
+                   if i not in (robot.left_finger_joint_idx,
+                                robot.right_finger_joint_idx))
+    arr[arm_idx] += delta
+    return Action(arr)
+
+
+class TestExecutorRails:
+    """Rails every incremental-IK step and every direct path carries."""
+
+    def _ik_skill(self, robot, target_pos, wrist_delta=0.0, dwell_steps=0):
+        config = _make_config(robot)
+        robot_obj = _make_robot_obj()
+
+        def target_fn(state, _objects, _params, cfg):
+            del cfg
+            orn = p.getQuaternionFromEuler([
+                0,
+                state.get(robot_obj, "tilt"),
+                state.get(robot_obj, "wrist")
+            ])
+            current = Pose((state.get(robot_obj, "x"), state.get(
+                robot_obj, "y"), state.get(robot_obj, "z")), orn)
+            orn_tgt = p.getQuaternionFromEuler([
+                0,
+                state.get(robot_obj, "tilt"),
+                state.get(robot_obj, "wrist") + wrist_delta
+            ])
+            return current, Pose(target_pos, orn_tgt), "open"
+
+        phase = Phase(name="Move",
+                      action_type=PhaseAction.MOVE_TO_POSE,
+                      target_fn=target_fn,
+                      use_motion_planning=False,
+                      dwell_steps=dwell_steps)
+        skill = PhaseSkill("Rails", [_ROBOT_TYPE], Box(0, 1, (0, )), config,
+                           [phase])
+        return skill.build(), robot_obj, phase
+
+    def test_joint_jump_guard_holds_on_a_branch_flip(self, robot_scene,
+                                                     monkeypatch):
+        """An IK step that flips the arm branch (a 1 rad joint move for a plain
+        positional step) is replaced by a hold; the same move is allowed when
+        the step itself commands a wrist re-orientation of that size."""
+        _, robot = robot_scene
+        utils.reset_config({"seed": 123})
+        below = (_EE_HOME[0], _EE_HOME[1], _EE_HOME[2] - 0.05)
+        monkeypatch.setattr(
+            skill_base, "get_move_end_effector_to_pose_action", lambda **kw:
+            _flipped_action(kw["current_joint_positions"], robot, 1.0))
+        opt, robot_obj, _ = self._ik_skill(robot, below)
+        state = _make_home_state(robot_obj, robot)
+        grounded = opt.ground([robot_obj], np.zeros(0))
+        assert grounded.initiable(state)
+        held = grounded.policy(state)
+        assert np.allclose(held.arr, state.joint_positions, atol=1e-6)
+        # The same joint move with a 1.2 rad wrist re-orientation in the
+        # step is tracking, not a flip.
+        opt, robot_obj, _ = self._ik_skill(robot, below, wrist_delta=1.2)
+        grounded = opt.ground([robot_obj], np.zeros(0))
+        assert grounded.initiable(state)
+        moved = grounded.policy(state)
+        assert not np.allclose(moved.arr, state.joint_positions, atol=1e-3)
+
+    def test_plain_ik_phase_stall_aborts(self, robot_scene, monkeypatch):
+        """A plain incremental-IK phase that makes no progress aborts with the
+        stall message after the stall window, instead of looping to the
+        option's step cap."""
+        _, robot = robot_scene
+        utils.reset_config({"seed": 123})
+        below = (_EE_HOME[0], _EE_HOME[1], _EE_HOME[2] - 0.15)
+        monkeypatch.setattr(
+            skill_base, "get_move_end_effector_to_pose_action",
+            lambda **kw: Action(
+                np.array(kw["current_joint_positions"], dtype=np.float32)))
+        opt, robot_obj, _ = self._ik_skill(robot, below)
+        state = _make_home_state(robot_obj, robot)
+        grounded = opt.ground([robot_obj], np.zeros(0))
+        assert grounded.initiable(state)
+        window = PhaseSkill._ik_stall_window  # pylint: disable=protected-access
+        for _ in range(window):
+            grounded.policy(state)
+        with pytest.raises(utils.OptionExecutionFailure) as exc:
+            grounded.policy(state)
+        assert "incremental-IK stalled" in str(exc.value)
+
+    def test_holding_at_the_target_is_not_a_stall(self, robot_scene,
+                                                  monkeypatch):
+        """A dwell at the reached target outlasts the stall window without
+        aborting: there is no progress left to make."""
+        _, robot = robot_scene
+        utils.reset_config({"seed": 123})
+        monkeypatch.setattr(
+            skill_base, "get_move_end_effector_to_pose_action",
+            lambda **kw: Action(
+                np.array(kw["current_joint_positions"], dtype=np.float32)))
+        robot_obj = _make_robot_obj()
+        state = _make_home_state(robot_obj, robot)
+        at_home = (state.get(robot_obj,
+                             "x"), state.get(robot_obj,
+                                             "y"), state.get(robot_obj, "z"))
+        dwell = PhaseSkill._ik_stall_window + 10  # pylint: disable=protected-access
+        opt, robot_obj, _ = self._ik_skill(robot, at_home, dwell_steps=dwell)
+        grounded = opt.ground([robot_obj], np.zeros(0))
+        assert grounded.initiable(state)
+        for _ in range(dwell + 5):
+            grounded.policy(state)
+        assert grounded.terminal(state)
+
+    def _direct_skill(self,
+                      robot,
+                      obj,
+                      on_blocked="fail",
+                      disturbance_abort_tol=None):
+        """A direct descend at ``obj`` followed by a finger phase."""
+        config = _make_config(robot)
+
+        def target(state, _objects, _params, _cfg):
+            return (state.get(obj, "x"), state.get(obj,
+                                                   "y"), state.get(obj,
+                                                                   "z"), 0.0)
+
+        descend = make_move_to_phase(
+            "Descend",
+            target,
+            "open",
+            direct_descend=True,
+            use_motion_planning=True,
+            on_blocked=on_blocked,
+            disturbance_abort_tol=(disturbance_abort_tol))
+        fingers = Phase(name="Grasp",
+                        action_type=PhaseAction.CHANGE_FINGERS,
+                        target_fn=lambda *_: (_OPEN_STATE, _CLOSED_STATE),
+                        finger_direction="close")
+        skill = PhaseSkill("Direct", [_ROBOT_TYPE, _OBJ_TYPE],
+                           Box(0, 1, (0, )), config, [descend, fingers])
+        return skill.build(), descend
+
+    def test_direct_descend_aborts_when_its_target_moves(self, robot_scene):
+        """The target is frozen when the path is planned; once the live target
+        has moved past the tolerance the descend aborts instead of chasing
+        it."""
+        _, robot = robot_scene
+        utils.reset_config({"seed": 123})
+        robot_obj, obj = _make_robot_obj(), _make_obj()
+        below = (_EE_HOME[0], _EE_HOME[1], _EE_HOME[2] - 0.20)
+        opt, _ = self._direct_skill(robot, obj, disturbance_abort_tol=0.004)
+        state = _make_home_state(robot_obj, robot, obj=obj, obj_xyz=below)
+        grounded = opt.ground([robot_obj, obj], np.zeros(0))
+        assert grounded.initiable(state)
+        grounded.policy(state)  # plans; freezes the target
+        nudged = state.copy()
+        nudged.set(obj, "y", below[1] + 0.002)
+        grounded.policy(nudged)  # within tolerance: carries on
+        tipped = state.copy()
+        tipped.set(obj, "z", below[2] - 0.006)
+        with pytest.raises(utils.OptionExecutionFailure) as exc:
+            grounded.policy(tipped)
+        assert "disturbed its target" in str(exc.value)
+        assert "6.0 mm" in str(exc.value)
+
+    def test_replay_thins_micro_waypoints(self, robot_scene):
+        """Waypoints within the minimum command step of the current joints are
+        skipped: the first commanded action is a real move, and a planned
+        micro-step path does not cost one env step per sample."""
+        _, robot = robot_scene
+        utils.reset_config({"seed": 123})
+        robot_obj, obj = _make_robot_obj(), _make_obj()
+        below = (_EE_HOME[0], _EE_HOME[1], _EE_HOME[2] - 0.20)
+        state = _make_home_state(robot_obj, robot, obj=obj, obj_xyz=below)
+        opt, descend = self._direct_skill(robot, obj)
+        grounded = opt.ground([robot_obj, obj], np.zeros(0))
+        assert grounded.initiable(state)
+        pid = id(descend)
+        micro = [
+            list(_flipped_action(state.joint_positions, robot, 0.001 * k).arr)
+            for k in range(1, 9)
+        ]
+        real = list(_flipped_action(state.joint_positions, robot, 0.05).arr)
+        grounded.memory[_BIRRT_TRAJ_KEY.format(pid)] = micro + [real]
+        grounded.memory[_BIRRT_STEP_KEY.format(pid)] = 0
+        grounded.memory[f"birrt_finger_{pid}"] = "open"
+        action = grounded.policy(state)
+        arm = [
+            i for i in range(len(real))
+            if i not in (robot.left_finger_joint_idx,
+                         robot.right_finger_joint_idx)
+        ]
+        assert np.allclose(action.arr[arm], np.array(real)[arm], atol=1e-6)
+        assert grounded.memory[_BIRRT_STEP_KEY.format(pid)] == len(micro) + 1
+
+    def test_direct_path_blocked_advances_or_fails(self, robot_scene):
+        """A waypoint the arm cannot reach within the direct hold cap means the
+        path is blocked: ``on_blocked="advance"`` hands over to the next phase
+        from where the arm is, ``"fail"`` aborts naming the shortfall.
+
+        Neither presses on through the remaining waypoints.
+        """
+        _, robot = robot_scene
+        utils.reset_config({"seed": 123})
+        robot_obj, obj = _make_robot_obj(), _make_obj()
+        below = (_EE_HOME[0], _EE_HOME[1], _EE_HOME[2] - 0.20)
+        state = _make_home_state(robot_obj, robot, obj=obj, obj_xyz=below)
+        far = list(state.joint_positions)
+        far_action = _flipped_action(far, robot, 0.4)
+        for on_blocked, expect_failure in (("advance", False), ("fail", True)):
+            opt, descend = self._direct_skill(robot,
+                                              obj,
+                                              on_blocked=on_blocked)
+            grounded = opt.ground([robot_obj, obj], np.zeros(0))
+            assert grounded.initiable(state)
+            # The arm sits at its start while the previous waypoint (0.4
+            # rad away) has been re-commanded up to the direct hold cap.
+            pid = id(descend)
+            grounded.memory[_BIRRT_TRAJ_KEY.format(pid)] = [
+                list(far_action.arr),
+                list(far_action.arr)
+            ]
+            grounded.memory[_BIRRT_STEP_KEY.format(pid)] = 1
+            grounded.memory[f"birrt_last_cmd_{pid}"] = 0
+            grounded.memory[_BIRRT_HOLD_KEY.format(pid)] = \
+                CFG.pybullet_direct_path_max_hold_steps
+            grounded.memory[f"birrt_finger_{pid}"] = "open"
+            if expect_failure:
+                with pytest.raises(utils.OptionExecutionFailure) as exc:
+                    grounded.policy(state)
+                assert "straight path is blocked" in str(exc.value)
+                assert "out of reach" in str(exc.value)
+            else:
+                action = grounded.policy(state)
+                assert isinstance(action, Action)
+                assert grounded.memory["phase_idx"] == 1
+
+
+# ===========================================================================
 # 5. Wait option
 # ===========================================================================
 
@@ -1108,6 +1359,85 @@ class TestCreatePickSkill:
         assert isinstance(opt, ParameterizedOption)
         assert opt.name == "Pick"
 
+    def test_default_descends_fully_open(self, robot_scene):
+        """Without a half-gap callback the pick keeps its four phases and
+        descends with the fingers opening."""
+        _, robot = robot_scene
+        config = SkillConfig(
+            robot=robot,
+            open_fingers_joint=robot.open_fingers,
+            closed_fingers_joint=robot.closed_fingers,
+            fingers_state_to_joint=_fingers_state_to_joint,
+            transport_z=0.8,
+        )
+        opt = create_pick_skill(
+            name="Pick",
+            types=[_ROBOT_TYPE, _OBJ_TYPE],
+            config=config,
+            get_target_pose_fn=lambda s, o, p_, c: (1.35, 0.75, 0.4, 0.0),
+        )
+        assert [ph.name for ph in _phases_of(opt)
+                ] == ["MoveAbove", "MoveToGrasp", "Grasp", "LiftSlightly"]
+
+    def test_half_gap_adds_pre_open_and_holds_width(self, robot_scene):
+        """With a half-gap callback a PreOpen finger phase precedes the
+        descent, the descent holds the width, and the PreOpen target is half-
+        gap + half the pose tolerance, clipped to the finger range."""
+        _, robot = robot_scene
+        config = SkillConfig(
+            robot=robot,
+            open_fingers_joint=robot.open_fingers,
+            closed_fingers_joint=robot.closed_fingers,
+            fingers_state_to_joint=_fingers_state_to_joint,
+            transport_z=0.8,
+        )
+        opt = create_pick_skill(
+            name="Pick",
+            types=[_ROBOT_TYPE, _OBJ_TYPE],
+            config=config,
+            get_target_pose_fn=lambda s, o, p_, c: (1.35, 0.75, 0.4, 0.0),
+            approach_open=True,
+            descend_finger_half_gap_fn=lambda s, o, p_, c: 0.02,
+        )
+        phases = {ph.name: ph for ph in _phases_of(opt)}
+        assert list(phases) == [
+            "MoveAbove", "PreOpen", "MoveToGrasp", "Grasp", "LiftSlightly"
+        ]
+        assert phases["PreOpen"].action_type == PhaseAction.CHANGE_FINGERS
+        assert phases["PreOpen"].finger_direction == "close"
+        robot_obj = _make_robot_obj()
+        obj = _make_obj()
+        state = _make_home_state(robot_obj,
+                                 robot,
+                                 obj=obj,
+                                 obj_xyz=(1.35, 0.75, 0.4))
+        _, target = phases["PreOpen"].target_fn(state, [robot_obj, obj],
+                                                np.zeros(1, dtype=np.float32),
+                                                config)
+        expected = _fingers_state_to_joint(
+            robot, 0.02 + 0.5 * float(np.sqrt(config.move_to_pose_tol)))
+        assert abs(target - expected) < 1e-9
+        # The descent holds the pre-set width instead of opening.
+        _, _, status = phases["MoveToGrasp"].target_fn(
+            state, [robot_obj, obj], np.zeros(1, dtype=np.float32), config)
+        assert status == "hold"
+        # A half gap wider than the hand clips to fully open.
+        wide = create_pick_skill(
+            name="PickWide",
+            types=[_ROBOT_TYPE, _OBJ_TYPE],
+            config=config,
+            get_target_pose_fn=lambda s, o, p_, c: (1.35, 0.75, 0.4, 0.0),
+            approach_open=True,
+            descend_finger_half_gap_fn=lambda s, o, p_, c: 10.0,
+        )
+        _, target = {ph.name: ph
+                     for ph in _phases_of(wide)
+                     }["PreOpen"].target_fn(state, [robot_obj, obj],
+                                            np.zeros(1, dtype=np.float32),
+                                            config)
+        assert abs(target -
+                   max(robot.open_fingers, robot.closed_fingers)) < 1e-9
+
     def test_pick_policy_returns_valid_action(self, robot_scene):
         """Test pick policy returns valid action."""
         _, robot = robot_scene
@@ -1340,6 +1670,137 @@ class TestIkStallAbort:
             state = _build_state(robot_obj, robot, _EE_HOME[0] + 0.005 * i,
                                  _EE_HOME[1], _EE_HOME[2])
             skill._check_ik_stall(phase, state, memory, [robot_obj], params)  # pylint: disable=protected-access
+
+    def test_stall_with_passing_verify_completes_phase(self, robot_scene,
+                                                       caplog):
+        """A stall on a phase whose own verification already holds is accepted
+        as arrival: the phase terminates instead of aborting.
+
+        Regression for the 2026-09-02 bridge seed3 cycle-2 eval: lifting
+        the welded 3-span row settled the end effector 10.0-10.4 mm from
+        the lift target against the 10 mm terminal tolerance - the object
+        risen well past the lift-verify bar - and the abort turned a
+        sub-millimeter sag residual into episode death.
+        """
+        _, robot = robot_scene
+        target = (_EE_HOME[0] + 0.5, _EE_HOME[1], _EE_HOME[2])
+        skill, phase, robot_obj = self._make_skill_and_phase(robot, target)
+        object.__setattr__(phase, "verify_fn",
+                           lambda state, objs, params, cfg: True)
+        state = _build_state(robot_obj, robot, *_EE_HOME)
+        memory: dict = {}
+        params = np.zeros(0, dtype=np.float32)
+        for _ in range(PhaseSkill._ik_stall_window):  # pylint: disable=protected-access
+            skill._check_ik_stall(phase, state, memory, [robot_obj], params)  # pylint: disable=protected-access
+        assert not skill._phase_is_terminal(  # pylint: disable=protected-access
+            phase, state, memory, [robot_obj], params)
+        with caplog.at_level("WARNING"):
+            # Window expiry: no raise, the phase completes.
+            skill._check_ik_stall(phase, state, memory, [robot_obj], params)  # pylint: disable=protected-access
+        assert skill._phase_is_terminal(  # pylint: disable=protected-access
+            phase, state, memory, [robot_obj], params)
+        assert any("verification already passes" in r.getMessage()
+                   for r in caplog.records)
+
+    def test_stall_with_failing_verify_still_aborts(self, robot_scene):
+        """A failing verification keeps the honest stall abort."""
+        _, robot = robot_scene
+        target = (_EE_HOME[0] + 0.5, _EE_HOME[1], _EE_HOME[2])
+        skill, phase, robot_obj = self._make_skill_and_phase(robot, target)
+        object.__setattr__(phase, "verify_fn",
+                           lambda state, objs, params, cfg: False)
+        state = _build_state(robot_obj, robot, *_EE_HOME)
+        memory: dict = {}
+        params = np.zeros(0, dtype=np.float32)
+        for _ in range(PhaseSkill._ik_stall_window):  # pylint: disable=protected-access
+            skill._check_ik_stall(phase, state, memory, [robot_obj], params)  # pylint: disable=protected-access
+        with pytest.raises(utils.OptionExecutionFailure):
+            skill._check_ik_stall(phase, state, memory, [robot_obj], params)  # pylint: disable=protected-access
+
+
+class TestHeldContactLiftoff:
+    """A retreat-type phase refused by BiRRT for a held-object START contact
+    lifts off with incremental IK instead of aborting."""
+
+    def _make(self, robot, diagnostics, allow_shallow, target_dz=0.05):
+        config = _make_config(robot)
+        # Any non-None simulator selects the simulator planning branch;
+        # the planner itself is stubbed below.
+        object.__setattr__(config, "simulator", object())
+        robot_obj = _make_robot_obj()
+        home_orn = p.getQuaternionFromEuler([0, np.pi / 2, -np.pi])
+
+        def target_fn(state, _objects, _params, _cfg):
+            x = state.get(robot_obj, "x")
+            y = state.get(robot_obj, "y")
+            z = state.get(robot_obj, "z")
+            return (Pose((x, y, z),
+                         home_orn), Pose((x, y, z + target_dz),
+                                         home_orn), "hold")
+
+        phase = Phase(
+            name="Retreat",
+            action_type=PhaseAction.MOVE_TO_POSE,
+            target_fn=target_fn,
+            use_motion_planning=True,
+            allow_shallow_held_object_contacts=allow_shallow,
+        )
+        skill = PhaseSkill("Dab", [_ROBOT_TYPE], Box(0, 1, (0, )), config,
+                           [phase])
+
+        def _refuse(*_args, **_kwargs):
+            # A planner refusal: no trajectory, diagnostics recorded.
+            skill._last_plan_diagnostics = list(diagnostics)  # pylint: disable=protected-access
+
+        # setattr, not a plain assignment: astroid would otherwise infer
+        # the real method as None-returning across files and flag its
+        # callers in base.py (assignment-from-none).
+        setattr(skill, "_plan_with_simulator", _refuse)
+        return skill, phase, robot_obj
+
+    def test_held_object_start_contact_lifts_off(self, robot_scene, caplog):
+        """Held-object start contact on an upward retreat: incremental-IK
+        fallback, no raise, a warning naming the contact."""
+        _, robot = robot_scene
+        skill, phase, robot_obj = self._make(
+            robot, ["START: held object within -0.0065 m of span1"], True)
+        state = _build_state(robot_obj, robot, *_EE_HOME)
+        memory: dict = {}
+        params = np.zeros(0, dtype=np.float32)
+        with caplog.at_level("WARNING"):
+            action = skill._execute_move_birrt(  # pylint: disable=protected-access
+                phase, state, memory, [robot_obj], params)
+        assert isinstance(action, Action)
+        assert memory[_BIRRT_TRAJ_KEY.format(id(phase))] is None
+        assert any("lifting off" in r.getMessage() for r in caplog.records)
+
+    @pytest.mark.parametrize(
+        "diagnostics, allow_shallow, target_dz",
+        [
+            (["START: held object within -0.0065 m of span1"], False, 0.05),
+            (["START: robot within -0.0040 m of span1"], True, 0.05),
+            (["GOAL: held object within -0.0065 m of span1"], True, 0.05),
+            ([
+                "START: held object within -0.0065 m of span1",
+                "GOAL: robot within -0.0099 m of span1"
+            ], True, 0.05),
+            # A descend (target below the end effector) moves INTO the
+            # contact: a place descend carries the shallow-contact flag too
+            # (bridge seed3 2026-09-02: the welded row seated 7-17 mm into
+            # the legs), and pressing on is not a lift-off.
+            (["START: welded span0 within -0.0075 m of leg0"], True, -0.05),
+        ])
+    def test_other_refusals_still_abort(self, robot_scene, diagnostics,
+                                        allow_shallow, target_dz):
+        """Robot-body contact, goal contact, a downward target, or a phase that
+        does not tolerate held contact keep the honest planner refusal."""
+        _, robot = robot_scene
+        skill, phase, robot_obj = self._make(robot, diagnostics, allow_shallow,
+                                             target_dz)
+        state = _build_state(robot_obj, robot, *_EE_HOME)
+        with pytest.raises(utils.OptionExecutionFailure, match="BiRRT"):
+            skill._execute_move_birrt(  # pylint: disable=protected-access
+                phase, state, {}, [robot_obj], np.zeros(0, dtype=np.float32))
 
 
 # ---------------------------------------------------------------------------

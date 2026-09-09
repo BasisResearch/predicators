@@ -46,7 +46,7 @@ from predicators.agent_sdk.tools.scene import apply_state_modifications, \
     draw_pybullet_annotation, render_pybullet_image, render_scene_image
 from predicators.agent_sdk.tools.verdicts import _EvalStateCollector, \
     evaluate_states_with, load_ground_sampler_fns, make_solved_check
-from predicators.structs import State, Task
+from predicators.structs import State, Task, excluded_object_type_names
 
 if TYPE_CHECKING:
     from predicators.agent_sdk.tools import ToolContext
@@ -251,6 +251,11 @@ class ProbeResult(_StrLikeResult):
     final_atoms: List[str]
     final_state: State
     notes: List[str] = dataclasses.field(default_factory=list)
+    # The rollout's state sequence, start state first, per low-level
+    # step where the option model records one (else per option): what
+    # ``evaluate_trajectory`` scores, so a rollout can be scored or
+    # inspected without rebuilding it by hand.
+    states: List[State] = dataclasses.field(default_factory=list)
 
     def __repr__(self) -> str:
         lines = []
@@ -329,6 +334,9 @@ class ProbeTrialsResult(_StrLikeResult):
                 line += (f" - evaluator: solved={t['solved']}, "
                          f"reward={t['reward']:.2f}")
             lines.append(line)
+        replay_notes = [t["note"] for t in scored if t.get("note")]
+        if replay_notes:
+            lines.append(f"  verdict note: {replay_notes[0]}")
         if scored and any(t["goal_reached"] and not t["solved"]
                           for t in scored):
             lines.append(
@@ -339,6 +347,98 @@ class ProbeTrialsResult(_StrLikeResult):
                 "is too marginal to reproduce reliably - same-route "
                 "parameter tuning rarely flips this verdict.")
         lines.extend(f"NOTE: {n_}" for n_ in self.notes)
+        return "\n".join(lines)
+
+
+@dataclasses.dataclass(repr=False)
+class ProbeBeliefResult(_StrLikeResult):
+    """Outcome of one ``BeliefProbe.run(..., belief_draws=K)`` call.
+
+    ``draws`` holds one dict per draw of the belief (``goal_reached``,
+    ``num_actions``, ``failure``, ``max_shift`` - the largest feature
+    move of the drawn start state from the probe's current state);
+    ``successes`` counts goal-reaching draws. Each draw is where the
+    objects may really be given the observation and the declared noise,
+    rolled on a fresh env at the base planner seed, so a failing draw
+    is a pose the plan does not tolerate, not execution variability.
+    The current state is NOT advanced.
+    """
+    draws: List[Dict[str, Any]]
+    successes: int
+    from_belief: bool
+    notes: List[str] = dataclasses.field(default_factory=list)
+
+    def __repr__(self) -> str:
+        n = len(self.draws)
+        source = ("the belief shown in the last observation (its smoothed "
+                  "frame and spread)" if self.from_belief else
+                  "the current state with the declared sigma on every "
+                  "noisy feature")
+        lines = [
+            f"Belief draws: {self.successes}/{n} start states reached the "
+            f"goal (each draw is one place the objects may really be, "
+            f"from {source}; fresh env + base planner seed per draw)"
+        ]
+        for k, d in enumerate(self.draws):
+            head = f"  draw {k} (max feature shift {d['max_shift']:.4f})"
+            if d["failure"]:
+                lines.append(f"{head}: FAILED - {d['failure']}")
+            elif d["goal_reached"]:
+                lines.append(f"{head}: goal reached ({d['num_actions']} "
+                             "actions)")
+            else:
+                lines.append(f"{head}: goal NOT reached "
+                             f"({d['num_actions']} actions)")
+        if 0 < self.successes < n:
+            lines.append(
+                "  the plan depends on a pose the observation cannot pin "
+                "down: it succeeds on some plausible poses and fails on "
+                "others. Either look again from rest (the belief narrows "
+                "with every frame an object rests through) or choose "
+                "parameters with margin over the whole spread before "
+                "spending real steps.")
+        elif self.successes == 0 and n:
+            lines.append("  no plausible pose lets this plan reach the goal.")
+        lines.extend(f"NOTE: {n_}" for n_ in self.notes)
+        return "\n".join(lines)
+
+
+@dataclasses.dataclass(repr=False)
+class ProbeBeliefState(_StrLikeResult):
+    """Outcome of ``BeliefProbe.belief()``: the execution-time belief at the
+    probe's current state.
+
+    ``objects`` holds one line per object with noisy features (value and
+    spread per feature, frames averaged); ``fractions`` maps each atom
+    of the session's predicates that holds on any belief draw to the
+    fraction of draws it holds on; ``from_observation`` says whether the
+    belief is the one the last real observation showed (the probe still
+    sits on it) or the current state with the declared sigma.
+    """
+    objects: List[str]
+    fractions: Dict[str, float]
+    from_observation: bool
+    num_draws: int
+
+    def __repr__(self) -> str:
+        source = ("the last real observation's belief"
+                  if self.from_observation else
+                  "the current state with the declared sigma on every noisy "
+                  "feature")
+        lines = [
+            f"Belief at the current state (from {source}; atoms scored on "
+            f"{self.num_draws} draws):"
+        ]
+        lines.extend(f"  {line}" for line in self.objects)
+        unsure = sorted((a for a, f in self.fractions.items() if 0 < f < 1),
+                        key=lambda a: (abs(self.fractions[a] - 0.5), a))
+        sure = sorted(a for a, f in self.fractions.items() if f >= 1)
+        if unsure:
+            lines.append("  unsure atoms (fraction of draws): " +
+                         ", ".join(f"{a} {self.fractions[a]:.2f}"
+                                   for a in unsure))
+        lines.append("  atoms holding on every draw: " +
+                     (", ".join(sure) if sure else "(none)"))
         return "\n".join(lines)
 
 
@@ -571,6 +671,7 @@ class BeliefProbe:
         self._snapshots: Dict[int, Tuple[State, bool]] = {}
         self._next_snapshot_id = 1
         self._refine_calls = 0
+        self._belief_draw_calls = 0
         self._instance_id = BeliefProbe._next_instance_id
         BeliefProbe._next_instance_id += 1
         # True while the current state IS the task's unmodified initial
@@ -590,7 +691,7 @@ class BeliefProbe:
         ``ctx.option_model``. Synthesis sessions install
         ``ctx.probe_option_model_provider`` instead - a lazy builder
         over the candidate ``simulator.py`` the agent is editing (fresh
-        MCMC fit, cached until the file changes) - so probes always
+        LM fit, cached until the file changes) - so probes always
         exercise the latest belief model, never the stale pre-synthesis
         one (real physics on cycle 1: a live-env leak).
         """
@@ -601,15 +702,45 @@ class BeliefProbe:
 
     def reset(self,
               task_idx: Optional[int] = None,
-              mods: Optional[Modifications] = None) -> "BeliefProbe":
+              mods: Optional[Modifications] = None,
+              current: bool = False) -> "BeliefProbe":
         """Set the current state to a task's initial state, optionally with
         object-feature overrides applied to a copy.
 
         ``task_idx`` indexes the train tasks; ``None`` uses the current
-        solve-time task. Returns ``self`` so calls chain.
+        solve-time task. ``current=True`` starts instead from the last
+        real observation the session recorded (every env tool result
+        refreshes it), so a rollout begins where the environment is now;
+        the level's goal stays the task, and evaluator-scored modes
+        (``solved``, ``require_solved``) are off, since they reference
+        the task's true initial state. Returns ``self`` so calls chain.
         """
         ctx = self._ctx
         _check_time_budget(ctx)
+        if current:
+            if task_idx is not None:
+                raise ValueError("current=True starts from the last real "
+                                 "observation; task_idx does not apply.")
+            if ctx.current_observation is None:
+                raise ValueError(
+                    "No real observation has been recorded in this session: "
+                    "call env_observe first, or reset() for the level's "
+                    "initial state.")
+            if ctx.current_task is None:
+                raise ValueError("No current task set.")
+            state = ctx.current_observation
+            if mods:
+                state, _, err = apply_state_modifications(
+                    state, self._normalize_mods(mods))
+                if err:
+                    raise ValueError(err)
+            else:
+                state = state.copy()
+            self._state = state
+            self._base_task = ctx.current_task
+            self._tracking_current_task = True
+            self._pristine = False
+            return self
         if (task_idx is None and ctx.probe_option_model_provider is not None):
             # Synthesis session: "current task" is a solve-time pointer
             # and may dangle at whatever task the harness touched last -
@@ -734,7 +865,7 @@ class BeliefProbe:
         model is fixed). With no arguments this is the CANONICAL fit -
         the same fit the probe deploys for ``run``/``refine``, on the
         full data - and, when ``simulator.py`` declares
-        ``PHYSICAL_PARAMS``, the identified physical values are applied
+        ``PHYSICAL_PARAM_SPECS``, the identified physical values are applied
         to the planning base env. Passing ``traj_idxs`` (fit only those
         trajectories' data) or ``fixed`` (pin parameters at given
         values) makes the fit EXPLORATORY: a diagnostic report only -
@@ -742,10 +873,10 @@ class BeliefProbe:
         the canonical fit. On the system-ID path ``traj_idxs`` is a
         cross-trajectory consistency check (subset fits that disagree
         mean heterogeneous data); ``fixed`` is rejected there - pin by
-        narrowing the param's bounds in PHYSICAL_PARAMS. Reports SSE at
+        narrowing the param's bounds in PHYSICAL_PARAM_SPECS. Reports SSE at
         init vs post-fit, fitted values with deltas, and (system-ID
-        path) per-parameter identifiability. MCMC - the expensive probe
-        call; use deliberately.
+        path) per-parameter identifiability. The fit is the expensive
+        probe call; use deliberately.
         """
         ctx = self._ctx
         _check_time_budget(ctx)
@@ -755,6 +886,29 @@ class BeliefProbe:
                 "sim.fit is unavailable in this session: fitting happens "
                 "during learning; the solve-time belief model is fixed.")
         return provider(path=path, traj_idxs=traj_idxs, fixed=fixed)
+
+    def score(self,
+              traj_idxs: Optional[List[int]] = None,
+              num_particles: Optional[int] = None,
+              path: Optional[str] = None) -> str:
+        """Score the candidate world model on the recorded trajectories.
+
+        Program-world-model synthesis sessions only. The particle-filter
+        kernel pseudo-likelihood of the current ``world_model.py`` (or
+        ``path``) over the hidden state, with per-feature errors and the
+        worst transitions; ``traj_idxs`` restricts the data,
+        ``num_particles`` overrides the belief size.
+        """
+        ctx = self._ctx
+        _check_time_budget(ctx)
+        provider = ctx.probe_score_provider
+        if provider is None:
+            raise RuntimeError(
+                "sim.score is unavailable in this session: scoring happens "
+                "in a program-world-model learning session.")
+        return provider(path=path,
+                        traj_idxs=traj_idxs,
+                        num_particles=num_particles)
 
     def predicates(self,
                    max_trajectories: int = 10,
@@ -817,7 +971,7 @@ class BeliefProbe:
         no-rule baseline (negative = the rules hurt), and the worst-N
         example transitions - the fast inner loop for finding where the
         rules disagree with the data. Uses init_value params unless
-        ``fit_params=True`` (MCMC-fits first; diagnostic only, nothing
+        ``fit_params=True`` (LM-fits first; diagnostic only, nothing
         published). Tolerance: ``|pred - obs| > rel_tol * |obs| +
         abs_tol``. Snapshots the simulator file and tags the report
         ``[cycle_XXX_vers_YYY]``. ``path`` scores a DIFFERENT simulator
@@ -828,7 +982,7 @@ class BeliefProbe:
         replay of each recorded trajectory (errors compound, which the
         teacher-forced default structurally cannot see). It is the only
         residual view that can implicate or exonerate a physical
-        parameter; consult it before deciding the ``PHYSICAL_PARAMS``
+        parameter; consult it before deciding the ``PHYSICAL_PARAM_SPECS``
         declaration either way. Two mutually exclusive opt-ins probe
         the parameters themselves:
 
@@ -879,6 +1033,10 @@ class BeliefProbe:
         keep working across a resume.
         """
         cur = self._require_state()
+        # Hidden types (CFG.excluded_objects_in_state_str) are absent
+        # from every listing the agent sees, this one included.
+        hidden = excluded_object_type_names()
+        listed = [obj for obj in cur if obj.type.name not in hidden]
 
         def _features(obj: Any) -> Dict[str, float]:
             return {
@@ -893,14 +1051,14 @@ class BeliefProbe:
             # (bare-only lookups cost a KeyError per session:
             # run_20260830 hit it in four sessions).
             bare = obj_name.split(":", 1)[0]
-            for obj in cur:
+            for obj in listed:
                 if obj.name == bare:
                     return _features(obj)
             raise ValueError(f"Unknown object '{obj_name}'. Available: "
-                             f"{sorted(str(o) for o in cur)}")
+                             f"{sorted(str(o) for o in listed)}")
         return _BareNameFallbackDict(
             {str(obj): _features(obj)
-             for obj in sorted(cur, key=str)})
+             for obj in sorted(listed, key=str)})
 
     def atoms(self) -> List[str]:
         """Sorted ground atoms true in the current state."""
@@ -960,6 +1118,163 @@ class BeliefProbe:
         return saved
 
     # ── Execution ────────────────────────────────────────────────
+
+    def belief(self, draws: Optional[int] = None) -> ProbeBeliefState:
+        """The execution-time belief at the probe's current state: each
+        object's smoothed features with their spread, and the fraction of
+        belief draws on which each atom of the session's predicates holds.
+
+        The belief is the one the last real observation showed when the
+        probe still sits on that observation, else the current state
+        with the declared sigma on every noisy feature (one frame's
+        worth of uncertainty). ``draws`` defaults to the run's
+        ``continual_belief_draws``. Needs a declared observation-noise
+        channel.
+        """
+        # pylint: disable=import-outside-toplevel
+        import numpy as np
+
+        from predicators.observation_belief import BeliefFrame, \
+            atom_fractions, smooth_frames
+        from predicators.observation_noise import ObservationNoise
+        from predicators.settings import CFG
+
+        # pylint: enable=import-outside-toplevel
+        ctx = self._ctx
+        _check_time_budget(ctx)
+        noise = ObservationNoise.from_cfg()
+        if not (noise.enabled and noise.declared):
+            raise ValueError(
+                "sim.belief() needs a declared observation-noise channel: "
+                "without one the observation is exact and the belief is "
+                "the state itself.")
+        current = self._require_state()
+        shown = getattr(ctx, "current_belief", None)
+        from_observation = (isinstance(shown, BeliefFrame)
+                            and ctx.current_observation is not None
+                            and current.allclose(ctx.current_observation))
+        belief = shown if from_observation else smooth_frames(
+            [current], noise, 1, float(CFG.continual_belief_sigmas))
+        assert isinstance(belief, BeliefFrame)
+        num_draws = int(
+            draws if draws is not None else CFG.continual_belief_draws)
+        self._belief_draw_calls += 1
+        rng = np.random.default_rng(CFG.seed + 15485863 *
+                                    (self._instance_id + 1) +
+                                    self._belief_draw_calls)
+        fractions = atom_fractions(belief, set(ctx.predicates), num_draws, rng)
+        hidden = excluded_object_type_names()
+        objects = [
+            belief.object_line(obj)
+            for obj in sorted(belief.frame, key=lambda o: o.name)
+            if obj.name in belief.frames_used and obj.type.name not in hidden
+        ]
+        return ProbeBeliefState(objects,
+                                {str(a): f
+                                 for a, f in fractions.items()},
+                                from_observation, num_draws)
+
+    def _run_belief_draws(self, probe_task: Task, grounded: List[Any],
+                          sketch_steps: Any, all_predicates: Any,
+                          num_draws: int, seed: Optional[int],
+                          notices: List[str]) -> ProbeBeliefResult:
+        """The ``belief_draws`` mode of :meth:`run`."""
+        # pylint: disable=import-outside-toplevel
+        import contextlib
+
+        import numpy as np
+
+        from predicators.agent_sdk import bilevel_sketch
+        from predicators.observation_belief import BeliefFrame, belief_draw
+        from predicators.observation_noise import ObservationNoise
+        from predicators.settings import CFG
+
+        # pylint: enable=import-outside-toplevel
+        ctx = self._ctx
+        noise = ObservationNoise.from_cfg()
+        if not (noise.enabled and noise.declared):
+            raise ValueError(
+                "belief_draws needs a declared observation-noise channel: "
+                "without one the start state is exact and there is nothing "
+                "to draw.")
+        belief = getattr(ctx, "current_belief", None)
+        current = probe_task.init
+        from_belief = (isinstance(belief, BeliefFrame)
+                       and ctx.current_observation is not None
+                       and current.allclose(ctx.current_observation))
+        fresh_scope = (ctx.validation_env_scope
+                       if ValidationConfig.from_cfg().fresh_env
+                       and ctx.validation_env_scope is not None
+                       and ctx.probe_option_model_provider is None else None)
+        if fresh_scope is None:
+            notices.append("no fresh-env scope in this session: the draws "
+                           "ran on the shared env, so they are correlated.")
+        self._belief_draw_calls += 1
+        rng = np.random.default_rng(CFG.seed + 104729 *
+                                    (self._instance_id + 1) +
+                                    self._belief_draw_calls)
+        starts: List[State] = []
+        for _ in range(num_draws):
+            if from_belief:
+                assert isinstance(belief, BeliefFrame)
+                starts.append(belief_draw(belief, rng))
+            else:
+                starts.append(noise.perturb(current, rng))
+
+        def _shift(start: State) -> float:
+            by_name = {o.name: o for o in current}
+            worst = 0.0
+            for obj in start:
+                base = by_name.get(obj.name)
+                if base is None:
+                    continue
+                worst = max(worst,
+                            float(np.max(np.abs(start[obj] - current[base]))))
+            return worst
+
+        def _one_draw(k: int) -> Dict[str, Any]:
+            task_k = dataclasses.replace(probe_task, init=starts[k])
+            with (fresh_scope() if fresh_scope is not None else
+                  contextlib.nullcontext()), absolute_rollout_seed(seed):
+                model = self._option_model()
+                r = bilevel_sketch.execute_plan_forward(
+                    task_k,
+                    grounded,
+                    model,
+                    predicates=all_predicates,
+                    sketch=sketch_steps,
+                    stop_on_failure=True)
+            failure: Optional[str] = None
+            if r.first_failure_idx is not None:
+                fs = r.steps[r.first_failure_idx]
+                failure = (f"step {r.first_failure_idx} "
+                           f"({_fmt_option(fs.option)}): "
+                           f"{fs.failure_reason or 'not initiable'}")
+            return {
+                "goal_reached": r.goal_reached,
+                "num_actions": sum(s.num_actions for s in r.steps),
+                "failure": failure,
+                "max_shift": _shift(starts[k]),
+            }
+
+        prefetched = prefetch_parallel(
+            [functools.partial(_one_draw, k) for k in range(num_draws)],
+            "probe belief draws")
+        draws: List[Dict[str, Any]] = []
+        try:
+            for k in range(num_draws):
+                _check_time_budget(ctx)
+                _count_rollout(ctx)
+                pre = prefetched[k]
+                draws.append(pre if pre is not None else _one_draw(k))
+        except ProbeBudgetExceeded as e:
+            if not draws:
+                raise
+            notices.append(f"time budget expired after {len(draws)}/"
+                           f"{num_draws} draws - the remaining draws were "
+                           f"skipped ({e})")
+        successes = sum(1 for d in draws if d["goal_reached"])
+        return ProbeBeliefResult(draws, successes, from_belief, notices)
 
     def _parse_sketch(self, plan_text: str) -> Any:
         """Parse ``plan_text`` against the current state.
@@ -1049,8 +1364,21 @@ class BeliefProbe:
         physics_sweep: bool = False,
         seed: Optional[int] = None,
         fresh: bool = False,
-    ) -> Union[ProbeResult, ProbeTrialsResult, ProbeSweepResult]:
+        belief_draws: int = 0,
+    ) -> Union[ProbeResult, ProbeTrialsResult, ProbeSweepResult,
+               ProbeBeliefResult]:
         """Execute an option plan from the current state.
+
+        ``belief_draws=K`` (K > 0, its own mode) rolls the plan once
+        from each of K draws of the execution-time belief - where the
+        objects may really be given the observation and the declared
+        noise (the smoothed frame and spread the last observation
+        showed when the probe still sits on it, else the current state
+        with the declared sigma) - on a fresh env at the base planner
+        seed, and returns a ``ProbeBeliefResult``. This is how a
+        placement is certified over the target's plausible poses before
+        real steps are spent on it. Needs a declared observation-noise
+        channel.
 
         ``plan_text`` uses the same grammar as ``submit_plan``:
         one option per line, ``Option(obj:type, ...)[params]`` with
@@ -1159,6 +1487,15 @@ class BeliefProbe:
                 "per rollout (one deterministic rollout per parameter "
                 "point), while trials/solved/contacts measure the plan at "
                 "the fitted values. Run them as separate calls.")
+        if belief_draws < 0:
+            raise ValueError(f"belief_draws must be >= 0, got {belief_draws}")
+        if belief_draws > 0 and (trials > 1 or solved or contacts
+                                 or physics_sweep or fresh):
+            raise ValueError(
+                "belief_draws=K is its own mode: it varies the START STATE "
+                "over the belief (one rollout per draw); run trials, "
+                "solved, contacts, physics_sweep and fresh as separate "
+                "calls.")
         if solved and trials < 2:
             raise ValueError(
                 "solved=True needs trials >= 2: a single shared-env rollout "
@@ -1212,6 +1549,11 @@ class BeliefProbe:
         evaluator: Any = None
         if solved:
             evaluator = self._require_solved_evaluator("solved=True")
+
+        if belief_draws > 0:
+            return self._run_belief_draws(probe_task, grounded, sketch_steps,
+                                          all_predicates, belief_draws, seed,
+                                          notices)
 
         if physics_sweep:
             fresh_scope = (ctx.validation_env_scope
@@ -1308,6 +1650,36 @@ class BeliefProbe:
                     "low-level steps) - the real executor would run out "
                     "of steps.")
             sweep_successes = sum(1 for p in point_dicts if p["goal_reached"])
+            if CFG.code_sim_learning_interval_belief:
+                # pylint: disable-next=import-outside-toplevel
+                from predicators.code_sim_learning.identifiability import \
+                    straddle_summary
+
+                # Certification over the belief interval: a mixed sweep
+                # means the interval straddles the plan's success
+                # boundary, which is the probe trigger - one narrowing
+                # experiment beats more planning, so adaptive
+                # info-seeking is armed here, not only by a refusal.
+                interval_pts = [
+                    p for p in point_dicts if p["params"] is not None
+                ]
+                n_ok = sum(1 for p in interval_pts if p["goal_reached"])
+                if interval_pts and 0 < n_ok < len(interval_pts):
+                    straddle = straddle_summary(
+                        [p["params"] for p in interval_pts],
+                        [bool(p["goal_reached"]) for p in interval_pts])
+                    notices.append(
+                        "the belief interval straddles this plan's success "
+                        f"boundary ({n_ok}/{len(interval_pts)} interval "
+                        "points passed" +
+                        (f"; {straddle}" if straddle else "") + "). One "
+                        "real experiment that narrows that parameter is "
+                        "worth more than more planning here: "
+                        "sim.suggest_probes(plan_text) ranks probes on your "
+                        "sketch (adaptive info-seeking is now armed), or "
+                        "find a design that holds across the whole "
+                        "interval.")
+                    ctx.param_sensitive_refusal_pending = True
             return ProbeSweepResult(point_dicts, sweep_successes, notices)
 
         if trials > 1:
@@ -1327,6 +1699,7 @@ class BeliefProbe:
             def _one_trial(trial_idx: int) -> Dict[str, Any]:
                 trial_solved: Optional[bool] = None
                 trial_reward: Optional[float] = None
+                trial_note = ""
                 coarse = False
                 # decorrelated_rollout_seed: a fresh env alone gives
                 # bit-identical repeats (motion planning reads the
@@ -1383,6 +1756,7 @@ class BeliefProbe:
                             # the completed trials.
                             trial_reward = float(verdict["reward"])
                             trial_solved = bool(verdict["solved"])
+                            trial_note = str(verdict.get("note") or "")
                             # Only a produced verdict can be coarse; an
                             # errored one must not trip the coarse
                             # caveat.
@@ -1403,6 +1777,7 @@ class BeliefProbe:
                     "failure": failure,
                     "solved": trial_solved,
                     "reward": trial_reward,
+                    "note": trial_note,
                     "verdict_coarse": coarse,
                     "planner_seed": base_planner_seed + trial_idx,
                     "inexact_start_features": sorted(set(trial_inexact)),
@@ -1490,8 +1865,14 @@ class BeliefProbe:
                 "advanced.")
 
         step_dicts: List[Dict[str, Any]] = []
+        # The rollout's states for the result (bound once the option
+        # model exists below; the collector reads its per-step
+        # trajectory when it records one).
+        collectors: List[_EvalStateCollector] = []
 
         def _on_step(i: int, outcome: Any) -> None:
+            for c in collectors:
+                c.on_step(i, outcome)
             sig = _fmt_option(outcome.option)
             added: List[str] = []
             deleted: List[str] = []
@@ -1548,6 +1929,7 @@ class BeliefProbe:
 
         _count_rollout(ctx)
         model = self._option_model()
+        collectors.append(_EvalStateCollector(model, probe_task.init))
         # Contact recording rides on the physics env the option model
         # steps (its ``sim_env``, the same binding certificate probes
         # use); a candidate-simulator model without one degrades to a
@@ -1603,8 +1985,12 @@ class BeliefProbe:
         hn = _horizon_note(sum(s["num_actions"] for s in step_dicts))
         if hn is not None:
             notices.append(hn)
-        return ProbeResult(step_dicts, result.goal_reached, final_atoms,
-                           result.final_state, notices)
+        return ProbeResult(step_dicts,
+                           result.goal_reached,
+                           final_atoms,
+                           result.final_state,
+                           notices,
+                           states=list(collectors[0].states))
 
     def run_policy(
         self,
@@ -1905,6 +2291,19 @@ class BeliefProbe:
                 "no ensemble disagreement scorer is available in this "
                 "session (info-seeking ensemble not installed), so "
                 "alternatives cannot be ranked."
+            ])
+        if not ctx.info_seeking_active():
+            # Adaptive info-seeking: hold probing back until the capture
+            # gate has actually caught a fragile plan. Spending real steps
+            # to reduce uncertainty before then is the step tax this mode
+            # removes on easy levels.
+            return ProbeSuggestResult([], [
+                "adaptive info-seeking: no plan has been refused as "
+                "parameter-sensitive yet, so probing is not worth real "
+                "steps. Submit your best plan; if the capture gate refuses "
+                "it because a parameter's uncertainty threatens the goal, "
+                "it will name that parameter and this call will then rank "
+                "the probes that reduce it."
             ])
         probe_task, sketch_steps, all_predicates, notices = \
             self._parse_sketch(sketch_text)

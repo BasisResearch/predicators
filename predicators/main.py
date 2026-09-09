@@ -45,6 +45,7 @@ from predicators.execution_monitoring import create_execution_monitor
 from predicators.perception import create_perceiver
 from predicators.run.checkpoints import maybe_auto_resume
 from predicators.run.online_learning import run_pipeline
+from predicators.run.paths import resumable_run_subdir
 from predicators.run.setup import create_offline_dataset, setup_approach, \
     setup_environment
 from predicators.settings import CFG
@@ -62,8 +63,9 @@ def main() -> None:
     utils.update_config(args)
     str_args = " ".join(sys.argv)
 
-    # Setup logging and directories
-    utils.configure_logging()
+    # Setup logging and directories. A continual run that resumes
+    # (--auto_resume) logs into the run directory it continues.
+    utils.configure_logging(run_subdir=resumable_run_subdir())
     os.makedirs(CFG.results_dir, exist_ok=True)
     os.makedirs(CFG.eval_trajectories_dir, exist_ok=True)
 

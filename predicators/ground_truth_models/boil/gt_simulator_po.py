@@ -32,8 +32,7 @@ Differences from the fully-observable ``gt_simulator.py``:
   ~0, so Laplace reports it as wide-open (prior-driven) rather than
   pinning the boundary. The *rates* are still recovered cleanly from the
   smooth bubbling ramp. For calibrated uncertainty on the hard-gated
-  thresholds, run with ``num_mcmc_steps > 0`` (the posterior-subsample
-  ensemble) or soft-gate them as the FO module does.
+  thresholds, soft-gate them as the FO module does.
 """
 
 from __future__ import annotations

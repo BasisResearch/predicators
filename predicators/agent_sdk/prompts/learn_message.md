@@ -121,12 +121,17 @@ __DESCRIPTION__
 
 The trajectory roster above shows each interaction episode's
 env-computed reward. In `run_python`, `evaluate_trajectory(states,
-actions=None, task_idx=0)` scores any state sequence with the same
-ground-truth evaluator: a collected trajectory's `states` and
-`actions`, or a rollout of your simulator (where the verdict is only
-as trustworthy as the simulator). It returns `{reward, solved}`;
-`solved` means the episode is scored as a success, and a rollout can
-reach the goal atoms and still be `solved=False`.
+actions=None, task_idx=0)` is the task's reward model: it scores any
+state sequence with the same rules, a collected trajectory's `states`
+and `actions`, or a rollout of your simulator (where a rule that
+replays physics runs on your belief simulator at its current fit, so
+the verdict is only as trustworthy as the simulator). It returns
+`{reward, solved, note}`; `solved` means the episode is scored as a
+success, a rollout can reach the goal atoms and still be
+`solved=False`, and `note` says what a replaying rule simulated and
+on what. Label transitions with `(option, objects, params)` (`None`
+for an unlabeled one) so such a rule replays your action rather than
+its canonical one.
 
 <!-- section: prior_state -->
 Prior cycle state: __PRIOR_FILES__ already exist in the sandbox from a
@@ -146,3 +151,18 @@ versions are in `./simulator_versions/` and `./predicates_versions/`
 (named `cycle_XXX_vers_YYY_*.py`); cross-reference the roster's
 provenance tags against those files to see which rules and predicates
 produced each failed plan.
+
+<!-- section: zero_shot -->
+## Zero-shot synthesis
+
+No trajectory has been recorded and none will be before you finish:
+this session is the whole learning phase, and what you write here is
+what the planner uses on the test tasks. The trajectory counts above
+are zero for that reason, and there is no residual scan or divergence
+report to read. Build the simulator and its parameters from the task
+description, the object types and options, the scene (`sim.task`,
+`sim.reset`, `sim.render`) and your own knowledge of the mechanisms
+involved, and validate the result with `sim.refine` / `sim.run`
+rollouts of a full plan; `sim.fit` and `sim.residuals` have no data to
+work with. State each mechanism you commit to, and the evidence you
+would want for it, in the decision record.

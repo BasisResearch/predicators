@@ -82,6 +82,9 @@ class PyBulletFanGroundTruthOptionFactory(_FanLegacyOptionsMixin,
                             env_cls.robot_init_z),
             transport_z=_push_transport_z,
             simulator=simulator,
+            # Skill controllers read the physical state. End a stationary
+            # wait even when its requested atom change never occurs.
+            wait_quiescence_eps=1e-4,
         )
 
         if CFG.fan_known_controls_relation:

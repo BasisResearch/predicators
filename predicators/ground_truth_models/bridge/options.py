@@ -116,6 +116,20 @@ class PyBulletBridgeGroundTruthOptionFactory(GroundTruthOptionFactory):
             return (state.get(blk, "x"), state.get(blk, "y"),
                     state.get(blk, "z") + half[2], state.get(blk, "yaw"))
 
+        def _block_grasp_half_gap(
+            state: State,
+            objects: Sequence[Object],
+            params: Array,
+            cfg: SkillConfig,
+        ) -> float:
+            del params, cfg
+            _, blk = objects
+            # At wrist yaw = block yaw the fingers straddle the block's
+            # width (see _get_block_grasp_pose): the half extent across
+            # the finger axis, in the same metres the panda's finger
+            # state counts per-finger travel in.
+            return cls.env_cls._world_half_extents(state, blk)[1]  # pylint: disable=protected-access
+
         PickBlock = create_pick_skill(
             name="PickBlock",
             types=[robot_type, block_type],
@@ -139,6 +153,11 @@ class PyBulletBridgeGroundTruthOptionFactory(GroundTruthOptionFactory):
             # fails such picks honestly instead of handing a
             # ghost-held block to the place.
             verify_lift=True,
+            # Descend at block width + slack rather than fully open: the
+            # staged spans sit a finger-overhang apart, and a fully open
+            # finger reached 9.9 mm into the neighbor (2026-09-02 seed3
+            # explore), refusing the grasp pose from every arm branch.
+            descend_finger_half_gap_fn=_block_grasp_half_gap,
         )
 
         # -- PickBottle ------------------------------------------------------

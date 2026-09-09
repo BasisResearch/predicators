@@ -346,9 +346,12 @@ def test_probe_run_reports_subgoal_divergence() -> None:
         "image": None,
     }
     task = _tiny_task()
-    rendered = repr(ProbeResult([step], False, [], task.init, []))
+    result = ProbeResult([step], False, [], task.init, [], states=[task.init])
+    rendered = repr(result)
     assert "SUBGOAL NOT REACHED: {WidgetAtFixture(widget0, fixture0)}" \
         in rendered
+    # The rollout's states ride on the result for evaluate_trajectory.
+    assert result.states == [task.init]
 
 
 def test_params_view_missing_key_names_available_parameters() -> None:

@@ -150,6 +150,7 @@ def make_move_to_phase(
     allow_shallow_held_object_contacts: bool = False,
     validate_ik: bool = False,
     check_release_clearance: bool = False,
+    direct_descend: bool = False,
     use_motion_planning: Optional[bool] = None,
     terminal_fn: Optional[Callable[
         [State, Sequence[Object], Array, SkillConfig], bool]] = None,
@@ -160,6 +161,10 @@ def make_move_to_phase(
     retry_to_phase: Optional[str] = None,
     max_retries: int = 0,
     verify_failure_msg: Optional[str] = None,
+    freeze_target: bool = False,
+    step_norm_fn: Optional[Callable[[Array], float]] = None,
+    on_blocked: str = "fail",
+    disturbance_abort_tol: Optional[float] = None,
 ) -> Phase:
     """Create a MOVE_TO_POSE phase for use in a ``PhaseSkill``.
 
@@ -174,6 +179,16 @@ def make_move_to_phase(
         finger_status: ``"open"``, ``"closed"``, or ``"hold"`` (keep the
             current width, e.g. retreating from a partial-open release).
             If ``None``, preserves the current finger status from state.
+        direct_descend: Mark a grasp or place descend (see
+            ``Phase.direct_descend``): the straight Cartesian path from
+            the parked pose down to the goal configuration, accepted
+            under the hard contact margin alone, or failure - never a
+            planned detour.
+        on_blocked: What a direct path does when the arm cannot follow
+            it (see ``Phase.on_blocked``): ``"fail"`` or ``"advance"``.
+        disturbance_abort_tol: Abort a direct descend whose (frozen)
+            target has moved this far since the path was planned (see
+            ``Phase.disturbance_abort_tol``); implies ``freeze_target``.
         use_motion_planning: ``None`` (the default) defers to
             ``CFG.skill_phase_use_motion_planning``. Pass ``False`` for a
             contact stroke -- a phase whose goal pose is at or inside an
@@ -202,6 +217,13 @@ def make_move_to_phase(
         verify_failure_msg: When set, exhausting the verification budget
             raises ``OptionExecutionFailure`` with this message instead
             of advancing best-effort (see ``Phase.verify_failure_msg``).
+
+        freeze_target: Evaluate the target once, on the phase's first
+            step, and hold it (see ``Phase.freeze_target``): for a
+            stroke at a body that moves on contact.
+        step_norm_fn: A parameter-dependent EE step clamp (metres per
+            step from the option's params), see ``Phase.step_norm_fn``:
+            a gentle stroke whose speed is a skill parameter.
 
     Returns:
         A ``Phase`` that can be included in a ``PhaseSkill``.
@@ -262,6 +284,7 @@ def make_move_to_phase(
         expect_contact=expect_contact,
         allow_shallow_held_object_contacts=allow_shallow_held_object_contacts,
         validate_ik=validate_ik,
+        direct_descend=direct_descend,
         check_release_clearance=check_release_clearance,
         use_motion_planning=plan_motion,
         max_step_norm=max_step_norm,
@@ -270,4 +293,8 @@ def make_move_to_phase(
         retry_to_phase=retry_to_phase,
         max_retries=max_retries,
         verify_failure_msg=verify_failure_msg,
+        freeze_target=freeze_target or disturbance_abort_tol is not None,
+        step_norm_fn=step_norm_fn,
+        on_blocked=on_blocked,
+        disturbance_abort_tol=disturbance_abort_tol,
     )

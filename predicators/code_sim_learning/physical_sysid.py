@@ -21,7 +21,7 @@ identification problem.
 Design notes (mirroring MuJoCo's official ``mujoco.sysid`` toolbox):
 
 * The agent declares a **sparse subset** of the parameters the env reveals
-  (``env.get_physical_param_info()``) as ``PHYSICAL_PARAMS`` — never "all
+  (``env.get_physical_param_info()``) as ``PHYSICAL_PARAM_SPECS`` — never "all
   params by default". Undeclared parameters keep the env's built-in values.
 * Physical parameters and learned-rule parameters are fit **jointly** in one
   posterior (one theta vector, one fit) so rules cannot silently absorb
@@ -69,11 +69,13 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from predicators.code_sim_learning.config import SysIdConfig
+from predicators.code_sim_learning.config import DEFAULT_NOISE_SIGMA, \
+    SysIdConfig
 from predicators.code_sim_learning.fit_space import FitResult, ParamSpec, \
     prior_widths, to_fit_space
 from predicators.code_sim_learning.grid_seed import \
-    _grid_seed_physical_specs, min_explainable_fits, min_explainable_rms
+    _grid_seed_physical_specs, flat_tolerance, min_explainable_fits, \
+    min_explainable_rms
 from predicators.code_sim_learning.identifiability import NOISE_FLOOR_EVALS, \
     format_identifiability, identifiability_report, \
     select_trustworthy_params
@@ -84,7 +86,8 @@ from predicators.code_sim_learning.rollout_objective import \
     compute_rollout_residuals, compute_rollout_sse, fit_map_lm_rollout, \
     per_trajectory_rms
 from predicators.code_sim_learning.trajectory_prep import ResidualScaling, \
-    compute_residual_scaling, split_at_rest_points, truncate_settled_tail
+    compute_residual_scaling, expected_noise_sse, split_at_rest_points, \
+    truncate_settled_tail
 
 logger = logging.getLogger(__name__)
 
@@ -113,13 +116,12 @@ __all__ = [
     "truncate_settled_tail",
 ]
 
-# The fit's assumed measurement noise on dimensionless scaled
-# residuals. The signature defaults below and the sim.fit report's
-# trimming-threshold math (agent_sdk/tools/synthesis.py) share this one
-# constant so the reported cutoff can never drift from the one the
-# trimmer applied.
-DEFAULT_NOISE_SIGMA = 0.05
-
+# The fit's assumed measurement noise on dimensionless scaled residuals
+# is ``DEFAULT_NOISE_SIGMA`` (imported from ``config``, re-exported here):
+# the signature defaults below, the residual scaling and the sim.fit
+# report's trimming-threshold math (agent_sdk/tools/synthesis.py) share
+# that one constant so the reported cutoff can never drift from the one
+# the trimmer applied.
 # Prior width as a fraction of each param's box; shared by the rollout
 # fit default and the pinned-at-init fallback result so the two cannot
 # silently diverge.
@@ -205,6 +207,22 @@ def fit_params_rollout(
     fit_t0 = time.monotonic()
     n_start = num_rollouts_run()
 
+    # The interval belief's flat-tolerance terms (grid_seed.flat_tolerance):
+    # the declared channel's expected noise SSE, subtracted before the
+    # relative tolerance is taken, and the likelihood-ratio floor. Both
+    # 0 outside the interval belief, which keeps the legacy tolerance.
+    noise_sse = 0.0
+    sigma_tol = 0.0
+    if config.interval_belief:
+        noise_sse = expected_noise_sse(trajectories, residual_features,
+                                       scaling, config)
+        sigma_tol = (config.flat_sigmas * noise_sigma)**2
+        logger.info(
+            "Rollout sysID interval belief: flat tolerance measured above "
+            "the expected noise SSE %.4g with a likelihood floor of %.4g "
+            "(%.3g posterior sigma).", noise_sse, sigma_tol,
+            config.flat_sigmas)
+
     # Coarse grid sweep to place the LM start in the right basin (see
     # _grid_seed_physical_specs for why LM alone can stall). Also
     # yields the per-param SSE spans and data-equivalent flat intervals
@@ -239,7 +257,9 @@ def fit_params_rollout(
             scaling=scaling,
             anchors=anchors,
             noise_floor=noise_floor,
-            config=config)
+            config=config,
+            noise_sse=noise_sse,
+            sigma_tol=sigma_tol)
         sens_factor = config.sensitivity_factor
         sensitivity = {}
         for name, info in sweep_info.items():
@@ -336,6 +356,8 @@ def fit_params_rollout(
             result,
             noise_floor,
             config,
+            noise_sse=noise_sse,
+            sigma_tol=sigma_tol,
         )
     n_total = num_rollouts_run() - n_start
     if trajectories:
@@ -368,6 +390,8 @@ def _anchor_backward_elimination(
     result: FitResult,
     noise_floor: Optional[float],
     config: SysIdConfig,
+    noise_sse: float = 0.0,
+    sigma_tol: float = 0.0,
 ) -> FitResult:
     """Revert compensatory physical-param moves via anchor-pinned refits.
 
@@ -511,7 +535,11 @@ def _anchor_backward_elimination(
                 movable.append(s)
         if not movable:
             break
-        tol = max(noise_floor, config.grid_flat_frac * sse_curr)
+        # The grid flat set's tolerance (interval-belief terms included,
+        # see grid_seed.flat_tolerance), so "data-equivalent" means the
+        # same thing here as in the sweep.
+        tol = flat_tolerance(sse_curr, noise_floor, config.grid_flat_frac,
+                             noise_sse, sigma_tol)
         cost_curr = prior_cost(point)
         best: Optional[Tuple[float, ParamSpec, Dict[str, float]]] = None
         best_cost = float("inf")
@@ -716,7 +744,8 @@ def fit_params_rollout_trimmed(
     if scaling is None:
         scaling = compute_residual_scaling(trajectories,
                                            residual_features,
-                                           config=config)
+                                           config=config,
+                                           noise_sigma=noise_sigma)
     anchors = anchors or {}
     if not trajectories or factor <= 0:
         result = fit_params_rollout(base_env,

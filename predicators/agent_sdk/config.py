@@ -95,6 +95,7 @@ class ValidationConfig:
     fresh_env: bool
     physics_margin: bool
     rule_param_margin: bool
+    necessity: bool
     use_journal: bool
 
     @classmethod
@@ -108,6 +109,7 @@ class ValidationConfig:
             fresh_env=CFG.agent_plan_validation_fresh_env,
             physics_margin=CFG.agent_plan_validation_physics_margin,
             rule_param_margin=CFG.agent_plan_validation_rule_param_margin,
+            necessity=CFG.agent_plan_validation_necessity,
             use_journal=CFG.agent_solve_use_journal,
         )
 

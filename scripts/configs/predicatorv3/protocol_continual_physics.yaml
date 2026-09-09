@@ -1,0 +1,60 @@
+---
+# The two physics-puzzle envs whose hidden law the agent's model files
+# can express (ground_truth_models/{balloons,launcher}/gt_simulator.py),
+# both continual arms, seed 0. Launched 2026-09-06 from a worktree
+# frozen at the commit that added the ground-truth simulators; run
+# dirs land in the main tree's logs/.
+includes:
+  - common.yaml
+  - envs/all.yaml
+  - approaches/all.yaml
+ARGS:
+  - auto_resume
+FLAGS:
+  experiment_protocol: "continual"
+  continual_levels: "train_then_test"
+  continual_steps_per_level: 5000
+  continual_wall_clock_hours: 48.0
+  continual_render: True
+  continual_make_video: True
+  test_fresh_env_per_episode: True
+  continual_runs_dir: "/home/ycliang/predicators/logs"
+  log: "/home/ycliang/predicators/logs/"
+ENVS:
+  boil:
+    SKIP: True
+  balloons:
+    SKIP: False
+    FLAGS:
+      # Two train levels: together they show every balloon colour and
+      # both box materials (PyBulletBalloonsEnv._make_tasks).
+      num_train_tasks: 2
+  launcher:
+    SKIP: False
+APPROACHES:
+  oracle:
+    SKIP: True
+  agent_continual_p1:
+    NAME: "agent_continual"
+    SKIP: False
+    FLAGS:
+      agent_sdk_use_local_sandbox: True
+      partially_observable: True
+      agent_sdk_max_agent_turns_per_iteration: 10000
+      agent_sdk_image_max_px: 900
+      agent_bilevel_use_llm_initial_params: True
+      agent_solve_use_journal: True
+      agent_validation_parallel_workers: 6
+      code_sim_learning_rollout_min_posterior_width: 0.1
+      continual_max_idle_rounds: 5
+  agent_continual_model_free_p1:
+    NAME: "agent_continual_model_free"
+    SKIP: False
+    FLAGS:
+      agent_sdk_use_local_sandbox: True
+      partially_observable: True
+      agent_planner_use_simulator: False
+      agent_solve_use_journal: True
+      agent_sdk_max_agent_turns_per_iteration: 10000
+      agent_sdk_image_max_px: 900
+      continual_max_idle_rounds: 5

@@ -53,6 +53,9 @@ def _oracle_bridge_config() -> dict:
         "process_planning_max_execution_replans": 3,
         "wait_option_max_steps": 120,
         # --- common flags relevant to bilevel refinement ---
+        # Match common.yaml's planning budget. The role-free Bridged
+        # goal searches over bindings and exceeds the generic 10 s default.
+        "timeout": 600,
         "skill_phase_use_motion_planning": True,
         # Bridge follows common.yaml: validated IK OFF, like every
         # other domain. Validation is not what enforces placement

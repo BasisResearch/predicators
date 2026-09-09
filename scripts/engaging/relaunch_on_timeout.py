@@ -19,6 +19,10 @@ Usage (detach with nohup; poll every 10 min):
         21338737:predicatorv3/exp_bridge_v2.yaml:bridge_v2-agent_pi_al \
         21338740:predicatorv3/exp_bridge_v2.yaml:bridge_v2-agent_pi_al_pol \
         >> logs/auto_relaunch.log 2>&1 &
+
+Pass the launch's --accounts list too, so a relaunched experiment keeps
+the Claude accounts its seeds started on (the assignment is a function
+of the config, the account list and the experiment's index).
 """
 
 import argparse
@@ -35,6 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 # pylint: disable=wrong-import-position
 from scripts.cluster_utils import BatchSeedRunConfig, config_to_cmd_flags, \
     config_to_logfile, generate_run_configs
+from scripts.engaging.claude_accounts import resolve_accounts
 from scripts.engaging.submit_engaging_job import submit_engaging_job
 
 
@@ -73,10 +78,14 @@ def _terminal_state(job_id: str) -> Optional[str]:
     return lines[0] if lines else None
 
 
-def _relaunch_experiment(config_file: str, experiment_id: str,
-                         partition: str) -> None:
+def _relaunch_experiment(config_file: str,
+                         experiment_id: str,
+                         partition: str,
+                         accounts: Optional[str] = None) -> None:
     """Resubmit only ``experiment_id`` from ``config_file``."""
-    for cfg in generate_run_configs(config_file, batch_seeds=True):
+    account_names = resolve_accounts(accounts)
+    for index, cfg in enumerate(
+            generate_run_configs(config_file, batch_seeds=True)):
         assert isinstance(cfg, BatchSeedRunConfig)
         if cfg.experiment_id != experiment_id:
             continue
@@ -84,7 +93,8 @@ def _relaunch_experiment(config_file: str, experiment_id: str,
         log_prefix = config_to_logfile(cfg, suffix="")
         submit_engaging_job("main.py", cfg.experiment_id, "logs", log_prefix,
                             cmd_flags, cfg.start_seed, cfg.num_seeds,
-                            cfg.use_gpu, cfg.use_mujoco, partition, True)
+                            cfg.use_gpu, cfg.use_mujoco, partition, True,
+                            account_names, index)
         return
     print(
         f"WARNING: experiment {experiment_id} not found in {config_file}; "
@@ -99,7 +109,15 @@ def _main() -> None:
                         help="JOBID:CONFIG:EXPERIMENT_ID triples")
     parser.add_argument("-p", "--partition", default="mit_preemptable")
     parser.add_argument("--poll-seconds", type=int, default=600)
+    parser.add_argument("--accounts",
+                        type=str,
+                        default=None,
+                        help="The launch's Claude account list (see "
+                        "claude_accounts.py); defaults to "
+                        "$PREDICATORS_CLAUDE_ACCOUNTS, else 'login'.")
     args = parser.parse_args()
+    # Fail on a bad account list now, not at the first TIMEOUT.
+    resolve_accounts(args.accounts)
     jobs: List[_WatchedJob] = [_parse_spec(s) for s in args.specs]
     stamp = time.strftime("%m-%d %H:%M")
     print(
@@ -121,7 +139,7 @@ def _main() -> None:
                     f"{job.experiment_id} from {job.config_file}",
                     flush=True)
                 _relaunch_experiment(job.config_file, job.experiment_id,
-                                     args.partition)
+                                     args.partition, args.accounts)
             else:
                 print(
                     f"{stamp} job {job.job_id} ended {state}; "

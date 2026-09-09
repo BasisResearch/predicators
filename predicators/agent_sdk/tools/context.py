@@ -43,7 +43,7 @@ class ToolContext:
     example_state: Optional[State] = None
     option_model: Optional[_OptionModelBase] = None
     # Synthesis-session override for the run_python probe: a lazy
-    # builder over the CANDIDATE simulator.py (fresh MCMC fit, cached
+    # builder over the CANDIDATE simulator.py (fresh LM fit, cached
     # until the file changes). When set, BeliefProbe executes against it
     # instead of ``option_model`` - which during synthesis is the stale
     # pre-synthesis model (real physics on cycle 1: a live-env leak).
@@ -78,6 +78,10 @@ class ToolContext:
     # (see ``SynthesisToolkit.residuals_runner``). None in solve
     # sessions - residuals are a learning diagnostic.
     probe_residuals_provider: Optional[Callable[..., str]] = None
+    # The ``sim.score`` backend of a program-world-model synthesis
+    # session (particle-filter pseudo-likelihood of the candidate
+    # world_model.py on the recorded data); None everywhere else.
+    probe_score_provider: Optional[Callable[..., str]] = None
     # Active-experiment info-gain scorer, synced from the learning
     # approach when info-seeking exploration is on:
     # ``(state, atoms) -> disagreement``. The agent_model_based explorer
@@ -93,6 +97,14 @@ class ToolContext:
     parameterized_samplers: Dict[str, ParameterizedSampler] = field(
         default_factory=dict)
     current_task: Optional[Task] = None
+    # The last real observation of the level in progress (continual
+    # play: every env tool result and the session query refresh it), so
+    # ``sim.reset(current=True)`` can start a rollout from it.
+    current_observation: Optional[State] = None
+    # The execution-time belief over it (observation_belief.BeliefFrame)
+    # when the run carries one, so sim.run(belief_draws=K) draws from
+    # the belief the agent was shown.
+    current_belief: Optional[Any] = None
     skill_factory_context: Dict[str, Any] = field(default_factory=dict)
     proposals_disabled: bool = False  # set True during test-time solving
     log_dir: Optional[str] = None
@@ -156,6 +168,12 @@ class ToolContext:
     # so the next exploration targets the gaps. None ⇒ no fit ran yet
     # (or it had no weak spots).
     sysid_diagnostics: Optional[str] = None
+    # The natural-language world-model arm's document (world_model.md
+    # content) and its agent-visible path: the solve prompt and the
+    # model-free explorer quote it into every task message. Empty
+    # everywhere else.
+    world_model_notes: str = ""
+    world_model_notes_path: str = ""
     # Set by submit_plan / submit_policy when a plan is verified
     # to reach the goal on the CURRENT solve task: the simulator-verified plan
     # (grounded options with found params) and the parallel subgoal sketch.
@@ -215,6 +233,13 @@ class ToolContext:
     # constant is rejected as PARAM-SENSITIVE. Installed by
     # AgentSimLearningApproach; consumed under
     # agent_plan_validation_rule_param_margin.
+    # How the capture gate names one rule-param margin point and the
+    # set it came from in its reports. The program-world-model arm
+    # sweeps belief particles over the model's hidden state through
+    # the same gate and relabels them here.
+    rule_param_margin_label: str = "rule-param ensemble member"
+    rule_param_margin_note: str = (
+        "calibrated posterior members of the learned rule parameters")
     rule_param_margin_provider: Optional[Callable[[],
                                                   List[Dict[str,
                                                             float]]]] = None
@@ -267,6 +292,16 @@ class ToolContext:
     # trials, capture-validation repeats). Reset per attempt; shown in
     # the budget footer so sweeps carry a visible price.
     attempt_rollout_count: int = 0
+    # The run's conversation as the play tools show it in the [context]
+    # line (continual protocol): the prompt size of the latest assistant
+    # turn (input plus cached tokens), the assistant turns so far, the
+    # compactions the SDK performed, and the window size once the CLI
+    # has reported one. Fed by note_stream_entry from the sandbox
+    # session's receive loop; never reset within a run.
+    context_tokens: Optional[int] = None
+    context_turns: int = 0
+    context_compactions: int = 0
+    context_window_tokens: Optional[int] = None
     # Best submission on the current task this attempt that
     # submit_plan evaluated but refused to capture (evaluator
     # scored it a non-solve, or it was flaky), ranked by evaluator
@@ -279,6 +314,46 @@ class ToolContext:
     # (agent_sdk_python_call_timeout); enforced at the same
     # probe checkpoints as attempt_deadline. None ⇒ no call in flight.
     python_call_deadline: Optional[float] = None
+    # Adaptive info-seeking trigger (agent_explorer_info_seeking_adaptive):
+    # set True the first time submit_plan's rule-param margin gate refuses
+    # a plan as PARAM-SENSITIVE, cleared when a plan is captured. While
+    # True the proactive info-seeking apparatus (suggest_probes ranking,
+    # disagreement guidance) is active; while False, and
+    # under the adaptive flag, it stays dormant so easy levels pay no
+    # info-seeking step tax. Ignored unless the adaptive flag is on.
+    param_sensitive_refusal_pending: bool = False
+
+    def info_seeking_active(self) -> bool:
+        """Whether the proactive info-seeking apparatus should run now.
+
+        Off when info-seeking exploration is disabled outright. On
+        whenever it is enabled and the adaptive flag is off (the
+        original always-on behaviour). Under the adaptive flag it turns
+        on only once the capture gate has refused a plan as PARAM-
+        SENSITIVE this run (``param_sensitive_refusal_pending``), so the
+        agent spends real steps reducing uncertainty only after a
+        fragile plan has actually been caught.
+        """
+        if not CFG.agent_explorer_info_seeking:
+            return False
+        if not CFG.agent_explorer_info_seeking_adaptive:
+            return True
+        return self.param_sensitive_refusal_pending
+
+    def note_stream_entry(self, entry: Dict[str, Any]) -> None:
+        """Fold one streamed SDK entry into the context counters."""
+        kind = entry.get("type")
+        if kind == "assistant":
+            self.context_turns += 1
+            usage = entry.get("usage") or {}
+            total = sum(
+                int(usage.get(key) or 0)
+                for key in ("input_tokens", "cache_creation_input_tokens",
+                            "cache_read_input_tokens"))
+            if total > 0:
+                self.context_tokens = total
+        elif kind == "system" and entry.get("subtype") == "compact_boundary":
+            self.context_compactions += 1
 
     def begin_attempt(self, index: int, wall_clock: float) -> None:
         """Start restart-loop bookkeeping for solve attempt ``index``.
@@ -296,6 +371,23 @@ class ToolContext:
         self.attempt_start = time.monotonic()
         self.attempt_deadline = (self.attempt_start +
                                  wall_clock if wall_clock > 0 else None)
+
+    def pause_attempt_clock(self, seconds: float) -> None:
+        """Push every armed wall-clock mark ``seconds`` into the future.
+
+        Called by the session manager after it slept out a usage limit,
+        so the wait is charged to neither the attempt's budget nor the
+        run_python call in flight, and the budget footer's elapsed time
+        stays honest.
+        """
+        if seconds <= 0:
+            return
+        if self.attempt_start is not None:
+            self.attempt_start += seconds
+        if self.attempt_deadline is not None:
+            self.attempt_deadline += seconds
+        if self.python_call_deadline is not None:
+            self.python_call_deadline += seconds
 
     def clear_plan_capture(self) -> None:
         """Clear the four ``solved_plan*`` fields together.

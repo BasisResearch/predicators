@@ -5,21 +5,18 @@ boundary-straddling-detector: a learned predicate whose classifier reads
 the approach's live ``_fitted_params`` is evaluated under each ensemble
 member, and the across-member disagreement is the info score.
 
-Also covers the exploration-fit MCMC budget: the solver fit follows the
-global MCMC budget, while info-seeking exploration can run a separate
-once-per-cycle posterior fit used only for the active-experiment
-ensemble.
+Also covers ensemble selection (Laplace when the LM Jacobian is present,
+else uniform jitter) and the LM-seed short-circuit of the recurrent fit.
 """
 
 # pylint: disable=protected-access,import-outside-toplevel,unused-import
 
 import numpy as np
+import pytest
 
 from predicators import utils  # noqa: F401  (settles import order)
 from predicators.approaches.agent_sim_learning_approach import \
     AgentSimLearningApproach
-from predicators.code_sim_learning.fitting import fit_rule_parameters, \
-    fit_rule_parameters_latent
 from predicators.structs import Action, GroundAtom, Object, Predicate, State, \
     Type
 
@@ -66,6 +63,49 @@ def test_disagreement_zero_far_from_boundary():
     assert approach.score_atom_disagreement(_state(0.05), {atom}) == 0.0
     # x=0.95 > every threshold -> all agree False -> no disagreement.
     assert approach.score_atom_disagreement(_state(0.95), {atom}) == 0.0
+
+
+def test_noise_aware_score_is_what_one_observation_can_resolve():
+    """Under a declared noise channel the score is the information a noisy read
+    carries about the member: thresholds closer than sigma score ~0, thresholds
+    far apart keep the full bit."""
+    utils.reset_config({
+        "agent_explorer_info_seeking_noise_aware": True,
+        "continual_obs_noise_position": 0.05,
+        "continual_obs_noise_declared": True,
+        "seed": 0,
+    })
+    near = _bare_approach([{
+        "thresh": t
+    } for t in (0.50, 0.505, 0.51)], {"thresh": 0.5})
+    atom = _at_target_atom(near)
+    # The plain split is 1 vs 2 members: a high entropy the noise makes
+    # unreadable (every member reads x=0.5 as a coin flip).
+    assert near.score_atom_disagreement(_state(0.5), {atom}) < 0.1
+    far = _bare_approach([{"thresh": t} for t in (0.2, 0.8)], {"thresh": 0.5})
+    atom_far = _at_target_atom(far)
+    utils.reset_config({
+        "agent_explorer_info_seeking_noise_aware": True,
+        "continual_obs_noise_position": 0.01,
+        "continual_obs_noise_declared": True,
+        "seed": 0,
+    })
+    assert far.score_atom_disagreement(_state(0.5),
+                                       {atom_far}) == pytest.approx(1.0)
+    assert far._fitted_params == {"thresh": 0.5}
+    # Flag off, or an undeclared channel: the plain entropy of the split.
+    utils.reset_config({
+        "agent_explorer_info_seeking_noise_aware": False,
+        "continual_obs_noise_position": 0.05,
+    })
+    assert near.score_atom_disagreement(_state(0.5), {atom}) > 0.9
+    utils.reset_config({
+        "agent_explorer_info_seeking_noise_aware": True,
+        "continual_obs_noise_position": 0.05,
+        "continual_obs_noise_declared": False,
+    })
+    assert near.score_atom_disagreement(_state(0.5), {atom}) > 0.9
+    utils.reset_config({})
 
 
 def test_fitted_params_restored_after_scoring():
@@ -116,6 +156,37 @@ def test_rebuild_param_ensemble_respects_flag():
     assert approach._param_ensemble[0] == {"a": 1.0}  # member 0 is anchor
 
 
+def test_rebuild_param_ensemble_empty_under_oracle_params():
+    """Oracle params carry no uncertainty, so no ensemble is built.
+
+    Without this the uniform-jitter fallback would hand the capture gate
+    members that no plan can satisfy (a zero rate, a rewired lamp), and
+    the gate would refuse every plan on a model that is exactly right.
+    """
+    from predicators.code_sim_learning.fit_space import ParamSpec
+    approach = object.__new__(AgentSimLearningApproach)
+    approach._fitted_params = {"a": 1.0}
+    approach._param_specs = [ParamSpec("a", 1.0, lo=0.0, hi=2.0)]
+    approach._param_ensemble = [{"a": 1.0}, {"a": 2.0}]
+    approach._last_fit_result = None
+    approach._rng = np.random.default_rng(0)
+    utils.reset_config({
+        "agent_plan_validation_rule_param_margin": True,
+        "agent_explorer_info_ensemble_size": 5,
+        "agent_sim_learn_oracle_sim_params": True,
+    })
+    approach._rebuild_param_ensemble()
+    assert approach._param_ensemble == []
+
+    utils.reset_config({
+        "agent_plan_validation_rule_param_margin": True,
+        "agent_explorer_info_ensemble_size": 5,
+        "agent_sim_learn_oracle_sim_params": False,
+    })
+    approach._rebuild_param_ensemble()
+    assert len(approach._param_ensemble) == 5
+
+
 def _selector_approach(fit_result):
     from predicators.code_sim_learning.fit_space import ParamSpec
     approach = object.__new__(AgentSimLearningApproach)
@@ -129,32 +200,11 @@ def _selector_approach(fit_result):
     return approach
 
 
-def test_select_ensemble_prefers_posterior_when_samples_present():
-    """Select ensemble prefers posterior when samples present."""
-    from predicators.code_sim_learning.fit_space import FitResult
-
-    # MCMC ran: multi-row samples -> posterior subsample wins.
-    fit = FitResult(names=["a", "b"],
-                    samples=np.array([[1.1, 2.1], [0.9, 1.9], [1.2, 2.2]]),
-                    log_probs=np.array([0.0, 2.0, 1.0]))
-    approach = _selector_approach(fit)
-    utils.reset_config({
-        "agent_explorer_info_seeking": True,
-        "agent_explorer_info_calibrated_ensemble": True,
-        "agent_explorer_info_ensemble_size": 3,
-    })
-    members, method = approach._select_param_ensemble(3)
-    assert method == "posterior-subsample"
-    assert members[0] == {"a": 0.9, "b": 1.9}
-    rows = {(1.1, 2.1), (0.9, 1.9), (1.2, 2.2)}
-    assert all((m["a"], m["b"]) in rows for m in members[1:])
-
-
 def test_select_ensemble_uses_laplace_when_only_jacobian():
-    """Select ensemble uses laplace when only jacobian."""
+    """Select ensemble uses laplace when the LM Jacobian is present."""
     from predicators.code_sim_learning.fit_space import FitResult
 
-    # No MCMC (single-row samples) but the Laplace bundle is present.
+    # The Laplace bundle (Jacobian + sigmas) is present.
     fit = FitResult(names=["a", "b"],
                     samples=np.array([[1.0, 2.0]]),
                     log_probs=np.zeros(1),
@@ -211,106 +261,6 @@ def test_select_ensemble_uniform_when_calibration_disabled():
     assert method == "uniform-perturb"
 
 
-def test_exploration_fit_num_steps_budget():
-    """The exploration posterior can request extra MCMC.
-
-    The override never reduces an explicit global solver run; a separate
-    exploration-only fit is needed only when this budget exceeds the
-    global solver budget.
-    """
-    # Info-seeking off -> no override (None falls back to the global).
-    utils.reset_config({
-        "agent_explorer_info_seeking": False,
-        "agent_explorer_info_mcmc_steps": 300,
-        "code_sim_learning_num_mcmc_steps": 0,
-    })
-    assert AgentSimLearningApproach._exploration_fit_num_steps() is None
-    separate_steps = (
-        AgentSimLearningApproach._separate_exploration_fit_num_steps())
-    assert separate_steps is None
-    # On: the exploration budget applies even with the global at 0.
-    utils.reset_config({
-        "agent_explorer_info_seeking": True,
-        "agent_explorer_info_mcmc_steps": 300,
-        "code_sim_learning_num_mcmc_steps": 0,
-    })
-    assert AgentSimLearningApproach._exploration_fit_num_steps() == 300
-    separate_steps = (
-        AgentSimLearningApproach._separate_exploration_fit_num_steps())
-    assert separate_steps == 300
-    # A larger global budget wins over a smaller exploration one.
-    utils.reset_config({
-        "agent_explorer_info_seeking": True,
-        "agent_explorer_info_mcmc_steps": 0,
-        "code_sim_learning_num_mcmc_steps": 500,
-    })
-    assert AgentSimLearningApproach._exploration_fit_num_steps() == 500
-    separate_steps = (
-        AgentSimLearningApproach._separate_exploration_fit_num_steps())
-    assert separate_steps is None
-
-
-def test_exploration_mcmc_does_not_replace_solver_params(monkeypatch):
-    """Extra exploration MCMC should not publish into solver params."""
-    from predicators.code_sim_learning.fit_space import FitResult, ParamSpec
-
-    approach = object.__new__(AgentSimLearningApproach)
-    approach._fitted_params = {}
-    approach._param_specs = []
-    approach._physical_param_specs = []
-    approach._param_ensemble = []
-    approach._last_fit_result = None
-    approach._fit_sse = float("inf")
-    approach._rng = np.random.default_rng(0)
-
-    solver_result = FitResult(names=["a"],
-                              samples=np.array([[1.0]]),
-                              log_probs=np.zeros(1))
-    exploration_result = FitResult(
-        names=["a"],
-        samples=np.array([[2.0], [3.0], [4.0]]),
-        log_probs=np.array([0.0, 1.0, 2.0]),
-    )
-    calls = []
-
-    def _fake_fit(rules,
-                  specs,
-                  base_pred_triples,
-                  residual_features,
-                  num_steps=None,
-                  lm_seed=None):
-        del rules, specs, base_pred_triples, residual_features, lm_seed
-        calls.append(num_steps)
-        if num_steps is None:
-            return solver_result, 10.0
-        return exploration_result, 5.0
-
-    monkeypatch.setattr(
-        "predicators.approaches.agent_sim_learning_approach"
-        ".fit_rule_parameters", _fake_fit)
-    utils.reset_config({
-        "agent_sim_learn_oracle_sim_params": False,
-        "agent_explorer_info_seeking": True,
-        "agent_explorer_info_mcmc_steps": 300,
-        "agent_explorer_info_calibrated_ensemble": True,
-        "agent_explorer_info_ensemble_size": 3,
-        "code_sim_learning_num_mcmc_steps": 0,
-    })
-    specs = [ParamSpec("a", 1.0, lo=0.0, hi=5.0)]
-    # Non-empty triples: with no data the method seeds from the declared
-    # inits instead of fitting (the oracle-sim-program no-demos path).
-    s = State({_block: np.array([0.0])})
-    triples = [(s, Action(np.zeros(1, dtype=np.float32)), s)]
-    approach._fit_params_after_synthesis([], specs, triples, {})
-    assert calls == [None, 300]
-    assert approach._fitted_params == {"a": 1.0}
-    assert approach._fit_sse == 10.0
-    assert approach._last_fit_result is exploration_result
-    assert approach._param_ensemble[0] == {"a": 4.0}
-    assert {m["a"]
-            for m in approach._param_ensemble[1:]}.issubset({2.0, 3.0, 4.0})
-
-
 def test_fit_params_no_data_seeds_declared_inits(monkeypatch):
     """With no transitions, params seed from inits and no fit runs.
 
@@ -348,64 +298,11 @@ def test_fit_params_no_data_seeds_declared_inits(monkeypatch):
     assert approach._fit_sse == float("inf")
 
 
-def test_fit_parameters_num_steps_override_runs_mcmc():
-    """``num_steps>0`` runs emcee even when the global budget is 0.
-
-    This is the decoupling the exploration-only fit relies on: tools and
-    solver fitting call ``_fit_parameters`` without ``num_steps`` (fast
-    path at the global 0), while the separate active-experiment fit
-    passes its own budget and gets multi-row posterior samples — exactly
-    what upgrades ``_select_param_ensemble`` to posterior-subsample.
-    """
-    from predicators.code_sim_learning.fit_space import ParamSpec
-    utils.reset_config({
-        "code_sim_learning_num_mcmc_steps": 0,
-        "code_sim_learning_warm_start_with_lm": False,
-        "code_sim_learning_log_hessian_identifiability": False,
-        "agent_explorer_info_seeking": False,
-    })
-    specs = [ParamSpec("a", 1.0, lo=0.5, hi=1.5)]
-    triple = (_state(0.1), Action(np.zeros(1, dtype=np.float32)), _state(0.1))
-    # No override: short-circuits at the global 0 -> single-row samples.
-    result, _ = fit_rule_parameters([], specs, [triple], {})
-    assert result.samples.shape[0] == 1
-    # Override: emcee runs despite the global 0 -> multi-row samples.
-    result, _ = fit_rule_parameters([], specs, [triple], {}, num_steps=8)
-    assert result.samples.shape[0] > 1
-
-
-def test_fit_parameters_latent_threads_num_steps(monkeypatch):
-    """The recurrent fit forwards the override into fit_params_recurrent."""
-    import predicators.code_sim_learning.fitting as fitting_mod
-    from predicators.code_sim_learning.fit_space import FitResult, ParamSpec
-
-    captured = {}
-
-    def _fake_fit(**kwargs):
-        captured.update(kwargs)
-        return FitResult(names=["a"],
-                         samples=np.array([[1.0]]),
-                         log_probs=np.zeros(1))
-
-    monkeypatch.setattr(fitting_mod, "fit_params_recurrent", _fake_fit)
-    monkeypatch.setattr(fitting_mod, "compute_sse_recurrent",
-                        lambda *a, **k: 0.0)
-    specs = [ParamSpec("a", 1.0, lo=0.0, hi=2.0)]
-    result, sse = fit_rule_parameters_latent([],
-                                             specs, [[]],
-                                             None, {},
-                                             num_steps=7)
-    assert captured["num_steps"] == 7
-    assert sse == 0.0
-    assert result.point_estimate == {"a": 1.0}
-
-
 def test_lm_seed_skips_lm_refit(monkeypatch):
     """A precomputed (theta_map, jac) short-circuits the LM prefit."""
     import predicators.code_sim_learning.fitting as fitting_mod
     from predicators.code_sim_learning.fit_space import ParamSpec
     utils.reset_config({
-        "code_sim_learning_num_mcmc_steps": 0,
         "code_sim_learning_warm_start_with_lm": True,
         "agent_explorer_info_seeking": True,
     })
@@ -438,63 +335,3 @@ def test_lm_seed_skips_lm_refit(monkeypatch):
     assert result.jacobian is not None
     assert float(result.jacobian[0, 0]) == 0.7
     assert result.point_estimate == {"a": 1.3}
-
-
-def test_exploration_refit_seeds_from_lm_only_solver_fit(monkeypatch):
-    """The exploration refit reuses the solver LM MAP only when safe."""
-    from predicators.code_sim_learning.fit_space import FitResult, ParamSpec
-    specs = [ParamSpec("a", 1.0, lo=0.0, hi=2.0)]
-    captured = {}
-
-    def _fake_recurrent(self,
-                        rules,
-                        s,
-                        triples,
-                        feats,
-                        num_steps=None,
-                        lm_seed=None):
-        del self, rules, s, triples, feats
-        captured["lm_seed"] = lm_seed
-        captured["num_steps"] = num_steps
-        return FitResult(names=["a"],
-                         samples=np.array([[1.0], [1.1]]),
-                         log_probs=np.zeros(2)), 0.0
-
-    monkeypatch.setattr(AgentSimLearningApproach, "_fit_parameters_recurrent",
-                        _fake_recurrent)
-    monkeypatch.setattr(
-        "predicators.approaches.agent_sim_learning_approach."
-        "has_latent_rules", lambda _r: True)
-    monkeypatch.setattr(
-        "predicators.approaches.agent_sim_learning_approach."
-        "has_physics_rules", lambda _r: False)
-    approach = object.__new__(AgentSimLearningApproach)
-    approach._physical_param_specs = []
-    utils.reset_config({
-        "agent_explorer_info_seeking": True,
-        "agent_explorer_info_mcmc_steps": 300,
-        "code_sim_learning_num_mcmc_steps": 0,
-    })
-    # LM-only solver fit (single-row samples, matching names): seeded.
-    jac = np.array([[0.4]])
-    approach._last_fit_result = FitResult(names=["a"],
-                                          samples=np.array([[1.5]]),
-                                          log_probs=np.zeros(1),
-                                          jacobian=jac)
-    approach._maybe_refit_exploration_posterior([], specs, [], {})
-    assert captured["num_steps"] == 300
-    theta, seed_jac = captured["lm_seed"]
-    assert float(theta[0]) == 1.5
-    assert seed_jac is jac
-    # Multi-row solver samples (real solver MCMC): no seed.
-    approach._last_fit_result = FitResult(names=["a"],
-                                          samples=np.array([[1.5], [1.6]]),
-                                          log_probs=np.zeros(2))
-    approach._maybe_refit_exploration_posterior([], specs, [], {})
-    assert captured["lm_seed"] is None
-    # Name mismatch (stale fit for different specs): no seed.
-    approach._last_fit_result = FitResult(names=["b"],
-                                          samples=np.array([[1.5]]),
-                                          log_probs=np.zeros(1))
-    approach._maybe_refit_exploration_posterior([], specs, [], {})
-    assert captured["lm_seed"] is None

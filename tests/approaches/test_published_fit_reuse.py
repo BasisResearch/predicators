@@ -80,7 +80,6 @@ def test_reused_physics_fit_restores_the_margin_gate_state(
     utils.reset_config({
         "agent_sim_learn_oracle_sim_params": False,
         "agent_explorer_info_seeking": False,
-        "code_sim_learning_num_mcmc_steps": 0,
     })
     sim_file = tmp_path / "simulator.py"
     sim_file.write_text("RESIDUAL_RULES = []\n", encoding="utf-8")

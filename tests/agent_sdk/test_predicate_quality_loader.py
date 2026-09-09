@@ -5,7 +5,7 @@ trajectory (no PyBullet): the report scores milestone behaviour and the
 loaded draft replaces the approach's learned predicate set.
 """
 # pylint: disable=protected-access
-from typing import Any, Dict, Set, cast
+from typing import Any, Dict, List, Set, cast
 
 import numpy as np
 from gym.spaces import Box
@@ -43,9 +43,17 @@ class _StubApproach:
         self._learned_predicates: Set[Predicate] = set()
         self._train_tasks = [Task(_state(0.0), {GroundAtom(_Kept, [_block])})]
         self._fitted_params: Dict[str, float] = {}
+        # The session's shared ToolContext, whose predicate set refine /
+        # run / atoms read; it opens with the kept env predicates only.
+        self._tool_context = ToolContext(predicates={_Kept})
+        # What a live run's abstraction saw at each install.
+        self.installed: List[Set[str]] = []
 
     def _get_all_options(self) -> Set[ParameterizedOption]:
         return {_Move}
+
+    def _on_predicates_installed(self) -> None:
+        self.installed.append({p.name for p in self._learned_predicates})
 
 
 def _trajectory() -> LowLevelTrajectory:
@@ -87,6 +95,14 @@ def test_probe_predicates_loads_scores_and_installs(tmp_path: Any) -> None:
     assert "monotone (1↑ 0↓): 1" in text
     assert "Skipped 'Kept' (collides with a kept env predicate)" in text
     assert {p.name for p in approach._learned_predicates} == {"Hi"}
+    # The draft is installed where the probe's refine / run / atoms look,
+    # not only on the approach: before this, every subgoal naming an
+    # invented predicate was rejected with "available predicates:
+    # ['Holding']" while the report said it was installed.
+    assert {p.name for p in approach._tool_context.predicates} == \
+        {"Kept", "Hi"}
+    # A live run's abstraction is told once, after the draft is in.
+    assert approach.installed == [{"Hi"}]
 
 
 def test_probe_predicates_reports_a_missing_file(tmp_path: Any) -> None:

@@ -1,0 +1,91 @@
+# Uniform continual-protocol sweep, bridge and domino only, seeds 0-2, after
+# the 2026-09-08 skill fixes (Cartesian direct descents for pick and place,
+# the joint-jump guard on every incremental-IK step, the BiRRT replay
+# thinning, the role-free bridge goal, the rehearsal rule in the play
+# prompt). Identical flags to protocol_continual_uniform_sweep.yaml; the
+# experiment keys carry an _r2 suffix so the runs sit next to, not on top
+# of, the pre-fix runs in the viewer. Launched from the
+# predicators-place-fix worktree, which the jobs bind to.
+#
+# Usage (from /home/ycliang/predicators-place-fix):
+#   python scripts/engaging/launch.py \
+#       -c predicatorv3/protocol_continual_uniform_sweep_bridge_domino_r2.yaml \
+#       --partition mit_preemptable --accounts a
+#
+# Run dirs: logs/agent_continual/<env>-agent_continual_uniform_r2/seed{0,1,2}/
+#   and logs/agent_continual_model_free/<env>-agent_continual_model_free_uniform_r2/seed{0,1,2}/.
+---
+START_SEED: 0
+NUM_SEEDS: 3
+includes:
+  - common.yaml
+  - envs/all.yaml
+  - approaches/all.yaml
+ARGS:
+  # A requeue (preemption or the wall-time trap) resumes the run in its
+  # directory from the scorecard and the level recording.
+  - auto_resume
+FLAGS:
+  experiment_protocol: "continual"
+  continual_levels: "train_then_test"
+  continual_steps_per_level: 5000
+  continual_wall_clock_hours: 48.0
+  continual_render: True
+  continual_make_video: True
+  test_fresh_env_per_episode: True
+  continual_runs_dir: "/home/ycliang/predicators/logs"
+  log: "/home/ycliang/predicators/logs/"
+ENVS:
+  boil:
+    SKIP: True
+  bridge:
+    SKIP: False
+    FLAGS:
+      continual_steps_per_level: 10000
+  domino_high_friction_turn:
+    SKIP: False
+  fan:
+    SKIP: True
+  balloons:
+    SKIP: True
+APPROACHES:
+  oracle:
+    SKIP: True
+  random_primitives:
+    NAME: "random_actions"
+    SKIP: True
+  random_skills:
+    NAME: "random_options"
+    SKIP: True
+  # Model-based arm: hybrid simulator + parameter fit + predicate invention,
+  # with the adaptive uncertainty flags (margin gate always on, info-seeking
+  # with adaptive proactive probing).
+  agent_continual_uniform_r2:
+    NAME: "agent_continual"
+    SKIP: False
+    FLAGS:
+      agent_sdk_use_local_sandbox: True
+      partially_observable: True
+      agent_sdk_max_agent_turns_per_iteration: 10000
+      agent_sdk_image_max_px: 900
+      agent_bilevel_use_llm_initial_params: True
+      agent_solve_use_journal: True
+      agent_validation_parallel_workers: 6
+      code_sim_learning_rollout_min_posterior_width: 0.1
+      continual_max_idle_rounds: 5
+      agent_plan_validation_rule_param_margin: True
+      agent_explorer_info_seeking: True
+      agent_explorer_info_seeking_adaptive: True
+  # Model-free baseline: same env + skill tools, sandbox and journal, no
+  # simulator and no learning session.
+  agent_continual_model_free_uniform_r2:
+    NAME: "agent_continual_model_free"
+    SKIP: False
+    FLAGS:
+      agent_sdk_use_local_sandbox: True
+      partially_observable: True
+      agent_planner_use_simulator: False
+      agent_solve_use_journal: True
+      agent_sdk_max_agent_turns_per_iteration: 10000
+      agent_sdk_image_max_px: 900
+      continual_max_idle_rounds: 5

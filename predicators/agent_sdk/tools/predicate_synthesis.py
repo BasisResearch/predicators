@@ -24,7 +24,9 @@ def make_predicate_quality_loader(
     ``predicates_versions_dir`` as
     ``cycle_XXX_vers_YYY_predicates.py``), validates each
     ``Predicate``, mutates ``approach._learned_predicates`` so
-    subsequent refinement calls see the agent's draft, and reports
+    subsequent refinement calls see the agent's draft, refreshes the
+    session's ``ToolContext`` predicate set, calls the approach's
+    ``_on_predicates_installed`` hook when it has one, and reports
     milestone behaviour over the demo trajectories.
 
     Args:
@@ -126,6 +128,26 @@ def make_predicate_quality_loader(
 
         # Mutate approach state so sim.refine sees the draft.
         approach._learned_predicates = set(valid)  # pylint: disable=protected-access
+        # The probe's refine / run / atoms read the session's ToolContext
+        # predicate set, which was snapshotted from the approach when the
+        # session opened. Refresh it, or the draft is reported as
+        # installed while every subgoal naming it is rejected with
+        # "available predicates: ['Holding']" and sim.atoms() stays
+        # empty (bridge seed-3 journal, cycle 0, 2026-09-03).
+        tool_context = getattr(approach, "_tool_context", None)
+        if tool_context is not None:
+            tool_context.predicates = (
+                set(approach._kept_initial_predicates)  # pylint: disable=protected-access
+                | set(valid))
+        # An approach playing a live run installs the draft there too
+        # (the continual arm's session abstraction: the observation's
+        # atoms, Wait targets, divergence checks). Without the hook the
+        # run kept the set snapshotted at level start: empty for a
+        # whole level, or a stale draft after an edit (bridge seed 0,
+        # 2026-09-04).
+        on_installed = getattr(approach, "_on_predicates_installed", None)
+        if on_installed is not None:
+            on_installed()
         return valid, version_tag, None, warnings
 
     def _enumerate_groundings(

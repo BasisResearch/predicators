@@ -40,9 +40,9 @@ from predicators.ground_truth_models import get_gt_options
 _GUI_ON = False  # Set True for visual debugging
 
 # Default continuous params for skill factories.
-# Pick: (grasp_z_offset,) in [0.0, 0.1] -- small offset so gripper
-# closes close to the object origin.
-_PICK_PARAMS = [0.01]
+# Pick: close at the handle grasp pose returned by the domain's factory.
+# An additional height offset can put the fingers above a narrow handle.
+_PICK_PARAMS = [0.0]
 # Push: (approach_distance, contact_z_offset) in [0, 0.10] x [0, 0.11]
 # -- a real stroke: zero approach makes the push degenerate (start point
 # == end point == target), leaving the toggle to the descending hand's

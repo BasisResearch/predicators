@@ -278,6 +278,20 @@ def test_unknown_blocks_render_type_header_and_json_extras():
     assert "**OtherBlock:**" in md
 
 
+def test_compaction_boundary_entry():
+    """The SDK's compaction boundary renders as a System note with the trigger
+    and the size before it; other system entries are skipped."""
+    md = format_conversation_markdown([{
+        "type": "system",
+        "subtype": "compact_boundary",
+        "trigger": "auto",
+        "pre_tokens": 143000
+    }])
+    assert "**System:** context compacted (auto, ~143k tokens before)" in md
+    md = format_conversation_markdown([{"type": "system", "subtype": "init"}])
+    assert "System" not in md
+
+
 def test_unknown_entry_type_is_skipped():
     """Entries with unrecognized top-level types are ignored."""
     md = format_conversation_markdown([{"type": "telemetry", "x": 1}])

@@ -1,11 +1,10 @@
 """Parameter fitting for the sim-learning approach.
 
-The default path is a Levenberg-Marquardt point fit (MAP under a
-Gaussian prior); emcee (affine-invariant ensemble MCMC) is the opt-in
-posterior-sampling path behind ``code_sim_learning_num_mcmc_steps``.
-The ``ParamSpec``/``FitResult`` types and fit-space transforms live in
-:mod:`fit_space`; the LM core lives in :mod:`lm`; this module owns the
-objectives (SSE / residual vectors) and the fit entry points.
+The fit is a Levenberg-Marquardt point estimate (MAP under a Gaussian
+prior) with a Laplace covariance at the MAP for the rule-parameter
+ensemble. The ``ParamSpec``/``FitResult`` types and fit-space transforms
+live in :mod:`fit_space`; the LM core lives in :mod:`lm`; this module
+owns the objectives (SSE / residual vectors) and the fit entry points.
 """
 
 from __future__ import annotations
@@ -16,11 +15,9 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import numpy as np
 
 from predicators.code_sim_learning.fit_space import FitResult, ParamSpec, \
-    fit_space_bounds, from_fit_space, prior_widths, rows_from_fit_space, \
-    to_fit_space
+    prior_widths
 from predicators.code_sim_learning.lm import lm_point_fit_result, lm_prefit, \
     solve_lm
-from predicators.settings import CFG
 from predicators.structs import Action, State
 
 logger = logging.getLogger(__name__)
@@ -149,45 +146,31 @@ def fit_params_recurrent(
     param_specs: List[ParamSpec],
     latent_init: Any,
     residual_features: Dict[str, List[str]],
-    num_walkers: int = 32,
-    num_steps: Optional[int] = None,
-    burn_in: int = 200,
     noise_sigma: float = 0.05,
     prior_sigma_scale: float = 1.0,
     lm_seed: Optional[Tuple[np.ndarray, Optional[np.ndarray]]] = None,
 ) -> FitResult:
-    """Fit recurrent-sim parameters via emcee MCMC.
+    """Fit recurrent-sim parameters: LM MAP + Laplace covariance.
 
     Mirror of :func:`fit_params` for the recurrent (latent-threaded)
-    rollout used by the partial-observability approach. Differences
-    from :func:`fit_params`:
-
-    * Likelihood = :func:`compute_sse_recurrent` (per-trajectory
-      rollout with latent carry) instead of per-transition
-      :func:`compute_sse`.
-    * Uses a recurrent LM warm-start / Hessian diagnostic / Laplace
-      bundle (:func:`fit_map_lm_recurrent`, built on the rollout residual
-      vector :func:`compute_residuals_recurrent`) under the same CFG flags
-      as the FO path, in place of the per-transition :func:`fit_map_lm`.
-      The Jacobian at the MAP is attached to the returned ``FitResult`` so
-      callers can build the Laplace ensemble (see
-      ``active_experiment.laplace_ensemble``).
+    rollout used by the partial-observability approach. The only
+    difference is the likelihood: :func:`compute_sse_recurrent`
+    (per-trajectory rollout with latent carry) and a recurrent LM
+    warm-start / Hessian diagnostic / Laplace bundle
+    (:func:`fit_map_lm_recurrent`, built on the rollout residual vector
+    :func:`compute_residuals_recurrent`), in place of the per-transition
+    :func:`fit_map_lm`. The Jacobian at the MAP is attached to the
+    returned ``FitResult`` so callers can build the Laplace ensemble (see
+    ``active_experiment.laplace_ensemble``).
     """
     names = [s.name for s in param_specs]
     scales = [getattr(s, "scale", "linear") for s in param_specs]
     init_values = np.array([s.init_value for s in param_specs])
-    if num_steps is None:
-        num_steps = CFG.code_sim_learning_num_mcmc_steps
-    if num_steps < 0:
-        raise ValueError("code_sim_learning_num_mcmc_steps must be "
-                         "non-negative.")
-    lo, hi = fit_space_bounds(param_specs)
-    init_int = to_fit_space(param_specs, init_values)
     prior_sigma = prior_widths(param_specs, prior_sigma_scale)
 
-    # Optional one-shot recurrent LM fit (see lm_prefit for its three
-    # uses). Each residual eval here is a full set of per-trajectory
-    # rollouts, so it is only paid when one of the gating flags is set.
+    # One-shot recurrent LM fit (see lm_prefit for its uses). Each
+    # residual eval here is a full set of per-trajectory rollouts, so it
+    # is only paid when one of the gating flags is set.
     lm_notes: List[str] = []
     walker_center, lm_theta, lm_jac = lm_prefit(
         lambda: fit_map_lm_recurrent(rules,
@@ -205,46 +188,15 @@ def fit_params_recurrent(
         "recurrent",
         precomputed=lm_seed)
 
-    if num_steps == 0:
-        return lm_point_fit_result(walker_center,
-                                   lm_theta,
-                                   lm_jac,
-                                   names,
-                                   noise_sigma,
-                                   prior_sigma,
-                                   "recurrent",
-                                   scales=scales,
-                                   lm_notes=lm_notes)
-
-    logger.info("Running emcee (recurrent): %d walkers, %d steps, %d burn-in.",
-                max(num_walkers, 2 * len(param_specs) + 2), num_steps,
-                min(burn_in, max(num_steps - 1, 0)))
-    samples, log_probs = run_emcee_posterior(
-        param_specs,
-        lambda p: compute_sse_recurrent(rules, trajectories, p, latent_init,
-                                        residual_features),
-        walker_center,
-        init_int,
-        prior_sigma,
-        lo,
-        hi,
-        noise_sigma,
-        num_walkers,
-        num_steps,
-        burn_in,
-        label="recurrent")
-    result = FitResult(names=names,
-                       samples=samples,
-                       log_probs=log_probs,
-                       jacobian=lm_jac,
-                       noise_sigma=noise_sigma,
-                       prior_sigma=prior_sigma,
-                       scales=scales,
-                       lm_notes=lm_notes)
-    logger.info("emcee (recurrent) done. Posterior mean: %s",
-                {k: f"{v:.4f}"
-                 for k, v in result.point_estimate.items()})
-    return result
+    return lm_point_fit_result(walker_center,
+                               lm_theta,
+                               lm_jac,
+                               names,
+                               noise_sigma,
+                               prior_sigma,
+                               "recurrent",
+                               scales=scales,
+                               lm_notes=lm_notes)
 
 
 def compute_residuals(
@@ -285,8 +237,8 @@ def compute_residuals_recurrent(
     Jacobian LM builds. By construction
     ``sum(compute_residuals_recurrent(...)**2)`` equals
     ``compute_sse_recurrent(...)``, so minimizing ``0.5 * ||r||^2`` with LM
-    targets the same MAP the recurrent MCMC samples around, and yields the
-    Jacobian for the Hessian diagnostic and the Laplace ensemble.
+    targets the MAP and yields the Jacobian for the Hessian diagnostic
+    and the Laplace ensemble.
 
     Each call is a full set of per-trajectory rollouts, so an LM
     finite-difference Jacobian costs ``O(num_params)`` of these.
@@ -382,81 +334,6 @@ def log_sse_breakdown(
         )
 
 
-def run_emcee_posterior(
-    param_specs: List[ParamSpec],
-    sse_fn: Callable[[Dict[str, float]], float],
-    walker_center: np.ndarray,
-    prior_center_int: np.ndarray,
-    prior_sigma: np.ndarray,
-    lo: np.ndarray,
-    hi: np.ndarray,
-    noise_sigma: float,
-    num_walkers: int,
-    num_steps: int,
-    burn_in: int,
-    label: str,
-    report_interval: int = 100,
-) -> Tuple[np.ndarray, np.ndarray]:
-    """Shared emcee run behind the three fit entry points.
-
-    Returns ``(samples_external, log_probs)`` with burn-in discarded and
-    chains flattened. All coordinates are in the FIT space internally
-    (``lo``/``hi``/``prior_center_int``/``prior_sigma``); the returned
-    samples are mapped back to EXTERNAL units.
-
-    RNG discipline: the walker init is the single ``np.random`` draw
-    (then emcee's own internal draws); the call sequence is preserved
-    exactly from the three formerly-duplicated blocks so fixed-seed
-    chains are bit-identical across the consolidation.
-    """
-    import emcee  # type: ignore[import-untyped]  # pylint: disable=import-outside-toplevel
-
-    names = [s.name for s in param_specs]
-    ndim = len(param_specs)
-    num_walkers = max(num_walkers, 2 * ndim + 2)
-    burn_in = min(burn_in, max(num_steps - 1, 0))
-
-    def log_posterior(theta: np.ndarray) -> float:
-        # theta lives in the FIT space (log for log-scale params).
-        # Reject samples outside the per-parameter [lo, hi] box.
-        if np.any(theta < lo) or np.any(theta > hi):
-            return -np.inf
-        ext = from_fit_space(param_specs, theta)
-        params = {n: float(ext[i]) for i, n in enumerate(names)}
-        # Broad Gaussian prior centered on the prior center.
-        log_prior = -0.5 * np.sum(
-            ((theta - prior_center_int) / prior_sigma)**2)
-        sse = sse_fn(params)
-        return float(log_prior - 0.5 * sse / (noise_sigma**2))
-
-    # Initialize walkers across the prior support (sigma = half the prior
-    # width). A tight ball around init traps the chain on flat plateaus
-    # of the likelihood (e.g., when threshold-based rules don't fire),
-    # because emcee stretch moves scale with the swarm's spread.
-    p0 = to_fit_space(param_specs, walker_center) + \
-        0.5 * prior_sigma * np.random.randn(num_walkers, ndim)
-    p0 = np.clip(p0, lo, hi)
-
-    sampler = emcee.EnsembleSampler(num_walkers, ndim, log_posterior)
-
-    # Run with periodic progress reports (flushed so long fits stay
-    # observable in the experiment logs).
-    for i, _result in enumerate(sampler.sample(p0, iterations=num_steps),
-                                start=1):
-        if i % report_interval == 0 or i == num_steps:
-            best_lp = sampler.get_log_prob()[:i].max()
-            logger.info("  %s emcee step %d/%d  (best log-prob: %.2f)", label,
-                        i, num_steps, best_lp)
-            for h in logger.handlers + logging.getLogger().handlers:
-                h.flush()
-
-    # Discard burn-in, flatten chains (back to external units).
-    samples = rows_from_fit_space(
-        param_specs, sampler.get_chain(discard=burn_in, flat=True))
-    log_probs = sampler.get_log_prob(discard=burn_in, flat=True)
-    return samples, log_probs
-
-
 def fit_map_lm(
     simulator_fn: StepSimulatorFn,
     transitions: List[Tuple[State, Action, State]],
@@ -490,10 +367,8 @@ def fit_map_lm(
         ``log_hessian_identifiability`` eigendecomposes to flag flat
         directions.
 
-    Three uses of the result:
+    Two uses of the result:
       * Hessian identifiability diagnostic — eigendecompose J^T J.
-      * MCMC warm start — center emcee walkers on theta_map (and short-
-        circuit to it directly when ``num_mcmc_steps == 0``).
       * Laplace ensemble — reuse J at the MAP for a calibrated posterior
         covariance (see ``active_experiment.laplace_ensemble``).
     """
@@ -538,11 +413,10 @@ def fit_map_lm_recurrent(
 
     Cost note: every residual evaluation is a full set of per-trajectory
     rollouts, so the finite-difference Jacobian costs ``O(num_params)``
-    rollouts per LM iteration; for large param sets prefer MCMC. And
-    because latent threading correlates residuals across steps, ``J^T J``
-    ignores that coupling, making the recurrent Laplace covariance a
-    slightly looser approximation than the per-transition one (MCMC at
-    ``num_mcmc_steps > 0`` remains the gold path).
+    rollouts per LM iteration. And because latent threading correlates
+    residuals across steps, ``J^T J`` ignores that coupling, making the
+    recurrent Laplace covariance a slightly looser approximation than the
+    per-transition one.
     """
     names = [s.name for s in param_specs]
 
@@ -563,19 +437,15 @@ def fit_params(
     transitions: List[Tuple[State, Action, State]],
     param_specs: List[ParamSpec],
     residual_features: Dict[str, List[str]],
-    num_walkers: int = 32,
-    num_steps: Optional[int] = None,
-    burn_in: int = 200,
     noise_sigma: float = 0.05,
     prior_sigma_scale: float = 1.0,
     lm_seed: Optional[Tuple[np.ndarray, Optional[np.ndarray]]] = None,
 ) -> FitResult:
-    """Fit simulator parameters: LM point fit, optional emcee posterior.
+    """Fit simulator parameters: Levenberg-Marquardt MAP + Laplace covariance.
 
-    With ``code_sim_learning_num_mcmc_steps == 0`` (the experiment
-    default) this returns the Levenberg-Marquardt MAP directly; with
-    MCMC steps it runs emcee (gradient-free, so it tolerates
-    non-smooth simulators), optionally warm-started from the LM fit.
+    Returns the LM point fit with a Laplace covariance at the MAP (used
+    to draw the rule-parameter ensemble). The fit is gradient-free on the
+    simulator side, so it tolerates non-smooth simulators.
 
     Args:
         simulator_fn: Simulator(state, action, params_dict) -> updates.
@@ -583,30 +453,21 @@ def fit_params(
         transitions: List of (s_t, action, s_{t+1}_obs) triples.
         param_specs: Parameter specifications (name, init_value).
         residual_features: {type_name: [feat_names]} to fit.
-        num_walkers: Number of ensemble walkers (>= 2*ndim).
-        num_steps: Total MCMC steps per walker. If None, defaults to
-            CFG.code_sim_learning_num_mcmc_steps. If 0, skip training and
-            use initial parameter values directly.
-        burn_in: Steps to discard as burn-in.
         noise_sigma: Observation noise std dev for likelihood.
         prior_sigma_scale: Prior width as multiple of init_value.
+        lm_seed: Optional precomputed (theta_map, jacobian) to skip the
+            LM solve (see lm_prefit).
 
     Returns:
-        FitResult with posterior samples and log-probabilities.
+        FitResult with the MAP point estimate, Jacobian and prior/noise
+        sigmas for the Laplace ensemble.
     """
     names = [s.name for s in param_specs]
     scales = [getattr(s, "scale", "linear") for s in param_specs]
     init_values = np.array([s.init_value for s in param_specs])
-    if num_steps is None:
-        num_steps = CFG.code_sim_learning_num_mcmc_steps
-    if num_steps < 0:
-        raise ValueError("code_sim_learning_num_mcmc_steps must be "
-                         "non-negative.")
-    lo, hi = fit_space_bounds(param_specs)
-    init_int = to_fit_space(param_specs, init_values)
     prior_sigma = prior_widths(param_specs, prior_sigma_scale)
 
-    # Optional one-shot LM fit (see lm_prefit for its three uses).
+    # One-shot LM fit (see lm_prefit for its uses).
     lm_notes: List[str] = []
     walker_center, lm_theta, lm_jac = lm_prefit(
         lambda: fit_map_lm(simulator_fn,
@@ -628,48 +489,15 @@ def fit_params(
                                                             "lm-warm-start"),
         precomputed=lm_seed)
 
-    if num_steps == 0:
-        return lm_point_fit_result(walker_center,
-                                   lm_theta,
-                                   lm_jac,
-                                   names,
-                                   noise_sigma,
-                                   prior_sigma,
-                                   "per-transition",
-                                   scales=scales,
-                                   lm_notes=lm_notes)
-
-    logger.info("Running emcee: %d walkers, %d steps, %d burn-in.",
-                max(num_walkers, 2 * len(param_specs) + 2), num_steps,
-                min(burn_in, max(num_steps - 1, 0)))
-    samples, log_probs = run_emcee_posterior(
-        param_specs,
-        lambda p: compute_sse(simulator_fn, transitions, p, residual_features),
-        walker_center,
-        init_int,
-        prior_sigma,
-        lo,
-        hi,
-        noise_sigma,
-        num_walkers,
-        num_steps,
-        burn_in,
-        label="per-transition")
-
-    result = FitResult(names=names,
-                       samples=samples,
-                       log_probs=log_probs,
-                       jacobian=lm_jac,
-                       noise_sigma=noise_sigma,
-                       prior_sigma=prior_sigma,
-                       scales=scales,
-                       lm_notes=lm_notes)
-
-    logger.info("emcee done. Posterior mean: %s",
-                {k: f"{v:.4f}"
-                 for k, v in result.point_estimate.items()})
-
-    return result
+    return lm_point_fit_result(walker_center,
+                               lm_theta,
+                               lm_jac,
+                               names,
+                               noise_sigma,
+                               prior_sigma,
+                               "per-transition",
+                               scales=scales,
+                               lm_notes=lm_notes)
 
 
 # Observation-noise sigma shared by the rule-fit wrappers below and the
@@ -695,20 +523,16 @@ def fit_rule_parameters(
     specs: List[ParamSpec],
     base_pred_triples: List[Tuple[State, Action, State]],
     residual_features: Dict[str, List[str]],
-    num_steps: Optional[int] = None,
     lm_seed: Optional[Tuple[np.ndarray, Optional[np.ndarray]]] = None,
 ) -> Tuple[FitResult, float]:
     """Fit parameters for synthesized residual rules (teacher-forced).
 
     ``base_pred_triples`` must already have the base step applied;
-    precomputing avoids re-running it inside the MCMC inner loop.
-
-    ``num_steps`` overrides the global MCMC budget for this fit
-    (``None`` falls back to ``CFG.code_sim_learning_num_mcmc_steps``).
+    precomputing avoids re-running it inside the fit's inner loop.
 
     Returns the full :class:`FitResult` (so callers can reach the
-    posterior ``samples`` / Laplace ``jacobian`` for ensemble
-    construction) alongside the post-fit SSE. Shared source of truth
+    Laplace ``jacobian`` for ensemble construction) alongside the
+    post-fit SSE. Shared source of truth
     for the approach's engine fit and the synthesis tools' scoring, so
     the two cannot drift.
     """
@@ -739,7 +563,6 @@ def fit_rule_parameters(
         transitions=base_pred_triples,
         param_specs=specs,
         residual_features=residual_features,
-        num_steps=num_steps,
         lm_seed=lm_seed,
     )
 
@@ -764,22 +587,15 @@ def fit_rule_parameters_latent(
     groups: List[TrajectoryTriples],
     latent_init: Any,
     residual_features: Dict[str, List[str]],
-    num_steps: Optional[int] = None,
     lm_seed: Optional[Tuple[np.ndarray, Optional[np.ndarray]]] = None,
 ) -> Tuple[FitResult, float]:
-    """Recurrent MCMC fit over pre-grouped trajectories.
+    """Recurrent (latent-threaded) LM fit over pre-grouped trajectories.
 
-    Shared source of truth for the recurrent (latent-threaded) fit:
-    the approach calls it with groups derived from its trajectory cache
-    and latent init; the synthesis tools call it with groups they
-    regroup and ``LATENT_INIT`` read fresh from ``simulator.py``. Both
-    therefore score latent rules identically, with no tool/engine drift
-    in the rule call convention.
-
-    ``num_steps`` overrides the global MCMC budget (``None`` falls
-    back to ``CFG.code_sim_learning_num_mcmc_steps``). The tools
-    never pass it, so repeated tool calls stay at the fast global
-    setting while the post-synthesis fit can run real MCMC.
+    Shared source of truth for the recurrent fit: the approach calls it
+    with groups derived from its trajectory cache and latent init; the
+    synthesis tools call it with groups they regroup and ``LATENT_INIT``
+    read fresh from ``simulator.py``. Both therefore score latent rules
+    identically, with no tool/engine drift in the rule call convention.
     """
     init_params = {s.name: s.init_value for s in specs}
     if lm_seed is None:
@@ -795,7 +611,6 @@ def fit_rule_parameters_latent(
         param_specs=specs,
         latent_init=latent_init,
         residual_features=residual_features,
-        num_steps=num_steps,
         lm_seed=lm_seed,
     )
     fitted_params = result.point_estimate

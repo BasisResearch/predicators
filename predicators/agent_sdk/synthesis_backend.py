@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, \
     Protocol, Sequence, Set, Tuple
 
 if TYPE_CHECKING:
+    from predicators.code_sim_learning.evidence import LaplaceEvidence
     from predicators.code_sim_learning.fit_space import FitResult, ParamSpec
     from predicators.code_sim_learning.rollout_env import RolloutTrajectory
     from predicators.code_sim_learning.utils import LearnedSimulator
@@ -73,8 +74,14 @@ class SynthesisBackend(Protocol):
         sse: float = float("nan"),
         applied_physical: Optional[Dict[str, float]] = None,
         sigma_points: Optional[List[Dict[str, float]]] = None,
+        pinned: bool = False,
     ) -> None:
-        """Deploy a canonical ``sim.fit`` result to the candidate probe."""
+        """Deploy a canonical ``sim.fit`` result to the candidate probe.
+
+        ``pinned`` marks a fit that never ran (no explainable segment);
+        see the approach's implementation for how it is kept apart from
+        a real fit of the same file.
+        """
 
     # ── Vocabulary / engine accessors ────────────────────────────
     def _get_all_predicates(self) -> Set[Predicate]:
@@ -106,6 +113,23 @@ class SynthesisBackend(Protocol):
             self, identified: Dict[str, float]) -> None:
         ...
 
+    def fit_prior_anchors(
+            self, physical_specs: Sequence[ParamSpec]) -> Dict[str, float]:
+        """The prior centres of a rollout fit: the registry anchors, or the
+        carried posterior's values under code_sim_learning_carry_posterior."""
+
+    def note_carried_posterior(self, applied: Dict[str, float],
+                               report: Dict[str, Dict[str, Any]]) -> None:
+        """Record a fit's deployed values as the next fit's prior centres."""
+
+    def note_fit_evidence(self, version_tag: str,
+                          evidence: LaplaceEvidence) -> None:
+        """Record a canonical fit's Laplace evidence under its version."""
+
+    def previous_fit_evidence(
+            self, version_tag: str) -> Optional[Dict[str, LaplaceEvidence]]:
+        """The previous version's recorded evidence, as a one-entry dict."""
+
     def _record_sysid_diagnostics(self, report: Dict[str, Dict[str, Any]],
                                   physical_names: Sequence[str],
                                   num_survivors: int, num_segments: int,
@@ -118,7 +142,6 @@ class SynthesisBackend(Protocol):
         specs: List[ParamSpec],
         base_pred_triples: List[Tuple[State, Action, State]],
         residual_features: Dict[str, List[str]],
-        num_steps: Optional[int] = None,
     ) -> Tuple[FitResult, float]:
         ...
 
@@ -153,7 +176,10 @@ class PredicateSynthesisBackend(SynthesisBackend, Protocol):
     """The extra surface ``make_predicate_quality_loader`` needs.
 
     Only the predicate-invention subclass provides these, so they live
-    off the core protocol.
+    off the core protocol. An approach may also define
+    ``_on_predicates_installed() -> None``; the loader calls it after
+    each successful install so state outside the approach (a live run's
+    abstraction) follows the draft.
     """
 
     # Agent-invented predicates (read back through

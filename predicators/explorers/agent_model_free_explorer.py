@@ -50,7 +50,12 @@ class AgentModelFreeExplorer(AgentExplorerBase):
             if plan_text:
                 option_plan = self._parse_and_ground_plan(plan_text, task)
                 if option_plan:
-                    policy = utils.option_plan_to_policy(option_plan)
+                    # The Wait wrapper needs the abstraction to end a
+                    # Wait on its target atoms.
+                    policy = utils.option_plan_to_policy(
+                        option_plan,
+                        abstract_function=lambda s: utils.abstract(
+                            s, self._predicates))
                     return policy, lambda _: False
             logging.info("Agent explorer: no valid plan, falling back to "
                          "random options.")
@@ -125,7 +130,7 @@ class AgentModelFreeExplorer(AgentExplorerBase):
 
 ## Available Options
 {chr(10).join(option_strs)}
-{traj_summary}{tools_str}
+{traj_summary}{self._world_model_notes_block()}{tools_str}
 ## Instructions
 Use your available tools to inspect the environment and test your plan before committing to it.
 

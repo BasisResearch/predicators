@@ -46,7 +46,7 @@ WET_STREAK_STEPS = 3
 WET_PARTIAL = 0.2
 STACK_ALIGN_TOL = 0.025
 LATERAL_PERP_TOL = 0.03
-SEAT_X_WINDOW = 0.045
+SEAT_X_WINDOW = 0.06  # mirrors PyBulletBridgeEnv.seat_x_window
 SEAT_Y_TOL = 0.035
 BOTTLE_HALF_H = 0.03
 DAB_MARGIN = 0.005
@@ -249,6 +249,10 @@ def _gluing(observation: State, latent: Dict[str, Any], history: History,
                 attached[f"{mate.name}|{mate_slot}"] = blk.name
                 glue_next[blk][face] = 0.0
                 cures.pop(key, None)
+                if mate_slot in GLUE_FACES:
+                    # The env consumes a wet mate face with the joint.
+                    glue_next[mate][mate_slot] = 0.0
+                    cures.pop(f"{mate.name}|{mate_slot}", None)
 
     for blk in blocks:
         for face in GLUE_FACES:
