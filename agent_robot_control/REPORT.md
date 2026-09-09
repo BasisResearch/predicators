@@ -1,6 +1,16 @@
 # Agent harnesses as robot controllers, with RL as a motor-skill subroutine
 
-Report on the first round of experiments. Code in `agent_robot_control/`,
+Report on the experiments. Sweep 1 is below in full; sweep 2's numbers and
+reading are in `RESULTS_sweep2.md`, and the published page at the link in the
+session notes carries both.
+
+**Sweep 2 headline (2026-09-09):** removing the particle tool drops success
+from 7/9 to 3/8, which is a larger effect than the RL tool produced in either
+sweep; the RL tool was called once in 26 runs and cost 75% of that run's
+interactions for nothing; the pusher-delay change made Airport properly hard
+while the three-leg plug came out easier than the single prong it replaced.
+
+Original sweep-1 report follows. Code in `agent_robot_control/`,
 design in `PLAN.md`, every root-caused failure in `DEBUG_LOG.md`, raw sweep
 table in `RESULTS_sweep1.md`. Written 2026-09-08.
 

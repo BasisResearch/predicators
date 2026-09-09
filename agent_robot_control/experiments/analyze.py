@@ -17,8 +17,13 @@ def load_results(root: Path) -> List[dict]:
     """Every results.json under ``root``."""
     out = []
     for p in root.rglob("results.json"):
-        if any(part in ("first_runs", "rl_pilot") or part.startswith("rl_pilot") for part in p.parts):
-            continue  # pilots and archived smoke runs are not sweep data
+        # Skip pilots, smoke runs, and any archive directory: re-run cells are
+        # kept on disk under an underscore-prefixed folder, and counting both
+        # copies inflates a cell's run count (seen 2026-09-09: model_free
+        # showed 4 runs for 3 seeds).
+        if any(part in ("first_runs", "rl_pilot") or part.startswith("rl_pilot")
+               or part.startswith("_") for part in p.parts):
+            continue
         try:
             r = json.loads(p.read_text())
         except json.JSONDecodeError:
