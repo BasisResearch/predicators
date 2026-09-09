@@ -15,13 +15,17 @@ from __future__ import annotations
 import pytest
 
 from predicators import utils
+from predicators.agent_sdk.tools.context import ToolContext
 from predicators.approaches.agent_sim_learning_approach import \
     AgentSimLearningApproach
+from predicators.approaches.agent_sim_predicate_invention_approach import \
+    AgentSimPredicateInventionApproach
 from predicators.code_sim_learning.utils import read_residual_env, \
     stamp_physical_spec_scales
 from predicators.envs import create_new_env
 from predicators.ground_truth_models.balloons.gt_simulator_env import \
     BalloonsResidualEnv
+from predicators.structs import State
 
 # A candidate simulator.py that re-exports the balloons subclass as its
 # RESIDUAL_ENV - the minimal well-formed subclass-form artifact.
@@ -92,6 +96,69 @@ def test_loader_reads_subclass_form(tmp_path):
     assert read_residual_env(ns) is BalloonsResidualEnv
 
 
+def test_subclass_predicates_read_live_agent_parameters(
+        reset_balloons, tmp_path, monkeypatch):
+    """The actual predicate loader shares declared and published class
+    params."""
+    del reset_balloons
+    approach = _bare_approach(monkeypatch)
+    approach._install_residual_env_cls(BalloonsResidualEnv, "class")
+    approach._types = set()
+    approach._kept_initial_predicates = set()
+    approach._train_tasks = []
+    approach._get_all_options = set
+    approach._tool_context = ToolContext()
+    path = tmp_path / "predicates.py"
+    path.write_text("LEARNED_PREDICATES = [Predicate('High', [], "
+                    "lambda s, o: params['fade_height'] > .5)]\n")
+    predicates = AgentSimPredicateInventionApproach.\
+        _load_predicates_from_module_file(approach, str(path))
+    pred = next(iter(predicates))
+    assert pred.holds(State({}), [])
+    approach._apply_identified_physical_params({"fade_height": .2})
+    assert not pred.holds(State({}), [])
+    approach._publish_probe_fit({}, "fitted", str(path))
+    assert not pred.holds(State({}), [])
+
+
+@pytest.mark.parametrize("env_name", [
+    "pybullet_balloons", "pybullet_boil", "pybullet_bridge", "pybullet_domino",
+    "pybullet_fan"
+])
+def test_supplied_base_is_concrete_and_exposes_agent_params(
+        tmp_path, env_name):
+    """The same artifact contract works in all five comparison domains."""
+    utils.reset_config({
+        "env": env_name,
+        "seed": 0,
+        "skill_phase_use_motion_planning": False
+    })
+    path = tmp_path / "simulator.py"
+    path.write_text(
+        "class Model(BaseSimulator):\n"
+        "    AGENT_PARAM_SPECS = [ParamSpec('rate', .25, lo=.1, hi=1)]\n"
+        "    RESIDUAL_FEATURES = {}\n"
+        "RESIDUAL_ENV = Model\n")
+    rules, specs, features, ns = \
+        AgentSimLearningApproach._load_simulator_from_module_file(str(path))
+    assert rules == [] and specs == [] and features == {}
+    cls = read_residual_env(ns)
+    assert cls is not None
+    env = cls(use_gui=False)
+    try:
+        assert env.get_name() != env_name
+        assert env.get_physical_param_info()["rate"]["default"] == .25
+        env.apply_physical_param_overrides({"rate": .5})
+        assert env.agent_param("rate") == .5
+        # Built-in parameters and invented constants share one declaration.
+        info = env.get_physical_param_info()
+        env.apply_physical_param_overrides(
+            {n: v["default"]
+             for n, v in info.items()})
+    finally:
+        env.dispose()
+
+
 def test_install_swaps_planning_base_env(reset_balloons, monkeypatch):
     """Installing a RESIDUAL_ENV makes the planning base env an instance of the
     subclass with its hidden step live; clearing restores the stock sim."""
@@ -114,9 +181,32 @@ def test_install_swaps_planning_base_env(reset_balloons, monkeypatch):
     assert approach._base_env is installed
 
     # Clearing restores the stock base sim.
+    approach._apply_identified_physical_params({"fade_height": .6})
     approach._install_residual_env_cls(None)
     assert approach._residual_env_cls is None
     assert not isinstance(approach._base_env, BalloonsResidualEnv)
+    assert "fade_height" not in approach._identified_physical_params
+
+
+def test_supplied_base_applies_declared_physics_before_fit(tmp_path):
+    """Declaring a built-in constant changes actual physics before any fit."""
+    utils.reset_config({"env": "pybullet_balloons", "seed": 0})
+    path = tmp_path / "simulator.py"
+    path.write_text(
+        "class Model(BaseSimulator):\n"
+        "    AGENT_PARAM_SPECS = [ParamSpec('air_drag', .17, lo=.01, hi=1)]\n"
+        "    RESIDUAL_FEATURES = {}\n"
+        "RESIDUAL_ENV = Model\n")
+    _, _, _, ns = AgentSimLearningApproach._load_simulator_from_module_file(
+        str(path))
+    model = read_residual_env(ns)(use_gui=False)
+    try:
+        assert model._skip_domain_specific_dynamics
+        assert model._drag() == .17
+        model.apply_physical_param_overrides({"air_drag": .32})
+        assert model.agent_param("air_drag") == model._drag() == .32
+    finally:
+        model.dispose()
 
 
 def test_subclass_physical_specs_are_agent_param_specs(reset_balloons,

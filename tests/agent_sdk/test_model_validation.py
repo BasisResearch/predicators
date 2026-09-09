@@ -79,6 +79,48 @@ def test_validation_unavailable_without_workbench():
         BeliefProbe(ToolContext()).validate()
 
 
+def test_parameter_free_subclass_uses_public_rollout_tools(
+        tmp_path, monkeypatch):
+    """A native model needs neither a dummy rule nor a dummy parameter."""
+    utils.reset_config({"seed": 0})
+    artifact = tmp_path / "simulator.py"
+    artifact.write_text(
+        "from predicators.envs.pybullet_balloons import PyBulletBalloonsEnv\n"
+        "class Model(PyBulletBalloonsEnv):\n"
+        "    @classmethod\n"
+        "    def get_name(cls):\n"
+        "        return 'test_parameter_free_model'\n"
+        "    AGENT_PARAM_SPECS = []\n"
+        "    RESIDUAL_FEATURES = {'ball': ['x']}\n"
+        "    def _domain_specific_step(self):\n"
+        "        pass\n"
+        "RESIDUAL_ENV = Model\n",
+        encoding="utf-8")
+    approach = _Workbench()
+    monkeypatch.setattr(
+        approach,
+        "_install_residual_env_cls",
+        lambda cls, key: setattr(approach, "_residual_env_cls", cls),
+        raising=False)
+    toolkit = create_synthesis_tools(exec_ns={},
+                                     base_pred_triples=[],
+                                     inferred_residual_features={},
+                                     simulator_file=str(artifact),
+                                     versions_dir=str(tmp_path / "versions"),
+                                     approach=cast(SynthesisBackend, approach))
+    sim = BeliefProbe(
+        ToolContext(probe_validation_provider=toolkit.validation_runner,
+                    probe_residuals_provider=toolkit.residuals_runner,
+                    probe_fit_provider=toolkit.fit_runner))
+    assert "trajectory 0: 6 actions, RMS=0, SSE=0" in sim.validate()
+    residuals = sim.residuals()
+    assert "OPEN-LOOP" in residuals
+    assert "at deployed parameter values" in residuals
+    assert "Per-segment RMS at current baselines: [0," in residuals
+    assert "No learnable parameters" in sim.fit()
+    assert approach._identified_physical_params == {"friction": 1.0}
+
+
 def test_failed_replay_cannot_improve_candidate_rank(tmp_path, monkeypatch):
     """A candidate that throws on one recording has no aggregate score."""
     utils.reset_config({"seed": 0})

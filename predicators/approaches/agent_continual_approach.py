@@ -211,7 +211,6 @@ class AgentContinualApproach(ContinualPlayMixin,
         forward), so the agent models and validates in the conversation
         it acts in. :meth:`_after_round` deploys what it wrote.
         """
-        del session
         # pylint: disable-next=import-outside-toplevel
         from predicators.agent_sdk.belief_probe import _check_time_budget, \
             build_probe_namespace
@@ -249,6 +248,18 @@ class AgentContinualApproach(ContinualPlayMixin,
         ctx.probe_fit_provider = toolkit.fit_runner
         ctx.probe_validation_provider = toolkit.validation_runner
         ctx.probe_residuals_provider = toolkit.residuals_runner
+
+        def current_observation() -> State:
+            # Load a present candidate at its carried/declared values before
+            # replaying observed memory. This never fits or takes a real step.
+            if os.path.isfile(paths.simulator_file):
+                assert ctx.probe_option_model_provider is not None
+                ctx.probe_option_model_provider()
+            obs = session.observe()
+            ctx.current_belief = obs.belief
+            return obs.frame
+
+        ctx.current_observation_provider = current_observation
         probe_ns = build_probe_namespace(ctx)
         exec_ns["sim"] = probe_ns["sim"]
         exec_ns["BeliefProbe"] = probe_ns["BeliefProbe"]
@@ -353,7 +364,8 @@ class AgentContinualApproach(ContinualPlayMixin,
         self._residual_features = residual_features
         self._fit_params_after_synthesis(rules, specs, base_pred_triples,
                                          residual_features)
-        if self._residual_rules is not None and self._fitted_params:
+        if self._residual_env_cls is not None or (
+                self._residual_rules is not None and self._fitted_params):
             _rules, _params = self._residual_rules, self._fitted_params
 
             def _step_fn(s: State, c: Any) -> Any:
@@ -380,6 +392,7 @@ class AgentContinualApproach(ContinualPlayMixin,
         ctx.probe_fit_provider = None
         ctx.probe_validation_provider = None
         ctx.probe_residuals_provider = None
+        ctx.current_observation_provider = None
         ctx.probe_param_status = None
         ctx.probe_artifact_loaders.clear()
         ctx.learn_cycle_index = None
