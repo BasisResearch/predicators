@@ -57,6 +57,10 @@ def main() -> None:
     groups: Dict[tuple, List[dict]] = defaultdict(list)
     for r in runs:
         groups[(r["env"], r["harness"], r["condition"])].append(r)
+    # Domains that ship their own TaskEvaluator (the shared domino family) get
+    # two extra columns: their certificate is stricter than our goal-atom
+    # metric, so a cell can be 3/3 for us and 0/3 for them.
+    certified_runs = [r for r in runs if "certified" in r]
     lines = ["| env | harness | condition | runs | success | median first success | "
              "mean interactions | mean tool calls | RL calls | mean wall (min) |",
              "|---|---|---|---|---|---|---|---|---|---|"]
@@ -69,6 +73,25 @@ def main() -> None:
                      f"{np.mean([r.get('interactions_used', 0) for r in rs]):.0f} | "
                      f"{np.mean([r.get('tool_calls', 0) for r in rs]):.1f} | {rl_calls} | "
                      f"{np.mean([r.get('wall_time_s', 0) for r in rs])/60:.0f} |")
+    if certified_runs:
+        lines += ["", "Domains with their own end-of-episode certificate "
+                  "(never shown to the agent):", "",
+                  "| env | condition | runs | goal atom | certified | "
+                  "mean evaluator reward | blues consumed |",
+                  "|---|---|---|---|---|---|---|"]
+        cert_groups: Dict[tuple, List[dict]] = defaultdict(list)
+        for r in certified_runs:
+            cert_groups[(r["env"], r["condition"])].append(r)
+        for (env, cond), rs in sorted(cert_groups.items()):
+            goal = sum(bool(r.get("goal_reached_ever")) for r in rs)
+            cert = sum(bool(r.get("evaluator_solved")) for r in rs)
+            k = [float((r.get("evaluator_offline_metrics") or {}).get("k_used", 0))
+                 for r in rs]
+            lines.append(
+                f"| {env} | {cond} | {len(rs)} | {goal}/{len(rs)} | "
+                f"{cert}/{len(rs)} | "
+                f"{np.mean([r.get('evaluator_reward', 0.0) for r in rs]):+.2f} | "
+                f"{np.mean(k):.1f} |")
     (args.out / "summary.md").write_text("\n".join(lines) + "\n")
     print("\n".join(lines))
     try:

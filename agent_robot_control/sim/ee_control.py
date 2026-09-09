@@ -267,19 +267,26 @@ class EEController:
         self._arm_pos_in_free = [self._free.index(j) for j in robot.arm_joints]
 
     def _ik(self, position: np.ndarray, quat: np.ndarray,
-            tol: float = 1e-3, max_rounds: int = 20) -> Optional[list]:
+            tol: float = 1e-3, max_rounds: int = 20,
+            allow_best_effort: bool = True) -> Optional[list]:
         """Joint targets reaching (position, quat), or None.
 
         Order: plain PyBullet IK (same solver the rest of predicators uses;
         gives smooth, predictable paths) accepted only if the limit-clipped
         solution still reaches the target; otherwise null-space IK with joint
-        limits (handles targets where plain IK wanders past a limit)."""
+        limits (handles targets where plain IK wanders past a limit).
+
+        ``allow_best_effort`` adds a last resort that accepts a solution up to
+        3 cm off, which smooths intermediate waypoints. The reachability
+        pre-flight check in :meth:`move_to` passes False: a target the arm can
+        only approach to within 3 cm is not a target it can reach.
+        """
         if not hasattr(self, "_free"):
             self._ik_setup()
         solution = self._plain_ik_within_limits(position, quat, tol)
         if solution is None:
             solution = self._nullspace_ik(position, quat, tol, max_rounds)
-        if solution is None:
+        if solution is None and allow_best_effort:
             # Best effort at the workspace edge: the clipped plain-IK solution
             # even if it does not reach exactly (move_to reports the miss).
             solution = self._plain_ik_within_limits(position, quat, tol=0.03)
@@ -369,6 +376,36 @@ class EEController:
         n_way = max(1, n_pos, n_orn)
         slerp = Slerp([0.0, 1.0], Rotation.concatenate([start_rot,
                                                         target_rot]))
+        # Reachability pre-flight. The motion is a straight line in Cartesian
+        # space executed waypoint by waypoint, so a target with no joint
+        # solution used to be discovered only when some waypoint failed - by
+        # which time the arm had already traversed most of the way, sweeping
+        # whatever lay on the line (measured 2026-09-09 on the domino domain:
+        # an out-of-reach target dragged a staged domino 32 cm across the
+        # table and permanently failed the task). A pose command with no
+        # solution must move nothing at all, so this refuses up front and
+        # costs no interactions. Kinematically fine targets that are blocked
+        # by an object are NOT refused here - IK ignores collisions - so
+        # press-into-contact moves (plug insertion, disc pushes) still work
+        # and still report a stall.
+        if self._ik(target_pos, target_rot.as_quat(),
+                    allow_best_effort=False) is None:
+            return MoveResult(
+                reached=False, ik_failed=True, stalled=False, steps=0,
+                final_position=tuple(float(v) for v in start_pos),
+                final_rpy_deg=self.rpy_relative_to_home_deg(),
+                distance_to_target=total_dist,
+                gripper=self.gripper_value(),
+                message=("No joint configuration reaches this pose, so the "
+                         "arm did not move (nothing in the scene was "
+                         "touched and no interactions were used). Pick a "
+                         "target closer to the arm's base or a different "
+                         "orientation."),
+                extra={"orientation_error_deg": float(np.degrees(total_angle)),
+                       "holding": self.is_holding(),
+                       "contacts": self.contact_names(),
+                       "force_limited": False,
+                       "refused": True})
         steps = 0
         ik_failed = False
         stalled = False

@@ -1,0 +1,36 @@
+#!/bin/bash
+#SBATCH -J arc_viddom
+#SBATCH -o logs/%A_%a.out
+#SBATCH -e logs/%A_%a.err
+#SBATCH -N 1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=1
+#SBATCH --get-user-env
+#SBATCH --mem=2000
+#SBATCH -t 02:00:00
+#SBATCH --partition=ellis,gpu,default_partition
+#SBATCH --array=0-5%4
+
+# Replay videos for the domino pilot: both conditions, all three seeds.
+# No run in this pilot calls RL, so every trajectory replays end to end.
+cd /home/wp237/predicators
+export PYTHONHASHSEED=0
+export OPENBLAS_NUM_THREADS=1
+A=$HOME/arc_outputs/pybullet_domino
+OUT=${1:-$HOME/arc_outputs/videos/domino}
+mkdir -p "$OUT" logs
+
+RUNS=(
+  "domino_move_to_seed0:$A/move_to/claude_code/seed_0"
+  "domino_move_to_seed1:$A/move_to/claude_code/seed_1"
+  "domino_move_to_seed2:$A/move_to/claude_code/seed_2"
+  "domino_no_particles_seed0:$A/no_particles/claude_code/seed_0"
+  "domino_no_particles_seed1:$A/no_particles/claude_code/seed_1"
+  "domino_no_particles_seed2:$A/no_particles/claude_code/seed_2"
+)
+ENTRY=${RUNS[$SLURM_ARRAY_TASK_ID]}
+NAME=${ENTRY%%:*}
+DIR=${ENTRY#*:}
+echo "task $SLURM_ARRAY_TASK_ID: $NAME <- $DIR"
+uv run python -m agent_robot_control.experiments.replay "$DIR" \
+    --video "$OUT/$NAME.mp4" --camera 640x360 --fps 30

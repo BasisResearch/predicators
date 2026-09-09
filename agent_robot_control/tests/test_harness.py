@@ -47,7 +47,9 @@ def test_claude_code_command_and_mcp_config(tmp_path):
     assert "--strict-mcp-config" in joined and "--output-format stream-json" in joined
     assert "mcp__robot__run_rl_on_particles" in joined
     assert "mcp__robot__run_model_based_rl_on_particles" not in joined
-    assert "--model claude-opus-5" in joined
+    # The model is a per-sweep choice (opus-5 for sweep 2, fable-5-1 for
+    # sweep 3), so pin the pass-through, not the name.
+    assert f"--model {cfg.harness.model}" in joined
 
 
 def test_opencode_config(tmp_path):
