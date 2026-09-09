@@ -5,10 +5,34 @@ stays in its visible-physics mode, including its mass and material
 defaults.
 """
 from functools import lru_cache
-from typing import Any, Dict, Optional, Type
+from typing import Any, Dict, List, Optional, Set, Type
 
 from predicators import utils
+from predicators.envs.pybullet_balloons_base import PyBulletBalloonsBaseEnv
 from predicators.envs.pybullet_env import PyBulletEnv
+from predicators.structs import EnvironmentTask, Predicate
+
+
+class _BalloonsModelBase(PyBulletBalloonsBaseEnv):
+    """Concrete visible core with no inherited hidden physics or task maker."""
+
+    @classmethod
+    def get_name(cls) -> str:
+        return "pybullet_balloons_visible_model"
+
+    @property
+    def predicates(self) -> Set[Predicate]:
+        return set()
+
+    @property
+    def goal_predicates(self) -> Set[Predicate]:
+        return set()
+
+    def _generate_train_tasks(self) -> List[EnvironmentTask]:
+        return []
+
+    def _generate_test_tasks(self) -> List[EnvironmentTask]:
+        return []
 
 
 @lru_cache(maxsize=None)
@@ -28,7 +52,8 @@ def base_simulator_class(env_name: str) -> Optional[Type[PyBulletEnv]]:
     if not candidates:
         return None
     assert len(candidates) == 1, env_name
-    env_cls = candidates[0]
+    env_cls = (_BalloonsModelBase
+               if env_name == "pybullet_balloons" else candidates[0])
 
     def initialize(self: Any, use_gui: bool = False, **kwargs: Any) -> None:
         kwargs["skip_residual_dynamics"] = True
