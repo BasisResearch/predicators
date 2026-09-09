@@ -437,3 +437,25 @@ misread. Recorded as an agent failure, not an environment fault.
 
 That run also hit the $20 per-run spending cap ($19.94), so it is flagged
 `budget_cap_hit` and excluded from success rates.
+
+## 24. The account usage limit wiped 18 of 27 sweep-2 runs (2026-09-08)
+
+Nine airport and nine plug-outlet runs finished with zero interactions and a
+single turn: the Claude account's session limit was reached partway through
+the sweep, so each launched, received "You've hit your session limit", and
+exited. Detection worked (`account_limit_hit`, `invalid`), and the eight donut
+runs that had already finished are unaffected.
+
+Two lessons for handling it:
+
+- Re-running requires moving the old run directory aside first, because
+  `SimSession` appends to `events.jsonl`; a re-run into the same directory
+  would interleave two runs in one log.
+- Archive on `invalid`, not on `account_limit_hit`. Filtering on the flag
+  moved out a genuine success (donut `move_to` seed 1, first success at
+  interaction 17,318) that had merely touched the limit *after* solving the
+  task. It was restored; `repair_flags.is_valid` now encodes the rule.
+
+Resubmitted the 18 at two concurrent rather than three. The one run that hit
+the $20 spend cap ($19.94, donut `no_particles` seed 0) was left as a reported
+capped result rather than re-run.

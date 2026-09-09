@@ -45,5 +45,16 @@ def main() -> None:
     print(f"{changed} results.json rewritten")
 
 
+def is_valid(results: dict) -> bool:
+    """A run counts if it was not cut short before reaching its goal.
+
+    Note the asymmetry: a run that hit the usage limit *after* succeeding is
+    still a measurement, so filter on ``invalid`` rather than on
+    ``account_limit_hit`` (archiving on the flag alone moved a real success
+    out of the sweep, 2026-09-08).
+    """
+    return not results.get("invalid", False)
+
+
 if __name__ == "__main__":
     main()
