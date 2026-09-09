@@ -18,7 +18,7 @@ from predicators.approaches.continual_play_mixin import ContinualPlayMixin
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
 from predicators.run.continual import ContinualRun
-from predicators.run.controllers import create_controller
+from predicators.run.level_players import create_level_player
 from predicators.structs import Dataset
 
 MODEL_FREE_TOOLS = [n for n in CONTINUAL_TOOL_NAMES if n != "learn_run"]
@@ -179,7 +179,7 @@ def test_play_loop_with_a_scripted_model_free_agent(tmp_path: Any) -> None:
 
     approach._query_agent_sync = fake_query  # type: ignore[method-assign]  # pylint: disable=protected-access
     approach.prepare_for_continual(Dataset([]))
-    run = ContinualRun(env, approach, create_controller(env, approach))
+    run = ContinualRun(env, approach, create_level_player(env, approach))
     card = run.run()
 
     assert card.end_reason == "agent_ended" and card.end_note == "enough"

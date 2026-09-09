@@ -84,7 +84,7 @@ The figure we expect to show is the cumulative steps versus levels won curve.
 - `agent_continual_model_free`: the model-free baseline, the same agent with the env and skill tools, the sandbox and the journal only: no belief model, no `sim`, no `run_python` and no learning session.
   It starts with no predicates too and invents none, so it never sees an atom; the observation is the object features and a render, and the goal is its description.
   Its own code in the sandbox reads the recorded data; what it cannot read off the data it learns from the environment at the price of steps.
-- Planned: a primitive-only agent and a fixed-schedule controller that reproduces the phased loop inside the protocol.
+- Planned: a primitive-only agent and a fixed-schedule level player that reproduces the phased loop inside the protocol.
 
 Preemption is handled: a requeued job replays the recorded actions to verify the environment state, reopens the agent's chat session by id, and books any lost progress separately from the agent's counts.
 
@@ -181,5 +181,5 @@ Open with these: the `--auto_resume` relaunch of the five agent runs and the ora
 3. A lost test level ends the run, so with the paper's five test tasks per seed one loss forfeits the rest as not attempted; advancing past a lost test level instead is a small change if per-task test results are wanted.
 4. Learning-session LLM cost is not booked to the scorecard (only play sessions are); the table's cost column undercounts the runs that learned.
 5. Level lists: every environment currently has one train and one test level; the paper needs the full lists.
-6. The remaining arms: a primitive-only agent and the fixed-schedule controller.
+6. The remaining arms: a primitive-only agent and the fixed-schedule level player.
 7. The transcripts carry the agent's text but not its thinking blocks; the viewer shows thinking when the SDK returns it.

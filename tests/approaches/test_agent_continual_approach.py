@@ -20,7 +20,7 @@ from predicators.code_sim_learning.fit_space import FitResult
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
 from predicators.run.continual import ContinualRun
-from predicators.run.controllers import create_controller
+from predicators.run.level_players import create_level_player
 from predicators.structs import Dataset, Predicate
 
 
@@ -232,7 +232,7 @@ def test_play_loop_with_a_scripted_agent(tmp_path: Any) -> None:
 
     approach._query_agent_sync = fake_query  # type: ignore[method-assign]  # pylint: disable=protected-access
     approach.prepare_for_continual(Dataset([]))
-    run = ContinualRun(env, approach, create_controller(env, approach))
+    run = ContinualRun(env, approach, create_level_player(env, approach))
     card = run.run()
 
     assert card.end_reason == "agent_ended" and card.end_note == "enough"
@@ -309,7 +309,8 @@ def test_play_loop_stops_at_a_lost_test_level(tmp_path: Any) -> None:
 
     approach._query_agent_sync = fake_query  # type: ignore[method-assign]  # pylint: disable=protected-access
     approach.prepare_for_continual(Dataset([]))
-    card = ContinualRun(env, approach, create_controller(env, approach)).run()
+    card = ContinualRun(env, approach, create_level_player(env,
+                                                           approach)).run()
     assert len(queries) == 1
     assert card.end_reason == "level_lost"
     lv = card.levels[0]
@@ -341,7 +342,8 @@ def test_resume_reads_the_session_id_and_idle_guard(tmp_path: Any) -> None:
 
     approach._query_agent_sync = fake_query  # type: ignore[method-assign]  # pylint: disable=protected-access
     approach.prepare_for_continual(Dataset([]))
-    card = ContinualRun(env, approach, create_controller(env, approach)).run()
+    card = ContinualRun(env, approach, create_level_player(env,
+                                                           approach)).run()
     assert card.end_reason == "agent_ended" and "stalled" in card.end_note
     # The first round resumed the interrupted turn; the later ones
     # continued the same conversation as ordinary rounds.
@@ -376,7 +378,7 @@ def test_resume_rebuilds_the_workbench_from_the_recording(
     approach._query_agent_sync = killed_query  # type: ignore[method-assign]  # pylint: disable=protected-access
     approach.prepare_for_continual(Dataset([]))
     with pytest.raises(_Killed):
-        ContinualRun(env, approach, create_controller(env, approach)).run()
+        ContinualRun(env, approach, create_level_player(env, approach)).run()
 
     _config(tmp_path, continual_episode_horizon=2, auto_resume=True)
     env2, approach2 = _make_approach()
@@ -399,8 +401,8 @@ def test_resume_rebuilds_the_workbench_from_the_recording(
 
     approach2._query_agent_sync = resumed_query  # type: ignore[method-assign]  # pylint: disable=protected-access
     approach2.prepare_for_continual(Dataset([]))
-    card = ContinualRun(env2, approach2, create_controller(env2,
-                                                           approach2)).run()
+    card = ContinualRun(env2, approach2, create_level_player(env2,
+                                                             approach2)).run()
     lv = card.levels[0]
     assert lv.resumes == 1 and lv.preemptions == 1 and lv.harness_resets == 0
     assert card.end_reason == "agent_ended"

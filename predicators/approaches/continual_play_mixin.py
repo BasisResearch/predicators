@@ -1,7 +1,7 @@
 """The play loop of the continual protocol's agent arms (docs/continual-
 protocol.md, section 5).
 
-``ContinualPlayMixin`` is the controller side of an agent arm: it plays
+``ContinualPlayMixin`` implements the level player role for an agent arm: it plays
 the run's levels through one conversation of the SDK machinery, whose
 tool surface is the protocol's env and skill tools
 (``agent_sdk.tools.continual_tools``) plus whatever the arm attaches
@@ -211,7 +211,7 @@ class ContinualPlayMixin:
         self._offline_dataset = dataset
         self._sync_tool_context()
 
-    # -- The controller contract ----------------------------------------
+    # -- The level player contract --------------------------------------
 
     def play_level(self, session: ProtocolSession) -> None:
         """Play rounds until the level is won or lost, or the run ends."""

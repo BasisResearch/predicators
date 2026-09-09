@@ -1,5 +1,5 @@
 """Tests for the continual protocol core: run.continual, run.episode,
-run.recording, run.scorecard and run.controllers.
+run.recording, run.scorecard and run.level_players.
 
 Everything runs on the cover env, where a skill is one primitive step,
 so the counts are easy to pin exactly.
@@ -20,9 +20,9 @@ from predicators.run import paths
 from predicators.run.continual import ContinualRun, LevelAlreadyWon, \
     LevelLost, ProtocolSession, ResetUnavailable, RunEnded, build_levels, \
     level_summary
-from predicators.run.controllers import OracleController, \
-    RandomPrimitiveController, RandomSkillsController, create_controller
 from predicators.run.episode import EpisodeOver, EpisodeState
+from predicators.run.level_players import OracleLevelPlayer, \
+    RandomPrimitiveLevelPlayer, RandomSkillsLevelPlayer, create_level_player
 from predicators.run.recording import LevelRecording, sanitize_state, \
     states_close
 from predicators.run.scorecard import RunCard
@@ -104,11 +104,11 @@ def _check_card_invariants(run: ContinualRun) -> None:
 
 
 def test_oracle_wins_every_level(tmp_path: Any) -> None:
-    """The oracle controller wins each level in one episode; the card, the
+    """The oracle level player wins each level in one episode; the card, the
     recordings and the index all describe it."""
     _config(tmp_path, "oracle")
     env, approach = _make("oracle")
-    run = ContinualRun(env, approach, create_controller(env, approach))
+    run = ContinualRun(env, approach, create_level_player(env, approach))
     card = run.run()
     assert card.end_reason == "all_levels_won"
     assert card.levels_completed == card.levels_total == 3
@@ -147,9 +147,9 @@ def test_random_skills_hits_the_step_cap(tmp_path: Any) -> None:
             continual_steps_per_level=60,
             continual_episode_horizon=40)
     env, approach = _make("random_options")
-    controller = create_controller(env, approach)
-    assert isinstance(controller, RandomSkillsController)
-    run = ContinualRun(env, approach, controller)
+    level_player = create_level_player(env, approach)
+    assert isinstance(level_player, RandomSkillsLevelPlayer)
+    run = ContinualRun(env, approach, level_player)
     card = run.run()
     assert card.end_reason == "step_cap"
     assert card.total_steps == card.step_cap == 180
@@ -169,7 +169,7 @@ def test_random_primitives_count_no_invocations(tmp_path: Any) -> None:
     """The primitive-only arm charges steps and resets but never a skill."""
     _config(tmp_path, "random_actions", continual_steps_per_level=30)
     env, approach = _make("random_actions")
-    run = ContinualRun(env, approach, create_controller(env, approach))
+    run = ContinualRun(env, approach, create_level_player(env, approach))
     card = run.run()
     assert card.end_reason == "step_cap"
     assert card.total_skill_invocations == 0
@@ -178,7 +178,7 @@ def test_random_primitives_count_no_invocations(tmp_path: Any) -> None:
 
 
 class _StopAfter:
-    """Wrap a controller so the process 'dies' after N invocations."""
+    """Wrap a level player so the process 'dies' after N invocations."""
 
     def __init__(self, inner: Any, session_kills: int) -> None:
         self._inner = inner
@@ -186,7 +186,7 @@ class _StopAfter:
         self.invocations = 0
 
     def play_level(self, session: ProtocolSession) -> None:
-        """Play with the inner controller until the kill fires."""
+        """Play with the inner level player until the kill fires."""
         original = session.invoke
 
         def _invoke(*args: Any, **kwargs: Any) -> Any:
@@ -217,9 +217,9 @@ def test_preemption_resume_replays_losslessly(tmp_path: Any, monkeypatch: Any,
             horizon=200,
             continual_obs_noise_position=noise)
     env, approach = _make("oracle")
-    # The random controller keeps a level busy for many invocations, so
+    # The random level player keeps a level busy for many invocations, so
     # the kill lands mid-episode.
-    inner = RandomSkillsController(get_gt_options("cover"), seed=7)
+    inner = RandomSkillsLevelPlayer(get_gt_options("cover"), seed=7)
     killer = _StopAfter(inner, session_kills=5)
     first = ContinualRun(env, approach, killer)
     with pytest.raises(_Preempted):
@@ -237,7 +237,7 @@ def test_preemption_resume_replays_losslessly(tmp_path: Any, monkeypatch: Any,
             auto_resume=True,
             continual_obs_noise_position=noise)
     env2, approach2 = _make("oracle")
-    second = ContinualRun(env2, approach2, OracleController(approach2))
+    second = ContinualRun(env2, approach2, OracleLevelPlayer(approach2))
     lv = second.card.levels[0]
     assert lv.attempted and not lv.won and lv.steps == steps_before
     card2 = second.run()
@@ -265,7 +265,7 @@ def test_resume_with_diverged_replay_is_a_harness_reset(tmp_path: Any) -> None:
     restarted and the restart is booked to the harness, not the agent."""
     _config(tmp_path, "oracle", num_test_tasks=1, horizon=200)
     env, approach = _make("oracle")
-    inner = RandomSkillsController(get_gt_options("cover"), seed=7)
+    inner = RandomSkillsLevelPlayer(get_gt_options("cover"), seed=7)
     first = ContinualRun(env, approach, _StopAfter(inner, session_kills=3))
     with pytest.raises(_Preempted):
         first.run()
@@ -286,7 +286,7 @@ def test_resume_with_diverged_replay_is_a_harness_reset(tmp_path: Any) -> None:
             horizon=200,
             auto_resume=True)
     env2, approach2 = _make("oracle")
-    second = ContinualRun(env2, approach2, OracleController(approach2))
+    second = ContinualRun(env2, approach2, OracleLevelPlayer(approach2))
     card = second.run()
     lv = card.levels[0]
     assert lv.won
@@ -303,7 +303,7 @@ def test_resume_with_diverged_replay_is_a_harness_reset(tmp_path: Any) -> None:
 
 
 def test_agent_ended_and_level_not_won(tmp_path: Any) -> None:
-    """A controller may end the run; returning without a win ends it too."""
+    """A level player may end the run; returning without a win ends it too."""
     _config(tmp_path, "oracle")
     env, approach = _make("oracle")
 
@@ -345,7 +345,7 @@ def test_session_protocol_errors(tmp_path: Any) -> None:
             """Exhaust the horizon, reset, win, then poke the won level."""
             if session.level_index > 0:
                 # Test levels have no resets (their own test below).
-                OracleController(approach).play_level(session)
+                OracleLevelPlayer(approach).play_level(session)
                 return
             obs = session.observe()
             assert obs.state is EpisodeState.NOT_FINISHED
@@ -372,7 +372,7 @@ def test_session_protocol_errors(tmp_path: Any) -> None:
                 obs.evaluation.reward == 0.0
             session.reset("try again")
             # Now let the oracle win, then poke at a won level.
-            OracleController(approach).play_level(session)
+            OracleLevelPlayer(approach).play_level(session)
             with pytest.raises(LevelAlreadyWon):
                 session.step(zero)
             with pytest.raises(LevelAlreadyWon):
@@ -402,7 +402,7 @@ def test_test_levels_have_no_resets_by_default(tmp_path: Any) -> None:
             """Win the train level; exhaust the test level's horizon."""
             if session.level_index == 0:
                 assert session.resets_allowed
-                OracleController(approach).play_level(session)
+                OracleLevelPlayer(approach).play_level(session)
                 return
             assert not session.resets_allowed
             obs = session.observe()
@@ -462,7 +462,7 @@ def test_test_levels_have_no_resets_by_default(tmp_path: Any) -> None:
                     session.step(zero)
                 assert not session.level_card().lost
                 session.reset("second try")
-            OracleController(approach).play_level(session)
+            OracleLevelPlayer(approach).play_level(session)
 
     card = ContinualRun(env, approach, _Resetter()).run()
     assert card.end_reason == "all_levels_won"
@@ -470,9 +470,9 @@ def test_test_levels_have_no_resets_by_default(tmp_path: Any) -> None:
     assert not any(lv.lost for lv in card.levels)
 
 
-def test_controllers_stop_at_a_lost_test_level(tmp_path: Any) -> None:
-    """The built-in controllers return instead of resetting when the level has
-    no resets, and the run ends as ``level_lost``."""
+def test_level_players_stop_at_a_lost_test_level(tmp_path: Any) -> None:
+    """The built-in level players return instead of resetting when the level
+    has no resets, and the run ends as ``level_lost``."""
     _config(tmp_path, "oracle", continual_episode_horizon=3)
     env, approach = _make("oracle")
 
@@ -482,9 +482,9 @@ def test_controllers_stop_at_a_lost_test_level(tmp_path: Any) -> None:
             """The oracle wins the train level; random primitives lose the test
             level at its horizon."""
             if session.level_index == 0:
-                OracleController(approach).play_level(session)
+                OracleLevelPlayer(approach).play_level(session)
             else:
-                RandomPrimitiveController(env, 0).play_level(session)
+                RandomPrimitiveLevelPlayer(env, 0).play_level(session)
 
     card = ContinualRun(env, approach, _Mixed()).run()
     assert card.end_reason == "level_lost"
@@ -529,7 +529,7 @@ def test_scorecard_round_trip_and_renders(tmp_path: Any) -> None:
     """The JSON card reloads to an equal object; renders land on disk."""
     _config(tmp_path, "oracle", num_test_tasks=0, continual_render=True)
     env, approach = _make("oracle")
-    run = ContinualRun(env, approach, create_controller(env, approach))
+    run = ContinualRun(env, approach, create_level_player(env, approach))
     card = run.run()
     loaded = RunCard.load(run.card_path)
     assert loaded.to_dict() == card.to_dict()
@@ -555,11 +555,11 @@ def test_states_close_and_wrong_level_count(tmp_path: Any) -> None:
     far.data[obj] = far.data[obj] + 1.0
     assert not states_close(state, far)
 
-    run = ContinualRun(env, approach, create_controller(env, approach))
+    run = ContinualRun(env, approach, create_level_player(env, approach))
     run.run()
     _config(tmp_path, "oracle", auto_resume=True, num_test_tasks=1)
     env2, approach2 = _make("oracle")
-    fresh = ContinualRun(env2, approach2, create_controller(env2, approach2))
+    fresh = ContinualRun(env2, approach2, create_level_player(env2, approach2))
     assert fresh.card.levels_total == 2
     assert not fresh.card.levels[0].attempted
 
@@ -572,7 +572,7 @@ def test_one_directory_per_run(tmp_path: Any) -> None:
     over."""
     _config(tmp_path, "oracle", num_test_tasks=1)
     env, approach = _make("oracle")
-    run = ContinualRun(env, approach, create_controller(env, approach))
+    run = ContinualRun(env, approach, create_level_player(env, approach))
     root = os.path.join(str(tmp_path), "runs")
     parent = os.path.join(root, "oracle", "test", "seed123")
     assert os.path.dirname(run.run_dir) == parent
@@ -590,7 +590,8 @@ def test_one_directory_per_run(tmp_path: Any) -> None:
     _config(tmp_path, "oracle", num_test_tasks=1, auto_resume=True)
     assert paths.resumable_run_subdir() is None
     env2, approach2 = _make("oracle")
-    second = ContinualRun(env2, approach2, create_controller(env2, approach2))
+    second = ContinualRun(env2, approach2,
+                          create_level_player(env2, approach2))
     assert second.run_dir != run.run_dir
     assert os.path.dirname(second.run_dir) == parent
     assert not second.card.levels[0].attempted
@@ -611,7 +612,7 @@ def test_one_directory_per_run(tmp_path: Any) -> None:
     CFG.run_subdir = f"oracle/test/seed123/{stamp}/"
     env3, approach3 = _make("oracle")
     with pytest.raises(RuntimeError, match="already holds a run"):
-        ContinualRun(env3, approach3, create_controller(env3, approach3))
+        ContinualRun(env3, approach3, create_level_player(env3, approach3))
     CFG.run_subdir = ""
 
 
@@ -622,14 +623,14 @@ def test_run_ended_carries_reason() -> None:
     assert str(err) == "step_cap"
 
 
-def test_create_controller_rejects_unknown_arm(tmp_path: Any) -> None:
-    """An approach without play_level and without a scripted controller is an
+def test_create_level_player_rejects_unknown_arm(tmp_path: Any) -> None:
+    """An approach without play_level and without a scripted level player is an
     error, not a silent default."""
     _config(tmp_path, "random_actions")
     env, approach = _make("random_actions")
     approach.get_name = lambda: "mystery"  # type: ignore[method-assign]
     with pytest.raises(ValueError):
-        create_controller(env, approach)
+        create_level_player(env, approach)
 
 
 def test_session_data_hook_fires_on_charged_calls(tmp_path: Any) -> None:
@@ -648,7 +649,7 @@ def test_session_data_hook_fires_on_charged_calls(tmp_path: Any) -> None:
         def play_level(self, session: ProtocolSession) -> None:
             """Step, trip the listener, exhaust the horizon, reset, win."""
             if session.level_index > 0:
-                OracleController(approach).play_level(session)
+                OracleLevelPlayer(approach).play_level(session)
                 return
             zero = Action(np.zeros(env.action_space.shape, dtype=np.float32))
             session.on_data_changed(_record)
@@ -674,7 +675,7 @@ def test_session_data_hook_fires_on_charged_calls(tmp_path: Any) -> None:
             assert events[-1] == (4, 1)
             # A charged call reports once, whatever its length: the
             # oracle's plan runs as one policy call over several steps.
-            OracleController(approach).play_level(session)
+            OracleLevelPlayer(approach).play_level(session)
             assert session.level_card().won
             assert len(events) == 4
             assert events[-1] == (session.level_card().steps, 1)
@@ -753,7 +754,7 @@ def test_no_episode_horizon_by_default(tmp_path: Any) -> None:
                 assert outcome.state is EpisodeState.NOT_FINISHED
             seen["steps"] = session.level_card().steps
             # The cap ends the run from inside the call (RunEnded
-            # propagates through the controller); nothing below it runs.
+            # propagates through the level player); nothing below it runs.
             for _ in range(20):
                 session.step(zero)
             seen["past_cap"] = True
@@ -812,7 +813,7 @@ def test_observation_noise_channel(tmp_path: Any, monkeypatch: Any) -> None:
                 prev = session.previous_level_episodes(0)
                 assert prev[0]["states"][0].allclose(seen["frame0"])
                 assert prev[0]["states"][1].allclose(seen["frame1"])
-                OracleController(approach).play_level(session)
+                OracleLevelPlayer(approach).play_level(session)
                 return
             truth = session.observe_truth().frame
             obs = session.observe()
@@ -842,7 +843,7 @@ def test_observation_noise_channel(tmp_path: Any, monkeypatch: Any) -> None:
             # The data the arm reads carries the draws the agent saw.
             states = session.level_episodes()[0]["states"]
             assert states[0] is frame and states[1] is frame1
-            OracleController(approach).play_level(session)
+            OracleLevelPlayer(approach).play_level(session)
             assert session.level_card().won
 
     run = ContinualRun(env, approach, _Probe())
@@ -909,7 +910,7 @@ def test_exact_observation_view_is_the_sanitized_state(tmp_path: Any) -> None:
         def play_level(self, session: ProtocolSession) -> None:
             """Level 0: compare the frame with the truth, then win."""
             if session.level_index > 0:
-                OracleController(approach).play_level(session)
+                OracleLevelPlayer(approach).play_level(session)
                 return
             truth = session.observe_truth().frame
             frame = session.observe().frame
@@ -924,7 +925,7 @@ def test_exact_observation_view_is_the_sanitized_state(tmp_path: Any) -> None:
             view = run._observed(hidden, 0, 0, 999)  # pylint: disable=protected-access
             assert view.privileged is None and view.allclose(hidden)
             assert run._observed(hidden, 0, 0, 999) is view  # pylint: disable=protected-access
-            OracleController(approach).play_level(session)
+            OracleLevelPlayer(approach).play_level(session)
             assert session.level_card().won
 
     run = ContinualRun(env, approach, _Probe())
@@ -954,7 +955,7 @@ def test_belief_frame_smooths_resting_objects(tmp_path: Any,
         def play_level(self, session: ProtocolSession) -> None:
             """Level 0: rest a few steps, read the belief, then win."""
             if session.level_index > 0:
-                OracleController(approach).play_level(session)
+                OracleLevelPlayer(approach).play_level(session)
                 return
             obs = session.observe()
             assert obs.belief is not None
@@ -985,7 +986,7 @@ def test_belief_frame_smooths_resting_objects(tmp_path: Any,
             # frames, not one of them.
             assert belief.frame.get(
                 b, "pose") not in [f.get(b, "pose") for f in frames]
-            OracleController(approach).play_level(session)
+            OracleLevelPlayer(approach).play_level(session)
             invokes = [
                 e for e in session.index_entries() if e["event"] == "invoke"
             ]

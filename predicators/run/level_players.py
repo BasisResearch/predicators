@@ -1,9 +1,9 @@
-"""Scripted controllers for the continual protocol (section 6.7).
+"""Scripted level players for the continual protocol (section 6.7).
 
-A controller plays one level through a ``ProtocolSession`` and returns
+A level player plays one level through a ``ProtocolSession`` and returns
 when the level is won or when it gives up. The run loop treats a return
 without a win as the end of the run (no skipping). Every arm in the
-paper is a controller over the same session: the oracle and the random
+paper is a level player over the same session: the oracle and the random
 arms live here, the LLM agent arms implement ``play_level`` themselves.
 """
 from __future__ import annotations
@@ -24,14 +24,19 @@ from predicators.settings import CFG
 from predicators.structs import Action, ParameterizedOption
 
 
-class Controller(Protocol):
-    """Anything that can play a level."""
+class LevelPlayer(Protocol):
+    """An agent or scripted baseline that plays a level through the session.
+
+    Chooses actions, invokes skills, and decides when to reset or stop.
+    The same player persists across levels; the run owns level
+    advancement.
+    """
 
     def play_level(self, session: ProtocolSession) -> None:
         """Play until the level is won, or return to give up."""
 
 
-class RandomSkillsController:
+class RandomSkillsLevelPlayer:
     """Invoke uniformly random applicable skills until the level is won."""
 
     def __init__(self, options: Collection[ParameterizedOption],
@@ -61,7 +66,7 @@ class RandomSkillsController:
             session.invoke(option)
 
 
-class RandomPrimitiveController:
+class RandomPrimitiveLevelPlayer:
     """Step uniformly random primitive actions until the level is won."""
 
     def __init__(self, env: BaseEnv, seed: int) -> None:
@@ -83,7 +88,7 @@ class RandomPrimitiveController:
             session.step(Action(self._space.sample()))
 
 
-class OracleController:
+class OracleLevelPlayer:
     """Plan with the oracle approach from the current state and execute the
     resulting closed-loop policy; replan on failure, reset on game over where
     the level has resets (a lost level returns)."""
@@ -134,21 +139,21 @@ class OracleController:
                     return
 
 
-def create_controller(env: BaseEnv, approach: BaseApproach) -> Any:
-    """The controller for ``approach`` under the continual protocol."""
+def create_level_player(env: BaseEnv, approach: BaseApproach) -> Any:
+    """The level player for ``approach`` under the continual protocol."""
     if hasattr(approach, "play_level"):
         return approach
     name = approach.get_name()
     if name in ("oracle", "oracle_process_planning"):
-        return OracleController(approach)
+        return OracleLevelPlayer(approach)
     if name == "random_options":
         options = getattr(approach, "_initial_options", None)
         if not options:
             # pylint: disable-next=import-outside-toplevel
             from predicators.ground_truth_models import get_gt_options
             options = get_gt_options(env.get_name())
-        return RandomSkillsController(options, CFG.seed)
+        return RandomSkillsLevelPlayer(options, CFG.seed)
     if name == "random_actions":
-        return RandomPrimitiveController(env, CFG.seed)
-    raise ValueError(f"No continual-protocol controller for approach "
+        return RandomPrimitiveLevelPlayer(env, CFG.seed)
+    raise ValueError(f"No continual-protocol level player for approach "
                      f"{name!r}; it must implement play_level().")

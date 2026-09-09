@@ -355,7 +355,7 @@ The rules that keep the recorded counts and the agent's performance independent 
 - A resumed session re-reads its transcript, which costs prompt tokens. That lands in `llm_cost` and is explained by `resumes`; it is not a key metric.
 - Replay is verified, never assumed. After replaying the action log the harness compares the reconstructed state with the last recorded state feature by feature, within a tolerance, and only then hands the env back to the agent. A silent divergence would corrupt the agent's picture of the world and is the one failure that could hurt performance rather than bookkeeping.
 
-The check that this holds is part of build step 1: run the oracle and random controllers with forced kills at random points and requeue, and diff the scorecards against unpreempted runs of the same seed.
+The check that this holds is part of build step 1: run the oracle and random level players with forced kills at random points and requeue, and diff the scorecards against unpreempted runs of the same seed.
 Steps, resets, and levels won must be identical, and active wall-clock within tolerance.
 For the LLM agent the same forced-kill run on boil gives an estimate of the effect on its counts, which cannot be exact because the agent is not deterministic.
 Jobs on this cluster are requeued every 12 h by the wall-time trap in any case, so a bridge level will see several resumes and this test is not optional.
@@ -373,7 +373,8 @@ Every arm in the paper is an agent playing the same env API, so the comparison i
   The model-free arm has no such call: its only goal signal is the description, the per-step `WIN`/`GAME_OVER`, and the reward at an episode's end.
   The asymmetry is deliberate for now (the reward model is part of what a model-based agent plans against) and is stated here rather than hidden.
 - Tool and prompt ablations: the same agent with a tool removed or a prompt section removed.
-- Fixed-schedule agents: scripted controllers that explore for K episodes, learn once, then attempt, expressed with the same tools. These are the phased-loop baselines re-expressed.
+- Fixed-schedule agents: scripted level players that explore for K episodes, learn once, then attempt, expressed with the same tools.
+  These are the phased-loop baselines re-expressed.
 
 The current arm list (C1 to C8, U1, A1 to A8) is re-mapped onto these categories once the protocol is fixed.
 Results from the phased runs are not reused in the main table.
@@ -389,7 +390,8 @@ Settled on 2026-09-04: record base metrics only, no score cap, no oracle normali
 
 ## 8. Build order
 
-1. Protocol core with no LLM: `scorecard.py`, `episode.py`, `env_tools.py`, `skill_tools.py`, `continual.py`, plus the random and oracle controllers. This validates the metrics, the recordings, and the preemption restore end to end.
+1. Protocol core with no LLM: `scorecard.py`, `episode.py`, `env_tools.py`, `skill_tools.py`, `continual.py`, plus the random and oracle level players.
+   This validates the metrics, the recordings, and the preemption restore end to end.
 2. The agent: the play prompts, `agent_continual_approach.py`, `learn.run`, session resume. First runs on boil and fan.
 3. Level lists for all five envs.
 4. The remaining arms, the launcher, the aggregator, and the viewer changes.
@@ -402,7 +404,7 @@ Step 1 of the build order landed on 2026-09-04 in `predicators/run/`:
 - `episode.py`: `EpisodeRunner`, the primitive step, the win and game-over classification, `run_option` for one skill invocation.
 - `recording.py`: `LevelRecording`, the per-step action log, the index, the episodes pickle, the checkpoint and the renders.
 - `continual.py`: `ContinualRun` (the loop, the caps, the resume with replay verification) and `ProtocolSession` (the API of section 5.1, with `run_policy`).
-- `controllers.py`: the oracle, random-skills and random-primitives controllers.
+- `level_players.py`: the `LevelPlayer` interface and the oracle, random-skills and random-primitives implementations.
 - `run_pipeline` dispatches on `experiment_protocol`; the phased loop is unchanged.
 
 Tests: `tests/run/test_continual.py` pins the counts, the recordings, the preemption resume (lossless replay and the harness-reset fallback), the protocol errors and the divergence check on the cover env.
@@ -455,4 +457,4 @@ The agent asked for no learning session and ran no model rollout: it measured th
 Under the current prices (a reset is one step, observation is free, a failed skill costs its steps) real probing was the cheaper policy; the cost pressure is open question 2 of the overview.
 
 The model-free arm landed on 2026-09-04 as `agent_continual_model_free`, sharing the play loop with the full agent through `ContinualPlayMixin`.
-Next: the remaining arms (primitive-only, fixed-schedule controllers), the level lists for all five envs, and the aggregation choice.
+Next: the remaining arms (primitive-only, fixed-schedule level players), the level lists for all five envs, and the aggregation choice.

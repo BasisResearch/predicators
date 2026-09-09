@@ -7,7 +7,7 @@ agent-side library invoked through the same session. Nothing in the
 sandbox is charged. The harness never judges intent: it counts, records
 and enforces the caps, and the ``RunCard`` is the result.
 
-``ProtocolSession`` is the API a controller or an agent tool may call
+``ProtocolSession`` is the API a level player or an agent tool may call
 (section 5.1). ``ContinualRun`` owns the level list, the episode runner,
 the scorecard, the recordings and the resume path (section 6.6).
 """
@@ -45,7 +45,7 @@ LEVEL_ORDERS = ("train_then_test", "train_only", "test_only")
 
 
 class RunEnded(Exception):
-    """The run is over: a cap was hit, or the controller ended it."""
+    """The run is over: a cap was hit, or the level player ended it."""
 
     def __init__(self, reason: str, note: str = "") -> None:
         super().__init__(reason)
@@ -178,7 +178,7 @@ class InvocationResult:
 
     @property
     def status(self) -> str:
-        """The controller's termination status."""
+        """The invoked skill controller's termination status."""
         return self.outcome.status
 
 
@@ -440,11 +440,11 @@ class ContinualRun:
             self,
             env: BaseEnv,
             approach: BaseApproach,
-            controller: Any,
+            level_player: Any,
             skills: Optional[Sequence[ParameterizedOption]] = None) -> None:
         self._env = env
         self._approach = approach
-        self._controller = controller
+        self._level_player = level_player
         self._arm = approach.get_name()
         # The observation-noise channel (predicators/observation_noise.py),
         # None when observations are exact. Observed views are cached per
@@ -504,7 +504,7 @@ class ContinualRun:
 
     @property
     def session(self) -> ProtocolSession:
-        """The session handed to the controller."""
+        """The session handed to the level player."""
         return self._session
 
     @property
@@ -588,7 +588,7 @@ class ContinualRun:
                 self._check_caps()
                 self._begin_level(k)
                 try:
-                    self._controller.play_level(self._session)
+                    self._level_player.play_level(self._session)
                 finally:
                     self._end_level(k)
                 lv = self._card.levels[k]
@@ -599,7 +599,7 @@ class ContinualRun:
                 if not lv.won:
                     raise RunEnded(
                         "level_not_won",
-                        "the controller returned without winning the level")
+                        "the level player returned without winning the level")
         except RunEnded as e:
             self._finish(e.reason, e.note)
         except BaseException:
@@ -1491,7 +1491,7 @@ def _episode_open(runner: EpisodeRunner) -> bool:
 def run_continual(env: BaseEnv,
                   approach: BaseApproach,
                   offline_dataset: Optional[Dataset] = None) -> RunCard:
-    """Entry point from ``run_pipeline``: build the controller and play.
+    """Entry point from ``run_pipeline``: build the level player and play.
 
     Under ``--auto_resume`` (``maybe_auto_resume`` found a checkpoint
     and set ``load_approach``) the approach is loaded from its latest
@@ -1500,7 +1500,7 @@ def run_continual(env: BaseEnv,
     session: when to learn is the arm's decision.
     """
     # pylint: disable-next=import-outside-toplevel
-    from predicators.run.controllers import create_controller
+    from predicators.run.level_players import create_level_player
     if CFG.load_approach and approach.is_learning_based:
         cycle = CFG.skip_until_cycle - 1 if CFG.skip_until_cycle > 0 \
             else None
@@ -1509,8 +1509,8 @@ def run_continual(env: BaseEnv,
     if prepare is not None:
         prepare(
             offline_dataset if offline_dataset is not None else Dataset([]))
-    controller = create_controller(env, approach)
-    run = ContinualRun(env, approach, controller)
+    level_player = create_level_player(env, approach)
+    run = ContinualRun(env, approach, level_player)
     card = run.run()
     if CFG.continual_make_video and card.is_finished:
         # pylint: disable-next=import-outside-toplevel

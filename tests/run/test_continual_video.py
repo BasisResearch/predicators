@@ -12,7 +12,7 @@ from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
 from predicators.run import continual_video as cv
 from predicators.run.continual import ContinualRun
-from predicators.run.controllers import create_controller
+from predicators.run.level_players import create_level_player
 from predicators.run.scorecard import RunCard
 from predicators.settings import CFG
 from scripts import continual_video as script
@@ -65,7 +65,7 @@ def _finished_run(tmp_path: Any, **overrides: Any) -> ContinualRun:
     approach = create_approach("oracle", env.predicates, options, env.types,
                                env.action_space,
                                [t.task for t in env.get_train_tasks()])
-    run = ContinualRun(env, approach, create_controller(env, approach))
+    run = ContinualRun(env, approach, create_level_player(env, approach))
     run.run()
     return run
 

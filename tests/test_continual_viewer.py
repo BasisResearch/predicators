@@ -11,7 +11,7 @@ from predicators.approaches import create_approach
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
 from predicators.run.continual import ContinualRun
-from predicators.run.controllers import create_controller
+from predicators.run.level_players import create_level_player
 from scripts import continual_viewer as viewer
 
 
@@ -39,7 +39,7 @@ def _run(tmp_path: Any, approach_name: str, **overrides: Any) -> ContinualRun:
     approach = create_approach(approach_name, env.predicates, options,
                                env.types, env.action_space,
                                [t.task for t in env.get_train_tasks()])
-    run = ContinualRun(env, approach, create_controller(env, approach))
+    run = ContinualRun(env, approach, create_level_player(env, approach))
     run.run()
     return run
 
