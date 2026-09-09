@@ -438,6 +438,8 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                CFG.balloons_settle_speed, CFG.balloons_scene,
                self.box_half_extents(), tuple(self.obstacle_geometry()),
                CFG.balloons_hatch_attach_span,
+               CFG.skill_phase_use_motion_planning, CFG.seed,
+               CFG.balloons_push_approach, CFG.balloons_push_contact_z,
                tuple(sorted(self._param_overrides.items())))
         if key not in self._candidate_cache:
             clean = self.level_state(box_color, colors, (lo, hi))
@@ -831,8 +833,10 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                 f"solution_{b.name}": float(i in subset)
                 for i, b in enumerate(balloons)
             }
-            metrics["task_generation_version"] = (3.0 if CFG.balloons_scene
-                                                  == "hatch" else 2.0)
+            metrics["task_generation_version"] = (4.0 if CFG.balloons_scene
+                                                  == "hatch" else 3.0)
+            metrics["validated_motion_planning"] = float(
+                CFG.skill_phase_use_motion_planning)
             metrics["witnessed_winning_candidate_subsets"] = float(
                 sum(
                     any(o.won for o in results)

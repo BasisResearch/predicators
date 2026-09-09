@@ -7,7 +7,8 @@ from predicators.envs.pybullet_balloons import PyBulletBalloonsEnv
 from predicators.ground_truth_models.balloons.gt_simulator_env import \
     BalloonsResidualEnv
 from predicators.ground_truth_models.balloons.options import \
-    probe_release_option, release_params
+    PyBulletBalloonsGroundTruthOptionFactory, probe_release_option, \
+    release_params
 from predicators.observation_noise import ObservationNoise, step_rng
 from predicators.settings import CFG
 
@@ -57,6 +58,66 @@ def test_hatch_release_orders_are_executable():
             result = env.release_sequence_outcome(state, order)
             assert result.won, (order, result)
             assert result.steps < 150
+    finally:
+        env.dispose()
+
+
+@pytest.mark.parametrize("motion_planning", [False, True])
+def test_hatch_certification_matches_public_release(motion_planning):
+    """Certifying seed 4 must reproduce the controller's release timing."""
+    _config()
+    utils.update_config({
+        "seed": 4,
+        "skill_phase_use_motion_planning": motion_planning,
+    })
+    env = PyBulletBalloonsEnv(use_gui=False)
+    try:
+        state = env.level_state(1, [2, 3, 1], (.70412, .75412))
+        # Realized initial pose from the failed continual oracle, including
+        # the small IK offset from the nominal home pose.
+        for feature, value in {
+                "x": .7498313188552856,
+                "y": 1.1003972291946411,
+                "z": .8499622941017151,
+                "fingers": .03999999910593033,
+                "wrist": -1.570920132493705,
+        }.items():
+            state.set(env._robot, feature, value)
+        env._set_state(state)
+        current = env._get_state()
+        env._current_observation = current
+        options = PyBulletBalloonsGroundTruthOptionFactory.get_options(
+            env.get_name(), {t.name: t
+                             for t in env.types}, {}, env.action_space)
+        release = next(o for o in options if o.name == "Release")
+        steps = 0
+        won = False
+        for index in (1, 2):
+            option = release.ground([env._robot, env._clips[index]],
+                                    release_params())
+            assert option.initiable(current)
+            for _ in range(200):
+                if option.terminal(current) or won:
+                    break
+                current = env.step(option.policy(current))
+                steps += 1
+                won = env._InBand_holds(current, [env._box, env._band])
+            else:
+                raise AssertionError("Public Release did not terminate")
+        for _ in range(200):
+            if won:
+                break
+            current = env.step(env._hold_action())
+            steps += 1
+            won = env._InBand_holds(current, [env._box, env._band])
+        assert won == (not motion_planning)
+        certified = env.release_sequence_outcome(state, (1, 2))
+        assert certified.won == won, (certified, steps)
+        if won:
+            assert certified.steps == steps
+        else:
+            assert abs(certified.height - current.get(env._box, "z")) < .001
+        assert env.release_sequence_outcome(state, (2, 1)).won
     finally:
         env.dispose()
 
