@@ -452,24 +452,22 @@ def test_model_contract_is_domain_general_and_only_for_the_model_arm() -> None:
         physical_params_section="## Base-sim system identification\n- `mu`")
     for text in (fo, po):
         assert "## The model files" in text and "## `simulator.py`" in text
-        assert "RESIDUAL_RULES:" in text and "RESIDUAL_FEATURES:" in text
-        assert "cmds.apply_force(ball, (fx, fy, 0.0))" in text
-        assert "`cmds.attach(obj_a, obj_b)`" in text
-        assert "## Writing conditions" in text
+        assert "class MyDynamics(BaseSimulator):" in text
+        assert "RESIDUAL_ENV = MyDynamics" in text
+        assert "AGENT_PARAM_SPECS" in text and "RESIDUAL_FEATURES" in text
+        assert "_domain_specific_step" in text
+        assert "engine constraints" in text
+        assert "geometric conditions" in text
         assert "ParamSpec(name, init_value, lo=None, hi=None" in text
         assert "LEARNED_PREDICATES: List[Predicate]" in text
         assert "`sim.predicates()`" in text and "`Wait` terminates" in text
         assert "__" not in text.replace("__init__", "")
         assert not _DOMAIN_WORDS.search(text), _DOMAIN_WORDS.search(text)
-    assert "def rule(state, updates, params):" in fo
-    assert "def filling(state, updates, params):" in fo
-    assert "def blowing(state, updates, params, cmds):" in fo
-    assert "## Hidden state" not in fo and "latent" not in fo.lower()
+        assert "RESIDUAL_RULES" not in text and "LATENT_INIT" not in text
+    assert "## Hidden model state" not in fo
     assert "system identification" not in fo
-    assert "def rule(state, latent, history, updates, params):" in po
-    assert "def blowing(state, latent, history, updates, params, cmds):" in po
-    assert "## Hidden state" in po and "LATENT_INIT = {}" in po
-    assert "cmds.attach(a, b)" in po and "history[-1][0]" in po
+    assert "## Hidden model state" in po and "MODEL_STATE_INIT = {}" in po
+    assert "update_model_state" in po and "self.model_state" in po
     assert "latent=None" in po and "- `mu`" in po
     # Placed after the model section of the model arm's prompt only.
     system = build_play_system_prompt(["run_python"] +
@@ -479,7 +477,7 @@ def test_model_contract_is_domain_general_and_only_for_the_model_arm() -> None:
     assert system.index("## The model files") < system.index("## Journal")
     free = build_play_system_prompt(list(CONTINUAL_TOOL_NAMES),
                                     model_contract=po)
-    assert "## The model files" not in free and "RESIDUAL_RULES" not in free
+    assert "## The model files" not in free and "RESIDUAL_ENV" not in free
 
 
 def test_an_invented_predicate_under_an_env_name_stays_the_arms(

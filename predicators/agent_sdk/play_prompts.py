@@ -161,29 +161,22 @@ def build_model_contract(
     """The contract of the model files, for the model arm's system prompt
     (``play_model_contract.md``).
 
-    ``partially_observable`` selects the recurrent rule signature and
-    adds the hidden-state section and the latent-aware classifier note.
-    ``physical_params_section`` is the rendered system-identification
-    section, from ``render_physical_params_section`` in the learn prompt
-    module; empty when the env reveals no tunable physics.
-    ``declared_params_only`` adds the learn prompt's no-estimation
-    section, since the probe then refuses to fit.
+    ``partially_observable`` adds the model-state callback contract and
+    the latent-aware classifier note. ``physical_params_section`` is the
+    rendered system-identification section, from
+    ``render_physical_params_section`` in the learn prompt module; empty
+    when the env reveals no tunable physics. ``declared_params_only``
+    adds the learn prompt's no-estimation section, since the probe then
+    refuses to fit.
     """
-    rule_args = ("state, latent, history, updates, params"
-                 if partially_observable else "state, updates, params")
-    latch_home = ("the `latent` block (see \"Hidden state\")"
-                  if partially_observable else "a feature the rules own")
     parts = [
         render("play_model_contract", "intro"),
-        render("play_model_contract", "simulator", rule_args=rule_args),
-        render("play_model_contract",
-               "processes",
-               rule_args=rule_args,
-               latch_home=latch_home),
-        render("play_model_contract", "gates"),
+        render("subclass_model", "simulator"),
+        render("subclass_model", "dynamics"),
+        render("subclass_model", "tools"),
     ]
     if partially_observable:
-        parts.append(render("play_model_contract", "hidden_state"))
+        parts.append(render("subclass_model", "memory"))
     parts.append(render("play_model_contract", "paramspec"))
     noise = ObservationNoise.from_cfg()
     if noise.enabled and noise.declared:
@@ -191,7 +184,6 @@ def build_model_contract(
             render("play_model_contract",
                    "observation_noise",
                    noise_line=noise.describe()))
-    parts.append(render("play_model_contract", "subclass"))
     if physical_params_section:
         parts.append(physical_params_section)
     if declared_params_only:

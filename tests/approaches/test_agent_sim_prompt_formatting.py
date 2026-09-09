@@ -239,29 +239,28 @@ def test_synthesis_prompt_sections_not_duplicated(approach_cls):
     Refinement / Plan-format blocks (and double-injected the extra).
     """
     prompt = _render_prompt(approach_cls)
-    for header in ("### Rule signature", "## Tools", "## Plan format",
-                   "### Refinement vs. forward validation"):
+    for header in ("## `simulator.py`: a simulator subclass",
+                   "## Step and restoration behavior", "## Plan format",
+                   "## Fit and validate complete rollouts"):
         assert prompt.count(header) == 1, (header, prompt.count(header))
 
 
-def test_fo_prompt_uses_three_arg_signature(approach_cls):
-    """The fully-observable prompt advertises only the legacy 3-arg rule."""
+def test_fo_prompt_uses_subclass_contract(approach_cls):
+    """Fully observable models use the same subclass contract as PO ones."""
     prompt = _render_prompt(approach_cls)
-    assert "def rule(state, updates, params):" in prompt
-    assert "def residual_rule(state, updates, params):" in prompt
-    assert ("def rule(observation, latent, history, updates, params):"
-            not in prompt)
+    assert "class MyDynamics(BaseSimulator):" in prompt
+    assert "RESIDUAL_ENV = MyDynamics" in prompt
+    assert "def _domain_specific_step(self):" in prompt
+    assert "RESIDUAL_RULES" not in prompt
+    assert "def residual_rule(" not in prompt
+    assert "## Hidden model state" not in prompt
 
 
-def test_po_prompt_uses_five_arg_signature_only():
-    """Under CFG.partially_observable every sim-learning prompt advertises only
-    the recurrent 5-arg signature.
+def test_po_prompt_uses_subclass_memory_contract():
+    """Both PO approaches receive one canonical model-state callback.
 
-    The 3-arg form sitting beside the PO guidance is exactly what led
-    the agent to write a 3-arg rule the recurrent engine rejects, so the
-    PO prompt must not show it as canonical. The prompt is flag-driven
-    (there is no separate PO approach class), so both the plain sim-
-    learning arm and the predicate-invention arm are covered.
+    A competing rule signature must not reappear beside the subclass
+    contract, and only predicate invention adds classifier guidance.
     """
     import re
 
@@ -276,16 +275,14 @@ def test_po_prompt_uses_five_arg_signature_only():
         for cls in (AgentSimLearningApproach,
                     AgentSimPredicateInventionApproach):
             prompt = _render_prompt(cls)
-            assert ("def rule(observation, latent, history, updates, params):"
-                    in prompt)
-            assert ("def residual_rule(observation, latent, history, "
-                    "updates, params):" in prompt)
-            # The 3-arg canonical forms must be gone.
-            assert "def rule(state, updates, params):" not in prompt
-            assert "def residual_rule(state, updates, params):" not in prompt
-            # Recurrent guidance is injected exactly once.
-            headers = re.findall(
-                r"(?m)^## Recurrent rules \(partial observability\)$", prompt)
+            assert "class MyDynamics(BaseSimulator):" in prompt
+            assert ("def update_model_state(cls, observation, model_state, "
+                    "params, action):" in prompt)
+            assert "RESIDUAL_RULES" not in prompt
+            assert "LATENT_INIT" not in prompt
+            assert "def residual_rule(" not in prompt
+            # Memory guidance is injected exactly once.
+            headers = re.findall(r"(?m)^## Hidden model state$", prompt)
             assert len(headers) == 1, cls
             # The predicate-side latent guidance is invention-only.
             has_pred_section = "### Predicate signature" in prompt

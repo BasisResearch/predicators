@@ -69,7 +69,7 @@ __TOOLS_BLOCK__
 
 Read the data-structures file first, then explore the trajectory data
 with `run_python`. Write your simulator to `__SIMULATOR_FILE__`,
-defining `RESIDUAL_RULES`, `PARAM_SPECS`, and `RESIDUAL_FEATURES`, and
+exporting a `RESIDUAL_ENV` subclass with `AGENT_PARAM_SPECS` and `RESIDUAL_FEATURES`, and
 iterate with `Edit` and re-scoring. Pass `task_idx` explicitly to
 `sim.reset`; `sim.task(task_idx)` prints a task digest. Finish with the
 deliverables listed in the system prompt: a final `sim.fit()`, the
