@@ -11,13 +11,18 @@
 #SBATCH --partition=ellis,gpu,default_partition
 #SBATCH --array=0-5%4
 
+# Usage: sbatch make_videos_domino.sub [out_dir] [run_root]
+# run_root defaults to $HOME/arc_outputs (the Opus pilot); pass
+# $HOME/arc_outputs3 for the Fable runs.
+
 # Replay videos for the domino pilot: both conditions, all three seeds.
 # No run in this pilot calls RL, so every trajectory replays end to end.
 cd /home/wp237/predicators
 export PYTHONHASHSEED=0
 export OPENBLAS_NUM_THREADS=1
-A=$HOME/arc_outputs/pybullet_domino
-OUT=${1:-$HOME/arc_outputs/videos/domino}
+ROOT=${2:-$HOME/arc_outputs}
+A=$ROOT/pybullet_domino
+OUT=${1:-$ROOT/videos/domino}
 mkdir -p "$OUT" logs
 
 RUNS=(

@@ -155,12 +155,29 @@ pose.
 
 ---
 
-## 6. Pilot results (6 runs, Opus, 3 seeds per condition)
+## 6. Pilot results (9 runs, 3 seeds per cell)
 
-| condition | goal atom | **certified** | median first success | mean interactions | mean $ | IK failures |
-|---|---|---|---|---|---|---|
-| `move_to` (particles) | 3/3 | **3/3** | 154 | 250 | $2.05 | 0, 0, 0 |
-| `no_particles` | 3/3 | **1/3** | 314 | 719 | $5.53 | 18, 21, 6 |
+| model | condition | goal atom | **certified** | median first success | mean interactions | mean turns | mean $ | IK failures |
+|---|---|---|---|---|---|---|---|---|
+| Opus 5 | `move_to` (particles) | 3/3 | **3/3** | 154 | 250 | 65 | $2.05 | 0, 0, 0 |
+| Opus 5 | `no_particles` | 3/3 | **1/3** | 314 | 719 | 192 | $5.53 | 18, 21, 6 |
+| Fable 5.1 | `move_to` (particles) | 3/3 | **3/3** | 209 | 222 | 47 | $1.67 | 0, 0, 0 |
+
+Every certified run scores the same 0.95 (the success bonus minus one consumed
+blue), so the models are separated only by cost, not by quality of solve. Fable
+used fewer interactions (222 vs 250) and noticeably fewer turns (47 vs 65) for
+$5.00 against Opus's $6.14 over the cell, but took longer to its first success
+(median 209 vs 154) - it spends more of its budget probing before committing.
+Neither model triggered a single reachability refusal, so the controller fix
+(section 7) is not a confound for this comparison; only the `no_particles` cell
+is affected.
+
+Fable's slowest seed is a good illustration of probing without ground truth: it
+lowered the open gripper onto the blue block at two different wrist angles,
+noticed both stopped at the same height, inferred "the domino top is hitting the
+gripper palm with the fingers already straddling it", closed there, lifted, and
+measured from the particles that the block hung 11.6 cm below the EE frame -
+then rotated it 90 degrees in the air and set it in the gap.
 
 The headline is the gap between the two success columns. **On the goal atom
 alone the two conditions look identical (3/3 vs 3/3), and the conclusion would
@@ -177,7 +194,16 @@ certificate, they decide the outcome:
   scored 0.95 without knowing it — the same invisible-success pattern we saw
   with RL in sweep 1.
 
-Videos of all six: `~/arc_outputs/videos/domino/domino_{move_to,no_particles}_seed{0,1,2}.mp4`.
+Videos:
+- Opus, both conditions: `~/arc_outputs/videos/domino/domino_{move_to,no_particles}_seed{0,1,2}.mp4`
+- Fable, `move_to`: `~/arc_outputs3/videos/domino/domino_move_to_seed{0,1,2}.mp4`
+
+Runs live under `~/arc_outputs/pybullet_domino/` (Opus) and
+`~/arc_outputs3/pybullet_domino/` (Fable). Keep them in separate roots:
+`run_dir` is `${output_root}/${env.name}/${condition}/${harness}/seed_${seed}`
+with `exist_ok=True`, so re-running a cell at the same root overwrites it.
+Launch with a Hydra override (`output_root=$HOME/arc_outputs3`) rather than the
+`ARC_OUTPUT_ROOT` env var, which `--get-user-env` can drop.
 
 ---
 
