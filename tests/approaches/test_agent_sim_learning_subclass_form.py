@@ -46,6 +46,31 @@ _INLINE_SUBCLASS_SIMULATOR_PY = (
     "RESIDUAL_ENV = _AgentModel\n")
 
 
+def test_balloons_artifact_cannot_call_hidden_base_helpers(tmp_path):
+    """A loaded artifact receives visible physics without task answers."""
+    utils.reset_config({"env": "pybullet_balloons", "seed": 0})
+    path = tmp_path / "simulator.py"
+    path.write_text("class Model(BaseSimulator):\n"
+                    "    AGENT_PARAM_SPECS = []\n"
+                    "    RESIDUAL_FEATURES = {}\n"
+                    "RESIDUAL_ENV = Model\n")
+    _, _, _, ns = AgentSimLearningApproach._load_simulator_from_module_file(
+        str(path))
+    cls = read_residual_env(ns)
+    assert cls is not None
+    for name in ("true_box_mass", "lift_at_ground", "lift_at",
+                 "solution_subset", "candidate_outcomes", "level_state"):
+        assert not hasattr(cls, name), name
+    model = cls(use_gui=False)
+    try:
+        assert not model.get_train_tasks()
+        assert not model.get_test_tasks()
+        assert not model.predicates
+        assert model.get_physical_param_info()["air_drag"]["default"] == .04
+    finally:
+        model.dispose()
+
+
 @pytest.fixture(name="reset_balloons")
 def _reset_balloons():
     utils.reset_config({

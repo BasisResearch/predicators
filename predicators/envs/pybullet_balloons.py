@@ -44,7 +44,7 @@ from predicators.code_sim_learning.commands import ApplyForce, Attach, \
 from predicators.envs.pybullet_balloons_base import PyBulletBalloonsBaseEnv
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
-    Predicate, State, StepOption, TaskEvaluator, Type
+    Predicate, State, StepOption, TaskEvaluator
 
 GRAVITY = 9.81
 
@@ -130,7 +130,6 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
     """A balloon puzzle whose lifts, fade and box masses must be learned."""
 
     def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
-        self._param_overrides: Dict[str, float] = {}
         self._candidate_cache: Dict[Tuple[Any, ...],
                                     Dict[Tuple[int, ...],
                                          List[BalloonsProbeOutcome]]] = {}
@@ -189,13 +188,6 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
     def goal_predicates(self) -> Set[Predicate]:
         return {self._InBand}
 
-    @property
-    def types(self) -> Set[Type]:
-        return {
-            self._robot_type, self._box_type, self._balloon_type,
-            self._clip_type, self._band_type
-        }
-
     # =========================================================================
     # HIDDEN PHYSICS
     # =========================================================================
@@ -216,12 +208,6 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
         """The mass of a box material, the learning target."""
         return float(CFG.balloons_box_masses[int(round(color_index))])
 
-    def believed_box_mass(self, color_index: int) -> float:
-        """The box mass an instance running the visible physics uses."""
-        name = self.box_color_name(color_index)
-        return float(
-            self._param_overrides.get(f"mass_{name}", self.box_base_mass))
-
     def _box_mass_for(self, color_index: int) -> float:
         if self._skip_domain_specific_dynamics:
             return self.believed_box_mass(color_index)
@@ -231,55 +217,6 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
         if self._skip_domain_specific_dynamics:
             return float(self._param_overrides.get("air_drag", 0.04))
         return float(CFG.balloons_drag)
-
-    def get_physical_param_info(self) -> Dict[str, Dict[str, Any]]:
-        """A mass per box material, and the air's drag on moving bodies."""
-        info: Dict[str, Dict[str, Any]] = {}
-        for index, (name, _) in enumerate(self.BOX_PALETTE):
-            info[f"mass_{name}"] = {
-                "default": self.believed_box_mass(index),
-                "lo": 0.01,
-                "hi": 1.0,
-                "scale": "log",
-                "description": f"mass of a {name} box, in kilograms",
-            }
-        info["air_drag"] = {
-            "default":
-            self._drag(),
-            "lo":
-            0.01,
-            "hi":
-            40.0,
-            "scale":
-            "log",
-            "description": ("linear damping of the box and the balloons: "
-                            "the engine's velocity decay per second"),
-        }
-        return info
-
-    def apply_physical_param_overrides(self, params: Dict[str, float]) -> None:
-        unknown = set(params) - set(self.get_physical_param_info())
-        if unknown:
-            raise ValueError(f"Unknown physical params: {sorted(unknown)}")
-        self._param_overrides.update({k: float(v) for k, v in params.items()})
-        if self._current_observation is not None:
-            self._apply_dynamics(self._active_balloons(self._current_state))
-
-    def _apply_dynamics(self, balloons: List[Object]) -> None:
-        p.changeDynamics(self._box.id,
-                         -1,
-                         mass=self._box_mass_for(self._box_color),
-                         linearDamping=self._drag(),
-                         physicsClientId=self._physics_client_id)
-        for balloon in balloons:
-            p.changeDynamics(balloon.id,
-                             -1,
-                             linearDamping=self._drag(),
-                             physicsClientId=self._physics_client_id)
-
-    def _set_domain_specific_state(self, state: State) -> None:
-        super()._set_domain_specific_state(state)
-        self._apply_dynamics(self._active_balloons(state))
 
     def _domain_specific_step(self) -> None:
         """Release, pop, and pull: an open clip frees its balloon, which its

@@ -34,7 +34,7 @@ Physical layout (a tabletop, the robot at the near side):
 - The ``ceiling``: a plate drawn over the table, at ``ceiling_z``.
   Nothing in this file says what reaching it does to a balloon.
 """
-from typing import Any, ClassVar, Dict, List, Tuple
+from typing import Any, ClassVar, Dict, List, Set, Tuple
 
 import numpy as np
 import pybullet as p
@@ -257,6 +257,7 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
     # CONSTRUCTION
     # =========================================================================
     def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
+        self._param_overrides: Dict[str, float] = {}
         self._robot = Object("robot", self._robot_type)
         self._box = Object("box", self._box_type)
         self._balloons: List[Object] = [
@@ -275,6 +276,74 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
         self._band_lo: float = 0.0
         self._band_hi: float = 0.0
         super().__init__(use_gui, **kwargs)
+
+    @property
+    def types(self) -> Set[Type]:
+        return {
+            self._robot_type, self._box_type, self._balloon_type,
+            self._clip_type, self._band_type
+        }
+
+    def believed_box_mass(self, color_index: int) -> float:
+        """The box mass an instance running the visible physics uses."""
+        name = self.box_color_name(color_index)
+        return float(
+            self._param_overrides.get(f"mass_{name}", self.box_base_mass))
+
+    def _box_mass_for(self, color_index: int) -> float:
+        return self.believed_box_mass(color_index)
+
+    def _drag(self) -> float:
+        return float(self._param_overrides.get("air_drag", 0.04))
+
+    def get_physical_param_info(self) -> Dict[str, Dict[str, Any]]:
+        """A mass per box material, and the air's drag on moving bodies."""
+        info: Dict[str, Dict[str, Any]] = {}
+        for index, (name, _) in enumerate(self.BOX_PALETTE):
+            info[f"mass_{name}"] = {
+                "default": self.believed_box_mass(index),
+                "lo": 0.01,
+                "hi": 1.0,
+                "scale": "log",
+                "description": f"mass of a {name} box, in kilograms",
+            }
+        info["air_drag"] = {
+            "default":
+            self._drag(),
+            "lo":
+            0.01,
+            "hi":
+            40.0,
+            "scale":
+            "log",
+            "description": ("linear damping of the box and the balloons: "
+                            "the engine's velocity decay per second"),
+        }
+        return {**info, **self._agent_param_info()}
+
+    def apply_physical_param_overrides(self, params: Dict[str, float]) -> None:
+        unknown = set(params) - set(self.get_physical_param_info())
+        if unknown:
+            raise ValueError(f"Unknown physical params: {sorted(unknown)}")
+        own_names = {spec.name for spec in type(self).AGENT_PARAM_SPECS}
+        super().apply_physical_param_overrides(
+            {k: v
+             for k, v in params.items() if k in own_names})
+        self._param_overrides.update({k: float(v) for k, v in params.items()})
+        if self._current_observation is not None:
+            self._apply_dynamics(self._active_balloons(self._current_state))
+
+    def _apply_dynamics(self, balloons: List[Object]) -> None:
+        p.changeDynamics(self._box.id,
+                         -1,
+                         mass=self._box_mass_for(self._box_color),
+                         linearDamping=self._drag(),
+                         physicsClientId=self._physics_client_id)
+        for balloon in balloons:
+            p.changeDynamics(balloon.id,
+                             -1,
+                             linearDamping=self._drag(),
+                             physicsClientId=self._physics_client_id)
 
     @classmethod
     def initialize_pybullet(
@@ -554,3 +623,4 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
             basePosition=(state.get(self._band,
                                     "x"), state.get(self._band, "y"), mid),
             physicsClientId=self._physics_client_id)
+        self._apply_dynamics(self._active_balloons(state))
