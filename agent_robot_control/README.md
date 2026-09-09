@@ -15,7 +15,7 @@ every failure we hit and why.
 | `experiments/` | `run_experiment` (Hydra), `analyze`, `rl_pilot` (hand-written rewards, no harness) |
 | `conf/` | Hydra config groups: env, harness, condition, rl |
 | `slurm/` | `run_one.sub`, `rl_pilot.sub`, `make_videos*.sub`, `submit_sweep.py` (array job). CPU jobs use `default_partition`; GPU work uses the `gpu` partition |
-| `tests/` | pytest suite; runs on the login node in ~2 min |
+| `tests/` | pytest suite; ~2 min, but it drives PyBullet, so it goes through `sbatch` like everything else |
 
 Envs live in `predicators/envs/`: `pybullet_airport.py` (looping belt, delayed
 pusher, `OnTable` goal), `pybullet_donut.py` (long-table push with ungraspable
@@ -25,10 +25,10 @@ gates feasibility: `plug_oracle`, `donut_oracle`, `airport_oracle`.
 
 ## Running
 
-Tests (login node OK):
+Tests (cluster; the suite drives PyBullet, so it is not login-node work):
 
 ```bash
-uv run python -m pytest agent_robot_control/tests -q
+sbatch agent_robot_control/slurm/tests.sub
 ```
 
 One run (cluster):

@@ -61,6 +61,46 @@ def test_button_press_extends_pusher_after_the_lag():
     assert s.get(env._pusher, "y") > env.pusher_init_y + 0.3
 
 
+def test_the_pusher_is_small_late_and_fast():
+    """The three sweep-3 numbers, pinned, with what each one actually did.
+
+    Doubling the delay and the speed cancel for the moment the pusher reaches
+    the belt (20 + 40 == 40 + 20 steps), and the faster paddle imparts more
+    impulse, so on their own they measured as a WIDER press window: 14 belt
+    steps in sweep 2, 22 after. Halving the paddle's length is what bought
+    precision, taking the window to 6 steps (measured 2026-09-09).
+    """
+    assert PyBulletAirportEnv.pusher_delay_steps == 40
+    assert PyBulletAirportEnv.pusher_speed == 0.02
+    assert PyBulletAirportEnv.pusher_length == 0.15
+    # The paddle's x extent is the timing tolerance: an item is swept only
+    # while its centre is within this of the pusher, and it covers that at
+    # belt_speed per step.
+    reach = PyBulletAirportEnv.pusher_length / 2.0 + 0.03
+    window_steps = 2 * reach / PyBulletAirportEnv.belt_speed
+    assert window_steps == pytest.approx(21.0), window_steps
+    env = make_env("pybullet_airport", PyBulletAirportEnv)
+    env.reset("train", 0)
+    ctl = EEController(env)
+    bx, by, bz = env.button_stand_x, env.button_stand_y, \
+        env.button_stand_z + env.button_height
+    ctl.move_to((bx, by, bz + 0.15), gripper="close")
+    ctl.move_to((bx, by, bz - 0.03), max_steps=60)
+    assert env._current_observation.get(env._button, "is_pressed") > 0.5
+    ys = []
+    for _ in range(env.pusher_delay_steps + 40):
+        s = env.step(ctl.hold_action())
+        ys.append(float(s.get(env._pusher, "y")))
+    moved = np.diff(ys)
+    moving = moved[moved > 1e-9]
+    assert len(moving) > 0, "the pusher never moved"
+    assert moving.max() == pytest.approx(PyBulletAirportEnv.pusher_speed,
+                                         abs=1e-6)
+    # The full 0.6 m stroke in 30 steps, not 60.
+    stroke = env.table_y - env.table_width / 2.0 - env.pusher_init_y
+    assert stroke / PyBulletAirportEnv.pusher_speed == pytest.approx(30.0)
+
+
 def test_pusher_obeys_the_button_only_after_the_delay():
     """The pusher sees the button as it was pusher_delay_steps ago."""
     env = make_env("pybullet_airport", PyBulletAirportEnv)
@@ -75,9 +115,11 @@ def test_pusher_obeys_the_button_only_after_the_delay():
 
 
 def test_timed_button_press_puts_goal_item_on_table():
-    """Oracle for the button route. With the 20-step lag the working press
-    lead moves out to about 0.60-0.70 m of belt travel (gate measurement,
-    2026-09-08), so the agent has to anticipate rather than react."""
+    """Oracle for the button route. The working press lead is 0.62-0.67 m of
+    belt travel, six belt steps wide (gate measurement, 2026-09-09). The lead
+    barely moved from sweep 2 -- the 40-step lag plus the 20 steps the faster
+    pusher takes to reach the belt is the same 60 steps as before -- but the
+    half-length paddle cut the window from 14 steps to 6."""
     from agent_robot_control.sim.session import SessionConfig, SimSession
     s = SimSession(SessionConfig(env_name="pybullet_airport", task_idx=2,
                                  interaction_cap=3000, camera_width=224,
@@ -90,7 +132,7 @@ def test_timed_button_press_puts_goal_item_on_table():
     ctl.move_to((bx, by, bz + 0.10), q, gripper="close")
     for _ in range(900):
         dx = float(env._current_observation.get(item, "x")) - env.pusher_init_x
-        if -0.66 < dx < -0.64:
+        if -0.655 < dx < -0.645:  # mid-window; the window is only 6 cm wide
             break
         s.step(ctl.hold_action())
     r = ctl.move_to((bx, by, bz - 0.01), q, max_steps=20)

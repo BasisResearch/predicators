@@ -1,8 +1,8 @@
 name: claude_code
 binary: claude
-model: claude-opus-5
+model: claude-fable-5-1
 max_turns: 300
-max_budget_usd: 20.0
+max_budget_usd: 40.0   # 2x the opus-5 cap: sweep 3 runs on fable
 wall_clock_limit_s: 36000
 mcp_tool_timeout_ms: 21600000   # 6 h; RL calls are long
 allowed_builtin_tools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash(python*)", "Bash(ls*)", "Bash(cat*)"]

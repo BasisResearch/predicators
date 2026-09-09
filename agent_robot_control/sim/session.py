@@ -8,7 +8,7 @@ env's goal predicate holds.
 
 The env is never reset after construction (reset-free operation). Objects
 stay where the robot leaves them; only the env's own dynamics (belt loop,
-donut recycling, plug respawn) move things on their own.
+plug respawn) move things on their own.
 """
 from __future__ import annotations
 

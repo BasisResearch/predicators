@@ -85,16 +85,28 @@ def move_to_anchor(session: SimSession, task: str) -> None:
         env = session.env
         plug, outlet = env._plug, env._outlet
         px, py, pz = [s.get(plug, f) for f in "xyz"]
-        ox, oy = s.get(outlet, "x"), s.get(outlet, "y")
         gz = pz + 0.01
-        ctl.move_to((px, py, pz + 0.12), gripper="open")
-        ctl.move_to((px, py, gz))
-        ctl.move_to((px, py, gz), gripper="close")
-        ctl.move_to((px, py, gz + 0.12))
-        st = env._current_observation; ee = ctl.ee_position()
-        dpx, dpy = st.get(plug, "x") - ee[0], st.get(plug, "y") - ee[1]
+        # The plug stands at its collar's yaw, not at 0, so square the jaws
+        # to it or the grasp misses.
+        q_grasp = ctl.quat_from_rpy_deg(
+            0, 0, float(np.degrees(s.get(plug, "yaw"))))
+        ctl.move_to((px, py, pz + 0.12), q_grasp, gripper="open")
+        ctl.move_to((px, py, gz), q_grasp)
+        ctl.move_to((px, py, gz), q_grasp, gripper="close")
+        ctl.move_to((px, py, gz + 0.14), q_grasp)
+        # Turn the plug to the outlet's frame and stand off along the
+        # plate's normal; the plate is slanted, so this is not straight up.
+        o_pos, o_rot = env.outlet_frame(env._current_observation, outlet)
+        q_ins = ctl.quat_from_rpy_deg(0.0, env.outlet_tilt_deg,
+                                      float(np.degrees(s.get(outlet, "yaw"))))
+        ctl.move_to(ctl.ee_position(), q_ins)
+        st = env._current_observation
+        offset = np.array([float(st.get(plug, f)) for f in "xyz"]) \
+            - ctl.ee_position()
         # Deliberately imperfect alignment (1 cm off) so RL has work to do.
-        ctl.move_to((ox - dpx + 0.01, oy - dpy + 0.005, gz + 0.05))
+        aim = o_pos + o_rot @ np.array(
+            [0.01, 0.005, 0.06 + env.prong_tip_offset()])
+        ctl.move_to(aim - offset, q_ins)
 
 
 def main() -> None:

@@ -46,11 +46,25 @@ class PyBulletAirportEnv(PyBulletEnv, AirportEnv):
     button_radius: ClassVar[float] = 0.05
     button_height: ClassVar[float] = 0.05
     pusher_width: ClassVar[float] = 0.1
-    pusher_length: ClassVar[float] = 0.3
+    # The paddle's extent along the belt, and so the timing tolerance itself:
+    # it sweeps any item whose centre is within pusher_length / 2 + 0.03 of
+    # conveyor_x, and the item crosses that window at belt_speed. Halving it
+    # from the 0.30 m of sweep 2 halves the number of steps during which a
+    # press can land -- measured 2026-09-09, the working window went from 22
+    # belt steps to 6, against 14 in sweep 2.
+    pusher_length: ClassVar[float] = 0.15
     pusher_height: ClassVar[float] = 0.1
     pusher_init_x: ClassVar[float] = 2.0
     pusher_init_y: ClassVar[float] = 0.1
     pusher_init_z: ClassVar[float] = 0.45
+    # Metres of pusher travel per env step, extending and retracting alike.
+    # The 0.6 m stroke is crossed in 30 steps rather than 60. Note this does
+    # NOT tighten the timing on its own: it cancels against the doubled delay
+    # for the moment the pusher reaches the belt (20 + 40 == 40 + 20 steps),
+    # and the extra impulse launches the item further, which measured as a
+    # WIDER window (14 -> 22 belt steps). pusher_length is the knob that
+    # bought the precision back.
+    pusher_speed: ClassVar[float] = 0.02
     table_width: ClassVar[float] = 0.6
     table_length: ClassVar[float] = 0.6
     table_height: ClassVar[float] = 0.4
@@ -240,8 +254,10 @@ class PyBulletAirportEnv(PyBulletEnv, AirportEnv):
 
     # Minimum normal force (N) on the button for it to count as pressed.
     button_press_force: ClassVar[float] = 0.5
-    # Actuation lag between the button and the pusher, in env steps.
-    pusher_delay_steps: ClassVar[int] = 20
+    # Actuation lag between the button and the pusher, in env steps. At the
+    # belt's 1 cm per step this is 0.40 m of item travel the agent has to
+    # anticipate before the pusher even starts moving.
+    pusher_delay_steps: ClassVar[int] = 40
 
     def _button_is_pressed(self) -> bool:
         """True while the robot pushes on the button's top face."""
@@ -294,7 +310,7 @@ class PyBulletAirportEnv(PyBulletEnv, AirportEnv):
         if is_pressed:
             # Move pusher towards table
             if pusher_pos[1] < self.table_y - self.table_width / 2.0:
-                new_pusher_y = pusher_pos[1] + 0.01
+                new_pusher_y = pusher_pos[1] + self.pusher_speed
                 new_pusher_pos = (pusher_pos[0], new_pusher_y, pusher_pos[2])
                 p.resetBasePositionAndOrientation(
                     self._pusher_id,
@@ -304,7 +320,7 @@ class PyBulletAirportEnv(PyBulletEnv, AirportEnv):
         else:
             # Move pusher back to init
             if pusher_pos[1] > self.pusher_init_y:
-                new_pusher_y = pusher_pos[1] - 0.01
+                new_pusher_y = pusher_pos[1] - self.pusher_speed
                 new_pusher_pos = (pusher_pos[0], new_pusher_y, pusher_pos[2])
                 p.resetBasePositionAndOrientation(
                     self._pusher_id,

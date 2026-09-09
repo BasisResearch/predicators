@@ -484,3 +484,34 @@ called RL, nothing was affected. The two runs that did call it, donut
 had those calls fail through no fault of the agent, so they are re-run. Note
 what the transparency bought: because the tool reported the real error, the
 donut agent abandoned RL and still solved the task by pushing.
+
+## 26. The donut target was a 6 mm lip the disc could not climb (2026-09-09)
+
+**Symptom.** Preparing sweep 3, the target square moved from the middle of the
+table to its far edge (0.90 m out to 1.115 m in y). The push gate then failed
+0/3: the oracle got the goal disc to y = 0.987 every time and stalled there,
+30 strokes in a row ending `Stopped: contact force 233 N on donut_0`. The
+distractor discs were not the cause -- they had already been shoved clear to
+x = 1.33, and parking them and repeating a single long unobstructed shove
+reproduced the stall at the same y, at 175 N.
+
+**Cause.** `y = 0.987` plus the 60 mm disc radius is 1.047, and the target's
+near edge is 1.115 - 0.07 = 1.045. The target was built with a collision
+shape: a 2 mm-thick box whose centre sits at `table_height + 0.005`, so it
+floats 4 mm above the table and presents a 6 mm step. The disc jammed against
+that step and the controller's force limit aborted every stroke. Nothing about
+this was new -- it was equally true in sweep 2, where the target sat at 1.25
+and the disc had to climb the same lip to score, which is a fair part of why
+that cell needed 8,730 interactions at the median and one seed 17,318.
+
+**Fix.** The target is a painted mark, so it is now visual only:
+`baseCollisionShapeIndex=-1`. Nothing else changed. The gate went from 0/3 to
+3/3, at 4 strokes and about 180 interactions per seed. Segmentation is
+unaffected -- a visual-only body still renders, and `extract_named_particles`
+returns its 16 points as before.
+
+**Lesson.** A goal region drawn as geometry is a physical object unless you say
+otherwise. `_InTarget_holds` tolerates a disc resting on the table
+(`dz > tz + 2.5 * donut_half_height` allows 31 mm of slack), which hid the
+contradiction: the predicate never required the disc to be on top of the
+plate, but the physics required it to climb on top to get close enough.

@@ -3,4 +3,5 @@ task_idx: 0
 prompt_file: task_donut.md
 task_text: >-
   Get the blue disc onto the red target square at the far end of the table.
-  Other discs keep dropping onto the table; only the blue one matters.
+  Three other discs are already sitting on the table between the two; only the
+  blue one matters.

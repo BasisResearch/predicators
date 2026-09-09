@@ -513,11 +513,11 @@ heavy runs here: no PPO, no sweeps, no harness runs, no world-model training.
 Local use is limited to editing, unit tests that finish in seconds, and short
 smoke checks (a few hundred sim steps). Everything else is an `sbatch` job.
 
-Partition choice: **CPU-only jobs go to `default_partition`** (the large
-general pool; `ellis`, the group's two nodes, is often fully booked and jobs
-sit in `PENDING`). **GPU jobs go to the `gpu` partition.** Every script here
-defaults to `default_partition`; `submit_sweep.py --partition ...` overrides
-it.
+Partition choice: **every job requests `ellis,gpu,default_partition`**, the
+full list, so Slurm takes whichever frees up first -- `ellis` is the group's
+own two nodes and is often fully booked, and `default_partition` is the large
+general pool. GPU jobs add `--gres=gpu:1`. `submit_sweep.py --partition ...`
+overrides the list.
 
 Job scripts follow the user's existing convention (`~/scripts/jepa.sub`,
 `~/scripts/ptv3_uv_test.sub`): `#SBATCH --get-user-env`, `-N 1`,

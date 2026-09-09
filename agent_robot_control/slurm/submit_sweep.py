@@ -48,7 +48,9 @@ uv run python -m agent_robot_control.experiments.run_experiment $OVERRIDES {extr
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--envs", nargs="+", default=["airport", "donut", "plug_outlet"])
-    ap.add_argument("--conditions", nargs="+", default=["move_to", "model_free", "model_based"])
+    # move_to only for sweep 3: no_particles and model_free are parked for
+    # now, and each run can spend $20, so the default must not launch them.
+    ap.add_argument("--conditions", nargs="+", default=["move_to"])
     ap.add_argument("--seeds", nargs="+", type=int, default=[0, 1, 2])
     ap.add_argument("--harness", default="claude_code")
     ap.add_argument("--extra", default="", help="extra Hydra overrides appended to every run")
@@ -56,8 +58,7 @@ def main() -> None:
     ap.add_argument("--time", default="24:00:00")
     ap.add_argument("--mem", default="32000")
     ap.add_argument("--cpus", type=int, default=4)
-    # CPU-only runs: default_partition is the general pool and is usually
-    # far less contended than ellis. GPU work belongs on the gpu partition.
+    # Ask for all three: Slurm takes whichever frees up first.
     ap.add_argument("--partition", default="ellis,gpu,default_partition")
     ap.add_argument("--max-concurrent", type=int, default=3,
                     help="array throttle; 3 keeps the account usage limit at bay")

@@ -14,6 +14,15 @@ clearance the plug must be within about 7 degrees of square before any depth
 is possible. Alignment is three-dimensional, and the goal predicate needs no
 separate yaw term because a leg that is out of square misses its hole.
 
+The outlet is slanted, and that is the point too. In sweep 2 it lay flat with
+both bodies at yaw 0, so a plug lowered straight down from a square grasp
+seated itself: every run solved it in 64 to 70 interactions without ever
+issuing a rotation command. Now the plate is pitched ``outlet_tilt_deg`` off
+horizontal and yawed by a per-task angle, and the plug starts in its collar at
+a yaw at least ``min_yaw_offset_deg`` away from the outlet's. Insertion runs
+along the outlet's own axis, not the world vertical, so the agent has to
+command roll, pitch and yaw and cannot get there by translating.
+
 Designed for reset-free use: nothing in the scene moves on its own. If the plug
 topples or leaves the table and is not picked up again within
 ``topple_patience_steps`` steps, it is respawned upright in the holder and the
@@ -152,6 +161,19 @@ class PyBulletPlugOutletEnv(PyBulletEnv):
     # ── Outlet geometry ─────────────────────────────────────────
     outlet_half_xy: ClassVar[float] = 0.05
     outlet_height: ClassVar[float] = 0.025
+    # Pitch of the plate off horizontal. The insertion axis is the plate's
+    # own normal, so the plug has to arrive tilted by this much: at 15 deg a
+    # plug held vertical is 15 deg out of square, well past alignment_max_deg,
+    # and its blade tips are displaced by 30 mm * sin(15 deg) = 7.8 mm, twice
+    # the clearance. Small enough that the plug still sits in the plate under
+    # gravity once seated rather than sliding out.
+    outlet_tilt_deg: ClassVar[float] = 15.0
+    # Rotation of the plate about the vertical, sampled per task.
+    outlet_yaw_range_deg: ClassVar[float] = 20.0
+    # The plug starts this far from the outlet's yaw, either way, so a yaw
+    # command is always required. The lower bound is well past yaw_max_deg.
+    min_yaw_offset_deg: ClassVar[float] = 20.0
+    max_yaw_offset_deg: ClassVar[float] = 45.0
     outlet_color: ClassVar[Tuple[float, float, float,
                                  float]] = (0.95, 0.95, 0.9, 1.0)
     # Per-side gap between a leg and its hole wall. Set by tuning: the
@@ -179,15 +201,16 @@ class PyBulletPlugOutletEnv(PyBulletEnv):
                                  float]] = (0.3, 0.3, 0.35, 1.0)
 
     # Success: every leg tip this far below the outlet's top face, inside its
-    # own hole, with the plug axis within alignment_max_deg of vertical.
+    # own hole, with the plug axis within alignment_max_deg of the OUTLET's
+    # axis (which is not the world vertical once the plate is tilted).
     insertion_depth: ClassVar[float] = 0.010
     alignment_max_deg: ClassVar[float] = 10.0
     # Lateral slack allowed on a leg tip beyond the nominal clearance.
     tip_tolerance: ClassVar[float] = 0.002
-    # Rotation about the vertical, relative to the outlet. The per-leg checks
-    # alone are too permissive to encode this: a 15 degree yaw only displaces a
-    # blade tip by about 3.8 mm, inside the hole tolerance, even though such a
-    # plug could never physically be at depth.
+    # Rotation about the outlet's axis, relative to the outlet. The per-leg
+    # checks alone are too permissive to encode this: a 15 degree yaw only
+    # displaces a blade tip by about 3.8 mm, inside the hole tolerance, even
+    # though such a plug could never physically be at depth.
     yaw_max_deg: ClassVar[float] = 8.0
 
     # Respawn (human intervention) rule.
@@ -209,8 +232,9 @@ class PyBulletPlugOutletEnv(PyBulletEnv):
     _robot_type = Type("robot", ["x", "y", "z", "fingers"])
     _plug_type = Type("plug",
                       ["x", "y", "z", "roll", "pitch", "yaw", "is_held"])
-    _outlet_type = Type("outlet", ["x", "y", "z", "yaw"])
-    _holder_type = Type("holder", ["x", "y", "z"])
+    _outlet_type = Type("outlet",
+                        ["x", "y", "z", "roll", "pitch", "yaw"])
+    _holder_type = Type("holder", ["x", "y", "z", "yaw"])
 
     def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
         self._robot = Object("robot", self._robot_type)
@@ -292,13 +316,16 @@ class PyBulletPlugOutletEnv(PyBulletEnv):
 
     @classmethod
     def outlet_center_z(cls) -> float:
-        """Outlet frame z when it sits on the table."""
-        return cls.table_height + cls.outlet_height / 2.0
+        """Outlet frame z when it rests tilted on the table.
 
-    @classmethod
-    def outlet_top_z(cls) -> float:
-        """World z of the outlet's top face."""
-        return cls.table_height + cls.outlet_height
+        Rotating the plate by ``outlet_tilt_deg`` drops one edge, so the
+        centre has to rise for the lowest corner to touch the table rather
+        than sink into it. Yaw does not enter: a rotation about the vertical
+        cannot change any point's height.
+        """
+        t = np.radians(cls.outlet_tilt_deg)
+        return (cls.table_height + cls.outlet_half_xy * np.sin(t) +
+                (cls.outlet_height / 2.0) * np.cos(t))
 
     @classmethod
     def hole_half_extents(cls, leg_half: Tuple[float, float]
@@ -548,11 +575,15 @@ class PyBulletPlugOutletEnv(PyBulletEnv):
             self.num_interventions += 1
 
     def _respawn_plug_in_holder(self) -> None:
-        (hx, hy, _), _ = p.getBasePositionAndOrientation(
+        (hx, hy, _), horn = p.getBasePositionAndOrientation(
             self._holder_id, physicsClientId=self._physics_client_id)
+        # Upright, but turned to the collar it is being dropped back into:
+        # a plug respawned at yaw 0 would not fit a rotated collar, and
+        # would hand the agent a square start it never earned.
+        _, _, hyaw = p.getEulerFromQuaternion(horn)
         p.resetBasePositionAndOrientation(
             self._plug_id, [hx, hy, self.plug_rest_z() + 0.002],
-            (0., 0., 0., 1.),
+            p.getQuaternionFromEuler([0.0, 0.0, hyaw]),
             physicsClientId=self._physics_client_id)
         p.resetBaseVelocity(self._plug_id, [0, 0, 0], [0, 0, 0],
                             physicsClientId=self._physics_client_id)
@@ -584,33 +615,54 @@ class PyBulletPlugOutletEnv(PyBulletEnv):
         return mean_blade, up
 
     @classmethod
+    def outlet_frame(cls, state: State,
+                     outlet: Object) -> Tuple[np.ndarray, np.ndarray]:
+        """The outlet's centre and rotation matrix (columns are its axes).
+
+        Everything about insertion is expressed in this frame: the holes run
+        down the outlet's local z, which is the world vertical only when the
+        plate is flat. This replaces the old ``outlet_top_z`` helper, which
+        returned a single world height for "the top face" -- true of a level
+        plate, and a trap on a tilted one.
+        """
+        pos = np.array([state.get(outlet, f) for f in ("x", "y", "z")])
+        rpy = [state.get(outlet, f) for f in ("roll", "pitch", "yaw")]
+        rot = np.array(p.getMatrixFromQuaternion(
+            p.getQuaternionFromEuler(rpy))).reshape(3, 3)
+        return pos, rot
+
+    @classmethod
     def _PluggedIn_holds(cls, state: State, objects: Sequence[Object]) -> bool:
-        """Every leg tip inside its own hole and at least insertion_depth below
-        the outlet's top face, with the plug close to vertical and square to
-        the outlet.
+        """Every leg tip inside its own hole and at least insertion_depth
+        below the outlet's top face, with the plug square to the outlet.
+
+        "Below" and "square" are measured against the outlet's own axis, not
+        the world vertical: on a plate pitched 15 degrees a plug held upright
+        is 15 degrees out of square and fails here, which is the whole reason
+        for the tilt.
         """
         plug, outlet = objects
         tips, up = cls.leg_tips_and_axis(state, plug)
-        cos_tilt = float(np.clip(up[2], -1.0, 1.0))
+        o_pos, o_rot = cls.outlet_frame(state, outlet)
+        cos_tilt = float(np.clip(up.dot(o_rot[:, 2]), -1.0, 1.0))
         if cos_tilt < np.cos(np.radians(cls.alignment_max_deg)):
             return False
-        ox, oy, oz = [state.get(outlet, f) for f in ("x", "y", "z")]
-        oyaw = state.get(outlet, "yaw")
-        yaw_err = (state.get(plug, "yaw") - oyaw + np.pi) % (2 * np.pi) - np.pi
+        # Relative rotation about the outlet's axis.
+        plug_rpy = [state.get(plug, f) for f in ("roll", "pitch", "yaw")]
+        plug_rot = np.array(p.getMatrixFromQuaternion(
+            p.getQuaternionFromEuler(plug_rpy))).reshape(3, 3)
+        rel = o_rot.T @ plug_rot
+        yaw_err = np.arctan2(rel[1, 0], rel[0, 0])
         if abs(np.degrees(yaw_err)) > cls.yaw_max_deg:
             return False
-        top_z = oz + cls.outlet_height / 2.0
-        c, s = np.cos(-oyaw), np.sin(-oyaw)
+        half_h = cls.outlet_height / 2.0
         for name, (dx, dy), half, _tip_offset in cls.leg_specs():
-            tip = tips[name]
-            if tip[2] > top_z - cls.insertion_depth:
+            local = o_rot.T @ (tips[name] - o_pos)
+            if local[2] > half_h - cls.insertion_depth:
                 return False
-            # Express the tip in the outlet frame and compare with the hole.
-            wx, wy = tip[0] - ox, tip[1] - oy
-            lx, ly = c * wx - s * wy, s * wx + c * wy
             hx = half[0] + cls.clearance + cls.tip_tolerance
             hy = half[1] + cls.clearance + cls.tip_tolerance
-            if abs(lx - dx) > hx or abs(ly - dy) > hy:
+            if abs(local[0] - dx) > hx or abs(local[1] - dy) > hy:
                 return False
         return True
 
@@ -640,18 +692,33 @@ class PyBulletPlugOutletEnv(PyBulletEnv):
                 "z": self.robot_init_z,
                 "fingers": self.open_fingers,
             }
+            outlet_yaw = np.radians(
+                rng.uniform(-self.outlet_yaw_range_deg,
+                            self.outlet_yaw_range_deg))
             init_dict[self._outlet] = {
                 "x": 1.35,
                 "y": 0.95,
                 "z": self.outlet_center_z(),
-                "yaw": 0.0,
+                "roll": 0.0,
+                "pitch": np.radians(self.outlet_tilt_deg),
+                "yaw": outlet_yaw,
             }
+            # The plug starts square to nothing: its yaw is at least
+            # min_yaw_offset_deg off the outlet's, either way, so no task can
+            # be solved by lowering a plug that was grasped as it stood.
+            offset = np.radians(
+                rng.uniform(self.min_yaw_offset_deg, self.max_yaw_offset_deg))
+            plug_yaw = outlet_yaw + rng.choice([-1.0, 1.0]) * offset
+            plug_yaw = (plug_yaw + np.pi) % (2 * np.pi) - np.pi
             holder_x = rng.uniform(1.27, 1.43)
             holder_y = rng.uniform(0.52, 0.62)
             init_dict[self._holder] = {
                 "x": holder_x,
                 "y": holder_y,
                 "z": self.table_height + self.holder_height / 2.0,
+                # The collar is rectangular and grips the legs, so it turns
+                # with the plug it holds.
+                "yaw": plug_yaw,
             }
             init_dict[self._plug] = {
                 "x": holder_x,
@@ -659,7 +726,7 @@ class PyBulletPlugOutletEnv(PyBulletEnv):
                 "z": self.plug_rest_z(),
                 "roll": 0.0,
                 "pitch": 0.0,
-                "yaw": 0.0,
+                "yaw": plug_yaw,
                 "is_held": 0.0,
             }
             init_state = utils.create_state_from_dict(init_dict)

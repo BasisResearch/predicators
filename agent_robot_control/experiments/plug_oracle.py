@@ -1,9 +1,10 @@
 """Ground-truth oracle for the three-leg plug domain, and its feasibility gate.
 
 The oracle has perfect state access, which the agent does not: it reads the
-plug and outlet poses from the environment to align the legs, then lowers. Its
-only purpose is to answer "is this clearance insertable at all", so the sweep
-never ships a task nobody can do.
+plug and outlet poses from the environment, turns the plug into the outlet's
+frame, and drives in along the plate's normal. Its only purpose is to answer
+"is this clearance insertable at all" on a slanted outlet, so the sweep never
+ships a task nobody can do.
 
     uv run python -m agent_robot_control.experiments.plug_oracle \
         --clearances 0.004 0.003 0.0025 0.002 0.0015 --seeds 5
@@ -23,11 +24,16 @@ import pybullet as p  # noqa: E402
 
 
 def run_oracle(clearance: float, seed: int, lateral_offset: float = 0.0,
-               yaw_offset_deg: float = 0.0, verbose: bool = False) -> Dict:
-    """Grasp the plug, align all three legs over their holes, and lower.
+               yaw_offset_deg: float = 0.0, tilt_offset_deg: float = 0.0,
+               verbose: bool = False) -> Dict:
+    """Grasp the plug, turn it to the outlet's frame, and insert along the
+    plate's normal.
 
-    ``lateral_offset`` and ``yaw_offset_deg`` inject a deliberate error to
-    probe how much misalignment the fit tolerates.
+    The outlet is pitched off horizontal and yawed by a per-task angle, and
+    the plug starts at neither, so this is three rotations and a translation
+    rather than a drop. ``lateral_offset``, ``yaw_offset_deg`` and
+    ``tilt_offset_deg`` inject a deliberate error to probe how much
+    misalignment the fit tolerates.
     """
     from predicators.envs.pybullet_plug_outlet import PyBulletPlugOutletEnv
     from agent_robot_control.sim.session import SessionConfig, SimSession
@@ -41,59 +47,75 @@ def run_oracle(clearance: float, seed: int, lateral_offset: float = 0.0,
     plug, outlet = env._plug, env._outlet
     st = env._current_observation
     px, py, pz = [float(st.get(plug, f)) for f in "xyz"]
-    ox, oy = float(st.get(outlet, "x")), float(st.get(outlet, "y"))
-    # Grasp the block: the jaws close along world x at yaw 0.
+    plug_yaw_deg = float(np.degrees(st.get(plug, "yaw")))
+    o_pos, o_rot = env.outlet_frame(st, outlet)
+    o_axis = o_rot[:, 2]  # the direction the holes run
+
+    # Grasp: the jaws close along world x at yaw 0, so square them to the
+    # plug's own yaw, whatever the collar happens to be turned to.
     grasp_z = pz + 0.004
-    q = ctl.quat_from_rpy_deg(0, 0, yaw_offset_deg)
-    ctl.move_to((px, py, pz + 0.12), q, gripper="open")
-    ctl.move_to((px, py, grasp_z), q)
-    ctl.move_to((px, py, grasp_z), q, gripper="close")
+    q_grasp = ctl.quat_from_rpy_deg(0, 0, plug_yaw_deg)
+    ctl.move_to((px, py, pz + 0.12), q_grasp, gripper="open")
+    ctl.move_to((px, py, grasp_z), q_grasp)
+    ctl.move_to((px, py, grasp_z), q_grasp, gripper="close")
+    ctl.move_to((px, py, grasp_z + 0.14), q_grasp)
+    # Read the grasp after the lift: the pads finish closing on the move
+    # that follows the close command, so checking any earlier reports False
+    # on a pick that in fact succeeded.
     held = ctl.is_holding()
-    ctl.move_to((px, py, grasp_z + 0.12), q)
 
-    # Align: move the end effector so the plug's own frame sits over the
-    # outlet centre, correcting for however the plug sits in the jaws.
-    above = np.array([ox, oy, grasp_z + 0.10])
+    # Turn the held plug to the outlet's orientation, clear of everything.
+    # The grasp is square to the plug, so the end effector's rotation on top
+    # of home IS the plug's rotation: Rz(outlet yaw) . Ry(tilt).
+    o_yaw_deg = float(np.degrees(st.get(outlet, "yaw")))
+    q_ins = ctl.quat_from_rpy_deg(0.0,
+                                  env.outlet_tilt_deg + tilt_offset_deg,
+                                  o_yaw_deg + yaw_offset_deg)
     ee = ctl.ee_position()
-    st = env._current_observation
-    above[:2] += ee[:2] - np.array([float(st.get(plug, "x")),
-                                    float(st.get(plug, "y"))])
-    ctl.move_to(above, q)
+    ctl.move_to(ee, q_ins)
+
+    # Where the plug frame has to end up: on the outlet's axis, deep enough
+    # that the blade tips clear insertion_depth below the top face. All in
+    # the outlet's frame, because "down" is the plate's normal now.
+    half_h = env.outlet_height / 2.0
+    z_local = (half_h - env.insertion_depth - 0.004 + env.prong_tip_offset())
+    seated = o_pos + o_rot @ np.array([lateral_offset, 0.0, z_local])
+    standoff = seated + o_axis * 0.09
+
+    def plug_pos() -> np.ndarray:
+        s = env._current_observation
+        return np.array([float(s.get(plug, f)) for f in "xyz"])
+
+    # The plug sits in the jaws with some fixed offset; measure it and aim
+    # the end effector so the PLUG, not the gripper, lands on the axis.
+    ctl.move_to(standoff - (plug_pos() - ctl.ee_position()), q_ins)
     for _ in range(3):
-        st = env._current_observation
-        err = np.array([ox - float(st.get(plug, "x")),
-                        oy - float(st.get(plug, "y")), 0.0])
-        if np.linalg.norm(err[:2]) < 0.0004:
+        err = standoff - plug_pos()
+        if np.linalg.norm(err) < 0.0004:
             break
-        above = above + err
-        ctl.move_to(above, q)
-    above[0] += lateral_offset
-    if lateral_offset:
-        ctl.move_to(above, q)
+        ctl.move_to(ctl.ee_position() + err, q_ins)
 
-    # Lower until the blade tips are insertion_depth below the outlet top.
-    st = env._current_observation
-    ee = ctl.ee_position()
-    plug_z = float(st.get(plug, "z"))
-    ee_to_plug = plug_z - ee[2]
-    target_plug_z = (env.outlet_top_z() - env.insertion_depth
-                     + env.prong_tip_offset() - 0.004)
-    insert_ee_z = target_plug_z - ee_to_plug
+    # Drive in along the plate's normal.
+    offset = plug_pos() - ctl.ee_position()
     fine = type(ctl)(env, step_fn=session.step, step_size=0.008,
                      max_contact_force=ctl.max_contact_force)
     fine.finger_target = ctl.finger_target
-    res = fine.move_to((above[0], above[1], insert_ee_z), q, max_steps=120)
+    res = fine.move_to(seated - offset, q_ins, max_steps=160)
 
     st = env._current_observation
     tips, up = env.leg_tips_and_axis(st, plug)
-    top = env.outlet_top_z()
-    depths = {k: float(top - v[2]) for k, v in tips.items()}
+    o_pos, o_rot = env.outlet_frame(st, outlet)
+    # Depth below the top face, measured down the outlet's own axis.
+    depths = {k: float(half_h - (o_rot.T @ (v - o_pos))[2])
+              for k, v in tips.items()}
     force, bodies = ctl.contact_force()
     out = dict(clearance=clearance, seed=seed, lateral_offset=lateral_offset,
-               yaw_offset_deg=yaw_offset_deg, grasped=bool(held),
+               yaw_offset_deg=yaw_offset_deg,
+               tilt_offset_deg=tilt_offset_deg, grasped=bool(held),
                plugged=bool(env.goal_reached()),
                min_depth=min(depths.values()), depths=depths,
-               tilt_deg=float(np.degrees(np.arccos(np.clip(up[2], -1, 1)))),
+               tilt_deg=float(np.degrees(np.arccos(
+                   np.clip(up.dot(o_rot[:, 2]), -1, 1)))),
                interactions=session.interactions, contact_force=force,
                contact_with=bodies, move_msg=res.message[:90])
     if verbose:

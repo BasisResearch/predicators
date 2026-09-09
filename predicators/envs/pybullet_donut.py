@@ -1,11 +1,17 @@
-"""A PyBullet push domain: move a disc across a long table into a target.
+"""A PyBullet push domain: move a disc the length of a table into a target.
 
 The discs are 12 cm across, wider than the Fetch gripper can span, and solid
 rather than annular, so the only way to move one is to push it from the side.
-The table is two slabs long; the goal disc starts at the near end and the
-target sits at the far end, about a metre away, which is the whole reach of a
-fixed-base arm at pushing height. Fresh discs keep dropping into the lane
-between the two, so the push is contested.
+The grasp check is disabled for them outright (see
+``_get_object_ids_for_held_check``), so no contact geometry can talk PyBullet
+into a pinch: this is a push domain, and picking a disc up is not a shortcut
+that exists.
+
+The goal disc starts at the near edge of the table and the target sits at the
+far edge, about 0.75 m away, which is most of the reach of a fixed-base arm
+at pushing height. Three more discs are already on the table, in the lane
+between the two, so the push is contested from the first step. Nothing spawns
+later: what is on the table at reset is all there will ever be.
 """
 
 from typing import Any, ClassVar, Dict, List, Sequence, Set, Tuple
@@ -28,25 +34,28 @@ class PyBulletDonutEnv(PyBulletEnv):
 
     # Parameters
     table_height: ClassVar[float] = 0.2
-    # Two slabs flush in y read as one long table: y from 0.375 to 1.875.
+    # One slab: the 0.9 m URDF box centred at y = 0.75 spans y 0.30 to 1.20.
+    # It used to be two slabs, which put the target in the middle of the
+    # table because the far slab was out of the arm's reach anyway.
     _table_pose: ClassVar[Pose3D] = (1.35, 0.75, 0.0)
-    _table_pose2: ClassVar[Pose3D] = (1.35, 1.5, 0.0)
     _table_orientation: ClassVar[Quaternion] = (0., 0., 0., 1.)
 
     # The arm reaches a band 0.70 to 0.85 m from its base at pushing height,
     # which along the x = 1.20 lane is y in [0.20, 1.30] (measured 2026-09-08).
-    # The push runs the length of that band; the far half of the table stays
-    # visible but unreachable, as it would be for a real fixed base.
+    # The slab sits inside that band, so the whole table is reachable and the
+    # target can sit at its far edge.
     push_lane_x: ClassVar[float] = 1.20
     x_lb: ClassVar[float] = 1.15
     x_ub: ClassVar[float] = 1.28
     # The goal disc starts here; the pushing pose sits ~12 cm behind it, so a
     # smaller value would put the approach outside the arm's reach.
     y_lb: ClassVar[float] = 0.35
-    y_ub: ClassVar[float] = 1.25
-    # Fresh discs land between the start and the target, in the way of the push.
-    spawn_y_lb: ClassVar[float] = 0.45
-    spawn_y_ub: ClassVar[float] = 1.10
+    # Target centre: the far edge of the slab (1.20), inset by half the target
+    # square plus a 15 mm margin so the square is fully on the table.
+    y_ub: ClassVar[float] = 1.115
+    # The three distractor discs start in the lane, in the way of the push.
+    lane_y_lb: ClassVar[float] = 0.50
+    lane_y_ub: ClassVar[float] = 0.98
 
     # Robot init
     robot_init_x: ClassVar[float] = 1.35
@@ -57,15 +66,15 @@ class PyBulletDonutEnv(PyBulletEnv):
 
     # Disc parameters. 12 cm across is wider than the gripper's ~7 cm span, so
     # the arm cannot pick one up, and solid, so there is no rim to hook.
-    num_donuts: ClassVar[int] = 4  # cap on live discs (reset-free use)
-    spawn_interval: ClassVar[int] = 40
+    # All four are on the table from reset: the goal disc plus three
+    # distractors. None arrive later.
+    num_donuts: ClassVar[int] = 4
     donut_radius: ClassVar[float] = 0.06
     donut_half_height: ClassVar[float] = 0.0125
     donut_mass: ClassVar[float] = 0.4
     # Enough friction that a shove moves the disc instead of squirting it
     # sideways out of the arm's reachable lane (gate, DEBUG_LOG 22).
     donut_friction: ClassVar[float] = 0.7
-    donut_spawn_height: ClassVar[float] = 0.4
     # Aliases kept so callers reasoning about extent keep working.
     donut_major_radius: ClassVar[float] = 0.06
     donut_minor_radius: ClassVar[float] = 0.0125
@@ -82,8 +91,8 @@ class PyBulletDonutEnv(PyBulletEnv):
                                      float]] = (0.80, 0.62, 0.36, 1.0)
 
     # Camera
-    # Framed on the whole push lane, not just the near end.
-    _camera_target: ClassVar[Pose3D] = (1.24, 0.78, 0.2)
+    # Framed on the whole push lane, start to target.
+    _camera_target: ClassVar[Pose3D] = (1.24, 0.73, 0.2)
     _camera_distance: ClassVar[float] = 1.15
     _camera_yaw: ClassVar[float] = 90
     _camera_pitch: ClassVar[float] = -38
@@ -98,9 +107,6 @@ class PyBulletDonutEnv(PyBulletEnv):
         self._donuts: List[Object] = []
         for i in range(self.num_donuts):
             self._donuts.append(Object(f"donut_{i}", self._donut_type))
-        # Spawn order of live donuts (indices); oldest first. Used to pick
-        # which donut to recycle when all slots are live.
-        self._spawn_order: List[int] = []
         self._target = Object("target", self._target_type)
 
         # Predicates
@@ -144,23 +150,13 @@ class PyBulletDonutEnv(PyBulletEnv):
                                           physicsClientId=physics_client_id)
         bodies["table_id"] = table_id
 
-        # Second slab, flush with the first, so the table is twice as long.
-        table_id2 = p.loadURDF(utils.get_env_asset_path("urdf/table.urdf"),
-                               useFixedBase=True,
-                               globalScaling=1.0,
-                               physicsClientId=physics_client_id)
-        p.resetBasePositionAndOrientation(table_id2,
-                                          cls._table_pose2,
-                                          cls._table_orientation,
-                                          physicsClientId=physics_client_id)
-        bodies["table_id2"] = table_id2
-
-        # Target (flat box)
-        collision_id = p.createCollisionShape(
-            p.GEOM_BOX,
-            halfExtents=(cls.target_width / 2, cls.target_height / 2, 0.001),
-            physicsClientId=physics_client_id
-        )
+        # Target: a painted square, visual only. It used to carry a
+        # collision box, which made it a 2 mm slab floating 4 mm clear of
+        # the table -- a 6 mm lip the disc had to climb to score. A clean
+        # unobstructed shove into it jammed the arm at 175 N with the disc's
+        # leading edge on the rim and went no further (measured 2026-09-09),
+        # so the goal was unreachable by pushing once the target sat inside
+        # the arm's band. A mark on a table is not an obstacle.
         visual_id = p.createVisualShape(
             p.GEOM_BOX,
             halfExtents=(cls.target_width / 2, cls.target_height / 2, 0.001),
@@ -169,7 +165,7 @@ class PyBulletDonutEnv(PyBulletEnv):
         )
         target_id = p.createMultiBody(
             baseMass=0.0,
-            baseCollisionShapeIndex=collision_id,
+            baseCollisionShapeIndex=-1,
             baseVisualShapeIndex=visual_id,
             physicsClientId=physics_client_id
         )
@@ -229,7 +225,6 @@ class PyBulletDonutEnv(PyBulletEnv):
 
     def _store_pybullet_bodies(self, pybullet_bodies: Dict[str, Any]) -> None:
         self._table_id = pybullet_bodies["table_id"]
-        self._table_id2 = pybullet_bodies["table_id2"]
         self._target_id = pybullet_bodies["target_id"]
         self._donut_ids = pybullet_bodies["donut_ids"]
         # Expose PyBullet ids on the Objects so body ids map back to names
@@ -239,7 +234,17 @@ class PyBulletDonutEnv(PyBulletEnv):
             donut.id = donut_id
 
     def _get_object_ids_for_held_check(self) -> List[int]:
-        return self._donut_ids
+        """No body in this domain is graspable.
+
+        The discs are 12 cm across against a ~7 cm jaw span, so a pick should
+        be impossible on geometry alone -- but the base class's pinch test
+        fired on them anyway in sweep 2 (the gripper reported holding an
+        object in eight of nine runs), presumably off a disc tipped onto its
+        25 mm edge or cammed between the pads. Returning nothing here removes
+        the grasp constraint as a possibility rather than as a likelihood:
+        the fingers still collide with and shove the discs.
+        """
+        return []
 
     def _get_domain_specific_feature(self, obj: Object, feature: str) -> float:
         raise ValueError(f"Unknown feature {feature} for object {obj}")
@@ -248,14 +253,12 @@ class PyBulletDonutEnv(PyBulletEnv):
         super()._set_seed(seed)
         self._rng = np.random.default_rng(seed)
 
-    def reset(self, train_or_test: str, task_idx: int, render: bool = False) -> Observation:
+    def reset(self,
+              train_or_test: str,
+              task_idx: int,
+              render: bool = False) -> Observation:
         self._step_count = 0
-        obs = super().reset(train_or_test, task_idx, render=render)
-        self._spawn_order = [
-            i for i, donut_id in enumerate(self._donut_ids)
-            if not self._is_out_of_view(donut_id)
-        ]
-        return obs
+        return super().reset(train_or_test, task_idx, render=render)
 
     def _is_out_of_view(self, donut_id: int) -> bool:
         (dx, _dy, _dz), _ = p.getBasePositionAndOrientation(
@@ -264,17 +267,15 @@ class PyBulletDonutEnv(PyBulletEnv):
 
     def _domain_specific_step(self) -> None:
         self._step_count += 1
-        # Donuts that fell off the table are parked out of view so they can
-        # be respawned (they are unreachable anyway).
+        # A disc shoved off the table is parked out of view and stays gone:
+        # it is unreachable from the floor, and nothing respawns here.
         for i, donut_id in enumerate(self._donut_ids):
-            if donut_id == self._held_obj_id or self._is_out_of_view(donut_id):
+            if self._is_out_of_view(donut_id):
                 continue
             (_dx, _dy, dz), _ = p.getBasePositionAndOrientation(
                 donut_id, physicsClientId=self._physics_client_id)
             if dz < self.table_height - 0.05:
                 self._park_donut(i)
-        if self._step_count > 0 and self._step_count % self.spawn_interval == 0:
-            self._spawn_donut()
 
     def _park_donut(self, idx: int) -> None:
         p.resetBasePositionAndOrientation(
@@ -284,58 +285,6 @@ class PyBulletDonutEnv(PyBulletEnv):
             physicsClientId=self._physics_client_id)
         p.resetBaseVelocity(self._donut_ids[idx], [0, 0, 0], [0, 0, 0],
                             physicsClientId=self._physics_client_id)
-        if idx in self._spawn_order:
-            self._spawn_order.remove(idx)
-
-    def _spawn_donut(self) -> None:
-        # Prefer a parked (out-of-view) donut. If every donut is live, the
-        # cap is reached: recycle the oldest live donut that is neither the
-        # goal donut (donut_0) nor held.
-        oov_idx = -1
-        for i, donut_id in enumerate(self._donut_ids):
-            if self._is_out_of_view(donut_id):
-                oov_idx = i
-                break
-        if oov_idx == -1:
-            for i in self._spawn_order:
-                if i != 0 and self._donut_ids[i] != self._held_obj_id:
-                    oov_idx = i
-                    break
-        if oov_idx == -1:
-            return
-        self._park_donut(oov_idx)
-
-        # Sample position avoiding others
-        from predicators.utils import Circle
-        existing_geoms = []
-        for i, donut_id in enumerate(self._donut_ids):
-            if i == oov_idx: continue
-            (dx, dy, dz), _ = p.getBasePositionAndOrientation(
-                donut_id, physicsClientId=self._physics_client_id)
-            if dz < 5.0:
-                existing_geoms.append(Circle(dx, dy, self.donut_radius))
-        
-        # Avoid target
-        (tx, ty, tz), _ = p.getBasePositionAndOrientation(
-            self._target_id, physicsClientId=self._physics_client_id)
-        existing_geoms.append(Circle(tx, ty, self.target_width / 2))
-
-        # Avoid robot base
-        existing_geoms.append(Circle(self.robot_base_pos[0], self.robot_base_pos[1], 0.1))
-
-        for _ in range(100):
-            px = self._rng.uniform(self.x_lb, self.x_ub)
-            py = self._rng.uniform(self.spawn_y_lb, self.spawn_y_ub)
-            new_geom = Circle(px, py, self.donut_radius)
-            if not any(new_geom.intersects(g) for g in existing_geoms):
-                p.resetBasePositionAndOrientation(
-                    self._donut_ids[oov_idx],
-                    [px, py, self.table_height + self.donut_half_height +
-                     self.donut_spawn_height],
-                    (0., 0., 0., 1.),
-                    physicsClientId=self._physics_client_id)
-                self._spawn_order.append(oov_idx)
-                break
 
     def _set_domain_specific_state(self, state: State) -> None:
         # Target
@@ -448,23 +397,31 @@ class PyBulletDonutEnv(PyBulletEnv):
                 "g": self.target_color[1],
                 "b": self.target_color[2]
             }
-            donut_positions = sample_collision_free_2d_positions(
+            goal_pos = sample_collision_free_2d_positions(
                 1,  # the goal disc, at the near end of the lane
                 x_range=(self.push_lane_x - 0.02, self.push_lane_x + 0.02),
                 y_range=(self.y_lb, self.y_lb + 0.04),
                 shape_type="circle",
                 shape_params=(self.donut_radius,),
                 rng=rng
+            )[0]
+            # The distractors are on the table from the start, spread down
+            # the lane the push has to cross. Sampled clear of each other;
+            # the band is already clear of the goal disc and the target.
+            lane_positions = sample_collision_free_2d_positions(
+                self.num_donuts - 1,
+                x_range=(self.x_lb, self.x_ub),
+                y_range=(self.lane_y_lb, self.lane_y_ub),
+                shape_type="circle",
+                shape_params=(self.donut_radius,),
+                rng=rng
             )
+            donut_positions = [goal_pos] + list(lane_positions)
+            z = self.table_height + self.donut_half_height
             for i, donut in enumerate(self._donuts):
-                if i == 0:
-                    pos = donut_positions[0]
-                    z = self.table_height + self.donut_half_height
-                else:
-                    pos = self._out_of_view_xy
-                    z = 10.0
-                
-                color = self.goal_disc_color if i == 0 else self.other_disc_color
+                pos = donut_positions[i]
+                color = self.goal_disc_color if i == 0 \
+                    else self.other_disc_color
                 init_dict[donut] = {
                     "x": pos[0],
                     "y": pos[1],
