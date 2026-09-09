@@ -1890,13 +1890,15 @@ def option_policy_to_policy(
             last_option = cur_option
 
         if max_option_steps is not None and \
-            num_cur_option_steps >= max_option_steps:
+            num_cur_option_steps >= max_option_steps and \
+                cur_option.name != "Wait":
             raise OptionTimeoutFailure(
                 "Exceeded max option steps.",
                 info={"last_failed_option": last_option})
 
         if last_state is not None and \
-            raise_error_on_repeated_state and state.allclose(last_state):
+            raise_error_on_repeated_state and state.allclose(last_state) and \
+                not cur_option.memory.get("wait_num_steps", 0):
             raise OptionTimeoutFailure(
                 "Encountered repeated state.",
                 info={"last_failed_option": last_option})
@@ -1979,7 +1981,8 @@ def option_policy_to_policy(
                 assert abstract_function is not None
                 cur_atoms = abstract_function(state)
                 prev_atoms = abstract_function(last_state)
-                if cur_atoms != prev_atoms:
+                if cur_atoms != prev_atoms and not \
+                        cur_option.memory.get("wait_num_steps", 0):
                     logging.debug(f"Wait terminating due to atom change: "
                                   f"Add: {sorted(cur_atoms-prev_atoms)} "
                                   f"Del: {sorted(prev_atoms-cur_atoms)}")
@@ -1998,6 +2001,17 @@ def option_policy_to_policy(
                         num_cur_option_steps)
                     wait_terminate = True
                     wait_terminate_reason = "Wait step cap (no atom change)"
+
+        # Reaching a Wait cap is a normal stopping condition, including
+        # when it coincides with the generic option timeout. Later skills
+        # must still be executable after an explicitly bounded wait.
+        if cur_option.name == "Wait" and not wait_terminate:
+            cap = wait_rollout_step_cap()
+            if max_option_steps is not None:
+                cap = min(cap, max_option_steps)
+            if num_cur_option_steps >= cap:
+                wait_terminate = True
+                wait_terminate_reason = "Wait step cap"
 
         last_state = state
 
@@ -3194,7 +3208,8 @@ def parse_model_output_into_option_plan(
         # rejected submission per session (run_20260830).
         has_params_block = "[" in option_str
         if (parse_continuous_params and not has_params_block
-                and option.params_space.shape[0] > 0):
+                and option.params_space.shape[0] > 0
+                and option.default_params is None):
             _reject(f"Line {option_str} output by model doesn't contain a "
                     "'[' and is thus improperly formatted.")
             break
@@ -3296,6 +3311,8 @@ def parse_model_output_into_option_plan(
                 # A parameter failed to parse: stop parsing further lines
                 # (same truncation the count-mismatch below applies).
                 break
+            if not continuous_params_list and option.default_params is not None:
+                continuous_params_list = list(option.default_params)
             if len(continuous_params_list) != option.params_space.shape[0]:
                 if strict and not continuous_params_list:
                     # An explicit empty `[]` is the tool sketch grammar's
@@ -3311,6 +3328,9 @@ def parse_model_output_into_option_plan(
                             f"{option.params_space.shape[0]}.")
                     malformed = True
                     break
+        if (parse_continuous_params and not has_params_block
+                and option.default_params is not None):
+            continuous_params_list = list(option.default_params)
         if not malformed:
             option_plan.append((option, objs_list, continuous_params_list))
     return option_plan

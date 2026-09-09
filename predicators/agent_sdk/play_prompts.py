@@ -19,7 +19,8 @@ from predicators.settings import CFG
 TOOL_BLURBS = {
     "env_observe":
     "the current observation: episode state, goal, environment atoms, "
-    "your predicates, object features, a render, the ledger. Free.",
+    "your predicates, object features, current joint_positions and their "
+    "action-space order, a render, the ledger. Free.",
     "env_step":
     "one primitive action (a low-level action vector). One step.",
     "env_run_policy":

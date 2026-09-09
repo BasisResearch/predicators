@@ -1930,13 +1930,15 @@ class BeliefProbe:
                 ctx,
                 f"probe_step_{i}_{outcome.option.name}") if render else None
             if (outcome.option.name == "Wait" and failure is None
-                    and outcome.num_actions >= utils.wait_rollout_step_cap()):
+                    and outcome.num_actions >= utils.wait_rollout_step_cap()
+                    and
+                    not (outcome.option.params.size == 1 and
+                         0 < outcome.option.params[0] <= outcome.num_actions)):
                 notices.append(
                     f"step {i} (Wait) ran to its step cap "
-                    f"({outcome.num_actions} actions): its wait-target "
-                    "atoms never became true in the belief (and no other "
-                    "atom changed). Check whether the awaited change is "
-                    "modeled, or drop the Wait.")
+                    f"({outcome.num_actions} actions). Inspect the final "
+                    "state and subgoal report to decide whether to wait "
+                    "longer or revise the modeled dynamics.")
             step_dicts.append({
                 "option":
                 sig,

@@ -33,7 +33,8 @@ from predicators.pybullet_helpers.objects import create_pybullet_block
 from predicators.pybullet_helpers.robots import \
     create_single_arm_pybullet_robot
 from predicators.settings import CFG
-from predicators.structs import Action, Object, ParameterizedOption, Type
+from predicators.structs import Action, GroundAtom, Object, \
+    ParameterizedOption, Predicate, Type
 
 # ---------------------------------------------------------------------------
 # Type definitions reused across tests
@@ -966,6 +967,85 @@ class TestExecutorRails:
 
 class TestWaitOption:
     """TestWaitOption class."""
+
+    def test_timed_wait_subgoal_and_rollout_parity(self, robot_scene):
+        """Timed waits stop early on targets and agree across execution
+        models."""
+        # pylint: disable=import-outside-toplevel,protected-access
+        from dataclasses import replace
+
+        from predicators.option_model import _OracleOptionModel
+        _, robot = robot_scene
+        config = replace(_make_config(robot),
+                         wait_quiescence_eps=1e-4,
+                         wait_quiescence_steps=1)
+        opt = create_wait_option("Wait", config, _ROBOT_TYPE)
+        obj = _make_robot_obj()
+        initial = _build_state(obj, robot, *_EE_HOME)
+        initial.set(obj, "x", 0.0)
+        ready = Predicate("Ready", [_ROBOT_TYPE],
+                          lambda s, os: s.get(os[0], "x") >= 2)
+        atom = GroundAtom(ready, [obj])
+        utils.update_config({
+            "wait_option_terminate_on_atom_change": True,
+            "wait_option_max_steps": 20,
+            "max_num_steps_option_rollout": 20,
+            "option_model_terminate_on_repeat": True
+        })
+
+        def simulate(state, action):
+            del action
+            result = state.copy()
+            result.set(obj, "x", state.get(obj, "x") + 1)
+            return result
+
+        class Model(_OracleOptionModel):
+            """Use the actual Wait with a deterministic observable clock."""
+
+            def __init__(self):  # pylint: disable=super-init-not-called
+                self._name_to_parameterized_option = {"Wait": opt}
+                self._simulator = simulate
+                self._abstract_function = lambda s: utils.abstract(s, {ready})
+
+        for targeted, expected in ((False, 5), (True, 2)):
+            option = opt.ground([obj], np.array([5.0]))
+            if targeted:
+                option.memory["wait_target_atoms"] = {atom}
+            model = Model()
+            _, predicted = model.get_next_state_and_num_actions(
+                initial, option)
+            assert predicted == expected
+            policy = utils.option_plan_to_policy(
+                [option],
+                abstract_function=lambda s: utils.abstract(s, {ready}))
+            current = initial
+            for _ in range(expected):
+                current = simulate(current, policy(current))
+            with pytest.raises(utils.OptionExecutionFailure):
+                policy(current)
+        # A stationary scene still consumes the requested steps in a rollout.
+        model = Model()
+        model._simulator = lambda s, a: s.copy()
+        _, predicted = model.get_next_state_and_num_actions(
+            initial, opt.ground([obj], np.array([3.0])))
+        assert predicted == 3
+
+    def test_timed_wait_reinitializes_and_rejects_fractional_steps(
+            self, robot_scene):
+        """Reusing a grounded wait resets its count; malformed counts fail."""
+        _, robot = robot_scene
+        opt = create_wait_option("Wait", _make_config(robot), _ROBOT_TYPE)
+        obj = _make_robot_obj()
+        state = _build_state(obj, robot, *_EE_HOME)
+        option = opt.ground([obj], np.array([1.0]))
+        for _ in range(2):
+            assert option.initiable(state)
+            assert not option.terminal(state)
+            assert not option.terminal(state)
+            option.policy(state)
+            assert option.terminal(state)
+        with pytest.raises(ValueError, match="integer"):
+            opt.ground([obj], np.array([1.5])).initiable(state)
 
     def test_wait_always_initiable(self, robot_scene):
         """Test wait always initiable."""

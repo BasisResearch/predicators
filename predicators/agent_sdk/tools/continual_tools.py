@@ -384,11 +384,15 @@ def build_continual_tools(
                                   with_state=with_state,
                                   render_path=render,
                                   env_predicates=env_predicates)
-        if "env_run_policy" in wanted:
-            # The same numeric observation is available to direct action
-            # selection and to the agent's policy, including proprioception.
-            text = "[control] " + json.dumps(primitive_observation(session)) + \
-                "\n" + text
+        control = primitive_observation(session)
+        if "env_run_policy" not in wanted:
+            # Skill agents need current proprioception too, including before
+            # the first action and after reset. Avoid repeating object data.
+            control = {
+                k: control[k]
+                for k in ("joint_positions", "action_space")
+            }
+        text = "[control] " + json.dumps(control) + "\n" + text
         return text
 
     def _level_task() -> Task:
@@ -398,7 +402,8 @@ def build_continual_tools(
     @tool("env_observe",
           "The current observation: episode state, level and goal, the "
           "environment's atoms, your predicates' atoms, every object's "
-          "features, a render of the scene, and the ledger. Free.", {
+          "features, current robot joint positions and action-space order, "
+          "a render of the scene, and the ledger. Free.", {
               "type": "object",
               "properties": {},
           })

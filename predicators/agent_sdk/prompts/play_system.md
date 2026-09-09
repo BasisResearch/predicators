@@ -104,6 +104,12 @@ divergence; it never blocks execution on it. A plan is one such line
 per skill, in order. `skills_list` gives the skills, their parameter
 meanings and ranges.
 
+`Wait(robot:robot)[1]` advances one environment step while holding the arm.
+The optional integer parameter is a step count, not seconds.
+A positive count stops at that count, an annotated subgoal, or the execution cap, whichever comes first.
+`Wait(robot:robot)[]` and `[0]` retain the default stopping behavior.
+Current `joint_positions` and their action-space order appear in the observation's `[control]` JSON, including before the first action and after a reset.
+
 <!-- section: sandbox -->
 ## The sandbox
 
