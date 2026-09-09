@@ -124,6 +124,9 @@ def test_pages_render_for_a_finished_run(tmp_path: Any,
     # level recordings.
     assert "L01/" in run_html and "index.jsonl" in run_html
     assert "scorecard.json" in run_html
+    # Each tree directory is keyed by run and path so its open state
+    # survives the live run's reloads (see restoreGroups in the JS).
+    assert f"<details class='tree-dir' data-key='{key}/L01'" in run_html
     overview = viewer.fragment(key, "overview")
     assert overview is not None
     assert "Cumulative steps vs levels won" in overview
@@ -480,6 +483,22 @@ def test_http_endpoints(tmp_path: Any, monkeypatch: Any) -> None:
         assert _call(host, "GET", f"/run/{qkey}/L1/replay")[0] == 200
         status, body = _call(host, "GET", f"/card/{qkey}")
         assert status == 200 and '"run_id"' in body
+        # The pages poll /stamp and reload when it changes: the index
+        # stamp follows the scorecards, a run's stamp its directory.
+        status, stamp = _call(host, "GET", "/stamp")
+        assert status == 200 and stamp.startswith("1:")
+        status, run_stamp = _call(host, "GET", f"/stamp?d={qkey}")
+        assert status == 200 and run_stamp != "gone"
+        with open(os.path.join(run.run_dir, "info.log"), "a",
+                  encoding="utf-8") as f:
+            f.write("more\n")
+        assert _call(host, "GET", f"/stamp?d={qkey}")[1] != run_stamp
+        assert _call(host, "GET", "/stamp")[1] == stamp
+        card_path = os.path.join(run.run_dir, "scorecard.json")
+        later = os.stat(card_path).st_mtime + 5
+        os.utime(card_path, (later, later))
+        assert _call(host, "GET", "/stamp")[1] != stamp
+        assert _call(host, "GET", "/stamp?d=nope")[1] == "gone"
         assert _call(host, "GET", "/card/nope")[0] == 404
         # The run's files are served by their path under the root; the
         # unencoded key is not a run page.

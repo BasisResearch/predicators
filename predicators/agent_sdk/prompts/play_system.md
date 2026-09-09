@@ -46,10 +46,10 @@ every level while spending as few environment steps as possible.
   sandbox work is wall-clock time.
 - Episode states: `NOT_FINISHED` (keep acting), `WIN` (the environment
   certified the goal; the level is over), `GAME_OVER` (the episode
-  cannot continue: the horizon ran out, the environment failed, or the
-  goal was reached in a way the task's rules reject). After
-  `GAME_OVER` the only valid action is `env_reset`, on a level that has
-  resets.
+  cannot continue: the environment failed, the goal was reached in a
+  way the task's rules reject, or an episode horizon, if the run has
+  one, ran out). After `GAME_OVER` the only valid action is
+  `env_reset`, on a level that has resets.
 - Test levels have no resets unless the run is configured otherwise.
   The observation's `[level]` line says `no resets` and the ledger
   repeats it. On such a level `GAME_OVER` ends the level, lost, and
@@ -60,7 +60,10 @@ every level while spending as few environment steps as possible.
   reaches the goal atoms illegitimately ends in `GAME_OVER`.
 - Every tool result ends with a `[ledger]` line and a `[context]` line.
   The ledger: steps and resets on this level and in the run, the steps
-  remaining under the cap, and the active wall-clock. The context: the
+  remaining under the cap, and the active wall-clock. The cap is the
+  only step budget: an episode has no horizon unless the ledger names
+  one, and then reaching it is `GAME_OVER`, which on a level without
+  resets loses the level whatever the cap still holds. The context: the
   size of this conversation, its turns, and how many times it has been
   compacted. Read them; together they are your budget.
 
@@ -91,9 +94,10 @@ meanings and ranges.
 Your working directory is a sandbox that persists for the whole run,
 across sessions and levels. It holds:
 
-- `./data/trajectories.pkl`: every recorded episode so far, refreshed
-  before each session. Each entry has `states`, `actions` (with the
-  skill label the action came from), and the level index.
+- `./data/trajectories.pkl`: every recorded episode so far, the one in
+  progress included, rewritten after every environment call. Each entry
+  has `states`, `actions` (with the skill label the action came from),
+  and the level index.
 - `./journal.md`: yours. `./attempts.md`: the harness's record of what
   each round did in the environment. `./session_logs/`: transcripts of
   this conversation's earlier rounds.
@@ -110,6 +114,12 @@ __MODEL_FILES__
   environment, which you write and edit and which persists across
   sessions and levels (see "Your model"). `run_python` probes it as
   `sim`.
+- `./probe_ext.py`: yours, optional. Helpers you build around `sim`
+  (wrappers, sweeps, layout builders, scoring loops) that you want to
+  keep: its top-level definitions are loaded into the `run_python`
+  namespace at the start of every round, next to `sim` and the data,
+  so they survive a compaction and a resume; the query's model line
+  says whether it loaded. Build on `sim` freely in the meantime.
 
 <!-- section: sandbox_model_free_files -->
 - `python3` in the sandbox reads `./data/trajectories.pkl` directly
@@ -144,9 +154,24 @@ simulator alone: the visible physics (robot motion, grasping, rigid
 bodies) with none of the environment's hidden mechanisms.
 
 `run_python` holds the data in one persistent namespace: `trajectories`
-(every recorded episode, this round's included), `describe_trajectory`,
-`train_tasks`, `is_goal_state`, `evaluate_trajectory` (the environment's
-own evaluator on any state sequence), `np`, `ParamSpec`. To test a plan
+(every recorded episode, the one in progress included, current after
+every environment call), `describe_trajectory`, `train_tasks`,
+`is_goal_state`, `evaluate_trajectory`, `np`, `ParamSpec`.
+`is_goal_state(state, task_idx)` and `evaluate_trajectory(states,
+actions=None, task_idx=0)` are the task's reward model: the scoring
+rules the environment applies to a real episode, applied to the states
+you pass. On a recorded episode that is the environment's own verdict.
+On a rollout of your simulator, or a sequence you assemble by hand,
+the physics behind the verdict is your belief simulator at its current
+fit, not the environment: `sim.run(plan, solved=True)` is the
+straightforward way to ask it, and `result.states` of a `sim.run` is
+the sequence `evaluate_trajectory` scores. A rule that replays an
+action (the goal text says when one does) replays the action you label
+the transition with, `("Skill", ("obj", ...), (param, ...))` per
+transition with `None` for an unlabeled one, and a canonical action
+when the sequence carries no labels; the verdict's `note` says what
+was replayed and on what, so read it before you trust `solved`. To
+test a plan
 before you spend real steps on it: `sim.reset()` (the level's initial
 state), `sim.reset(current=True)` (the last real observation), or
 `sim.reset(task_idx=i, mods={...})`; then `sim.refine(plan,
@@ -185,6 +210,18 @@ on an un-fit parameter is not a green light - fit the parameter and
 re-run before you spend real steps on it, especially on a level with
 no resets where the first real attempt is the only one.
 
+A fit is a distribution, not a single number: the values consistent
+with your data span a range, and a plan that reaches the goal at the
+best-guess value can miss it a few percent away. On a level with no
+resets this is the difference between a win and a lost run, so commit
+through a `submit_plan` you have certified rather than through steps
+you reason out by hand: the capture gate re-runs your plan across that
+range and refuses one that only reaches the goal at the point estimate.
+When more than one plan certifies, prefer the one with the most margin,
+the one that still reaches the goal and triggers no losing event across
+the whole range, over one that is perfect only at the centre.
+__ADAPTIVE_INFO_SEEKING__
+
 __BASE_SIM_REFS__
 
 <!-- section: base_sim_refs -->
@@ -196,6 +233,16 @@ It covers the observable core (scene geometry and constants, body
 construction, physics stepping, state read and write) and omits the
 hidden dynamics, task generation and goal semantics. Read it to ground
 spatial and physical reasoning instead of guessing from renders.
+
+<!-- section: adaptive_info_seeking -->
+Do not spend real steps gathering data before you have a plan to test.
+Model from the data you already have, then commit through a certified
+`submit_plan`. Only if the capture gate refuses your plan because a
+parameter's uncertainty threatens the goal - it names that parameter -
+is a targeted experiment worth real steps: run the smallest one that
+narrows that parameter, refit, and resubmit. `sim.suggest_probes` ranks
+those experiments once the gate has flagged one, and stays silent until
+then. A level the gate never balks at needs no probing at all.
 
 <!-- section: journal -->
 ## Journal

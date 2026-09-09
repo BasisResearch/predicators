@@ -121,12 +121,17 @@ __DESCRIPTION__
 
 The trajectory roster above shows each interaction episode's
 env-computed reward. In `run_python`, `evaluate_trajectory(states,
-actions=None, task_idx=0)` scores any state sequence with the same
-ground-truth evaluator: a collected trajectory's `states` and
-`actions`, or a rollout of your simulator (where the verdict is only
-as trustworthy as the simulator). It returns `{reward, solved}`;
-`solved` means the episode is scored as a success, and a rollout can
-reach the goal atoms and still be `solved=False`.
+actions=None, task_idx=0)` is the task's reward model: it scores any
+state sequence with the same rules, a collected trajectory's `states`
+and `actions`, or a rollout of your simulator (where a rule that
+replays physics runs on your belief simulator at its current fit, so
+the verdict is only as trustworthy as the simulator). It returns
+`{reward, solved, note}`; `solved` means the episode is scored as a
+success, a rollout can reach the goal atoms and still be
+`solved=False`, and `note` says what a replaying rule simulated and
+on what. Label transitions with `(option, objects, params)` (`None`
+for an unlabeled one) so such a rule replays your action rather than
+its canonical one.
 
 <!-- section: prior_state -->
 Prior cycle state: __PRIOR_FILES__ already exist in the sandbox from a

@@ -34,7 +34,7 @@ from predicators.structs import Action, State
 # stalls at 0.446 (noise-dominated Jacobian), 0.05 is flaky (0.43),
 # while 0.02 recovers 0.353-0.356 in ~21-30 evals. Contact-rich
 # landscapes are rough at multiple scales — re-sweep this if a new
-# domain's LM fit stalls well above the MCMC-quality SSE.
+# domain's LM fit stalls well above the best achievable SSE.
 _ROLLOUT_LM_DIFF_STEP = 2e-2
 
 # Tracks are read once per path per process, not once per candidate theta: a

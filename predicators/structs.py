@@ -1186,6 +1186,24 @@ class TaskEvaluator:
         del states, step_options, sim_env  # unused in the default
         return True, ""
 
+    def verdict_note(self,
+                     states: Sequence[State],
+                     step_options: Optional[Sequence[StepOption]],
+                     sim_env: Optional[Any] = None) -> str:
+        """What a physics-replaying certificate simulated to reach its verdict,
+        in one agent-showable sentence; "" for a pure certificate.
+
+        Agent-facing, unlike ``_certify``'s reason (which names rule
+        violations and stays harness-internal): a verdict on a state
+        sequence the agent assembled is a prediction of the substrate
+        the certificate replayed on, with the action it replayed, and
+        the agent can only weigh it knowing both (domino m3, 2026-09-05,
+        read a belief-sim replay of a canonical push as ground truth for
+        its own push).
+        """
+        del states, step_options, sim_env  # unused in the default
+        return ""
+
     def offline_metrics(
             self, states: Sequence[State],
             step_options: Optional[Sequence[StepOption]]) -> Dict[str, float]:

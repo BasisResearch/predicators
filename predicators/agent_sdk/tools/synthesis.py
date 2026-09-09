@@ -1,5 +1,6 @@
 """Synthesis-session tools for sim learning (create_synthesis_tools)."""
 import dataclasses
+import hashlib
 import os
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
@@ -260,7 +261,7 @@ def create_synthesis_tools(
         compute_residual_scaling
     from predicators.code_sim_learning.utils import apply_rules, \
         has_latent_rules, has_physics_rules, iter_feature_residuals, \
-        read_latent_init, read_physical_param_specs, \
+        read_latent_init, read_physical_param_specs, read_residual_env, \
         read_simulator_components, rollout_predictions, \
         stamp_physical_spec_scales
     from predicators.settings import CFG
@@ -311,6 +312,27 @@ def create_synthesis_tools(
         rules, specs, features = read_simulator_components(ns)
         latent_init = read_latent_init(ns)
         physical_specs = read_physical_param_specs(ns)
+        # The subclass model form (RESIDUAL_ENV): its overridden
+        # _domain_specific_step is the dynamics and its AGENT_PARAM_SPECS
+        # are the physical params to identify, so it is a valid artifact
+        # with empty rules/specs. Install it as the approach's planning
+        # base env (keyed on content so identical re-execs reuse it), so
+        # the rollout system-ID (sim.fit) and the residual rollouts
+        # (sim.residuals) run against an instance of the subclass.
+        residual_env_cls = read_residual_env(ns)
+        if residual_env_cls is not None:
+            physical_specs = list(residual_env_cls.AGENT_PARAM_SPECS)
+            if features is None:
+                features = getattr(residual_env_cls, "RESIDUAL_FEATURES", None)
+        # Keep the approach's planning base env in step with the loaded
+        # file: install the subclass, or clear a previously-installed one
+        # when this file is a rule form (so a later rule-form fit anchors
+        # against the stock base env, not a stale subclass instance).
+        if approach is not None and hasattr(approach,
+                                            "_install_residual_env_cls"):
+            approach._install_residual_env_cls(  # pylint: disable=protected-access
+                residual_env_cls,
+                hashlib.sha256(raw).hexdigest())
         if rules is None:
             if not physical_specs:
                 return None, None, None, None, None, version_tag, (
@@ -662,8 +684,13 @@ def create_synthesis_tools(
             "- a per-timestep digest of one trajectory, np, ParamSpec, "
             "and (when the "
             "env defines task evaluators) evaluate_trajectory(states, "
-            "actions=None, task_idx=0) -> {reward, solved} - the env's "
-            "ground-truth episode scoring over a full TRAJECTORY. "
+            "actions=None, task_idx=0) -> {reward, solved, note} - the "
+            "task's reward model over a state sequence: the environment's "
+            "scoring rules, on a simulator rollout or a hand-built "
+            "sequence run against your belief simulator at its current "
+            "fit (`note` says what a replaying rule simulated and on "
+            "what; label transitions with (option, objects, params) so it "
+            "replays your action, not its canonical one). "
             "print() output "
             "is returned. The namespace persists across calls. If output "
             "exceeds ~30k chars it is saved to "
@@ -1221,7 +1248,7 @@ def create_synthesis_tools(
         report scores the BASE simulator alone: everything is out of
         scope, so it is the map of candidate mechanisms the first
         file needs to cover. Uses init_value params by default;
-        ``fit_params=True`` MCMC-fits first (diagnostic only - nothing
+        ``fit_params=True`` LM-fits first (diagnostic only - nothing
         is published). Tolerance: ``|pred - obs| > rel_tol * |obs| +
         abs_tol``. Each call snapshots the simulator file into
         simulator_versions/ and tags output ``[cycle_XXX_vers_YYY]``.

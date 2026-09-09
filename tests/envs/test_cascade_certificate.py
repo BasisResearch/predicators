@@ -1321,3 +1321,77 @@ def test_place_transient_before_the_push_does_not_reject_the_run():
     assert _topple_onset(states, objs["blue1"]) == 30
     ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
     assert ok, reason
+
+
+def test_domino_evaluator_verdict_note_names_the_replay():
+    """The agent-facing verdict note is the replay half of the probe's detail
+    (push and substrate, nothing of the goal); a verdict that never ran the
+    probe carries none, and ``evaluate_states_with`` returns it."""
+    # Local import: pulls in PyBullet, which the rest of this file avoids.
+    from predicators.agent_sdk.tools.verdicts import \
+        evaluate_states_with  # pylint: disable=import-outside-toplevel
+    from predicators.envs.pybullet_domino.env import \
+        DominoEvaluator  # pylint: disable=import-outside-toplevel
+    from predicators.utils import \
+        reset_config  # pylint: disable=import-outside-toplevel
+    reset_config({"domino_block_cost": 0.05, "domino_min_block_num_blues": 4})
+    objs = _make_objects(["green", "blue1", "target"])
+    states = _build_states(objs,
+                           30, {
+                               "green": 5,
+                               "blue1": 10,
+                               "target": 14
+                           },
+                           positions={
+                               "green": (0.7, 1.0),
+                               "blue1": (0.7, 1.098),
+                               "target": (0.7, 1.196)
+                           })
+    goal = _real_goal(objs)
+    evaluator = DominoEvaluator(goal)
+    replay = ("the sequence's own push (approach 0.05 m, contact height "
+              "+0.06 m) on green, replayed with the real Push skill and "
+              "fingertips-only collision on the base sim alone")
+
+    class _ProbeEnv:
+        """Quacks like a domino env whose probe certifies and reports the
+        replay the way ``cascade_probe`` formats it."""
+
+        def __init__(self, ok: bool) -> None:
+            self.ok = ok
+            self.push_params: List[Any] = []
+
+        def run_counterfactual_cascade_probe(self,
+                                             pre_push_state,
+                                             greens,
+                                             goal_atoms,
+                                             push_params=None):
+            """Record the push and answer in the probe's detail shape."""
+            del pre_push_state, greens, goal_atoms
+            self.push_params.append(push_params)
+            outcome = ("cascades to the goal (attempt 1)" if self.ok else
+                       "reaches the goal at none of 3 attempts; closest run "
+                       "left Toppled(target) unsatisfied")
+            return self.ok, f"{replay}: {outcome}"
+
+    labeled = [(lab[0], lab[1], (0.05,
+                                 0.06)) if lab and lab[0] == "Push" else lab
+               for lab in _options([("Push", ("robot", "green"), 0, 7)], 30)]
+    for ok in (True, False):
+        env = _ProbeEnv(ok)
+        verdict = evaluate_states_with(evaluator, states, labeled, sim_env=env)
+        assert verdict["solved"] is ok
+        assert verdict["note"] == replay
+        assert "Toppled(target)" not in verdict["note"]
+        assert env.push_params == [(0.05, 0.06)]
+    # No probe bound (no sim_env): the certificate fails closed on a
+    # goal-reaching sequence and the note is empty.
+    verdict = evaluate_states_with(evaluator, states, labeled)
+    assert verdict["solved"] is False and verdict["note"] == ""
+    # A sequence that never reaches the goal atoms runs no probe.
+    quiet = _build_states(objs, 30, {"green": 5, "blue1": 10})
+    verdict = evaluate_states_with(evaluator,
+                                   quiet,
+                                   labeled,
+                                   sim_env=_ProbeEnv(True))
+    assert verdict["note"] == ""

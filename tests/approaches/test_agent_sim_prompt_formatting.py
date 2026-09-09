@@ -336,12 +336,13 @@ def test_evaluate_trajectory_helper(approach_cls):
     act.set_option(push.ground([], np.zeros(0, dtype=np.float32)))
 
     verdict = fn(states, [act], task_idx=0)
-    # Public pair only: neither the certificate's legitimacy bool and
-    # reason nor terminated (agent-computable via is_goal_state) cross
-    # into the agent's namespace.
+    # The public verdict includes a replay note, but excludes internal
+    # legitimacy details and goal-atom termination. This evaluator does
+    # not replay physics, so the note is empty.
     assert verdict == {
         "reward": 0.0,  # bonus gated by the internal rejection
         "solved": False,
+        "note": "",
     }
     # Labels are (name, objects, params) triples since plan-capture
     # gating started matching on exact params.

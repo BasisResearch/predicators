@@ -46,7 +46,7 @@ There is no human oracle for these envs, our levels are not ordered by difficult
 | Frame (64x64 grid) | The observation digest: object features, observable atoms, render |
 | `available_actions` | The low-level action space, and for skill-using agents the applicable skills with parameter ranges |
 | `WIN` | The env's evaluator certifies the episode as a legitimate success |
-| `GAME_OVER` | Horizon exhausted, env failure, a rejected episode, or an irrecoverable state |
+| `GAME_OVER` | Env failure, a rejected episode, an irrecoverable state, or an episode horizon exhausted when the run has one |
 | Human baseline (upper median actions) | None. Raw counts are recorded; the oracle is a reference arm, not a normaliser |
 | Reasoning and tool calls are free | The sandbox is free: sim rollouts, fits, predicate invention, code |
 | Scorecard | `scorecard.json` per run, aggregated across runs |
@@ -109,7 +109,10 @@ Such an episode is terminated but rejected: the goal atoms hold and no continuat
 The agent sees the state and the boolean, never the rule that fired, matching the current evaluator contract.
 An env without an evaluator falls back to the goal atoms.
 
-`GAME_OVER` is also raised by the horizon, by an `EnvironmentFailure`, and by the env declaring the state irrecoverable.
+`GAME_OVER` is also raised by an `EnvironmentFailure` and by the env declaring the state irrecoverable.
+Episodes have no horizon by default (`continual_episode_horizon`, None since 2026-09-06): the pooled step cap of section 4.8 is the only step budget.
+The env's own horizon had been the episode length until then, and on a test level, which has no resets, it was a second cap that the ledger showed only as the episode's steps: three of the four busyboard test levels of 2026-09-06 ended at step 2000 of their one episode with 5000 or more pooled steps unused.
+A number restores the per-episode `GAME_OVER` with reason `horizon`, for tests of that path and for ablations.
 A failed skill (`OptionExecutionFailure`) is not `GAME_OVER`: its steps are counted and the episode continues from the resulting state.
 
 ### 4.4 Recorded metrics
@@ -124,7 +127,7 @@ Per level, for one run:
 - `steps`: low-level env steps on the level, including the reset charges.
 - `resets`: agent-initiated resets on the level.
 - `skill_invocations`: calls to skill controllers, with how many terminated in failure, for arms that use the library.
-- `game_overs`: episodes that ended in `GAME_OVER`, with the reason for each (`horizon`, `env_failure`, `rejected`, `irrecoverable`).
+- `game_overs`: episodes that ended in `GAME_OVER`, with the reason for each (`env_failure`, `rejected`, `irrecoverable`, or `horizon` when the run puts a horizon on episodes).
 - `divergences`: skill invocations whose observed outcome differed from the agent's annotated expected outcome.
 - `wall_clock`: seconds on the level, split into env time and sandbox time.
 - `sandbox`: sim rollouts, fits, rounds of the agent's conversation, turns, and LLM cost in USD.
@@ -227,6 +230,7 @@ Learning, offered to the learning arms:
 - `learn.run(kind)`: launch a learning sub-session of an existing kind (simulator synthesis, predicate invention, sampler synthesis) in-process and return its summary. Free.
 
 Every tool result carries the ledger footer: level, steps and resets on this level and in the run, whether the level has resets, and the remaining step cap.
+When the run puts a horizon on episodes the footer also shows the current episode's steps against it and, on a level without resets, says that it ends the level; by default there is no horizon and the cap is the only step budget.
 The footer is the pacing signal, in the same spirit as the current `[budget]` footer.
 
 ### 5.2 Observation
@@ -253,7 +257,10 @@ Continuous does not mean one LLM context.
 The run is one conversation of the SDK machinery on one agent-owned loop.
 The harness sends the conversation one message per level, and a short one when the agent stops before a level is settled; each message and the agent's turn on it is a round.
 The SDK's own context compaction manages the conversation's size; the journal and the sandbox files are the agent's durable memory, and every tool result carries a `[context]` line (the conversation's size against its window, the turns so far, the compactions so far) next to the ledger, so the agent can journal ahead of a compaction instead of after one.
-Between rounds the CLI is reopened on the same conversation (`resume`), which lets the model-based arm rebuild its workbench on the data recorded since; nothing the harness does between rounds changes the env state, and the agent has no tool to end a round or to reset its context.
+Between rounds the CLI is reopened on the same conversation (`resume`); nothing the harness does between rounds changes the env state, and the agent has no tool to end a round or to reset its context.
+Inside a round the data follows the recording.
+After every charged env call the harness rebuilds the trajectory list the tools hold, the model-based arm extends its base-sim predictions to the new transitions, and the sandbox's `data/trajectories.pkl` is rewritten, so `run_python`'s `trajectories`, `sim.fit` and the agent's own scripts read the episode in progress rather than a snapshot from the round's start.
+The first busyboard runs (2026-09-05) had both arms act for thousands of steps on an empty data file because the data was refreshed only between rounds.
 A round's turn cap is effectively unbounded (10000) and there is no per-round clock: the step cap and the run's wall-clock cap are the limits.
 
 Knowledge carries across levels through the sandbox: `predicates.py`, the fitted simulator, the journal, and the trajectory data all persist for the whole env run.
@@ -302,8 +309,7 @@ Today's phased loop has four limits on interaction: explore episodes stop at `ma
 In the continual protocol there is no per-task limit.
 The limits are:
 
-- The env horizon per episode. Exhausting it is `GAME_OVER`, and the agent resets and continues.
-- The pooled step cap per run (section 4.8).
+- The pooled step cap per run (section 4.8). Episodes have no horizon of their own (section 4.3).
 - A wall-clock cap per env run, with requeue: 48 h proposed.
 - The existing per-call timeouts; the per-round turn cap of 10000 is effectively unbounded. The sysid fit budget stays as it is; a fit is not a step but it is bounded in time.
 
@@ -335,6 +341,7 @@ What a resume preserves, and what it may lose:
 The harness keeps the two sides consistent.
 It restores the env to the last recorded step, counts only recorded steps, and opens the resumed conversation with a message that states the restore point, the ledger, and that the interrupted call did not complete.
 The recording appends the low-level action of every step as it is taken, so the env side loses nothing: the action log is a few floats per step and the states are replayed from it, with full states written only at skill boundaries.
+The recorded states keep the robot's joint data, so the episodes a resumed run reads back from the recording can be re-simulated exactly as the live ones (the model-based arm's base-sim predictions need that).
 The only loss is therefore the LLM turn in flight.
 
 Preemption must not move the metrics.
@@ -361,6 +368,9 @@ Every arm in the paper is an agent playing the same env API, so the comparison i
 - Low-level-only agents: the LLM agent with `env.*` only, no skill library.
 - Full agent: the skill library and the sandbox with simulator learning, predicate invention, and samplers.
 - Model-free agent (`agent_continual_model_free`): the skill library, the env tools, the sandbox and the journal, no belief model, no `sim`, no `run_python` and no learning session; its own code in the sandbox reads the recorded data.
+- The reward model: the model-based arm's `run_python` carries `is_goal_state` and `evaluate_trajectory`, the task's scoring rules on any state sequence, with a rule that replays physics running on the arm's belief simulator at its current fit and a `note` that says what was replayed and on what.
+  The model-free arm has no such call: its only goal signal is the description, the per-step `WIN`/`GAME_OVER`, and the reward at an episode's end.
+  The asymmetry is deliberate for now (the reward model is part of what a model-based agent plans against) and is stated here rather than hidden.
 - Tool and prompt ablations: the same agent with a tool removed or a prompt section removed.
 - Fixed-schedule agents: scripted controllers that explore for K episodes, learn once, then attempt, expressed with the same tools. These are the phased-loop baselines re-expressed.
 

@@ -78,9 +78,9 @@ def test_rollout_predictions_legacy_rules_are_independent():
         [0.3, 0.3]
 
 
-def test_fit_params_can_skip_training_with_cfg():
-    """Test that CFG can disable parameter fitting."""
-    utils.reset_config({"code_sim_learning_num_mcmc_steps": 0})
+def test_fit_params_no_transitions_stays_at_init():
+    """With no transitions there is nothing to fit, so params stay at init."""
+    utils.reset_config({})
     param_specs = [ParamSpec("rate", 2.5), ParamSpec("threshold", 0.7)]
 
     result = fit_params(
@@ -116,9 +116,8 @@ def _linear_transitions():
 
 
 def test_fit_params_threads_laplace_bundle_when_info_seeking():
-    """At 0 MCMC steps, info-seeking attaches the LM Jacobian + MAP."""
+    """With info-seeking on, the fit attaches the LM Jacobian + MAP."""
     utils.reset_config({
-        "code_sim_learning_num_mcmc_steps": 0,
         "agent_explorer_info_seeking": True,
     })
     simulator_fn, transitions, residual_features = _linear_transitions()
@@ -141,7 +140,6 @@ def test_fit_params_threads_laplace_bundle_when_info_seeking():
 def test_fit_params_no_bundle_when_lm_fully_disabled():
     """With LM off (no warm-start, no Hessian, no info-seeking), no bundle."""
     utils.reset_config({
-        "code_sim_learning_num_mcmc_steps": 0,
         "code_sim_learning_warm_start_with_lm": False,
         "code_sim_learning_log_hessian_identifiability": False,
         "agent_explorer_info_seeking": False,
@@ -161,7 +159,6 @@ def test_fit_params_no_bundle_when_lm_fully_disabled():
 def test_fit_params_bundle_from_warm_start_lm():
     """The Laplace bundle is also populated by the default warm-start LM."""
     utils.reset_config({
-        "code_sim_learning_num_mcmc_steps": 0,
         "code_sim_learning_warm_start_with_lm": True,
         "agent_explorer_info_seeking": False,
     })
@@ -242,10 +239,9 @@ def test_fit_map_lm_recurrent_recovers_rate_and_jacobian():
     assert np.allclose(jac[:, 0], [1.0, 2.0], atol=1e-3)
 
 
-def test_fit_params_recurrent_threads_laplace_bundle_at_mcmc0():
-    """Recurrent fit at 0 MCMC steps with info-seeking attaches the bundle."""
+def test_fit_params_recurrent_threads_laplace_bundle():
+    """Recurrent fit with info-seeking attaches the Laplace bundle."""
     utils.reset_config({
-        "code_sim_learning_num_mcmc_steps": 0,
         "agent_explorer_info_seeking": True,
     })
     _, rules, trajs, latent_init, feats, true_rate = _mk_recurrent_problem()
@@ -268,7 +264,6 @@ def test_fit_params_recurrent_threads_laplace_bundle_at_mcmc0():
 def test_fit_params_recurrent_no_bundle_when_lm_fully_disabled():
     """With LM fully off, the recurrent fit stays at init, no bundle."""
     utils.reset_config({
-        "code_sim_learning_num_mcmc_steps": 0,
         "code_sim_learning_warm_start_with_lm": False,
         "code_sim_learning_log_hessian_identifiability": False,
         "agent_explorer_info_seeking": False,

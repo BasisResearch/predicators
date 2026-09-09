@@ -98,22 +98,42 @@ class Ledger:
     # False on a level without resets (a test level, unless
     # continual_allow_test_resets): GAME_OVER ends it, lost.
     resets_allowed: bool = True
+    # The episode in progress and, when the run puts a horizon on
+    # episodes (continual_episode_horizon), that horizon: exhausting it
+    # is GAME_OVER, which on a level without resets loses the level, so
+    # the footer names it. None by default since 2026-09-06: the pooled
+    # cap is the only step budget.
+    episode_steps: int = 0
+    horizon: Optional[int] = None
 
     @property
     def steps_remaining(self) -> int:
         """Steps left under the pooled cap."""
         return max(0, self.step_cap - self.run_steps)
 
+    @property
+    def episode_steps_remaining(self) -> Optional[int]:
+        """Steps left in the episode before its horizon, if there is one."""
+        if self.horizon is None:
+            return None
+        return max(0, self.horizon - self.episode_steps)
+
     def footer(self) -> str:
         """One line for tool results."""
         hours = self.active_seconds / 3600.0
         cap_hours = self.wall_clock_cap_seconds / 3600.0
+        if self.horizon is None:
+            episode = ""
+        else:
+            ends = ("; it ends the level" if not self.resets_allowed else "")
+            episode = (f"; episode {self.episode_steps}/{self.horizon} steps "
+                       f"to its horizon{ends}")
         return (f"[ledger] level {self.level_index + 1}/{self.levels_total}; "
                 f"steps {self.level_steps} this level, {self.run_steps} "
                 f"this run, {self.steps_remaining} remaining; resets "
                 f"{self.level_resets} this level, {self.run_resets} this "
                 f"run{'' if self.resets_allowed else ' (none on this level)'}"
-                f"; active {hours:.2f}/{cap_hours:.0f} h")
+                f"{episode}; active {hours:.2f}/{cap_hours:.0f} h")
 
 
 @dataclass(frozen=True)
@@ -193,6 +213,34 @@ class ProtocolSession:
 
     def __init__(self, run: "ContinualRun") -> None:
         self._run = run
+        self._data_listener: Optional[Callable[[], None]] = None
+
+    # -- The arm's data hook -------------------------------------------------
+
+    def on_data_changed(self, listener: Optional[Callable[[], None]]) -> None:
+        """Register (``None`` clears) the arm's callback for every charged call
+        that changed the level's recording: a step, a reset, an invocation or a
+        policy run, whether it returned or raised.
+
+        The arm refreshes what it exposes over ``level_episodes`` from
+        it (section 5.3), so the data the agent reads inside a round is
+        the recording as it stands, not a snapshot from the round's
+        start. A failing listener is logged and never fails the call.
+        """
+        self._data_listener = listener
+
+    def _charged(self) -> Tuple[int, int]:
+        card = self._run.card
+        return card.total_steps, card.total_resets
+
+    def _notify_if_changed(self, before: Tuple[int, int]) -> None:
+        if self._data_listener is None or self._charged() == before:
+            return
+        try:
+            self._data_listener()
+        except Exception:  # pylint: disable=broad-except
+            logging.exception("[Continual] the arm's data listener failed; "
+                              "its data is stale until the next charged call")
 
     # -- env.* ---------------------------------------------------------------
 
@@ -208,7 +256,11 @@ class ProtocolSession:
 
         One step.
         """
-        return self._run.step(action)
+        before = self._charged()
+        try:
+            return self._run.step(action)
+        finally:
+            self._notify_if_changed(before)
 
     def reset(self, note: str = "") -> ProtocolObservation:
         """Restart the current level.
@@ -217,7 +269,11 @@ class ProtocolSession:
         level without resets (see ``resets_allowed``); nothing is
         charged then.
         """
-        return self._run.reset(note)
+        before = self._charged()
+        try:
+            return self._run.reset(note)
+        finally:
+            self._notify_if_changed(before)
 
     def end_run(self, note: str = "") -> None:
         """End the run for this env."""
@@ -237,8 +293,12 @@ class ProtocolSession:
             expected_absent: Optional[Set[GroundAtom]] = None
     ) -> InvocationResult:
         """One skill invocation."""
-        return self._run.invoke(option, expected or set(), note,
-                                expected_absent or set())
+        before = self._charged()
+        try:
+            return self._run.invoke(option, expected or set(), note,
+                                    expected_absent or set())
+        finally:
+            self._notify_if_changed(before)
 
     def execute_plan(
         self,
@@ -318,7 +378,11 @@ class ProtocolSession:
         carries, so a policy built from an option plan is recorded
         exactly as the same plan sent through ``execute_plan``.
         """
-        return self._run.run_policy(policy, note)
+        before = self._charged()
+        try:
+            return self._run.run_policy(policy, note)
+        finally:
+            self._notify_if_changed(before)
 
     # -- Bookkeeping hooks for the sandbox side ------------------------------
 
@@ -508,6 +572,10 @@ class ContinualRun:
             active_seconds=self._active_seconds(),
             wall_clock_cap_seconds=self._card.wall_clock_cap,
             resets_allowed=self.resets_allowed(),
+            episode_steps=(self._runner.num_steps
+                           if self._runner is not None else 0),
+            horizon=(self._runner.horizon
+                     if self._runner is not None else None),
         )
 
     def step(self, action: Action) -> StepOutcome:
@@ -841,7 +909,7 @@ class ContinualRun:
                 self._level_env = fresh
         self._runner = EpisodeRunner(
             self._level_env,
-            horizon=CFG.horizon,
+            horizon=CFG.continual_episode_horizon,
             max_option_steps=CFG.max_num_steps_option_rollout,
             predicates=self._predicates)
         self._runner.add_step_listener(self._on_runner_step)

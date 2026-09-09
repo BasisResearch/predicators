@@ -161,6 +161,8 @@ def make_move_to_phase(
     retry_to_phase: Optional[str] = None,
     max_retries: int = 0,
     verify_failure_msg: Optional[str] = None,
+    freeze_target: bool = False,
+    step_norm_fn: Optional[Callable[[Array], float]] = None,
 ) -> Phase:
     """Create a MOVE_TO_POSE phase for use in a ``PhaseSkill``.
 
@@ -207,6 +209,13 @@ def make_move_to_phase(
         verify_failure_msg: When set, exhausting the verification budget
             raises ``OptionExecutionFailure`` with this message instead
             of advancing best-effort (see ``Phase.verify_failure_msg``).
+
+        freeze_target: Evaluate the target once, on the phase's first
+            step, and hold it (see ``Phase.freeze_target``): for a
+            stroke at a body that moves on contact.
+        step_norm_fn: A parameter-dependent EE step clamp (metres per
+            step from the option's params), see ``Phase.step_norm_fn``:
+            a gentle stroke whose speed is a skill parameter.
 
     Returns:
         A ``Phase`` that can be included in a ``PhaseSkill``.
@@ -276,4 +285,6 @@ def make_move_to_phase(
         retry_to_phase=retry_to_phase,
         max_retries=max_retries,
         verify_failure_msg=verify_failure_msg,
+        freeze_target=freeze_target,
+        step_norm_fn=step_norm_fn,
     )

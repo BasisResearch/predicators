@@ -1,0 +1,69 @@
+# Continual protocol launcher (docs/continual-protocol.md).
+# Usage: python scripts/engaging/launch.py -c predicatorv3/protocol_continual.yaml \
+#            --partition mit_preemptable
+# One Slurm job per env x arm x seed. Each job plays the env's levels
+# (its train tasks, then its test tasks) under the continual protocol and
+# writes one run directory, logs/<arm>/<exp>/seed<k>/run_<stamp>/:
+# scorecard.json, L<k>/ recordings, agent/, run.mp4 and the logs.
+# Env definitions live in envs/all.yaml and arm definitions in
+# approaches/all.yaml (all parked); this file un-skips what it runs and
+# sets the protocol flags. Flip SKIPs to change the env or arm set.
+---
+includes:
+  - common.yaml
+  - envs/all.yaml
+  - approaches/all.yaml
+ARGS:
+  # Rule-form regression (reg1): the continual model-based arm on all
+  # five existing domains, to confirm the subclass-form base-env change
+  # (AGENT_PARAM_SPECS on PyBulletEnv) leaves the rule form unchanged
+  # end to end. New ids so --auto_resume ignores older runs.
+  # A requeue (preemption or the wall-time trap) resumes the run in its
+  # directory from the scorecard and the level recording (section 6.6).
+  - auto_resume
+FLAGS:
+  experiment_protocol: "continual"
+  continual_levels: "train_then_test"
+  # Pooled cap: 5000 steps per level for the small envs (4.8). bridge
+  # overrides to 10000 below.
+  continual_steps_per_level: 5000
+  continual_wall_clock_hours: 48.0
+  continual_render: True
+  # run.mp4 in the run directory at run end (predicators/run/continual_video.py).
+  continual_make_video: True
+  # Every level is played in the long-lived env; a fresh PyBullet
+  # instance per level keeps one level's physics history out of the next.
+  test_fresh_env_per_episode: True
+ENVS:
+  boil:
+    SKIP: False
+  bridge:
+    SKIP: False
+    FLAGS:
+      continual_steps_per_level: 10000
+  domino_high_friction_turn:
+    SKIP: False
+  fan:
+    SKIP: False
+  busyboard:
+    SKIP: True
+  balloons:
+    SKIP: False
+    FLAGS:
+      num_train_tasks: 2
+APPROACHES:
+  oracle:
+    SKIP: True
+  agent_continual_reg1:
+    NAME: "agent_continual"
+    SKIP: False
+    FLAGS:
+      agent_sdk_use_local_sandbox: True
+      partially_observable: True
+      agent_sdk_max_agent_turns_per_iteration: 10000
+      agent_sdk_image_max_px: 900
+      agent_bilevel_use_llm_initial_params: True
+      agent_solve_use_journal: True
+      agent_validation_parallel_workers: 6
+      code_sim_learning_rollout_min_posterior_width: 0.1
+      continual_max_idle_rounds: 5

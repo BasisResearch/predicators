@@ -706,28 +706,53 @@ def sanitize_trajectory(trajectory: Any) -> Dict[str, Any]:
     }
 
 
-def export_trajectories(sandbox_dir: str, trajectories: Sequence[Any]) -> bool:
+def export_trajectories(sandbox_dir: str,
+                        trajectories: Sequence[Any],
+                        commit: bool = True) -> bool:
     """Pickle sanitized copies of ``trajectories`` (see
     :func:`sanitize_trajectory`) into the sandbox's ``data/`` directory.
 
-    Rewrites (and git-commits, for Glob visibility) only when the bytes
-    changed. Returns whether the file was rewritten.
+    Rewrites only when the bytes changed, and then git-commits the file
+    (for Glob visibility) unless ``commit`` is off: a refresh inside a
+    round rewrites the same tracked file after every environment call,
+    and a commit each time would only bloat the sandbox's history.
+    Returns whether the file was rewritten.
     """
     path = trajectories_path(sandbox_dir)
     payload = pickle.dumps([sanitize_trajectory(t) for t in trajectories],
                            protocol=pickle.HIGHEST_PROTOCOL)
+    in_git = os.path.isdir(os.path.join(sandbox_dir, ".git"))
     if os.path.isfile(path):
         with open(path, "rb") as f:
             if f.read() == payload:
+                # An earlier uncommitted refresh may have left the file
+                # dirty; a committing refresh settles it.
+                if commit and in_git and _is_dirty(sandbox_dir, path):
+                    git_commit_all(sandbox_dir, "refresh data", paths=[path])
                 return False
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".tmp"
     with open(tmp, "wb") as f:
         f.write(payload)
     os.replace(tmp, path)
-    if os.path.isdir(os.path.join(sandbox_dir, ".git")):
+    if commit and in_git:
         git_commit_all(sandbox_dir, "refresh data", paths=[path])
     return True
+
+
+def _is_dirty(sandbox_dir: str, path: str) -> bool:
+    """Whether ``path`` differs from the sandbox's git HEAD (or is
+    untracked)."""
+    try:
+        res = subprocess.run(["git", "status", "--porcelain", "--", path],
+                             cwd=sandbox_dir,
+                             capture_output=True,
+                             text=True,
+                             timeout=GIT_TIMEOUT_S,
+                             check=False)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return bool(res.stdout.strip())
 
 
 # ---------------------------------------------------------------------------

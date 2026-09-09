@@ -39,7 +39,7 @@ def belief_probe_blurb(synthesis_probe: bool) -> str:
                       "estimation is off: every parameter is used as "
                       "declared - see the system prompt); "
                       if CFG.agent_sim_learn_declared_params_only else "") +
-                     "`sim.fit(traj_idxs=None, fixed=None)` MCMC-fits "
+                     "`sim.fit(traj_idxs=None, fixed=None)` fits "
                      "PARAM_SPECS (loaded fresh from simulator.py) against "
                      "the recorded data and returns the report (SSE "
                      "init->fit, fitted values, identifiability when "

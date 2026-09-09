@@ -11,13 +11,17 @@ One directory per level holds:
   atoms, the episode state and the render path. The viewer reads this.
 * ``episodes.pkl``: sanitised states and actions of every episode on
   the level, rewritten at each flush. Learning data and the viewer's
-  state inspector both come from here.
+  state inspector both come from here, and a resumed run rebuilds the
+  arm's data from it, so a state keeps what the env needs to
+  re-simulate it (the robot's joint data) and loses everything else
+  (live handles, privileged values).
 * ``checkpoint.pkl``: the last observed state and the flush time, used
   to verify a replay and to measure downtime.
 * ``renders/``: PNG renders at invocation boundaries.
 """
 from __future__ import annotations
 
+import copy
 import json
 import os
 import pickle
@@ -28,6 +32,7 @@ import imageio
 import numpy as np
 
 from predicators.structs import Action, State
+from predicators.utils import PyBulletState
 
 ACTIONS_FILENAME = "actions.jsonl"
 INDEX_FILENAME = "index.jsonl"
@@ -45,9 +50,48 @@ def option_label(action: Action) -> Optional[str]:
     return f"{option.simple_str()}[{params}]"
 
 
+# The entries of a PyBullet simulator state that describe the robot rather
+# than the process: the arm's joint positions, a mobile base's pose, the
+# command welds by object name. Physics-client and body ids are dropped.
+PORTABLE_SIMULATOR_KEYS = ("joint_positions", "base_pose", "command_welds",
+                           "body_velocities")
+
+
+def portable_simulator_state(sim_state: Any) -> Any:
+    """The part of ``sim_state`` another process can restore: a dict keeps
+    :data:`PORTABLE_SIMULATOR_KEYS`, a raw joint-position sequence stays a
+    list of floats, anything else (an opaque object, a state without
+    joints) is ``None``."""
+    if sim_state is None:
+        return None
+    if isinstance(sim_state, dict):
+        kept = {
+            k: copy.deepcopy(sim_state[k])
+            for k in PORTABLE_SIMULATOR_KEYS if k in sim_state
+        }
+        return kept or None
+    try:
+        return [float(v) for v in sim_state]
+    except (TypeError, ValueError):
+        return None
+
+
 def sanitize_state(state: State) -> State:
-    """A copy carrying only observable ``data`` (no simulator state)."""
-    return State({o: np.array(v, copy=True) for o, v in state.data.items()})
+    """A copy carrying the observable ``data`` and, for a PyBullet state, the
+    robot's joint data; no live handles, no privileged values.
+
+    The joint data is what lets a state read back from the recording be
+    re-simulated: the PyBullet env restores the arm from it, and it
+    reads the fingers from it on every step. A plain ``State`` makes the
+    env fall back to IK for the arm and fail on the fingers, which is
+    what the model arm's base-sim predictions hit after a resume.
+    """
+    data = {o: np.array(v, copy=True) for o, v in state.data.items()}
+    sim_state = portable_simulator_state(
+        getattr(state, "simulator_state", None))
+    if sim_state is None:
+        return State(data)
+    return PyBulletState(data, simulator_state=sim_state)
 
 
 def states_close(a: State, b: State, atol: float = 1e-3) -> bool:

@@ -67,6 +67,7 @@ import argparse
 import datetime
 import getpass
 import glob
+import hashlib
 import html
 import json
 import mimetypes
@@ -173,6 +174,72 @@ def list_cards() -> List[Dict[str, Any]]:
             cards.append(card)
     cards.sort(key=lambda c: float(c.get("updated_at") or 0), reverse=True)
     return cards
+
+
+def run_stamp(key: str) -> str:
+    """Cheap change fingerprint of a run directory, for the page's polling.
+
+    Covers the files and directories up to two levels down (the
+    scorecard, logs, agent transcripts, each level's records) and the
+    modification time of the directories below that: a render
+    directory's mtime moves when a frame lands, so the frames
+    themselves, the bulk of a run's files, are never walked. ``gone``
+    for a missing run.
+    """
+    root = run_dir(key)
+    if root is None or not os.path.isdir(root):
+        return "gone"
+    count, max_mtime, total = 0, 0, 0
+
+    def visit(path: str, depth: int) -> None:
+        nonlocal count, max_mtime, total
+        try:
+            entries = list(os.scandir(path))
+        except OSError:
+            return
+        for entry in entries:
+            try:
+                st = entry.stat()
+            except OSError:
+                continue
+            count += 1
+            max_mtime = max(max_mtime, st.st_mtime_ns)
+            if entry.is_dir(follow_symlinks=False):
+                if depth < 2:
+                    visit(entry.path, depth + 1)
+            else:
+                total += st.st_size
+
+    visit(root, 0)
+    return f"{count}-{max_mtime}-{total}"
+
+
+def index_stamp() -> str:
+    """Fingerprint of the runs overview: the run set, each scorecard's mtime
+    and size, whether each run has aged past the live window (the state chip),
+    and the user's job queue and local runs (the owners)."""
+    now = time.time()
+    parts = []
+    pattern = os.path.join(RUNS_ROOT, "*", "*", "seed*", "run_*",
+                           SCORECARD_FILENAME)
+    for path in sorted(glob.glob(pattern)):
+        try:
+            st = os.stat(path)
+        except OSError:
+            continue
+        key = run_key(os.path.dirname(path))
+        stale = int(now - st.st_mtime >= LIVE_WINDOW_S)
+        agent_age = agent_activity_age(key)
+        agent_stale = int(agent_age is None or agent_age >= LIVE_WINDOW_S)
+        parts.append(
+            f"{key}:{st.st_mtime_ns}:{st.st_size}:{stale}{agent_stale}")
+    procs = [
+        line for line in _ps_lines()
+        if _PS_MAIN_RE.match(line.strip().partition(" ")[2].strip())
+    ]
+    owners = repr(_squeue_rows()) + repr(procs)
+    digest = hashlib.sha1(("\n".join(parts) + owners).encode()).hexdigest()
+    return f"{len(parts)}:{digest[:16]}"
 
 
 def load_card(key: str) -> Optional[Dict[str, Any]]:
@@ -522,6 +589,10 @@ details.grp.family > summary { font-size: 15px; }
 details.grp > *:not(summary) { margin: 8px 12px; }
 details.grp > table { width: calc(100% - 24px); }
 details.grp.hidden, tr.hidden { display: none; }
+#refreshpill { position: fixed; right: 18px; bottom: 18px; z-index: 50;
+  background: var(--accent); color: #fff; border: none; cursor: pointer;
+  padding: 8px 14px; border-radius: 18px; font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0,0,0,.35); }
 html:not([data-group='env']) .lbl.agent { display: none; }
 html[data-group='env'] .lbl.env { display: none; }
 /* run page: sidebar + content pane */
@@ -587,16 +658,28 @@ function $all(s, r) { return Array.from((r || document).querySelectorAll(s)); }
 // moves the leaves into the headers of the chosen view, sorted by the
 // inner level's name. The mode and each group's open state are the
 // user's, kept in localStorage so the auto-refresh reloads keep them.
-function groupKey(d) { return 'cv-grp:' + d.dataset.key; }
+// The run page's file tree (details.tree-dir, keyed by run and path)
+// persists the same way.
+// Chromium fires a toggle for every <details open> it parses, before
+// DOMContentLoaded; those must not be recorded (they would mark every
+// group open before the restore reads the store), so the listener only
+// records toggles once restoreGroups has run.
+var GROUPS_RESTORED = false;
+var PERSISTED = 'details.grp, details.tree-dir';
+function groupKey(d) {
+  return (d.classList.contains('grp') ? 'cv-grp:' : 'cv-tree:') +
+    d.dataset.key;
+}
 function restoreGroups() {
-  $all('details.grp').forEach(function (d) {
+  $all(PERSISTED).forEach(function (d) {
     var v = localStorage.getItem(groupKey(d));
     if (v !== null) d.open = v === '1';
   });
+  GROUPS_RESTORED = true;
 }
 document.addEventListener('toggle', function (e) {
   var d = e.target;
-  if (d.classList && d.classList.contains('grp'))
+  if (GROUPS_RESTORED && d.matches && d.matches(PERSISTED))
     localStorage.setItem(groupKey(d), d.open ? '1' : '0');
 }, true);
 function setAllGroups(open) {
@@ -611,6 +694,7 @@ function groupMode() {
 function toggleGroupMode() {
   localStorage.setItem('cv-group', groupMode() === 'env' ? 'agent' : 'env');
   applyGroupMode();
+  applyRunVisibility();
 }
 function applyGroupMode() {
   var btn = document.getElementById('groupbtn');
@@ -638,31 +722,84 @@ function applyGroupMode() {
   document.getElementById('view-env').style.display =
     mode === 'env' ? '' : 'none';
 }
+// Run selection: the checkbox state is kept per tab (sessionStorage)
+// so the auto-refresh reloads keep it; it drives the show-selected
+// toggle. Runs stay inside their experiment groups, so each visible
+// row keeps its experiment's summary as the header.
+function selStored() {
+  try {
+    return JSON.parse(sessionStorage.getItem('cv-selected') || '[]');
+  } catch (e) { return []; }
+}
+function selChanged(cb) {
+  var keys = selStored().filter(function (k) { return k !== cb.value; });
+  if (cb.checked) keys.push(cb.value);
+  sessionStorage.setItem('cv-selected', JSON.stringify(keys));
+  paintSelBtn();
+  if (selOnly()) applyRunVisibility();
+}
+function restoreSelection() {
+  var sel = {};
+  selStored().forEach(function (k) { sel[k] = true; });
+  $all('input.sel').forEach(function (cb) { cb.checked = !!sel[cb.value]; });
+  paintSelBtn();
+}
+function selOnly() { return sessionStorage.getItem('cv-selonly') === '1'; }
+function toggleSelOnly() {
+  if (!selOnly() && !$all('input.sel:checked').length) {
+    alert('Select at least one run first.');
+    return;
+  }
+  sessionStorage.setItem('cv-selonly', selOnly() ? '0' : '1');
+  paintSelBtn();
+  applyRunVisibility(true);
+}
+function paintSelBtn() {
+  var b = document.getElementById('selbtn');
+  if (!b) return;
+  var n = $all('input.sel:checked').length;
+  b.textContent = selOnly() ? 'show: selected (' + n + ')' : 'show: all';
+}
 // The filter matches every word against a row's run id, config, arm,
-// env, seed and state; groups with no visible row hide too. Per tab.
+// env, seed and state. Per tab.
 function filterRuns(text) {
   sessionStorage.setItem('cv-filter', text);
-  applyRunFilter();
+  applyRunVisibility(true);
 }
-function applyRunFilter() {
+// Hides the rows (and then the groups) the filter and the show-selected
+// toggle exclude. With ``expand`` - passed only when the user just
+// changed a filter - every group that still has a match opens, so the
+// matches are in view; that open state persists like a manual toggle.
+// A reload never passes it, so a collapsed group stays collapsed
+// across refreshes even while a filter is on.
+function applyRunVisibility(expand) {
   var box = document.getElementById('runfilter');
   if (!box) return;
   var text = sessionStorage.getItem('cv-filter') || '';
   box.value = text;
   var words = text.toLowerCase().split(/\s+/).filter(Boolean);
+  var only = selOnly();
+  var narrowing = words.length > 0 || only;
   $all('tr[data-text]').forEach(function (tr) {
     var hay = tr.dataset.text.toLowerCase();
-    tr.classList.toggle('hidden', !words.every(function (w) {
-      return hay.indexOf(w) >= 0;
-    }));
+    var hide = !words.every(function (w) { return hay.indexOf(w) >= 0; });
+    if (!hide && only) {
+      var cb = tr.querySelector('input.sel');
+      hide = !(cb && cb.checked);
+    }
+    tr.classList.toggle('hidden', hide);
   });
   $all('details.grp.exp').forEach(function (d) {
-    d.classList.toggle('hidden', !$all('tr[data-text]', d).some(
-      function (tr) { return !tr.classList.contains('hidden'); }));
+    var any = $all('tr[data-text]', d).some(
+      function (tr) { return !tr.classList.contains('hidden'); });
+    d.classList.toggle('hidden', !any);
+    if (expand && narrowing && any) d.open = true;
   });
   $all('details.grp.family').forEach(function (d) {
-    d.classList.toggle('hidden', !$all('details.grp.exp', d).some(
-      function (x) { return !x.classList.contains('hidden'); }));
+    var any = $all('details.grp.exp', d).some(
+      function (x) { return !x.classList.contains('hidden'); });
+    d.classList.toggle('hidden', !any);
+    if (expand && narrowing && any) d.open = true;
   });
 }
 // Copy-path buttons next to run names.
@@ -718,10 +855,50 @@ function deleteRun(id, live) {
   postRun('/delete?r=' + encodeURIComponent(id) + (live ? '&kill=1' : ''),
           msg);
 }
+// Auto-refresh: poll /stamp every 10 s and reload only when the runs
+// changed (the index) or this run's directory changed (a run page; a
+// finished run polls nothing). With auto off, a pill offers the reload
+// instead. A view preference, so it lives in localStorage.
+var REFRESH_MS = 10000;
+function autoOn() { return localStorage.getItem('cv-auto') !== '0'; }
+function toggleAuto() {
+  localStorage.setItem('cv-auto', autoOn() ? '0' : '1');
+  paintAutoBtn();
+}
+function paintAutoBtn() {
+  var b = document.getElementById('arbtn');
+  if (b) b.textContent = 'auto-refresh: ' + (autoOn() ? 'on' : 'off');
+}
+function showRefreshPill() {
+  if (document.getElementById('refreshpill')) return;
+  var p = document.createElement('button');
+  p.id = 'refreshpill';
+  p.textContent = 'Runs updated - refresh';
+  p.onclick = function () { location.reload(); };
+  document.body.appendChild(p);
+}
+function pollStamp() {
+  if (document.visibilityState !== 'visible') return;
+  var content = document.getElementById('content');
+  if (content && content.dataset.done) return;
+  var url = '/stamp' + (content && content.dataset.run
+    ? '?d=' + encodeURIComponent(content.dataset.run) : '');
+  fetch(url).then(function (r) { return r.text(); }).then(function (s) {
+    if (window._stamp === undefined) { window._stamp = s; return; }
+    if (s !== window._stamp) {
+      window._stamp = s;
+      if (autoOn()) { location.reload(); } else { showRefreshPill(); }
+    }
+  }).catch(function () {});
+}
 document.addEventListener('DOMContentLoaded', function () {
+  paintAutoBtn();
+  pollStamp();
+  setInterval(pollStamp, REFRESH_MS);
   restoreGroups();
   applyGroupMode();
-  applyRunFilter();
+  restoreSelection();
+  applyRunVisibility();
 });
 
 // Run page: hash routing into the content pane. The route is the hash
@@ -1056,20 +1233,21 @@ document.addEventListener('keydown', function (e) {
 def page(title: str,
          crumb: str,
          body: str,
-         refresh: int = 0,
          controls: str = "",
          wrap: bool = True) -> str:
-    """The full HTML page; ``controls`` sits in the top bar after the crumb;
-    ``wrap`` False puts the body straight under the top bar (the run page
-    brings its own two-pane layout)."""
-    meta = (f"<meta http-equiv='refresh' content='{refresh}'>"
-            if refresh else "")
+    """The full HTML page; ``controls`` sits in the top bar after the crumb,
+    before the auto-refresh toggle (see pollStamp in the JS); ``wrap`` False
+    puts the body straight under the top bar (the run page brings its own two-
+    pane layout)."""
     content = f"<div class='content'>{body}</div>" if wrap else body
     return ("<!doctype html><html><head><meta charset='utf-8'>"
-            f"<title>{esc(title)}</title>{meta}<style>{CSS}</style>"
+            f"<title>{esc(title)}</title><style>{CSS}</style>"
             f"<script>{JS}</script></head><body>"
             "<div class='topbar'><h1><a href='/'>continual viewer</a></h1>"
-            f"<span class='crumb'>{crumb}</span>{controls}</div>"
+            f"<span class='crumb'>{crumb}</span>{controls}"
+            "<button id='arbtn' onclick='toggleAuto()' title='Reload the "
+            "page when its runs change (polled every 10 s); off shows a "
+            "refresh pill instead'></button></div>"
             f"{content}</body></html>")
 
 
@@ -1397,7 +1575,7 @@ def index_page() -> str:
     if not cards:
         body = (f"<p class='muted'>No runs under "
                 f"<code>{esc(RUNS_ROOT)}</code> yet.</p>")
-        return page("continual viewer", "runs", body, refresh=30)
+        return page("continual viewer", "runs", body)
     leaves: Dict[Tuple[str, str, str], List[Dict[str, Any]]] = {}
     for card in cards:
         key = (str(card.get("arm")), str(card.get("env")),
@@ -1410,7 +1588,7 @@ def index_page() -> str:
     owners = live_owners(cards)
     parts = [
         f"<p class='muted'>{len(cards)} run(s) under "
-        f"<code>{esc(RUNS_ROOT)}</code>. Auto-refreshes every 30 s.</p>"
+        f"<code>{esc(RUNS_ROOT)}</code>. Reloads when a run changes.</p>"
     ]
     # Agent view: every leaf rendered once under its agent header.
     parts.append("<div id='view-agent'>")
@@ -1439,12 +1617,11 @@ def index_page() -> str:
         "experiment tables under agent names or under env names'>group"
         "</button>"
         "<button onclick='setAllGroups(true)'>expand all</button>"
-        "<button onclick='setAllGroups(false)'>collapse all</button>")
-    return page("continual viewer",
-                "runs",
-                "".join(parts),
-                refresh=30,
-                controls=controls)
+        "<button onclick='setAllGroups(false)'>collapse all</button>"
+        "<button id='selbtn' onclick='toggleSelOnly()' title='Show only "
+        "the checked runs (grouped under their experiment ids; the "
+        "selection survives refresh)'></button>")
+    return page("continual viewer", "runs", "".join(parts), controls=controls)
 
 
 def _group_header(kind: str, name: str, n_inner: int, n_runs: int) -> str:
@@ -1478,12 +1655,12 @@ def _leaf_table(agent: str, env: str, config: str, cards: Sequence[Dict[str,
 
 
 # Fixed column widths of the runs grid, in the order of _runs_table's
-# header: run (start stamp/seed plus the buttons), state, levels (None:
-# LEVEL_COL_W per level of the page's largest level count), steps,
-# resets, invocations, active, queue, LLM cost, updated, git. Every leaf
-# table uses them, so columns line up across agents and envs, as in the
-# phased log viewer.
-RUN_COL_W = (250, 150, None, 64, 72, 84, 72, 64, 64, 96, 80)
+# header: the selection checkbox, run (start stamp/seed plus the
+# buttons), state, levels (None: LEVEL_COL_W per level of the page's
+# largest level count), steps, resets, invocations, active, queue, LLM
+# cost, updated, git. Every leaf table uses them, so columns line up
+# across agents and envs, as in the phased log viewer.
+RUN_COL_W = (30, 250, 190, None, 64, 72, 84, 72, 64, 64, 112, 80)
 LEVEL_COL_W = 104
 
 
@@ -1505,6 +1682,9 @@ def _runs_table(cards: Sequence[Dict[str, Any]], n_levels: int,
                              f"seed{card.get('seed')}", label))
         rows.append(
             f"<tr class='runrow' data-text='{esc(search)}'>"
+            f"<td><input type='checkbox' class='sel' value='{esc(key)}' "
+            "onchange='selChanged(this)' title='Select this run for the "
+            "show-selected toggle'></td>"
             f"<td>{_run_cell(card, run_owners)}</td>"
             f"<td>{chip(label, cls, _owners_title(run_owners))}</td>"
             f"<td>{_level_grid(levels, n_levels)}</td>"
@@ -1517,7 +1697,7 @@ def _runs_table(cards: Sequence[Dict[str, Any]], n_levels: int,
             f"<td class='muted'>{esc(fmt_age(card.get('updated_at')))}</td>"
             f"<td class='muted'><code>{esc(card.get('git_sha', ''))}</code>"
             "</td></tr>")
-    head = ("<thead><tr><th>run</th>"
+    head = ("<thead><tr><th></th><th>run</th>"
             "<th>state</th><th title='per level: won / lost / in progress "
             "/ not attempted, steps, resets'>levels</th>"
             "<th class='num'>steps</th><th class='num'>resets</th>"
@@ -1651,13 +1831,14 @@ def run_page(key: str) -> Optional[str]:
     nav.append("<h4>Files</h4>" + _file_tree(key) + "</div>")
     attempted = [int(lv["index"]) + 1 for lv in levels if lv.get("attempted")]
     default = f"replay/L{attempted[-1]}" if attempted else "overview"
+    # A finished run's directory rests; its page polls nothing.
+    done = " data-done='1'" if card.get("end_reason") else ""
     body = (f"<div class='run'><div class='sidebar'>{''.join(nav)}</div>"
             f"<div id='content' data-run='{esc(key)}' "
-            f"data-default='{default}'><p class='muted'>Loading…</p>"
+            f"data-default='{default}'{done}><p class='muted'>Loading…</p>"
             "</div></div>")
     crumb = f"<a href='/run/{q(key)}'>{esc(key)}</a>"
-    refresh = 0 if card.get("end_reason") else 30
-    return page(run_name(key), crumb, body, refresh=refresh, wrap=False)
+    return page(run_name(key), crumb, body, wrap=False)
 
 
 TREE_SKIP = {".git"}
@@ -1668,14 +1849,18 @@ TREE_MAX_DEPTH = 4
 def _file_tree(key: str) -> str:
     """The run directory as nested collapsible lists: files link to their view,
     transcripts to their session view, and a directory's "list" link to its
-    listing."""
+    listing.
+
+    Each directory's open state is the user's, keyed by run and path
+    (see restoreGroups in the JS), so the reloads of a live run keep it.
+    """
     root = run_dir(key)
     if root is None or not os.path.isdir(root):
         return "<p class='muted'>No files.</p>"
-    return "<div class='tree'>" + _tree_dir(root, "", 0) + "</div>"
+    return "<div class='tree'>" + _tree_dir(root, key, "", 0) + "</div>"
 
 
-def _tree_dir(path: str, rel: str, depth: int) -> str:
+def _tree_dir(path: str, key: str, rel: str, depth: int) -> str:
     try:
         names = sorted(n for n in os.listdir(path) if n not in TREE_SKIP)
     except OSError:
@@ -1688,10 +1873,12 @@ def _tree_dir(path: str, rel: str, depth: int) -> str:
     for name in dirs:
         sub = f"{rel}/{name}" if rel else name
         open_attr = " open" if sub in ("agent", "agent/sandbox") else ""
-        inner = (_tree_dir(os.path.join(path, name), sub, depth +
+        inner = (_tree_dir(os.path.join(path, name), key, sub, depth +
                            1) if depth + 1 < TREE_MAX_DEPTH else "")
-        out.append(f"<details{open_attr}><summary>{esc(name)}/ "
-                   f"{list_link % esc(sub)}</summary>{inner}</details>")
+        out.append(
+            f"<details class='tree-dir' data-key='{esc(key)}/{esc(sub)}'"
+            f"{open_attr}><summary>{esc(name)}/ "
+            f"{list_link % esc(sub)}</summary>{inner}</details>")
     for name in files[:TREE_MAX_FILES]:
         sub = f"{rel}/{name}" if rel else name
         out.append(f"<a href='{_file_href(rel, name)}' title='{esc(sub)}'>"
@@ -2412,6 +2599,10 @@ class Handler(BaseHTTPRequestHandler):
             elif parts[0] == "run" and len(parts) == 3 and \
                     parts[2] == "replay.json":
                 self._bytes(replay_json(parts[1]), "application/json")
+            elif parts[0] == "stamp" and len(parts) == 1:
+                params = urllib.parse.parse_qs(parsed.query)
+                run = params.get("d", [""])[0]
+                self._text(run_stamp(run) if run else index_stamp(), 200)
             elif parts[0] == "card" and len(parts) == 2:
                 self._file(_card_file(parts[1]))
             elif parts[0] == "video" and len(parts) == 2:
@@ -2426,7 +2617,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # pylint: disable=invalid-name
         """Pause or delete a run, with a plain-text reply.
 
-        POST only, so the index page's auto-refresh GETs can never trip
+        POST only, so the pages' polling and reload GETs can never trip
         these, and same-origin only: a page anywhere can fire a cross-
         origin POST at localhost.
         """

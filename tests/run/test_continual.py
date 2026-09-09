@@ -23,10 +23,11 @@ from predicators.run.continual import ContinualRun, LevelAlreadyWon, \
 from predicators.run.controllers import OracleController, \
     RandomPrimitiveController, RandomSkillsController, create_controller
 from predicators.run.episode import EpisodeOver, EpisodeState
-from predicators.run.recording import LevelRecording, states_close
+from predicators.run.recording import LevelRecording, sanitize_state, \
+    states_close
 from predicators.run.scorecard import RunCard
 from predicators.settings import CFG
-from predicators.structs import Action
+from predicators.structs import Action, Object, State, Type
 
 
 class _Preempted(BaseException):
@@ -139,9 +140,12 @@ def test_oracle_wins_every_level(tmp_path: Any) -> None:
 
 
 def test_random_skills_hits_the_step_cap(tmp_path: Any) -> None:
-    """Random skills run into horizon game overs, reset, and end at the pooled
-    cap with consistent counts."""
-    _config(tmp_path, "random_options", continual_steps_per_level=60)
+    """Random skills run into horizon game overs (the run puts a horizon on
+    episodes), reset, and end at the pooled cap with consistent counts."""
+    _config(tmp_path,
+            "random_options",
+            continual_steps_per_level=60,
+            continual_episode_horizon=40)
     env, approach = _make("random_options")
     controller = create_controller(env, approach)
     assert isinstance(controller, RandomSkillsController)
@@ -321,7 +325,7 @@ def test_agent_ended_and_level_not_won(tmp_path: Any) -> None:
 
 def test_session_protocol_errors(tmp_path: Any) -> None:
     """Steps after a game over and charged calls after a win are errors."""
-    _config(tmp_path, "oracle", horizon=3)
+    _config(tmp_path, "oracle", continual_episode_horizon=3)
     env, approach = _make("oracle")
     seen: Dict[str, Any] = {}
 
@@ -337,6 +341,13 @@ def test_session_protocol_errors(tmp_path: Any) -> None:
             assert obs.state is EpisodeState.NOT_FINISHED
             assert obs.ledger.level_steps == 0
             assert "[ledger]" in obs.ledger.footer()
+            # The episode horizon rides in the ledger, apart from the
+            # pooled cap.
+            assert obs.ledger.horizon == 3
+            assert obs.ledger.episode_steps == 0
+            assert obs.ledger.episode_steps_remaining == 3
+            assert "episode 0/3 steps to its horizon" in obs.ledger.footer()
+            assert "it ends the level" not in obs.ledger.footer()
             zero = Action(np.zeros(env.action_space.shape, dtype=np.float32))
             # Three no-op steps exhaust the horizon.
             for _ in range(3):
@@ -370,7 +381,7 @@ def test_test_levels_have_no_resets_by_default(tmp_path: Any) -> None:
     """A test level is one shot: reset is refused without a charge, GAME_OVER
     loses the level, later charged calls are errors and the run ends with
     ``level_lost``; ``continual_allow_test_resets`` restores resets."""
-    _config(tmp_path, "oracle", horizon=3)
+    _config(tmp_path, "oracle", continual_episode_horizon=3)
     env, approach = _make("oracle")
     seen: Dict[str, Any] = {}
     zero = Action(np.zeros(env.action_space.shape, dtype=np.float32))
@@ -386,6 +397,10 @@ def test_test_levels_have_no_resets_by_default(tmp_path: Any) -> None:
             assert not session.resets_allowed
             obs = session.observe()
             assert "(none on this level)" in obs.ledger.footer()
+            # Without resets the horizon is the level's life; the ledger
+            # says so and counts the episode's steps toward it.
+            assert "steps to its horizon; it ends the level" in \
+                obs.ledger.footer()
             session.step(zero)
             with pytest.raises(ResetUnavailable):
                 session.reset("please")
@@ -421,7 +436,7 @@ def test_test_levels_have_no_resets_by_default(tmp_path: Any) -> None:
     # Under the flag a test level resets like a train level.
     _config(tmp_path,
             "oracle",
-            horizon=3,
+            continual_episode_horizon=3,
             experiment_id="test2",
             continual_allow_test_resets=True)
     env, approach = _make("oracle")
@@ -448,7 +463,7 @@ def test_test_levels_have_no_resets_by_default(tmp_path: Any) -> None:
 def test_controllers_stop_at_a_lost_test_level(tmp_path: Any) -> None:
     """The built-in controllers return instead of resetting when the level has
     no resets, and the run ends as ``level_lost``."""
-    _config(tmp_path, "oracle", horizon=3)
+    _config(tmp_path, "oracle", continual_episode_horizon=3)
     env, approach = _make("oracle")
 
     class _Mixed:
@@ -605,3 +620,137 @@ def test_create_controller_rejects_unknown_arm(tmp_path: Any) -> None:
     approach.get_name = lambda: "mystery"  # type: ignore[method-assign]
     with pytest.raises(ValueError):
         create_controller(env, approach)
+
+
+def test_session_data_hook_fires_on_charged_calls(tmp_path: Any) -> None:
+    """The arm's data listener runs after every charged call that changed the
+    recording (a step, a reset, each invocation of a plan), not after a refused
+    one, and a failing listener never fails the call."""
+    _config(tmp_path, "oracle", continual_episode_horizon=3)
+    env, approach = _make("oracle")
+    events: List[Any] = []
+
+    def _record() -> None:
+        events.append((run.card.total_steps, run.card.total_resets))
+
+    class _Probe:
+
+        def play_level(self, session: ProtocolSession) -> None:
+            """Step, trip the listener, exhaust the horizon, reset, win."""
+            if session.level_index > 0:
+                OracleController(approach).play_level(session)
+                return
+            zero = Action(np.zeros(env.action_space.shape, dtype=np.float32))
+            session.on_data_changed(_record)
+            session.step(zero)
+            assert events == [(1, 0)]
+
+            # A listener that raises is logged, and the call still returns.
+            def _broken() -> None:
+                raise ZeroDivisionError("listener bug")
+
+            session.on_data_changed(_broken)
+            session.step(zero)
+            assert events == [(1, 0)]
+            session.on_data_changed(_record)
+            outcome = session.step(zero)
+            assert outcome.state is EpisodeState.GAME_OVER
+            assert events == [(1, 0), (3, 0)]
+            # A refused call changes nothing and tells the arm nothing.
+            with pytest.raises(EpisodeOver):
+                session.step(zero)
+            assert len(events) == 2
+            session.reset("again")
+            assert events[-1] == (4, 1)
+            # A charged call reports once, whatever its length: the
+            # oracle's plan runs as one policy call over several steps.
+            OracleController(approach).play_level(session)
+            assert session.level_card().won
+            assert len(events) == 4
+            assert events[-1] == (session.level_card().steps, 1)
+            session.on_data_changed(None)
+            events.append("cleared")
+
+    run = ContinualRun(env, approach, _Probe())
+    card = run.run()
+    assert card.levels[0].won and events[-1] == "cleared"
+    assert card.levels[0].steps == events[-2][0]
+
+
+def test_sanitized_states_keep_the_robot_joint_data() -> None:
+    """A recorded PyBullet state keeps what the env needs to re-simulate it
+    (joint positions, base pose, command welds) and loses the process's
+    handles; a raw joint sequence stays one; a plain or opaque state is plain.
+
+    Everything kept pickles without the live env.
+    """
+    t = Type("t", ["x"])
+    obj = Object("o", t)
+    live = utils.PyBulletState({obj: np.array([1.0])},
+                               simulator_state={
+                                   "joint_positions": [0.1, 0.2],
+                                   "physics_client_id":
+                                   7,
+                                   "robot_id":
+                                   3,
+                                   "base_pose":
+                                   ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0)),
+                                   "command_welds": [("a", "b")],
+                               })
+    saved = sanitize_state(live)
+    assert isinstance(saved, utils.PyBulletState)
+    assert saved.joint_positions == [0.1, 0.2]
+    assert isinstance(saved.simulator_state, dict)
+    assert set(saved.simulator_state) == {
+        "joint_positions", "base_pose", "command_welds"
+    }
+    assert saved.data[obj] is not live.data[obj]
+    assert states_close(saved, live)
+    reloaded = pickle.loads(pickle.dumps(saved))
+    assert reloaded.joint_positions == [0.1, 0.2]
+    raw = sanitize_state(
+        utils.PyBulletState({obj: np.array([1.0])},
+                            simulator_state=np.array([0.5, 0.6])))
+    assert isinstance(raw, utils.PyBulletState)
+    assert raw.joint_positions == [0.5, 0.6]
+    for state in (State({obj: np.array([1.0])}),
+                  State({obj: np.array([1.0])}, simulator_state=object())):
+        plain = sanitize_state(state)
+        assert type(plain) is State  # pylint: disable=unidiomatic-typecheck
+        assert plain.simulator_state is None
+
+
+def test_no_episode_horizon_by_default(tmp_path: Any) -> None:
+    """Without ``continual_episode_horizon`` an episode outlives the env's own
+    horizon: no GAME_OVER, nothing about a horizon in the ledger, and the
+    pooled cap is what ends the run."""
+    _config(tmp_path, "oracle", horizon=3, continual_steps_per_level=4)
+    assert CFG.continual_episode_horizon is None
+    env, approach = _make("oracle")
+    seen: Dict[str, Any] = {}
+
+    class _Idler:
+
+        def play_level(self, session: ProtocolSession) -> None:
+            """Idle past the env horizon on the train level."""
+            zero = Action(np.zeros(env.action_space.shape, dtype=np.float32))
+            obs = session.observe()
+            assert obs.ledger.horizon is None
+            assert obs.ledger.episode_steps_remaining is None
+            assert "horizon" not in obs.ledger.footer()
+            for _ in range(5):
+                outcome = session.step(zero)
+                assert outcome.state is EpisodeState.NOT_FINISHED
+            seen["steps"] = session.level_card().steps
+            # The cap ends the run from inside the call (RunEnded
+            # propagates through the controller); nothing below it runs.
+            for _ in range(20):
+                session.step(zero)
+            seen["past_cap"] = True
+
+    card = ContinualRun(env, approach, _Idler()).run()
+    assert seen["steps"] == 5 and "past_cap" not in seen
+    assert card.end_reason == "step_cap"
+    lv = card.levels[0]
+    assert lv.game_overs == [] and lv.resets == 0
+    assert lv.steps == card.step_cap == 12

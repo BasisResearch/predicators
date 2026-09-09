@@ -22,7 +22,7 @@ the flag the agent is taught the recurrent 5-arg rule signature
 ``LATENT_INIT``, and this module appends the predicate-side latent
 guidance (classifiers may take an optional ``latent`` kwarg,
 auto-routed by ``Predicate.holds``). The latent *mechanics* (recurrent
-MCMC fitting, the latent-threaded combined simulator riding
+LM fitting, the latent-threaded combined simulator riding
 ``State.latent`` so backtracking restores it per search node,
 ``LATENT_INIT`` loading and initial-latent seeding) live in
 ``AgentSimLearningApproach`` and activate automatically whenever the
@@ -228,7 +228,7 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
 
         # Seed _fitted_params from init values so predicate lambdas
         # closing over ``params["..."]`` are evaluable during validation.
-        # The real MCMC fit runs later in the base flow and overwrites
+        # The real LM fit runs later in the base flow and overwrites
         # these. Mutate in place so _ParamsView holders pick up the seeds.
         if specs:
             self._fitted_params.clear()
