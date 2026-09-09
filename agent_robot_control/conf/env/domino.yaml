@@ -1,0 +1,27 @@
+# The domino domain from the shared (master) branch, driven through our
+# move_to / particle tools instead of its own skill library. Its task
+# generator defaults to a finished, glued scene with no domino target, so the
+# variant flags below are what select the actual min-block task.
+name: pybullet_domino
+task_idx: 0
+prompt_file: task_domino.md
+class_overrides: {}
+cfg_overrides:
+  domino_use_domino_blocks_as_target: true
+  domino_use_continuous_place: true
+  domino_has_glued_dominos: false
+  domino_initialize_at_finished_state: false
+# The domain's own legitimacy certificate is a function of the whole state
+# sequence, so scoring it needs every state kept.
+record_states: true
+task_text: >-
+  Arrange the blue dominoes so that when the green domino is pushed, the purple
+  domino topples. Only the blue dominoes may be rearranged: the green and
+  purple dominoes must stay untouched where they were staged, upright and never
+  held, until the green is pushed, and nothing may topple before that push.
+  Only the green domino may ever be pushed. Use as few blue dominoes as you
+  can. A solve only counts if the push itself causes the cascade: it is
+  verified by replaying your push with every robot link except the fingertips
+  made intangible, so the layout you built must still cascade to the goal.
+  Topples that needed the arm's body earn nothing. The dominoes are 7 cm wide,
+  1.5 cm thick and 15 cm tall, and they stand on a table 40 cm above the floor.

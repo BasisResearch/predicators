@@ -111,6 +111,8 @@ def build_session(cfg) -> SimSession:
         torque_limit_scale=float(srv.get("torque_limit_scale", 3.0)),
         max_contact_force=float(srv.get("max_contact_force", 80.0)),
         env_overrides=overrides,
+        cfg_overrides=dict(env_cfg.get("cfg_overrides", {}) or {}),
+        record_states=bool(env_cfg.get("record_states", False)),
         run_dir=str(cfg.get("run_dir")) if cfg.get("run_dir") else None,
     )
     return SimSession(scfg)

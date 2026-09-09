@@ -23,7 +23,7 @@ import numpy as np
 
 from predicators import utils
 from predicators.settings import CFG
-from predicators.structs import Action
+from predicators.structs import Action, State
 
 from agent_robot_control.sim.budget import BudgetExhausted, InteractionBudget
 from agent_robot_control.sim.ee_control import EEController
@@ -35,6 +35,10 @@ ENV_CLASSES = {
     "pybullet_donut": "predicators.envs.pybullet_donut.PyBulletDonutEnv",
     "pybullet_plug_outlet":
     "predicators.envs.pybullet_plug_outlet.PyBulletPlugOutletEnv",
+    # From the shared master branch: rearrange blue dominoes so that pushing
+    # the green one topples the purple one.
+    "pybullet_domino":
+    "predicators.envs.pybullet_domino.env.PyBulletDominoEnv",
 }
 
 
@@ -64,7 +68,17 @@ class SessionConfig:
     use_urdf_torque_limits: bool = True
     torque_limit_scale: float = 3.0
     max_contact_force: float = 80.0
+    # Class-attribute overrides applied to the env class before construction.
     env_overrides: Dict[str, Any] = field(default_factory=dict)
+    # Extra predicators CFG flags. Some shared domains need these to select the
+    # task variant at all (the domino domain defaults to a finished state with
+    # glued dominoes and no domino targets, which is not the task we want).
+    cfg_overrides: Dict[str, Any] = field(default_factory=dict)
+    # Keep a copy of every ``State`` the env passes through. The domino
+    # domain's legitimacy certificate is a function of the whole state
+    # sequence, not of the final state, so scoring that domain needs this.
+    record_states: bool = False
+    max_recorded_states: int = 400_000
     run_dir: Optional[str] = None
 
 
@@ -77,7 +91,7 @@ class SimSession:
         self.workspace = self.run_dir / "workspace" if self.run_dir else None
         if self.workspace is not None:
             self.workspace.mkdir(parents=True, exist_ok=True)
-        utils.reset_config({
+        config = {
             "env": cfg.env_name,
             "seed": cfg.seed,
             "num_train_tasks": max(5, cfg.task_idx + 1),
@@ -85,7 +99,9 @@ class SimSession:
             "pybullet_camera_width": cfg.camera_width,
             "pybullet_camera_height": cfg.camera_height,
             "pybullet_control_mode": "position",
-        })
+        }
+        config.update(cfg.cfg_overrides)
+        utils.reset_config(config)
         env_cls = _import_class(ENV_CLASSES[cfg.env_name])
         for key, value in cfg.env_overrides.items():
             setattr(env_cls, key, value)
@@ -110,6 +126,9 @@ class SimSession:
         self._transitions: List[Dict[str, np.ndarray]] = []
         self._transition_shard = 0
         self._pending_prev: Optional[ParticleSnapshot] = None
+        self.state_history: List[State] = []
+        if cfg.record_states:
+            self.state_history.append(self.env._current_observation.copy())
         self.record_event("session_start",
                           env=cfg.env_name,
                           task_idx=cfg.task_idx,
@@ -132,6 +151,9 @@ class SimSession:
             nxt = self._snapshot_for_transition()
             self._append_transition(prev, action, nxt)
             self._pending_prev = nxt
+        if self.cfg.record_states and \
+                len(self.state_history) < self.cfg.max_recorded_states:
+            self.state_history.append(self.env._current_observation.copy())
         reached = bool(self.env.goal_reached())
         if reached and self.goal_first_reached_at is None:
             self.goal_first_reached_at = self.budget.used
@@ -280,7 +302,44 @@ class SimSession:
             "first_success_interaction": self.goal_first_reached_at,
             "goal_reached_at_end": bool(self.env.goal_reached()),
             "interventions": int(getattr(self.env, "num_interventions", 0)),
+            **self._evaluator_results(),
         }
+
+    def _evaluator_results(self) -> Dict[str, Any]:
+        """The domain's own end-of-episode judgement, where it ships one.
+
+        Shared domains (the domino family) attach a ``TaskEvaluator`` whose
+        verdict is a function of the whole state sequence, not of the final
+        state: the goal atom can hold because the robot shoved the target over
+        itself, which their certificate rejects. Our headline metric stays
+        ``goal_reached``, so this is recorded alongside it rather than
+        replacing it. Never shown to the agent.
+        """
+        evaluator = getattr(self.task, "evaluator", None)
+        if evaluator is None or not self.state_history:
+            return {}
+        states = self.state_history
+        out: Dict[str, Any] = {
+            "evaluator": type(evaluator).__name__,
+            "states_recorded": len(states),
+            "states_truncated":
+                len(states) >= self.cfg.max_recorded_states,
+        }
+        try:
+            # pylint: disable-next=protected-access
+            ok, reason = evaluator._certify(states, None, sim_env=self.env)
+            out["certified"] = bool(ok)
+            out["certificate_reason"] = reason[:600]
+            out["evaluator_reward"] = float(
+                evaluator.reward(states, None, sim_env=self.env))
+            out["evaluator_solved"] = bool(
+                evaluator.solved(states, None, sim_env=self.env))
+            out["evaluator_offline_metrics"] = {
+                k: float(v)
+                for k, v in evaluator.offline_metrics(states, None).items()}
+        except Exception as exc:  # pragma: no cover - never fail a run on this
+            out["evaluator_error"] = f"{type(exc).__name__}: {exc}"
+        return out
 
     def write_results(self) -> None:
         """Persist ``results.json`` now (called after every tool call so a
