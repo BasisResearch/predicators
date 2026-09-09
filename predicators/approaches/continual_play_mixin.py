@@ -223,7 +223,8 @@ class ContinualPlayMixin:
             session.on_data_changed(None)
 
     def _continue_current_level(self, session: ProtocolSession) -> None:
-        """Prompt further rounds until this level is resolved or the run ends."""
+        """Prompt further rounds until this level is resolved or the run
+        ends."""
         self._begin_level(session)
         idle = 0
         while True:
@@ -244,7 +245,7 @@ class ContinualPlayMixin:
             steps_before = obs.ledger.run_steps
             # An unfinished level gets another round in the same conversation;
             # continuing the conversation does not reset the environment.
-            state = self._play_one_round(session)
+            state = self._run_conversation_round(session)
             self._sync_level_trajectories(session)
             if state.run_ended is not None:
                 reason, note = state.run_ended
@@ -262,9 +263,9 @@ class ContinualPlayMixin:
                     "agent_ended", f"stalled: {idle} consecutive rounds "
                     "without an environment step or model work")
 
-    # -- One session --------------------------------------------------------
+    # -- One conversation round ---------------------------------------------
 
-    def _play_one_round(self, session: ProtocolSession) -> PlayState:
+    def _run_conversation_round(self, session: ProtocolSession) -> PlayState:
         """One message to the run's conversation and the agent's turn on it.
 
         The turn includes any number of tool calls, including resets and
