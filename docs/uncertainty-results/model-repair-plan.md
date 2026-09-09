@@ -63,3 +63,28 @@ The generator audit and agent results answer different questions.
 Solve rate and resets average over every completed seed in an arm.
 Steps average only over completed seeds that won every level, with the qualifying seed count shown.
 Report simulator work separately and interpret steps alongside solve rate.
+
+## Submitted original-task runs
+
+The implementation is committed on `bridge-learning` as `61e44d4ce`.
+The experiment checkout is frozen at the equivalent commit `df53ca75f` in `/home/ycliang/predicators-mb-repair-r1`.
+Preflight job 22372885 verified the diagnostic successes, frozen source hashes, and unchanged balloons environment/base/skill files relative to the original sweep.
+
+| Experiment | Seeds | Slurm array |
+|---|---|---|
+| Balloons, MB with repair | 0, 1 | 22372894 |
+| Balloons, MB control | 0, 1 | 22372896 |
+| Bridge, MB with repair | 0, 1 | 22372897 |
+| Fan, MB with repair | 0, 1 | 22372898 |
+| Domino, MB with repair | 0, 1 | 22372900 |
+| Boil, MB with repair | 0, 1 | 22372901 |
+
+All arrays use `mit_preemptable`, the existing account-selection launcher, and requeue/resume support.
+They run in two-seed batches after the original sweep's balloons MF array 22319435, keeping at most two agent runs from this sequence active at once.
+Every array independently requires the successful preflight gate.
+No new noiseless controls or MF runs were submitted in this original-task phase.
+The resolved configuration and source hashes are in `logs/mb_repair_20260909/experiments/launch-manifest.json` and `frozen-source.json`.
+
+Collection job 22373247 will update [the performance table](model-repair-table.md), snapshot and TSV after all six arrays terminate.
+Missing or unfinished seeds withhold the arm's averages and fail collection rather than changing its denominator.
+This schedules report generation on disk, not a chat notification.

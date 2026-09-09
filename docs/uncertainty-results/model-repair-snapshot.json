@@ -1,0 +1,171 @@
+{
+  "generated_by": "make_model_repair_table.py; do not edit manually",
+  "observed_at": "2026-09-09T11:02:53.126395+00:00",
+  "manifest": "/home/ycliang/predicators/logs/mb_repair_20260909/experiments/launch-manifest.json",
+  "base_sha": "df53ca75ff6dec42e7a7a318623dde94e426ff60",
+  "source_tree": "/home/ycliang/predicators-mb-repair-r1",
+  "rows": [
+    {
+      "domain": "Bridge",
+      "noise": "5 mm / 0.02 rad",
+      "arm": "MB with features + repair",
+      "experiment_id": "bridge-agent_continual_repair_on_r1",
+      "job_id": "22372897",
+      "uncertainty_flags": {
+        "code_sim_learning_interval_belief": true,
+        "agent_explorer_info_seeking_noise_aware": true,
+        "code_sim_learning_rollout_noise_filter": true,
+        "code_sim_learning_carry_posterior": true,
+        "code_sim_learning_fit_evidence": true,
+        "continual_belief_frame": true
+      },
+      "runs": [
+        {
+          "seed": 0,
+          "finished_at": null,
+          "status": "Missing"
+        },
+        {
+          "seed": 1,
+          "finished_at": null,
+          "status": "Missing"
+        }
+      ]
+    },
+    {
+      "domain": "Fan",
+      "noise": "5 mm / 0.02 rad",
+      "arm": "MB with features + repair",
+      "experiment_id": "fan-agent_continual_repair_on_r1",
+      "job_id": "22372898",
+      "uncertainty_flags": {
+        "code_sim_learning_interval_belief": true,
+        "agent_explorer_info_seeking_noise_aware": true,
+        "code_sim_learning_rollout_noise_filter": true,
+        "code_sim_learning_carry_posterior": true,
+        "code_sim_learning_fit_evidence": true,
+        "continual_belief_frame": true
+      },
+      "runs": [
+        {
+          "seed": 0,
+          "finished_at": null,
+          "status": "Missing"
+        },
+        {
+          "seed": 1,
+          "finished_at": null,
+          "status": "Missing"
+        }
+      ]
+    },
+    {
+      "domain": "Balloons",
+      "noise": "10 mm / 0.02 rad",
+      "arm": "MB with features",
+      "experiment_id": "balloons-agent_continual_repair_off_r1",
+      "job_id": "22372896",
+      "uncertainty_flags": {
+        "code_sim_learning_interval_belief": true,
+        "agent_explorer_info_seeking_noise_aware": true,
+        "code_sim_learning_rollout_noise_filter": true,
+        "code_sim_learning_carry_posterior": true,
+        "code_sim_learning_fit_evidence": true,
+        "continual_belief_frame": true
+      },
+      "runs": [
+        {
+          "seed": 0,
+          "finished_at": null,
+          "status": "Missing"
+        },
+        {
+          "seed": 1,
+          "finished_at": null,
+          "status": "Missing"
+        }
+      ]
+    },
+    {
+      "domain": "Balloons",
+      "noise": "10 mm / 0.02 rad",
+      "arm": "MB with features + repair",
+      "experiment_id": "balloons-agent_continual_repair_on_r1",
+      "job_id": "22372894",
+      "uncertainty_flags": {
+        "code_sim_learning_interval_belief": true,
+        "agent_explorer_info_seeking_noise_aware": true,
+        "code_sim_learning_rollout_noise_filter": true,
+        "code_sim_learning_carry_posterior": true,
+        "code_sim_learning_fit_evidence": true,
+        "continual_belief_frame": true
+      },
+      "runs": [
+        {
+          "seed": 0,
+          "finished_at": null,
+          "status": "Missing"
+        },
+        {
+          "seed": 1,
+          "finished_at": null,
+          "status": "Missing"
+        }
+      ]
+    },
+    {
+      "domain": "Domino",
+      "noise": "10 mm / 0.04 rad",
+      "arm": "MB with features + repair",
+      "experiment_id": "domino-agent_continual_repair_on_r1",
+      "job_id": "22372900",
+      "uncertainty_flags": {
+        "code_sim_learning_interval_belief": true,
+        "agent_explorer_info_seeking_noise_aware": true,
+        "code_sim_learning_rollout_noise_filter": true,
+        "code_sim_learning_carry_posterior": true,
+        "code_sim_learning_fit_evidence": true,
+        "continual_belief_frame": true
+      },
+      "runs": [
+        {
+          "seed": 0,
+          "finished_at": null,
+          "status": "Missing"
+        },
+        {
+          "seed": 1,
+          "finished_at": null,
+          "status": "Missing"
+        }
+      ]
+    },
+    {
+      "domain": "Boil",
+      "noise": "12.5 mm / 0.05 rad / scalar 0.07",
+      "arm": "MB with features + repair",
+      "experiment_id": "boil-agent_continual_repair_on_r1",
+      "job_id": "22372901",
+      "uncertainty_flags": {
+        "code_sim_learning_interval_belief": true,
+        "agent_explorer_info_seeking_noise_aware": true,
+        "code_sim_learning_rollout_noise_filter": true,
+        "code_sim_learning_carry_posterior": true,
+        "code_sim_learning_fit_evidence": true,
+        "continual_belief_frame": true
+      },
+      "runs": [
+        {
+          "seed": 0,
+          "finished_at": null,
+          "status": "Missing"
+        },
+        {
+          "seed": 1,
+          "finished_at": null,
+          "status": "Missing"
+        }
+      ]
+    }
+  ]
+}

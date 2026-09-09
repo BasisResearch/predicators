@@ -44,10 +44,16 @@ def capture(manifest_path, root):
                 switches) else "MB without features"
         else:
             raise ValueError(f"Unexpected approach: {run['approach']}")
+        if flags.get("agent_model_repair", False):
+            arm += " + repair"
         domain = run["env"].removeprefix("pybullet_").title()
         expected_levels = flags["num_train_tasks"] + flags["num_test_tasks"]
         runs = []
-        for seed in plan["seeds"]:
+        seeds = plan.get(
+            "seeds",
+            range(run.get("start_seed", 0),
+                  run.get("start_seed", 0) + run.get("num_seeds", 2)))
+        for seed in seeds:
             directory = (root / "logs" / run["approach"] /
                          run["experiment_id"] / f"seed{seed}")
             paths = sorted(directory.glob("run_*/scorecard.json"))
@@ -91,7 +97,9 @@ def capture(manifest_path, root):
             "domain":
             domain,
             "noise": (f"{1000 * flags['continual_obs_noise_position']:g} mm / "
-                      f"{flags['continual_obs_noise_orientation']:g} rad"),
+                      f"{flags['continual_obs_noise_orientation']:g} rad" +
+                      (f" / scalar {flags['continual_obs_noise_scalar']:g}"
+                       if flags["continual_obs_noise_scalar"] else "")),
             "arm":
             arm,
             "experiment_id":
@@ -103,8 +111,13 @@ def capture(manifest_path, root):
             "runs":
             runs,
         })
-    domains = {"Bridge": 0, "Fan": 1, "Balloons": 2}
-    arms = {"MF": 0, "MB without features": 1, "MB with features": 2}
+    domains = {"Bridge": 0, "Fan": 1, "Balloons": 2, "Domino": 3, "Boil": 4}
+    arms = {
+        "MF": 0,
+        "MB without features": 1,
+        "MB with features": 2,
+        "MB with features + repair": 3
+    }
     rows.sort(key=lambda row: (domains[row["domain"]], arms[row["arm"]]))
     return {
         "generated_by": "make_crossdomain_table.py; do not edit manually",
