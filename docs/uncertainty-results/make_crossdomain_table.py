@@ -124,6 +124,7 @@ def capture(manifest_path, root):
         "observed_at": datetime.now(timezone.utc).isoformat(),
         "manifest": str(manifest_path.resolve()),
         "base_sha": plan["base_sha"],
+        "task_generation_version": plan.get("task_generation_version", 1),
         "source_tree": plan["tree"],
         "rows": rows,
     }

@@ -9,6 +9,7 @@ The task-selection and oracle helpers now validate executable release sequences.
 The old helper stopped at the first low-speed point after motion and could label an oscillation turning point as a jam.
 On the saved oak-box task, red plus green passed that point and subsequently won; gold alone also won.
 The corrected helper checks for success and burst at every simulation step.
+It retains the evaluator's existing one-frame speed threshold for a win; it does not add a dwell requirement or require asymptotic equilibrium inside the band.
 A failure requires 20 consecutive low-speed frames with stable box position, including an angular-speed check.
 A rollout that runs out of time remains unresolved.
 
@@ -57,3 +58,11 @@ All arms use the same corrected generator and frozen runtime.
 The last two MB arms differ only in the repair flag.
 No new noiseless controls are needed.
 Fresh noisy protocol oracle checks must pass before the comparison is submitted.
+
+Fresh noisy protocol oracle array 22373440 won all three levels for both seeds: seed 2 used 250 real steps and seed 3 used 211, with zero resets in both.
+This exercises the actual continual runner and configured skills, in addition to the generator's own probes.
+
+Combined MB-repair and generator checks passed in job 22373693, including full mypy on 881 source files.
+The source changes are committed on `bridge-learning` as `61e44d4ce` (MB repair) and `06a5c131e` (task validation).
+The original-task experiment checkout remains unchanged at `df53ca75f`.
+The corrected benchmark configuration is `scripts/configs/predicatorv3/protocol_continual_balloons_validated_v2.yaml`.
