@@ -136,6 +136,8 @@ Launch (un-skip the arms you want in the yaml; each job requeues and resumes its
 PYTHONPATH=. python scripts/engaging/launch.py -c predicatorv3/protocol_continual.yaml --partition mit_preemptable
 ```
 
+Add `--accounts a,b` to spread the runs over several Claude accounts (one token file per account under `~/.claude-tokens/`, see `scripts/engaging/claude_accounts.py`); each seed is assigned round-robin and the scorecard records which account it used.
+
 View:
 
 ```bash

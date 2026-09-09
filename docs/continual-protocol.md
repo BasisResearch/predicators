@@ -1,6 +1,7 @@
 # Continual protocol: one agent, one environment, a scorecard
 
 A short overview for collaborators is `docs/continual-protocol-overview.md`.
+Perceptual uncertainty (the observation-noise channel, the sweep, and the filter) is designed in `docs/continual-uncertainty.md`.
 
 Status: design settled 2026-09-04; step 1 of the build (the protocol core, no LLM) is implemented and verified on cover and on PyBullet boil the same day.
 Decision: the paper's main table moves to this protocol.
@@ -414,6 +415,9 @@ python scripts/engaging/launch.py -c predicatorv3/protocol_continual.yaml --part
 ```
 
 The launcher passes `--auto_resume`, so a requeue resumes from the scorecard and the level recording in the run directory it adopts (section 4.7).
+Agent runs draw on a Claude account's usage limit, which is per account.
+To spread a launch over several accounts, store each account's long-lived token (from `claude setup-token`) as `~/.claude-tokens/<name>` with mode 600 and pass `--accounts a,b` (or export `PREDICATORS_CLAUDE_ACCOUNTS=a,b`).
+Every seed of every experiment then picks its account round-robin by experiment index plus seed, the job reads the token from its file at start so no secret enters the batch script, a requeue keeps its account, and the scorecard records it as `claude_account` (see `scripts/engaging/claude_accounts.py`).
 Outputs land in `logs/<approach>/<experiment id>/seed<k>/run_<stamp>/`: `scorecard.json`, `L<k>/`, `agent/`, `run.mp4` and the logs.
 
 Viewing:

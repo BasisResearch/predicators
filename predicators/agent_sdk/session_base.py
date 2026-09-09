@@ -31,6 +31,8 @@ import time
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
+from predicators.agent_sdk.account_limits import note_query_limited, \
+    note_query_went_through
 from predicators.agent_sdk.config import SessionConfig
 from predicators.agent_sdk.log_formatter import truncate
 from predicators.agent_sdk.response_parser import parse_message
@@ -759,6 +761,9 @@ class BaseAgentSessionManager:
             stated_wait = usage_limit_wait_seconds(reason)
             how = ("was cut short mid-turn by" if cut_short else "hit")
             if stated_wait is not None:
+                # Leave a marker so tasks starting meanwhile keep off
+                # this account (predicators/agent_sdk/account_limits.py).
+                note_query_limited(stated_wait)
                 logger.warning(
                     "%s query %s a usage limit (%s; stated reset in "
                     "%.0f s); %s in %.0f s (retry %d, %.0f s waited "
@@ -780,6 +785,10 @@ class BaseAgentSessionManager:
             await asyncio.sleep(wait)
             waited += idle
             self._pause_attempt_clock(idle)
+        if retries and wait is None:
+            # The refused query finally went through: the account is
+            # usable again.
+            note_query_went_through()
         collected = history + collected
         elapsed = time.perf_counter() - start
         logger.info("[agent-interaction] kind=%s took %.2fs (%d messages)",

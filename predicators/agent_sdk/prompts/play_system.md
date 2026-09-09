@@ -67,6 +67,22 @@ every level while spending as few environment steps as possible.
   size of this conversation, its turns, and how many times it has been
   compacted. Read them; together they are your budget.
 
+<!-- section: observation_noise -->
+## Observation noise
+
+- What you observe is not the true state. __NOISE_LINE__
+- The environment judges the true state. A goal atom that reads as
+  satisfied in one noisy frame may not hold, and one that reads as
+  missed may hold. Give the predicates you write margins of a few
+  sigma where the goal's tolerance allows, and treat one frame as an
+  estimate rather than a fact.
+- Re-reading the observation without stepping returns the same frame.
+  A fresh draw costs a step, so averaging is a decision with a price:
+  spend it where one sigma would change what you do next.
+- The recorded data carries the same noise. Anything you measure from
+  it sees the noise floor, and a residual within a few sigma is not a
+  signal.
+
 <!-- section: tools -->
 ## Tools
 

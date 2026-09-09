@@ -1,0 +1,55 @@
+# Model-free branch, balloons only, seed 0 - the seed-0 twin of the
+# solved seed1/seed2 model-free balloons runs
+# (logs/agent_continual_model_free/balloons-agent_continual_model_free/
+# seed1/run_20260906_193134, 3/3). Same id (agent_continual_model_free)
+# so it groups with seed1/2 in the viewer. The post-8d688403e commits
+# only touch the model-based path, so the current tree is behaviorally
+# identical to that run's sha for this arm.
+---
+START_SEED: 0
+NUM_SEEDS: 1
+includes:
+  - common.yaml
+  - envs/all.yaml
+  - approaches/all.yaml
+ARGS:
+  - auto_resume
+FLAGS:
+  experiment_protocol: "continual"
+  continual_levels: "train_then_test"
+  continual_steps_per_level: 5000
+  continual_wall_clock_hours: 48.0
+  continual_render: True
+  continual_make_video: True
+  test_fresh_env_per_episode: True
+  continual_runs_dir: "/home/ycliang/predicators/logs"
+  log: "/home/ycliang/predicators/logs/"
+ENVS:
+  boil:
+    SKIP: True
+  bridge:
+    SKIP: True
+  domino_high_friction_turn:
+    SKIP: True
+  fan:
+    SKIP: True
+  balloons:
+    SKIP: False
+    FLAGS:
+      num_train_tasks: 2
+  busyboard:
+    SKIP: True
+APPROACHES:
+  oracle:
+    SKIP: True
+  agent_continual_model_free:
+    NAME: "agent_continual_model_free"
+    SKIP: False
+    FLAGS:
+      agent_sdk_use_local_sandbox: True
+      partially_observable: True
+      agent_planner_use_simulator: False
+      agent_solve_use_journal: True
+      agent_sdk_max_agent_turns_per_iteration: 10000
+      agent_sdk_image_max_px: 900
+      continual_max_idle_rounds: 5

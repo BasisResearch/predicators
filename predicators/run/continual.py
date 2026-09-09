@@ -26,10 +26,13 @@ from predicators import utils
 from predicators.approaches import ApproachFailure, ApproachTimeout, \
     BaseApproach
 from predicators.envs import BaseEnv
+from predicators.observation_noise import ObservationNoise, noise_or_none, \
+    step_rng
 from predicators.run import paths
 from predicators.run.episode import EpisodeOver, EpisodeRunner, EpisodeState, \
     InvocationOutcome, StepOutcome
-from predicators.run.recording import LevelRecording, states_close
+from predicators.run.recording import LevelRecording, sanitize_state, \
+    states_close
 from predicators.run.scorecard import EpisodeRecord, LevelCard, RunCard
 from predicators.settings import CFG
 from predicators.structs import Action, Dataset, EnvironmentTask, \
@@ -251,6 +254,14 @@ class ProtocolSession:
         """
         return self._run.observation()
 
+    def observe_truth(self) -> ProtocolObservation:
+        """The current observation with the true state as its frame.
+
+        Free. For the reference arms only (the oracle plans and acts on
+        the truth); an agent arm's tools never call it.
+        """
+        return self._run.observation(truth=True)
+
     def step(self, action: Action) -> StepOutcome:
         """One primitive action.
 
@@ -417,6 +428,12 @@ class ContinualRun:
         self._approach = approach
         self._controller = controller
         self._arm = approach.get_name()
+        # The observation-noise channel (predicators/observation_noise.py),
+        # None when observations are exact. Observed views are cached per
+        # (level, episode, step) so the free observe(), an invocation's
+        # atoms and the data file all show the one draw of that step.
+        self._noise = noise_or_none(ObservationNoise.from_cfg())
+        self._observed_views: Dict[Tuple[int, int, int], State] = {}
         self._run_id = utils.get_config_path_str()
         self._levels = build_levels(env, self._arm)
         if skills is None:
@@ -540,10 +557,18 @@ class ContinualRun:
 
     # -- Session operations ---------------------------------------------
 
-    def observation(self) -> ProtocolObservation:
-        """The protocol observation of the current level."""
+    def observation(self, *, truth: bool = False) -> ProtocolObservation:
+        """The protocol observation of the current level.
+
+        ``truth`` hands out the true state as the frame: the reference
+        arms' view (the oracle is the exact-perception upper bound),
+        never an agent's, which sees the sanitized view and, under the
+        observation-noise channel, its draw.
+        """
         runner, lv = self._require_level()
-        frame = runner.observation()
+        true_state = runner.observation()
+        frame = true_state if truth else self._observed(
+            true_state, lv.index, self._episode_index(), runner.num_steps)
         evaluation = None
         if runner.episode_state is not EpisodeState.NOT_FINISHED:
             evaluation = runner.evaluate()
@@ -552,7 +577,8 @@ class ContinualRun:
             reason=runner.reason,
             level=self._levels[lv.index],
             frame=frame,
-            atoms=utils.abstract(frame, self._env.predicates),
+            # The protocol's own view stays on the true state.
+            atoms=utils.abstract(true_state, self._env.predicates),
             evaluation=evaluation,
             ledger=self.ledger(),
             skills=self.skills,
@@ -619,6 +645,34 @@ class ContinualRun:
         self._check_caps()
         return self.observation()
 
+    def _observed(self, state: State, level: int, episode: int,
+                  step: int) -> State:
+        """The agent's view of ``state``, the true state at ``step`` of
+        ``episode`` on ``level``.
+
+        Never the true object: the view is the recording's sanitized
+        form of the state (the observable data plus the robot's own
+        joint data, no privileged block, no engine handles), so what a
+        partially observable env hides (boil's heat) reaches neither the
+        agent's data nor the belief simulator it seeds from a frame.
+        Under exact observations that is all; otherwise the channel
+        draws the step's noise on top, keyed by the run seed and the
+        step's coordinates, so a replayed or resumed run observes the
+        same frames. Either way the view is cached so every reader of
+        one step (the free observe, the invocation's atoms, the data
+        file) sees one object.
+        """
+        key = (level, episode, step)
+        view = self._observed_views.get(key)
+        if view is None:
+            if self._noise is None:
+                view = sanitize_state(state)
+            else:
+                view = self._noise.perturb(
+                    state, step_rng(CFG.seed, level, episode, step))
+            self._observed_views[key] = view
+        return view
+
     def invoke(
             self,
             option: _Option,
@@ -628,15 +682,26 @@ class ContinualRun:
     ) -> InvocationResult:
         """One charged skill invocation with an optional expected outcome."""
         runner, lv = self._require_open_level()
+        # Execution starts from a fresh grounding. The caller's
+        # applicability check ran on its observed frame and may have left
+        # memory behind (a singleton option pins the state it was checked
+        # on), and a grounding executed before keeps caches from that
+        # execution; neither belongs to this invocation, which runs on
+        # the true state.
+        fresh = option.parent.ground(list(option.objects), option.params)
         self._in_invocation = True
         try:
-            outcome = runner.run_option(option)
+            outcome = runner.run_option(fresh)
         finally:
             self._in_invocation = False
         lv.skill_invocations += 1
         if outcome.status == "failed":
             lv.failed_skill_invocations += 1
-        atoms_after = runner.abstract(outcome.observation)
+        # The agent's atoms are read off its own view; ``env_atoms`` below
+        # keeps the protocol's true view in the index.
+        atoms_after = runner.abstract(
+            self._observed(outcome.observation, lv.index,
+                           self._episode_index(), runner.num_steps))
         missing = set(expected) - atoms_after
         present = set(expected_absent or set()) & atoms_after
         if missing or present:
@@ -824,8 +889,10 @@ class ContinualRun:
             out.append({
                 "index":
                 ep["episode"],
-                "states":
-                list(ep["states"]),
+                "states": [
+                    self._observed(s, lv.index, ep["episode"], k)
+                    for k, s in enumerate(ep["states"])
+                ],
                 "actions":
                 list(ep["actions"]),
                 "end":
@@ -859,8 +926,10 @@ class ContinualRun:
             out.append({
                 "index":
                 ep["episode"],
-                "states":
-                list(ep["states"]),
+                "states": [
+                    self._observed(s, level_index, ep["episode"], k)
+                    for k, s in enumerate(ep["states"])
+                ],
                 "actions": [
                     Action(np.array(a["arr"], dtype=np.float32))
                     for a in ep["actions"]
@@ -930,14 +999,30 @@ class ContinualRun:
         self._open_episode("level_start")
         render = self.render(f"ep{self._episode_index():03d}_start")
         self._index({
-            "event": "level_start",
-            "episode": 0,
-            "split": spec.split,
-            "task_idx": spec.task_idx,
-            "goal": spec.goal_strs,
-            "goal_nl": spec.task.goal_nl or "",
-            "state": self._runner.episode_state.value,
-            "render": render,
+            "event":
+            "level_start",
+            "episode":
+            0,
+            "split":
+            spec.split,
+            "task_idx":
+            spec.task_idx,
+            "goal":
+            spec.goal_strs,
+            "goal_nl":
+            spec.task.goal_nl or "",
+            "state":
+            self._runner.episode_state.value,
+            "render":
+            render,
+            # The channel the level is observed through; the observed
+            # frames are reproducible from it, the seed and the true
+            # states in episodes.pkl, so they are not stored twice.
+            "observation_noise": (None if self._noise is None else {
+                "position": self._noise.position,
+                "orientation": self._noise.orientation,
+                "declared": self._noise.declared,
+            }),
         })
         self._flush()
 
@@ -1283,6 +1368,9 @@ class ContinualRun:
             step_cap=int(CFG.continual_steps_per_level * len(levels)),
             wall_clock_cap=float(CFG.continual_wall_clock_hours * 3600.0),
             config=CFG.experiment_id,
+            obs_noise_position=float(CFG.continual_obs_noise_position),
+            obs_noise_orientation=float(CFG.continual_obs_noise_orientation),
+            obs_noise_declared=bool(CFG.continual_obs_noise_declared),
         )
 
 

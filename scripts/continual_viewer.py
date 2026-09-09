@@ -103,6 +103,18 @@ LIVE_WINDOW_S = 15 * 60  # a card updated within this window is "live"
 # ── Small helpers ──────────────────────────────────────────────────
 
 
+def _noise_text(card: Dict[str, Any]) -> str:
+    """The run card's observation-noise channel, for the meta rows."""
+    pos = float(card.get("obs_noise_position") or 0.0)
+    rot = float(card.get("obs_noise_orientation") or 0.0)
+    if pos <= 0.0 and rot <= 0.0:
+        return "exact"
+    declared = "declared" if card.get("obs_noise_declared", True) else \
+        "undeclared"
+    return (f"position sigma {pos:g} m, orientation sigma {rot:g} rad "
+            f"({declared})")
+
+
 def esc(text: Any) -> str:
     """HTML-escape."""
     return html.escape(str(text), quote=True)
@@ -1948,6 +1960,8 @@ def overview_fragment(key: str) -> Optional[str]:
          esc(fmt_age(card.get("updated_at"))) + ")"),
         ("finished", esc(fmt_ts(card.get("finished_at")))),
         ("git", f"<code>{esc(card.get('git_sha', ''))}</code>"),
+        ("account", esc(card.get("claude_account", "") or "-")),
+        ("observation noise", esc(_noise_text(card))),
         ("scorecard", f"<a href='/card/{q(key)}'>json</a>"),
     ]
     if video_path(key) is not None:

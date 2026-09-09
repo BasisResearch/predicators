@@ -1,0 +1,53 @@
+# Model-free branch, seeds 1-2, all 5 domains - collect more baseline
+# results now that the domains are settled (balloons solved 3/3 by the
+# clean adaptive model-based arm). Run dirs + logs in the main tree.
+---
+START_SEED: 1
+NUM_SEEDS: 2
+includes:
+  - common.yaml
+  - envs/all.yaml
+  - approaches/all.yaml
+ARGS:
+  - auto_resume
+FLAGS:
+  experiment_protocol: "continual"
+  continual_levels: "train_then_test"
+  continual_steps_per_level: 5000
+  continual_wall_clock_hours: 48.0
+  continual_render: True
+  continual_make_video: True
+  test_fresh_env_per_episode: True
+  continual_runs_dir: "/home/ycliang/predicators/logs"
+  log: "/home/ycliang/predicators/logs/"
+ENVS:
+  boil:
+    SKIP: False
+  bridge:
+    SKIP: False
+    FLAGS:
+      continual_steps_per_level: 10000
+  domino_high_friction_turn:
+    SKIP: False
+  fan:
+    SKIP: False
+  balloons:
+    SKIP: False
+    FLAGS:
+      num_train_tasks: 2
+  busyboard:
+    SKIP: True
+APPROACHES:
+  oracle:
+    SKIP: True
+  agent_continual_model_free:
+    NAME: "agent_continual_model_free"
+    SKIP: False
+    FLAGS:
+      agent_sdk_use_local_sandbox: True
+      partially_observable: True
+      agent_planner_use_simulator: False
+      agent_solve_use_journal: True
+      agent_sdk_max_agent_turns_per_iteration: 10000
+      agent_sdk_image_max_px: 900
+      continual_max_idle_rounds: 5

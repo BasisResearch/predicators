@@ -69,7 +69,8 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from predicators.code_sim_learning.config import SysIdConfig
+from predicators.code_sim_learning.config import DEFAULT_NOISE_SIGMA, \
+    SysIdConfig
 from predicators.code_sim_learning.fit_space import FitResult, ParamSpec, \
     prior_widths, to_fit_space
 from predicators.code_sim_learning.grid_seed import \
@@ -113,13 +114,12 @@ __all__ = [
     "truncate_settled_tail",
 ]
 
-# The fit's assumed measurement noise on dimensionless scaled
-# residuals. The signature defaults below and the sim.fit report's
-# trimming-threshold math (agent_sdk/tools/synthesis.py) share this one
-# constant so the reported cutoff can never drift from the one the
-# trimmer applied.
-DEFAULT_NOISE_SIGMA = 0.05
-
+# The fit's assumed measurement noise on dimensionless scaled residuals
+# is ``DEFAULT_NOISE_SIGMA`` (imported from ``config``, re-exported here):
+# the signature defaults below, the residual scaling and the sim.fit
+# report's trimming-threshold math (agent_sdk/tools/synthesis.py) share
+# that one constant so the reported cutoff can never drift from the one
+# the trimmer applied.
 # Prior width as a fraction of each param's box; shared by the rollout
 # fit default and the pinned-at-init fallback result so the two cannot
 # silently diverge.
@@ -716,7 +716,8 @@ def fit_params_rollout_trimmed(
     if scaling is None:
         scaling = compute_residual_scaling(trajectories,
                                            residual_features,
-                                           config=config)
+                                           config=config,
+                                           noise_sigma=noise_sigma)
     anchors = anchors or {}
     if not trajectories or factor <= 0:
         result = fit_params_rollout(base_env,

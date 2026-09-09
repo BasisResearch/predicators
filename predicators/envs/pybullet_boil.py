@@ -191,21 +191,20 @@ class PyBulletBoilEnv(PyBulletEnv):
     # `heat_level` as an observable feature, while the partially-
     # observable `_jug_type_po` drops it entirely so the agent never
     # sees a feature named `heat_level` (it must infer the hidden
-    # heating process from the derived `bubbling_level`). In both,
-    # `heat_level` stays a `sim_feature` so the `jug.heat_level` Python
-    # attribute — the internal source of truth for the heating
-    # dynamics — keeps working. `__init__` swaps `self._jug_type` to
-    # the PO variant when `CFG.partially_observable` is set.
+    # heating process from the derived `bubbling_level`). The true heat
+    # itself lives in ``self._heat_levels`` (see ``__init__``), never on
+    # the jug Object. `__init__` swaps `self._jug_type` to the PO
+    # variant when `CFG.partially_observable` is set.
     _jug_type = Type("jug", [
         "x", "y", "z", "rot", "is_held", "water_volume", "heat_level",
         "bubbling_level", "r", "g", "b"
     ],
-                     sim_features=["id", "heat_level", "water_id"])
+                     sim_features=["id", "water_id"])
     _jug_type_po = Type("jug", [
         "x", "y", "z", "rot", "is_held", "water_volume", "bubbling_level", "r",
         "g", "b"
     ],
-                        sim_features=["id", "heat_level", "water_id"])
+                        sim_features=["id", "water_id"])
     _burner_type = Type("burner", ["x", "y", "z", "is_on"],
                         sim_features=["id", "switch_id", "prev_on"])
     _switch_type = Type("switch", ["x", "y", "z", "rot", "is_on"])
@@ -238,6 +237,13 @@ class PyBulletBoilEnv(PyBulletEnv):
             jug_obj = Object(f"jug{i}", self._jug_type)
             self._jugs.append(jug_obj)
         self._jug_to_liquid_id: Dict[Object, Optional[int]] = {}
+        # Each jug's true heat, per env instance, keyed by jug name. Kept
+        # off the jug Objects on purpose: a State hands the same Object
+        # instances to every env that is set to it (the model arm's
+        # base-sim env, a validation env), so heat stored on the object
+        # would let one env's _reset_state overwrite another env's
+        # running heat (a state without the privileged block zeroed it).
+        self._heat_levels: Dict[str, float] = {}
 
         # Create burners + a corresponding switch for each
         self._burners: List[Object] = []
@@ -554,11 +560,9 @@ class PyBulletBoilEnv(PyBulletEnv):
             if feature == "is_on":
                 return float(self._is_switch_on(self._faucet_switch.id))
             if feature == "spilled_level":
-                # Return the environment's internal record
-                # (analogous to jug.heat_level).
-                # We'll just store it in the object itself
-                # (similar to jug.heat_level).
-                # If it doesn't exist, default to 0.
+                # Return the environment's internal record, kept on
+                # the env's own faucet Object (like the jug heat, this
+                # is env state rather than something PyBullet holds).
                 spill = self._faucet._spilled_level  # pylint: disable=protected-access
                 return max(0.0, spill)
                 # if self._spilled_water_id is None:
@@ -600,7 +604,7 @@ class PyBulletBoilEnv(PyBulletEnv):
                         return height * self.water_height_to_level_ratio
                 return 0.0
             if feature == "heat_level":
-                return obj.heat_level
+                return self._heat_of(obj)
             if feature == "bubbling_level":
                 # Derived observable only meaningful in PO mode. In
                 # fully-observable mode it stays at 0 so existing
@@ -609,7 +613,7 @@ class PyBulletBoilEnv(PyBulletEnv):
                 # crosses BUBBLING_THRESHOLD.
                 if not CFG.partially_observable:
                     return 0.0
-                h = obj.heat_level
+                h = self._heat_of(obj)
                 if np.isnan(h):  # NaN guard
                     return 0.0
                 return float(
@@ -642,11 +646,16 @@ class PyBulletBoilEnv(PyBulletEnv):
         if CFG.partially_observable:
             state.privileged = {
                 jug.name: {
-                    "heat_level": float(jug.heat_level or 0.0)
+                    "heat_level": self._heat_of(jug)
                 }
                 for jug in state.get_objects(self._jug_type)
             }
         return state
+
+    def _heat_of(self, jug: Object) -> float:
+        """This env's true heat of ``jug`` (0 until a reset or a heating step
+        records one)."""
+        return self._heat_levels.get(jug.name, 0.0)
 
     def _set_domain_specific_state(self, state: State) -> None:
         """Called in _set_state to do any environment-specific resetting.
@@ -676,8 +685,9 @@ class PyBulletBoilEnv(PyBulletEnv):
         for jug in jugs:
             if "heat_level" in jug.type.feature_names:
                 # Fully observable: heat_level is an observable feature,
-                # so restore the internal attribute directly from it.
-                jug.heat_level = state.get(jug, "heat_level")
+                # so restore the env's true heat directly from it.
+                self._heat_levels[jug.name] = float(
+                    state.get(jug, "heat_level"))
             else:
                 # Partially observable: heat_level is hidden from the
                 # observation, so restore the env's true heat from the
@@ -688,7 +698,7 @@ class PyBulletBoilEnv(PyBulletEnv):
                 # Defaults to 0.0 when absent (e.g. a State built without
                 # a privileged block).
                 priv = state.privileged or {}
-                jug.heat_level = float(
+                self._heat_levels[jug.name] = float(
                     priv.get(jug.name, {}).get("heat_level", 0.0))
             liquid_id = self._create_liquid_for_jug(jug, state)
             self._jug_to_liquid_id[jug] = liquid_id
@@ -864,11 +874,11 @@ class PyBulletBoilEnv(PyBulletEnv):
                 dist = np.hypot(bx - jug_x, by - jug_y)
                 if dist < self.burner_align_threshold:
                     # Jug is on top of an active burner => increase heat.
-                    # Read the `jug.heat_level` attribute (the internal
-                    # source of truth) rather than the State array: in PO
-                    # mode `heat_level` is not an observable feature, and
-                    # in FO mode the array merely mirrors this attribute.
-                    old_heat = jug_obj.heat_level
+                    # Read the env's own heat record (the internal source
+                    # of truth) rather than the State array: in PO mode
+                    # `heat_level` is not an observable feature, and in
+                    # FO mode the array merely mirrors this record.
+                    old_heat = self._heat_of(jug_obj)
                     if CFG.boil_require_jug_full_to_heatup:
                         required_vol = self.water_filled_height
                     else:
@@ -877,7 +887,7 @@ class PyBulletBoilEnv(PyBulletEnv):
                     if state.get(jug_obj, "water_volume") > required_vol and\
                         not self._Holding_holds(state, [self._robot, jug_obj]):
                         new_heat = min(1.0, old_heat + self.heating_speed)
-                        jug_obj.heat_level = new_heat
+                        self._heat_levels[jug_obj.name] = new_heat
 
     def _update_liquid_colors(self, state: State) -> None:
         """Simple linear interpolation from blue (0.0) to red (1.0) based on
@@ -888,7 +898,7 @@ class PyBulletBoilEnv(PyBulletEnv):
             water_id = self._jug_to_liquid_id[jug_obj]
             if jug_id is None or water_id is None:
                 continue
-            heat = jug_obj.heat_level
+            heat = self._heat_of(jug_obj)
             # Weighted interpolation from (0,0,1) => (1,0,0)
             r = heat
             g = 0.0

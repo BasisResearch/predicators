@@ -15,9 +15,10 @@ from typing import Dict, FrozenSet, List, Optional, Set, Tuple
 
 import numpy as np
 
-from predicators.code_sim_learning.config import SysIdConfig
+from predicators.code_sim_learning.config import DEFAULT_NOISE_SIGMA, \
+    SysIdConfig
 from predicators.code_sim_learning.rollout_env import RolloutTrajectory
-from predicators.structs import Action, State
+from predicators.structs import Action, State, Type
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +138,7 @@ def compute_residual_scaling(
     trajectories: List[RolloutTrajectory],
     residual_features: Dict[str, List[str]],
     config: Optional[SysIdConfig] = None,
+    noise_sigma: Optional[float] = None,
 ) -> Optional[ResidualScaling]:
     """Data-derived :class:`ResidualScaling` for a fit's trajectory set.
 
@@ -152,6 +154,14 @@ def compute_residual_scaling(
     every SSE/RMS evaluation of one fit - per-trajectory scales would
     make trimming verdicts incomparable.
 
+    Under a declared observation-noise channel (``config.observation_noise``)
+    each scale also folds its feature's noise sigma in, so a residual the
+    noise explains never reads as model error; see
+    :meth:`~predicators.observation_noise.ObservationNoise.residual_scale`.
+    ``noise_sigma`` is the fit's Gaussian width on scaled residuals
+    (:data:`DEFAULT_NOISE_SIGMA` when None) and must be the one the fit
+    scores with, since the fold is relative to it.
+
     Returns ``None`` when ``code_sim_learning_rollout_scale_residuals``
     is off (raw, unwrapped residuals - the legacy objective).
     """
@@ -162,12 +172,14 @@ def compute_residual_scaling(
     angular: Set[Tuple[str, str]] = set()
     lo: Dict[Tuple[str, str], float] = {}
     hi: Dict[Tuple[str, str], float] = {}
+    types_by_name: Dict[str, Type] = {}
     for states, _actions in trajectories:
         for state in states:
             for obj in state:
                 feats = residual_features.get(obj.type.name, [])
                 if not feats:
                     continue
+                types_by_name.setdefault(obj.type.name, obj.type)
                 type_angular = set(getattr(obj.type, "angular_features", ()))
                 for feat in feats:
                     key = (obj.type.name, feat)
@@ -180,6 +192,13 @@ def compute_residual_scaling(
     scales = {key: max(hi[key] - lo_val, floor) for key, lo_val in lo.items()}
     for key in angular:
         scales[key] = float(np.pi)
+    noise = config.observation_noise
+    if noise is not None:
+        sigma_n = DEFAULT_NOISE_SIGMA if noise_sigma is None else noise_sigma
+        scales = {(type_name, feat):
+                  noise.residual_scale(types_by_name[type_name], feat, scale,
+                                       sigma_n)
+                  for (type_name, feat), scale in scales.items()}
     return ResidualScaling(angular=frozenset(angular), scales=scales)
 
 
