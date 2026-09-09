@@ -13,6 +13,7 @@ shared ``PlayState`` and acted on by the arm after the query returns.
 from __future__ import annotations
 
 import dataclasses
+import json
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, \
@@ -21,6 +22,8 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, \
 import numpy as np
 
 from predicators import utils
+from predicators.agent_sdk.primitive_policy import open_primitive_policy, \
+    primitive_action, primitive_observation
 from predicators.agent_sdk.sketch_parsing import parse_sketch_from_text
 from predicators.agent_sdk.tools.context import ToolContext
 from predicators.agent_sdk.tools.digests import render_options_digest
@@ -30,8 +33,7 @@ from predicators.observation_belief import atom_fractions, \
 from predicators.observation_noise import ObservationNoise
 from predicators.run.episode import EpisodeOver, EpisodeState
 from predicators.settings import CFG
-from predicators.structs import Action, GroundAtom, Predicate, State, Task, \
-    _Option
+from predicators.structs import GroundAtom, Predicate, State, Task, _Option
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle through approaches
     from predicators.run.continual import InvocationResult, \
@@ -46,6 +48,11 @@ CONTINUAL_TOOL_NAMES = [
     "skills_invoke",
     "skills_execute_plan",
 ]
+PRIMITIVE_TOOL_NAMES = [
+    "env_observe", "env_step", "env_reset", "give_up", "env_run_policy"
+]
+ALL_CONTINUAL_TOOL_NAMES = list(
+    dict.fromkeys(CONTINUAL_TOOL_NAMES + PRIMITIVE_TOOL_NAMES))
 
 GRAMMAR = (
     "One skill per line: `Skill(obj:type, ...)[p1, p2] -> {Atom(obj:type), "
@@ -306,8 +313,13 @@ def build_continual_tools(
     # pylint: enable=import-outside-toplevel
     wanted = set(tool_names) if tool_names is not None else set(
         CONTINUAL_TOOL_NAMES)
+    policy_running = False
 
     def _ended() -> Optional[Dict[str, Any]]:
+        if policy_running:
+            return _error_result("A policy is running; wait for its call to "
+                                 "finish before issuing another environment "
+                                 "command." + _footer())
         if state.run_ended is not None:
             reason, note = state.run_ended
             return _error_result(f"The run has ended ({reason}"
@@ -367,11 +379,17 @@ def build_continual_tools(
         ctx.current_observation = obs.frame
         ctx.current_belief = obs.belief
         render = save_render(tag)
-        return format_observation(obs,
+        text = format_observation(obs,
                                   ctx,
                                   with_state=with_state,
                                   render_path=render,
                                   env_predicates=env_predicates)
+        if "env_run_policy" in wanted:
+            # The same numeric observation is available to direct action
+            # selection and to the agent's policy, including proprioception.
+            text = "[control] " + json.dumps(primitive_observation(session)) + \
+                "\n" + text
+        return text
 
     def _level_task() -> Task:
         obs = session.observe()
@@ -398,8 +416,7 @@ def build_continual_tools(
     @tool(
         "env_step",
         "Apply ONE primitive action: a low-level action vector of the "
-        "environment's action space. Counts one step. Prefer skills; "
-        "this is the raw primitive.", {
+        "environment's action space. Counts one step.", {
             "type": "object",
             "properties": {
                 "action": {
@@ -417,14 +434,10 @@ def build_continual_tools(
         if ended is not None:
             return ended
         try:
-            arr = np.asarray(args.get("action", []), dtype=np.float32)
-            shape = tuple(session.action_space.shape)
-            if arr.shape != shape:
-                return _error_result(
-                    f"action must have shape {shape}, got {arr.shape}" +
-                    _footer())
+            action = primitive_action(args.get("action", []),
+                                      session.action_space)
             state.charged_calls += 1
-            outcome = session.step(Action(arr))
+            outcome = session.step(action)
             text = (f"step applied; episode {outcome.state.value}"
                     f"{' (' + outcome.reason + ')' if outcome.reason else ''}"
                     "\n" +
@@ -432,6 +445,74 @@ def build_continual_tools(
             return _text_result(text)
         except Exception as e:  # pylint: disable=broad-except
             return _protocol_error(e)
+
+    @tool(
+        "env_run_policy",
+        "Execute a sandbox Python file defining get_action(observation, "
+        "memory). It returns one low-level vector or None to stop. Each "
+        "action costs one step. Receives the current observable JSON frame, "
+        "joint positions, action-space contract, goal and step counts. "
+        "Memory and module globals persist within this call only. Stops on "
+        "None, max_steps, WIN, GAME_OVER, a cap, or an error.", {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string"
+                },
+                "max_steps": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+            },
+            "required": ["path", "max_steps"],
+        })
+    async def env_run_policy(args: Dict[str, Any]) -> Dict[str, Any]:
+        nonlocal policy_running
+        ended = _ended()
+        if ended is not None:
+            return ended
+        applied = 0
+        steps_before = session.observe().ledger.run_steps
+        try:
+            limit = args.get("max_steps")
+            if type(limit) is not int or limit <= 0:  # pylint: disable=unidiomatic-typecheck
+                raise ValueError("max_steps must be a positive integer")
+            if not ctx.sandbox_dir:
+                raise ValueError("policy execution requires a sandbox")
+            obs = session.observe()
+            if obs.state is not EpisodeState.NOT_FINISHED:
+                raise EpisodeOver(f"episode is {obs.state.value}")
+            seconds = min(
+                CFG.agent_sdk_python_call_timeout,
+                obs.ledger.wall_clock_cap_seconds - obs.ledger.active_seconds)
+            policy_running = True
+            async with open_primitive_policy(str(args.get("path", "")),
+                                             ctx.sandbox_dir,
+                                             seconds) as policy:
+                for _ in range(limit):
+                    observation = primitive_observation(session)
+                    values = await policy.action(observation)
+                    if values is None:
+                        break
+                    action = primitive_action(values, session.action_space)
+                    state.charged_calls += 1
+                    outcome = session.step(action)
+                    applied += 1
+                    if outcome.state is not EpisodeState.NOT_FINISHED:
+                        break
+            return _text_result(
+                f"policy applied {applied} step(s)\n" +
+                _observe_text(True, f"policy_{state.charged_calls:04d}"))
+        except Exception as e:  # pylint: disable=broad-except
+            # A step that reaches a run cap is recorded before step() raises.
+            applied = session.observe().ledger.run_steps - steps_before
+            result = _protocol_error(e)
+            result["content"][0]["text"] = (
+                f"policy applied {applied} step(s) before stopping\n" +
+                result["content"][0]["text"])
+            return result
+        finally:
+            policy_running = False
 
     @tool(
         "env_reset",
@@ -609,6 +690,7 @@ def build_continual_tools(
             return _protocol_error(e)
 
     all_tools = {
+        "env_run_policy": env_run_policy,
         "env_observe": env_observe,
         "env_step": env_step,
         "env_reset": env_reset,
@@ -617,7 +699,7 @@ def build_continual_tools(
         "skills_invoke": skills_invoke,
         "skills_execute_plan": skills_execute_plan,
     }
-    return [all_tools[n] for n in CONTINUAL_TOOL_NAMES if n in wanted]
+    return [all_tools[n] for n in ALL_CONTINUAL_TOOL_NAMES if n in wanted]
 
 
 def _format_result(result: InvocationResult, before: Set[GroundAtom],

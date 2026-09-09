@@ -250,6 +250,7 @@ _BIRRT_TRAJ_KEY = "birrt_traj_{}"  # stores List[JointPositions] or None
 _BIRRT_STEP_KEY = "birrt_step_{}"  # stores int index into trajectory
 _BIRRT_FINGER_KEY = "birrt_finger_{}"  # stores finger_status str
 _BIRRT_HOLD_KEY = "birrt_hold_{}"  # consecutive re-commands of a waypoint
+_BIRRT_LAST_CMD_KEY = "birrt_last_cmd_{}"  # index of the waypoint last sent
 _FINGER_TARGET_KEY = "finger_target_{}"  # anchored CHANGE_FINGERS target
 
 # Grasp-relative release (SkillConfig.release_until_ungrasped): the
@@ -355,20 +356,47 @@ class Phase:
     # goal fixes that without the cost/regressions of globally validating
     # every transport/retreat IK.
     validate_ik: bool = False
-    # A grasp descend: the previous phase parked the end effector directly
-    # above the target, so the straight segment down to the (validated)
-    # grasp configuration meets nothing but the target and whatever is
-    # butted against it. The phase takes that segment under the hard
-    # contact margin alone - no bystander clearance - or fails; it never
-    # plans a detour. The planner's clearance check used to reject a
-    # descend between butted neighbours (a glued span row) and return a
-    # detour arriving laterally at block-top height, which its waypoint-
-    # resolution check accepted and the executed sweep did not (bridge
-    # seed 3, 2026-09-04: planner seed 6 raked the target off the table;
-    # the same plan ran clean on the real board). A descend that cannot
-    # go straight down is a bad grasp pose, and the failure names the
-    # blocking body so the caller can change the pose.
+    # A grasp or place descend: the previous phase parked the end
+    # effector directly above the target, so the straight path down to
+    # the (validated) goal configuration meets nothing but the target
+    # and whatever is butted against it. The phase takes that path under
+    # the hard contact margin alone - no bystander clearance - or fails;
+    # it never plans a detour. The planner's clearance check used to
+    # reject a descend between butted neighbours (a glued span row) and
+    # return a detour arriving laterally at block-top height, which its
+    # waypoint-resolution check accepted and the executed sweep did not
+    # (bridge seed 3, 2026-09-04: planner seed 6 raked the target off
+    # the table; the same plan ran clean on the real board). A descend
+    # that cannot go straight down is a bad grasp pose, and the failure
+    # names the blocking body so the caller can change the pose.
+    # The path is a straight CARTESIAN line chained through IK
+    # (motion_planning._direct_cartesian_path: lift, cross, descend),
+    # replayed in short steps with the post-path convergence clamped to
+    # the same step. A joint-space segment is an arc in the workspace:
+    # a bridge grasp descent bowed 26 mm off its vertical, set a finger
+    # pad on the standing block it was to straddle, and the unguarded
+    # single-shot IK that then chased the toppling block flipped the
+    # arm branch and swept it off the table (2026-09-07 seed 2).
     direct_descend: bool = False
+    # What a direct path does when the arm cannot follow it (the
+    # tracking gate re-commands a waypoint past
+    # CFG.pybullet_direct_path_max_hold_steps, or the post-path
+    # convergence stalls): ``"fail"`` raises OptionExecutionFailure
+    # naming the contact; ``"advance"`` moves on to the next phase from
+    # wherever the path reached - a place descend blocked early hands
+    # over to its settle stroke, whose verification then lifts and
+    # re-approaches. Pressing on through the remaining waypoints is what
+    # neither does: a held span stopped 40 mm short on a neighbour's
+    # corner and the next 44 mm step launched the welded pair off the
+    # table (2026-09-07 seed 1).
+    on_blocked: str = "fail"
+    # For a direct descend aimed at a body read from the scene (a grasp
+    # target): abort with OptionExecutionFailure when that body has
+    # moved this far (metres) from the pose the path was planned for.
+    # A standing block that a finger pad has started to tip drops
+    # millimetres at once; stopping there leaves it standing, chasing
+    # its live pose knocks it over. Requires ``freeze_target``.
+    disturbance_abort_tol: Optional[float] = None
     # Additionally collision-check this phase's BiRRT goal config with the
     # fingers OPEN. Set on a place descent whose next phase opens the
     # gripper: the opening sweep itself is not planned, so a drop pose
@@ -778,7 +806,12 @@ class PhaseSkill:
         best_key = _IK_STALL_BEST_KEY.format(pid)
         count_key = _IK_STALL_COUNT_KEY.format(pid)
         best = memory.get(best_key)
-        if best is None or dist < best - self._ik_stall_min_progress:
+        # Holding AT the target (a dwell, or a phase whose custom terminal
+        # has not fired yet) is not a stall: there is no progress left to
+        # make.
+        at_target = dist * dist < self._config.move_to_pose_tol
+        if best is None or at_target or \
+                dist < best - self._ik_stall_min_progress:
             memory[best_key] = dist
             memory[count_key] = 0
             return
@@ -919,9 +952,10 @@ class PhaseSkill:
         """
         pid = id(phase)
         for key_fmt in (_BIRRT_TRAJ_KEY, _BIRRT_STEP_KEY, _BIRRT_FINGER_KEY,
-                        _BIRRT_HOLD_KEY, _FINGER_TARGET_KEY, _DWELL_COUNT_KEY,
-                        _STROKE_BEST_KEY, _STROKE_NOPROG_KEY,
-                        _IK_STALL_BEST_KEY, _IK_STALL_COUNT_KEY):
+                        _BIRRT_HOLD_KEY, _BIRRT_LAST_CMD_KEY,
+                        _FINGER_TARGET_KEY, _DWELL_COUNT_KEY, _STROKE_BEST_KEY,
+                        _STROKE_NOPROG_KEY, _IK_STALL_BEST_KEY,
+                        _IK_STALL_COUNT_KEY):
             memory.pop(key_fmt.format(pid), None)
 
     # ------------------------------------------------------------------
@@ -946,6 +980,10 @@ class PhaseSkill:
         if _stroke_step_norm(phase, params) is not None:
             return self._execute_gentle_stroke(phase, state, memory, objects,
                                                params)
+        # A plain incremental-IK phase has the same escape as the BiRRT
+        # fallback: without it a blocked (or guard-pinned) stroke loops
+        # until the option's step cap.
+        self._check_ik_stall(phase, state, memory, objects, params)
         return self._execute_move_ik(phase, state, memory, objects, params)
 
     def _execute_gentle_stroke(self, phase: Phase, state: State, memory: Dict,
@@ -953,10 +991,9 @@ class PhaseSkill:
                                params: Array) -> Action:
         """One step of a gentle stroke (Phase.max_step_norm) with its rails.
 
-        The joint-jump guard never executes an IK branch flip (a mm-
-        scale EE step answered with a multi-radian joint move --
-        executing one once wrist-flipped the arm and batted a released
-        block across the table): the step is replaced by a hold.
+        The joint-jump guard (every incremental-IK step carries it, see
+        ``_guard_joint_jump``) never executes an IK branch flip: the
+        step is replaced by a hold, which counts as no progress here.
 
         Give-up advance: when the EE makes no progress toward the
         stroke target for ``_gentle_stroke_giveup_steps`` consecutive
@@ -1013,25 +1050,7 @@ class PhaseSkill:
                         nxt.name)
                     return self._execute_phase(nxt, state, memory, objects,
                                                params)
-        action = self._execute_move_ik(phase, state, memory, objects, params)
-        pb_state = cast(utils.PyBulletState, state)
-        robot = self._config.robot
-        finger_idxs = (robot.left_finger_joint_idx,
-                       robot.right_finger_joint_idx)
-        arm_delta = max(
-            abs(float(a) - float(c))
-            for i, (a,
-                    c) in enumerate(zip(action.arr, pb_state.joint_positions))
-            if i not in finger_idxs)
-        if arm_delta > self._ik_joint_jump_max:
-            logging.debug(
-                "[%s/%s] IK joint jump %.2f rad suppressed; "
-                "holding.", self._name, phase.name, arm_delta)
-            fingers = pb_state.joint_positions[robot.left_finger_joint_idx]
-            return get_change_fingers_action(robot, pb_state.joint_positions,
-                                             fingers, fingers,
-                                             self._config.max_vel_norm)
-        return action
+        return self._execute_move_ik(phase, state, memory, objects, params)
 
     # Mobile-base positioning. Before the first reach of an option, drive the
     # (kinematic) base to park `base_standoff` in front of the reach target with
@@ -1054,6 +1073,14 @@ class PhaseSkill:
     # ``OptionExecutionFailure`` instead of flailing until the episode
     # horizon (where the thrashing arm bulldozes the scene).
     _ik_stall_window: ClassVar[int] = 25
+    # BiRRT replay: a waypoint closer than this (radians, any arm joint)
+    # to the current joints is skipped in favour of the next one that
+    # asks for a real move (see the thinning in _execute_move_birrt).
+    _birrt_min_command_step: ClassVar[float] = 0.01
+    # ... and the last waypoint (the validated goal configuration) is
+    # re-commanded until every arm joint is within this (radians) of it,
+    # a tighter settle than the mid-path tracking gate.
+    _birrt_final_track_tol: ClassVar[float] = 0.005
     # Random in-limit IK restarts for the BiRRT goal solve, tried after
     # the current-joints and home seeds (see _solve_goal_ik_candidates).
     _goal_ik_num_restarts: ClassVar[int] = 8
@@ -1245,6 +1272,15 @@ class PhaseSkill:
                             f"{_fmt_option_params(params)} is itself in "
                             "contact - adjust the parameters, not the path")
                     elif any(
+                            d.startswith("DIRECT")
+                            for d in self._last_plan_diagnostics):
+                        headline = (
+                            "the straight path down to the pose commanded "
+                            "by this option's parameters "
+                            f"{_fmt_option_params(params)} cannot be taken "
+                            "(this phase never plans a detour) - adjust the "
+                            "parameters")
+                    elif any(
                             d.startswith("START")
                             for d in self._last_plan_diagnostics):
                         headline = (
@@ -1273,6 +1309,9 @@ class PhaseSkill:
             robot.set_joints(pb_state.joint_positions)
 
         traj = memory[traj_key]
+        if phase.disturbance_abort_tol is not None:
+            self._check_target_disturbance(phase, state, memory, objects,
+                                           params)
         if traj is None:
             # BiRRT failed — fall back to incremental IK.
             self._check_ik_stall(phase, state, memory, objects, params)
@@ -1281,15 +1320,39 @@ class PhaseSkill:
         # --- Pop next waypoint from cached trajectory. ---
         step = memory[step_key]
 
-        if step >= len(traj):
-            # Trajectory fully consumed — use incremental IK to converge
-            # to the exact target pose (BiRRT's IK solution may be slightly
-            # off from the target Cartesian pose).
-            self._check_ik_stall(phase, state, memory, objects, params)
-            return self._execute_move_ik(phase, state, memory, objects, params)
-
         finger_idx_l = robot.left_finger_joint_idx
         finger_idx_r = robot.right_finger_joint_idx
+        hold_key = _BIRRT_HOLD_KEY.format(pid)
+        last_cmd_key = _BIRRT_LAST_CMD_KEY.format(pid)
+
+        if step >= len(traj):
+            # Trajectory fully consumed. Settle on the last waypoint
+            # first: it is the validated goal configuration, and the
+            # mid-path tracking tolerance leaves the arm up to a
+            # centimetre short of it at the edge of reach, where the
+            # IK convergence below can refuse the last step (boil jug
+            # pick, 2026-09-08). Then converge by incremental IK to the
+            # exact target pose (the goal solve may be slightly off it).
+            last = traj[-1]
+            settle_err = max(
+                abs(float(cur) - float(cmd)) for idx, (
+                    cur, cmd) in enumerate(zip(pb_state.joint_positions, last))
+                if idx not in (finger_idx_l, finger_idx_r))
+            if settle_err > self._birrt_final_track_tol and memory.get(
+                    hold_key, 0) < CFG.pybullet_birrt_replay_max_hold_steps:
+                memory[hold_key] = memory.get(hold_key, 0) + 1
+                return self._waypoint_action(pb_state, memory[finger_key],
+                                             last)
+            try:
+                self._check_ik_stall(phase, state, memory, objects, params)
+            except utils.OptionExecutionFailure as e:
+                blocked = self._direct_path_blocked(phase, state, memory,
+                                                    objects, params,
+                                                    f"converging: {e}")
+                if blocked is not None:
+                    return blocked
+                raise
+            return self._execute_move_ik(phase, state, memory, objects, params)
 
         # Tracking gate: re-command the previous waypoint until the arm has
         # converged to it. Advancing one waypoint per control step regardless
@@ -1297,34 +1360,81 @@ class PhaseSkill:
         # behind and cut corners off the collision-checked path — enough to
         # swing a held object centimetres past the planner's bystander
         # clearance. A hold cap keeps an unreachable waypoint from stalling
-        # the phase forever.
+        # the phase forever; on a direct path an unreachable waypoint
+        # means the arm is blocked, and the phase reacts to that
+        # (Phase.on_blocked) instead of pressing on.
+        # Thin the micro-waypoints: the planner samples every segment at
+        # num_interp points however short it is (its collision checks
+        # need that), so a 1 cm lift arrives as 10-20 waypoints a
+        # fraction of a millimetre apart. Commanding each one costs an
+        # env step for no motion, and the first one moves the arm by
+        # less than the option model's repeat tolerance, which read a
+        # healthy Pick as 'got stuck' (seed-dependent, 2026-09-07).
+        # Skip ahead to the first waypoint that asks for a real move; the
+        # skipped ones lie within that move on the checked segment.
+        min_step = self._birrt_min_command_step
+        while step < len(traj) - 1 and max(
+                abs(float(cmd) - float(cur)) for idx,
+            (cmd, cur) in enumerate(zip(traj[step], pb_state.joint_positions))
+                if idx not in (finger_idx_l, finger_idx_r)) < min_step:
+            step += 1
         target_joints = traj[step]
         track_tol = CFG.pybullet_birrt_replay_track_tol
-        hold_key = _BIRRT_HOLD_KEY.format(pid)
-        if track_tol > 0 and step > 0:
-            prev_cmd = traj[step - 1]
+        last_cmd = memory.get(last_cmd_key)
+        if track_tol > 0 and last_cmd is not None:
+            # Against the waypoint last COMMANDED (thinning may have
+            # skipped the ones in between).
+            prev_cmd = traj[last_cmd]
             arm_err = max(
                 abs(cur - cmd) for idx, (
                     cur,
                     cmd) in enumerate(zip(pb_state.joint_positions, prev_cmd))
                 if idx not in (finger_idx_l, finger_idx_r))
-            if arm_err > track_tol and memory.get(
-                    hold_key, 0) < CFG.pybullet_birrt_replay_max_hold_steps:
+            max_hold = (CFG.pybullet_direct_path_max_hold_steps
+                        if phase.direct_descend else
+                        CFG.pybullet_birrt_replay_max_hold_steps)
+            if arm_err > track_tol and memory.get(hold_key, 0) < max_hold:
                 memory[hold_key] = memory.get(hold_key, 0) + 1
                 target_joints = prev_cmd
+            elif arm_err > track_tol and phase.direct_descend and \
+                    self._ee_short_of(pb_state, prev_cmd) > \
+                    CFG.pybullet_direct_path_step:
+                # Blocked, not sagging: an arm that has settled within a
+                # path step of the waypoint (position control droops a
+                # centimetre at the edge of reach) carries on; one still
+                # a full step or more short after the holds is stopped
+                # by something.
+                blocked = self._direct_path_blocked(
+                    phase, state, memory, objects, params,
+                    f"waypoint {step}/{len(traj)} stayed {arm_err:.2f} rad "
+                    f"out of reach for {max_hold} steps")
+                assert blocked is not None
+                return blocked
             else:
                 memory[hold_key] = 0
                 memory[step_key] = step + 1
+                memory[last_cmd_key] = step
         else:
             memory[step_key] = step + 1
+            memory[last_cmd_key] = step
+        return self._waypoint_action(pb_state, memory[finger_key],
+                                     target_joints)
 
-        # Apply finger nudge matching the phase's finger_status, identical
-        # to what incremental IK does in controllers.py.  This prevents
-        # finger drift and allows finger transitions (e.g. open→closed)
-        # to happen gradually during BiRRT trajectory replay.
+    def _waypoint_action(self, pb_state: utils.PyBulletState,
+                         finger_status: str,
+                         target_joints: JointPositions) -> Action:
+        """The action commanding a replayed waypoint.
+
+        Applies the finger nudge matching the phase's finger_status,
+        identical to what incremental IK does in controllers.py: it
+        prevents finger drift and lets finger transitions (open to
+        closed) happen gradually during the replay.
+        """
+        robot = self._config.robot
+        finger_idx_l = robot.left_finger_joint_idx
+        finger_idx_r = robot.right_finger_joint_idx
         joint_action = list(target_joints)
         current_fingers = pb_state.joint_positions[finger_idx_l]
-        finger_status = memory[finger_key]
         if finger_status == "open":
             finger_delta = self._config.finger_action_nudge_magnitude
         elif finger_status == "hold":
@@ -1334,12 +1444,80 @@ class PhaseSkill:
         f_action = current_fingers + finger_delta
         joint_action[finger_idx_l] = f_action
         joint_action[finger_idx_r] = f_action
-
         # _build_action_from_joints pads zero base deltas for mobile robots
         # (BiRRT replays a fixed-base arm trajectory) and is a no-op clip for
         # fixed-base robots, keeping the action shape matched to the robot's
         # action space.
         return _build_action_from_joints(robot, joint_action)
+
+    def _ee_short_of(self, pb_state: utils.PyBulletState,
+                     joints: JointPositions) -> float:
+        """Metres between the arm's end effector and where ``joints`` would put
+        it (forward kinematics on the config robot)."""
+        robot = self._config.robot
+        actual = np.array(
+            robot.forward_kinematics(list(pb_state.joint_positions)).position)
+        wanted = np.array(robot.forward_kinematics(list(joints)).position)
+        return float(np.linalg.norm(actual - wanted))
+
+    def _direct_path_blocked(self, phase: Phase, state: State, memory: Dict,
+                             objects: Sequence[Object], params: Array,
+                             why: str) -> Optional[Action]:
+        """React to a direct path the arm cannot follow (Phase.on_blocked).
+
+        ``"advance"`` (a non-final phase): move on to the next phase
+        from wherever the path reached and return its first action.
+        ``"fail"`` (or a final phase): raise OptionExecutionFailure with
+        the contact report. Returns None for a phase that is not a
+        direct path, so the caller keeps its own handling.
+        """
+        if not phase.direct_descend:
+            return None
+        phase_idx = memory["phase_idx"]
+        pb_state = cast(utils.PyBulletState, state)
+        if phase.on_blocked == "advance" and \
+                phase_idx < len(self._phases) - 1:
+            nxt = self._phases[phase_idx + 1]
+            logging.debug(
+                "[%s/%s] the straight path is blocked (%s); advancing to "
+                "phase %d: %s from where it reached.", self._name, phase.name,
+                why, phase_idx + 1, nxt.name)
+            memory["phase_idx"] = phase_idx + 1
+            return self._execute_phase(nxt, state, memory, objects, params)
+        current_pose, target_pose, _ = self._phase_targets(
+            phase, state, memory, objects, params)
+        dist = float(
+            np.linalg.norm(
+                np.subtract(current_pose.position, target_pose.position)))
+        raise utils.OptionExecutionFailure(
+            f"[{self._name}/{phase.name}] the straight path is blocked "
+            f"({why}; {dist:.3f} m short of the target commanded by params "
+            f"{_fmt_option_params(params)}); aborting before the arm shoves "
+            f"what is in its way.{self._stall_contact_report(pb_state)}")
+
+    def _check_target_disturbance(self, phase: Phase, state: State,
+                                  memory: Dict, objects: Sequence[Object],
+                                  params: Array) -> None:
+        """Abort a direct descend whose target has moved since it was planned
+        (Phase.disturbance_abort_tol): the live target pose against the
+        frozen one, ignoring the option's aim offset (applied to both)."""
+        frozen = memory.get(_FROZEN_TARGET_KEY.format(id(phase)))
+        if frozen is None:
+            return
+        _, live, _ = phase.target_fn(state, objects, params, self._config)
+        moved = float(
+            np.linalg.norm(np.subtract(live.position, frozen[0].position)))
+        assert phase.disturbance_abort_tol is not None
+        if moved <= phase.disturbance_abort_tol:
+            return
+        pb_state = cast(utils.PyBulletState, state)
+        raise utils.OptionExecutionFailure(
+            f"[{self._name}/{phase.name}] the descent disturbed its target: "
+            f"it moved {moved * 1000:.1f} mm from the pose the path was "
+            f"planned for (params {_fmt_option_params(params)}); aborting "
+            "before it topples - approach it again from directly above, "
+            "or at a different grasp height."
+            f"{self._stall_contact_report(pb_state)}")
 
     # ------------------------------------------------------------------
     # BiRRT planning helpers
@@ -1664,9 +1842,12 @@ class PhaseSkill:
             else:
                 goal_finger_joint = self._config.open_fingers_joint
 
+        direct_diagnostics: List[str] = []
+
         def _plan(
             candidates: List[JointPositions]
         ) -> Optional[Sequence[JointPositions]]:
+            direct_diagnostics.clear()
             return run_motion_planning(
                 robot=planning_robot,
                 initial_positions=pb_state.joint_positions,
@@ -1687,6 +1868,8 @@ class PhaseSkill:
                 goal_candidates=candidates,
                 relaxed_direct=(phase.direct_descend
                                 if phase is not None else False),
+                direct_diagnostics=direct_diagnostics,
+                body_names=body_names,
             )
 
         def _resolve_goal_ik(
@@ -1765,6 +1948,10 @@ class PhaseSkill:
                             "clutter (no path or arm branch can fix it)")
 
         if traj is None and not expect_contact:
+            # A direct path's own refusal reason (where along the line,
+            # and what it ran into) leads; the goal-config contacts
+            # follow, since the pose itself may still be fine.
+            diagnostics = list(direct_diagnostics) + diagnostics
             # Debug, not error: a refused pose is a normal search
             # outcome during sampling/refinement retries (hundreds per
             # run), and the diagnostics reach the agent-facing failure
@@ -2011,8 +2198,10 @@ class PhaseSkill:
                 logging.error("[%s/%s] %s", self._name, phase_name, diag)
         return diagnostics
 
-    # Gentle strokes (Phase.max_step_norm): any single arm joint asked to
-    # move further than this in one step is a branch flip, not tracking.
+    # Joint-jump guard (every incremental-IK step, see _guard_joint_jump):
+    # any single arm joint asked to move further than this in one step,
+    # beyond the orientation change the step itself commands, is a
+    # branch flip, not tracking.
     _ik_joint_jump_max: ClassVar[float] = 0.5  # radians
     # Consecutive no-progress steps before a non-final gentle stroke
     # gives up and advances to the next phase (see
@@ -2035,24 +2224,145 @@ class PhaseSkill:
                                           current_pose, target_pose,
                                           finger_status)
         except utils.OptionExecutionFailure as e:
-            cur = current_pose.position
-            tgt = target_pose.position
-            raise utils.OptionExecutionFailure(
-                f"[{self._name}/{phase.name}] IK failed. "
-                f"current=({cur[0]:.3f}, {cur[1]:.3f}, {cur[2]:.3f}), "
-                f"target=({tgt[0]:.3f}, {tgt[1]:.3f}, {tgt[2]:.3f}), "
-                f"params={params.tolist()}") from e
-        # NOTE: gentle strokes (Phase.max_step_norm) reach this through
-        # _execute_gentle_stroke, which layers the joint-jump guard and
-        # pin-advance on top of this pure IK step.
-        return action
+            # The iterated solve refuses a step it cannot land within
+            # tolerance - at the edge of reach the commanded orientation
+            # is not exactly attainable, and a phase converging its last
+            # centimetre there died of it (boil jug pick, 2026-09-08).
+            # The one-shot solve always answers; the guard below vets
+            # it, and the stall abort ends a step that makes no progress.
+            if not self._config.ik_validate:
+                cur = current_pose.position
+                tgt = target_pose.position
+                raise utils.OptionExecutionFailure(
+                    f"[{self._name}/{phase.name}] IK failed. "
+                    f"current=({cur[0]:.3f}, {cur[1]:.3f}, {cur[2]:.3f}), "
+                    f"target=({tgt[0]:.3f}, {tgt[1]:.3f}, {tgt[2]:.3f}), "
+                    f"params={params.tolist()}") from e
+            try:
+                action = self._move_ik_action(phase,
+                                              params,
+                                              pb_state,
+                                              current_pose,
+                                              target_pose,
+                                              finger_status,
+                                              validate=False)
+            except utils.OptionExecutionFailure as e2:
+                cur = current_pose.position
+                tgt = target_pose.position
+                raise utils.OptionExecutionFailure(
+                    f"[{self._name}/{phase.name}] IK failed. "
+                    f"current=({cur[0]:.3f}, {cur[1]:.3f}, {cur[2]:.3f}), "
+                    f"target=({tgt[0]:.3f}, {tgt[1]:.3f}, {tgt[2]:.3f}), "
+                    f"params={params.tolist()}") from e2
+            logging.debug(
+                "[%s/%s] iterated IK could not land the step; taking the "
+                "one-shot solve.", self._name, phase.name)
+            return self._guard_joint_jump(phase, pb_state, target_pose, action)
+        if self._joint_jump(pb_state, target_pose, action) is None:
+            return action
+        # A flip from the one-shot solve: the iterated solve walks from
+        # the current joints and stays on their branch far more often.
+        if not self._config.ik_validate:
+            try:
+                retried: Optional[Action] = self._move_ik_action(phase,
+                                                                 params,
+                                                                 pb_state,
+                                                                 current_pose,
+                                                                 target_pose,
+                                                                 finger_status,
+                                                                 validate=True)
+            except utils.OptionExecutionFailure:
+                retried = None
+            if retried is not None and self._joint_jump(
+                    pb_state, target_pose, retried) is None:
+                return retried
+        return self._guard_joint_jump(phase, pb_state, target_pose, action)
 
-    def _move_ik_action(self, phase: Phase, params: Array,
-                        pb_state: utils.PyBulletState, current_pose: Pose,
-                        target_pose: Pose, finger_status: str) -> Action:
-        """One incremental-IK step toward the phase target."""
+    def _joint_jump(self, pb_state: utils.PyBulletState, target_pose: Pose,
+                    action: Action) -> Optional[str]:
+        """Describe ``action`` as an IK branch flip, or None when it is
+        tracking.
+
+        Any single arm joint asked to move further than
+        ``_ik_joint_jump_max`` in one step is a flip - beyond the
+        orientation change the step itself commands: incremental IK
+        applies the full target orientation at once, so a legitimate
+        wrist re-orientation is a large joint move that is not a flip.
+        That change is measured from the arm's ACTUAL end-effector
+        orientation (forward kinematics of the current joints), not the
+        state's roll-free pose features, which would hide a wrist-roll
+        correction and pin it.
+        """
+        robot = self._config.robot
+        finger_idxs = (robot.left_finger_joint_idx,
+                       robot.right_finger_joint_idx)
+        deltas = [
+            (abs(float(a) - float(c)), i)
+            for i, (a,
+                    c) in enumerate(zip(action.arr, pb_state.joint_positions))
+            if i not in finger_idxs
+        ]
+        arm_delta, joint_idx = max(deltas)
+        if arm_delta <= self._ik_joint_jump_max:
+            return None
+        actual = robot.forward_kinematics(list(
+            pb_state.joint_positions)).orientation
+        dot = abs(float(np.dot(actual, target_pose.orientation)))
+        orientation_delta = 2.0 * float(np.arccos(np.clip(dot, -1.0, 1.0)))
+        if arm_delta <= self._ik_joint_jump_max + orientation_delta:
+            return None
+        return (f"{arm_delta:.2f} rad on joint {joint_idx} for a step whose "
+                f"orientation change is {orientation_delta:.2f} rad")
+
+    def _guard_joint_jump(self, phase: Phase, pb_state: utils.PyBulletState,
+                          target_pose: Pose, action: Action) -> Action:
+        """Never execute an IK branch flip: hold instead.
+
+        Single-shot IK follows the branch of its seed configuration but
+        can land on another near contact or near the reach limit,
+        answering a centimetre-scale end-effector step with a multi-
+        radian joint move. Executing that action sweeps the arm through
+        the scene (a wrist flip once batted a released block across the
+        table; a 1.14 rad flip while a grasp descent chased a tipping
+        block flung it off the table, 2026-09-07). The step is replaced
+        by a hold-position action, which the stall abort counts as no
+        progress, so a pinned phase ends honestly instead of flailing.
+        """
+        why = self._joint_jump(pb_state, target_pose, action)
+        if why is None:
+            return action
+        robot = self._config.robot
+        logging.debug("[%s/%s] IK joint jump suppressed (%s); holding.",
+                      self._name, phase.name, why)
+        fingers = pb_state.joint_positions[robot.left_finger_joint_idx]
+        return get_change_fingers_action(robot, pb_state.joint_positions,
+                                         fingers, fingers,
+                                         self._config.max_vel_norm)
+
+    def _move_ik_action(self,
+                        phase: Phase,
+                        params: Array,
+                        pb_state: utils.PyBulletState,
+                        current_pose: Pose,
+                        target_pose: Pose,
+                        finger_status: str,
+                        validate: Optional[bool] = None) -> Action:
+        """One incremental-IK step toward the phase target.
+
+        ``validate`` overrides the config's IK validation for this one
+        solve (the iterated solve, when the one-shot answer flipped the
+        arm branch).
+        """
         robot = self._config.robot
         step_norm = _stroke_step_norm(phase, params)
+        if step_norm is None and phase.direct_descend:
+            # Converging after a direct path (or its refusal) keeps the
+            # path's own step: a full-size step here is the 44 mm snap
+            # that launched a welded pair off the table.
+            step_norm = min(self._config.max_vel_norm,
+                            CFG.pybullet_direct_path_step)
+        if validate is None:
+            validate = self._config.ik_validate
         return get_move_end_effector_to_pose_action(
             robot=robot,
             current_joint_positions=pb_state.joint_positions,
@@ -2063,7 +2373,7 @@ class PhaseSkill:
                           self._config.max_vel_norm),
             finger_action_nudge_magnitude=(
                 self._config.finger_action_nudge_magnitude),
-            validate=self._config.ik_validate,
+            validate=validate,
             # Base positioning is handled once per option by
             # _maybe_drive_base; keep incremental IK arm-only so the base
             # doesn't drift during contact phases (e.g. a switch push).

@@ -22,6 +22,9 @@ TOOL_BLURBS = {
     "your predicates, object features, a render, the ledger. Free.",
     "env_step":
     "one primitive action (a low-level action vector). One step.",
+    "env_run_policy":
+    "run your Python get_action(observation, memory) policy from a sandbox "
+    "file for at most max_steps. Every returned action costs one step.",
     "env_reset":
     "restart the current level from its initial state. One step and "
     "one reset, and a last resort. The only valid action after "
@@ -42,6 +45,35 @@ TOOL_BLURBS = {
     "code in the sandbox with the `sim` probe over your model files "
     "(`sim.fit`, `sim.residuals`, `sim.run`, `sim.refine`, ...). Free.",
 }
+
+
+def build_minimal_play_system_prompt(*, model_based: bool) -> str:
+    """Instructions for the arms with no supplied skill library."""
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.agent_sdk.tools.continual_tools import \
+        PRIMITIVE_TOOL_NAMES
+
+    sections = [
+        render("play_minimal", "identity"),
+        render("play_minimal", "protocol")
+    ]
+    noise = ObservationNoise.from_cfg()
+    if noise.enabled and noise.declared:
+        sections.append(
+            render("play_system",
+                   "observation_noise",
+                   noise_line=noise.describe() + "."))
+    sections.extend([
+        render("play_system",
+               "tools",
+               tool_list=render_tool_list(PRIMITIVE_TOOL_NAMES)),
+        render("play_minimal", "policy"),
+        render("play_minimal", "sandbox"),
+        render("play_minimal", "model_based" if model_based else "model_free"),
+        render("play_system", "journal"),
+        render("play_system", "context"),
+    ])
+    return "\n\n".join(sections)
 
 
 def render_tool_list(tool_names: Iterable[str]) -> str:

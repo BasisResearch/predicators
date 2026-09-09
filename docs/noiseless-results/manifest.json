@@ -1,0 +1,218 @@
+{
+  "selection_policy": "Fixed paths selected on 2026-09-08. New r2 MB for bridge and domino; original uniform groups otherwise. Latest run per seed, irrespective of outcome. Cancelled r2 MF excluded.",
+  "metrics": "Solve rate = levels won / all train+test levels per seed. Steps and agent resets = totals over all levels, including unsuccessful runs. Arithmetic mean across seeds 0,1,2; SD uses n-1. No conditioning on success and no imputation for unfinished runs.",
+  "caveat": "Bridge/domino MB uses newer skill and prompt fixes than the MF baseline. Comparison is not a matched-code ablation.",
+  "boil_mf_seed2": "Later rerun selected by recency; original run remains on disk and is excluded.",
+  "runs": [
+    {
+      "domain": "Balloons",
+      "arm": "MB",
+      "seed": 0,
+      "config": "balloons-agent_continual_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/balloons-agent_continual_uniform/seed0/run_20260907_102820/scorecard.json"
+    },
+    {
+      "domain": "Balloons",
+      "arm": "MB",
+      "seed": 1,
+      "config": "balloons-agent_continual_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/balloons-agent_continual_uniform/seed1/run_20260907_160923/scorecard.json"
+    },
+    {
+      "domain": "Balloons",
+      "arm": "MB",
+      "seed": 2,
+      "config": "balloons-agent_continual_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/balloons-agent_continual_uniform/seed2/run_20260907_160930/scorecard.json"
+    },
+    {
+      "domain": "Balloons",
+      "arm": "MF",
+      "seed": 0,
+      "config": "balloons-agent_continual_model_free_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual_model_free/balloons-agent_continual_model_free_uniform/seed0/run_20260907_102819/scorecard.json"
+    },
+    {
+      "domain": "Balloons",
+      "arm": "MF",
+      "seed": 1,
+      "config": "balloons-agent_continual_model_free_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual_model_free/balloons-agent_continual_model_free_uniform/seed1/run_20260907_160938/scorecard.json"
+    },
+    {
+      "domain": "Balloons",
+      "arm": "MF",
+      "seed": 2,
+      "config": "balloons-agent_continual_model_free_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual_model_free/balloons-agent_continual_model_free_uniform/seed2/run_20260907_160921/scorecard.json"
+    },
+    {
+      "domain": "Boil",
+      "arm": "MB",
+      "seed": 0,
+      "config": "boil-agent_continual_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/boil-agent_continual_uniform/seed0/run_20260907_144501/scorecard.json"
+    },
+    {
+      "domain": "Boil",
+      "arm": "MB",
+      "seed": 1,
+      "config": "boil-agent_continual_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/boil-agent_continual_uniform/seed1/run_20260907_160923/scorecard.json"
+    },
+    {
+      "domain": "Boil",
+      "arm": "MB",
+      "seed": 2,
+      "config": "boil-agent_continual_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/boil-agent_continual_uniform/seed2/run_20260907_160920/scorecard.json"
+    },
+    {
+      "domain": "Boil",
+      "arm": "MF",
+      "seed": 0,
+      "config": "boil-agent_continual_model_free_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual_model_free/boil-agent_continual_model_free_uniform/seed0/run_20260907_144511/scorecard.json"
+    },
+    {
+      "domain": "Boil",
+      "arm": "MF",
+      "seed": 1,
+      "config": "boil-agent_continual_model_free_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual_model_free/boil-agent_continual_model_free_uniform/seed1/run_20260907_160924/scorecard.json"
+    },
+    {
+      "domain": "Boil",
+      "arm": "MF",
+      "seed": 2,
+      "config": "boil-agent_continual_model_free_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual_model_free/boil-agent_continual_model_free_uniform/seed2/run_20260907_220406/scorecard.json"
+    },
+    {
+      "domain": "Bridge",
+      "arm": "MB",
+      "seed": 0,
+      "config": "bridge-agent_continual_uniform_r2",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/bridge-agent_continual_uniform_r2/seed0/run_20260908_075640/scorecard.json"
+    },
+    {
+      "domain": "Bridge",
+      "arm": "MB",
+      "seed": 1,
+      "config": "bridge-agent_continual_uniform_r2",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/bridge-agent_continual_uniform_r2/seed1/run_20260908_075639/scorecard.json"
+    },
+    {
+      "domain": "Bridge",
+      "arm": "MB",
+      "seed": 2,
+      "config": "bridge-agent_continual_uniform_r2",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/bridge-agent_continual_uniform_r2/seed2/run_20260908_075645/scorecard.json"
+    },
+    {
+      "domain": "Bridge",
+      "arm": "MF",
+      "seed": 0,
+      "config": "bridge-agent_continual_model_free_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual_model_free/bridge-agent_continual_model_free_uniform/seed0/run_20260907_102819/scorecard.json"
+    },
+    {
+      "domain": "Bridge",
+      "arm": "MF",
+      "seed": 1,
+      "config": "bridge-agent_continual_model_free_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual_model_free/bridge-agent_continual_model_free_uniform/seed1/run_20260907_160928/scorecard.json"
+    },
+    {
+      "domain": "Bridge",
+      "arm": "MF",
+      "seed": 2,
+      "config": "bridge-agent_continual_model_free_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual_model_free/bridge-agent_continual_model_free_uniform/seed2/run_20260907_160927/scorecard.json"
+    },
+    {
+      "domain": "Domino",
+      "arm": "MB",
+      "seed": 0,
+      "config": "domino_high_friction_turn-agent_continual_uniform_r2",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-agent_continual_uniform_r2/seed0/run_20260908_075659/scorecard.json"
+    },
+    {
+      "domain": "Domino",
+      "arm": "MB",
+      "seed": 1,
+      "config": "domino_high_friction_turn-agent_continual_uniform_r2",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-agent_continual_uniform_r2/seed1/run_20260908_075707/scorecard.json"
+    },
+    {
+      "domain": "Domino",
+      "arm": "MB",
+      "seed": 2,
+      "config": "domino_high_friction_turn-agent_continual_uniform_r2",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-agent_continual_uniform_r2/seed2/run_20260908_075707/scorecard.json"
+    },
+    {
+      "domain": "Domino",
+      "arm": "MF",
+      "seed": 0,
+      "config": "domino_high_friction_turn-agent_continual_model_free_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-agent_continual_model_free_uniform/seed0/run_20260907_102820/scorecard.json"
+    },
+    {
+      "domain": "Domino",
+      "arm": "MF",
+      "seed": 1,
+      "config": "domino_high_friction_turn-agent_continual_model_free_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-agent_continual_model_free_uniform/seed1/run_20260907_160930/scorecard.json"
+    },
+    {
+      "domain": "Domino",
+      "arm": "MF",
+      "seed": 2,
+      "config": "domino_high_friction_turn-agent_continual_model_free_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-agent_continual_model_free_uniform/seed2/run_20260907_160924/scorecard.json"
+    },
+    {
+      "domain": "Fan",
+      "arm": "MB",
+      "seed": 0,
+      "config": "fan-agent_continual_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/fan-agent_continual_uniform/seed0/run_20260907_102945/scorecard.json"
+    },
+    {
+      "domain": "Fan",
+      "arm": "MB",
+      "seed": 1,
+      "config": "fan-agent_continual_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/fan-agent_continual_uniform/seed1/run_20260907_160921/scorecard.json"
+    },
+    {
+      "domain": "Fan",
+      "arm": "MB",
+      "seed": 2,
+      "config": "fan-agent_continual_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/fan-agent_continual_uniform/seed2/run_20260907_160923/scorecard.json"
+    },
+    {
+      "domain": "Fan",
+      "arm": "MF",
+      "seed": 0,
+      "config": "fan-agent_continual_model_free_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual_model_free/fan-agent_continual_model_free_uniform/seed0/run_20260907_102819/scorecard.json"
+    },
+    {
+      "domain": "Fan",
+      "arm": "MF",
+      "seed": 1,
+      "config": "fan-agent_continual_model_free_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual_model_free/fan-agent_continual_model_free_uniform/seed1/run_20260907_160936/scorecard.json"
+    },
+    {
+      "domain": "Fan",
+      "arm": "MF",
+      "seed": 2,
+      "config": "fan-agent_continual_model_free_uniform",
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual_model_free/fan-agent_continual_model_free_uniform/seed2/run_20260907_160928/scorecard.json"
+    }
+  ]
+}

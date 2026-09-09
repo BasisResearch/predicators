@@ -371,6 +371,11 @@ class ProtocolSession:
         """The env's action space, the shape ``step`` takes."""
         return self._run.action_space
 
+    @property
+    def action_spec(self) -> Dict[str, Any]:
+        """Observable actuator interface, without scene or dynamics data."""
+        return self._run.action_spec
+
     def level_card(self) -> LevelCard:
         """The scorecard of the level in progress."""
         return self._run.level_card()
@@ -507,6 +512,35 @@ class ContinualRun:
     def action_space(self) -> Box:
         """The env's action space."""
         return self._env.action_space
+
+    @property
+    def action_spec(self) -> Dict[str, Any]:
+        """The low-level control contract, shared by all agent arms."""
+        # pylint: disable=import-outside-toplevel,protected-access
+        from predicators.envs.pybullet_env import PyBulletEnv
+
+        space = self.action_space
+        spec: Dict[str, Any] = {"shape": list(space.shape)}
+        for name, values in (("low", space.low), ("high", space.high)):
+            bounds = values.astype(object)
+            bounds[~np.isfinite(values)] = None
+            spec[name] = bounds.tolist()
+        if isinstance(self._env, PyBulletEnv):
+            robot = self._env._pybullet_robot
+            spec.update({
+                "robot":
+                robot.get_name(),
+                "joint_names":
+                robot.arm_joint_names,
+                "control":
+                "absolute joint position targets in joint_names "
+                "order (radians for revolute joints, metres for prismatic "
+                "joints); any trailing mobile-base controls are dx, dy, "
+                "dtheta in metres, metres, radians",
+                "physics_steps_per_action":
+                CFG.pybullet_sim_steps_per_action,
+            })
+        return spec
 
     @property
     def skills(self) -> List[ParameterizedOption]:
@@ -1489,7 +1523,7 @@ def _skill_library(env: BaseEnv,
                    approach: BaseApproach) -> List[ParameterizedOption]:
     """The parameterised options the arm may invoke."""
     options = getattr(approach, "_initial_options", None)
-    if options:
+    if options is not None:
         return sorted(options, key=lambda o: o.name)
     # pylint: disable-next=import-outside-toplevel
     from predicators.ground_truth_models import get_gt_options

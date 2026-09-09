@@ -242,18 +242,20 @@ Where MDA does not reach:
    the interval in the fit report, in words, with the anchor's position;
    the probe trigger on a straddling interval, with the probe value normalised by sigma (section 3.5);
    the contraction thresholds and the flat tolerance in units of sigma, and the refusal's exceeds-sigma bit where it is still missing.
-   Landed 2026-09-08 (section 8), behind flags, untested on a run: the build-all-then-ablate plan runs steps 3 to 7 first and validates after.
+   Landed 2026-09-08 (section 8), behind flags; validation of the complete build started the same day.
 4. The filter inside the fit (section 3.3): each segment's initial condition as a latent under the declared sigma, sigma-relative motion detection for the settled-tail truncation and the rest-point segmentation, and the carried posterior as the next level's prior.
-   Landed 2026-09-08 (section 8), behind flags, untested on a run.
+   Landed 2026-09-08 (section 8), behind flags; included in the validation launch.
 5. The Laplace evidence in the fit report and the evidence delta between simulator versions (section 3.4).
-   Landed 2026-09-08 (section 8), behind a flag, untested on a run.
+   Landed 2026-09-08 (section 8), behind a flag; included in the validation launch.
 6. The belief at execution (sections 3.3 and 3.6): the particle or smoothed frame beside the raw one, atom fractions in `sim.predicates`, belief draws in `sim.run` and `evaluate_trajectory`, the likelihood-based monitor, the spread in the attempts log, and placements certified over the target object's plausible positions.
-   Landed 2026-09-08 as the smoothed frame (section 8), behind a flag, untested on a run; the particle filter proper and belief draws in `evaluate_trajectory` were not built.
+   Landed 2026-09-08 as the smoothed frame (section 8), behind a flag; included in the validation launch.
+   The particle filter proper and observation-belief draws in `evaluate_trajectory` were not built; its added physics sweep varies parameters over their belief intervals.
 7. The scalar-reading class of the channel: `continual_obs_noise_scalar` on `bubbling_level`, `water_volume`, `spilled_level` and any Type-declared sensor feature, additive and unclipped, switch states exact; the contract, the frame line and the scorecard carry the third sigma; the fit's residual scale folds it like the others.
-   Boil sweep points relative to the ramp step of 0.15 and the 0.07 boil margin, about 0.03, 0.07 and 0.15, with pose noise and reading noise swept as separate axes.
+   Boil reading sweep points relative to the ramp step of 0.15 and the 0.07 boil margin: 0.03, 0.07 and 0.15, each added to position sigma 1.25 cm and orientation sigma 0.05 rad.
    Landed 2026-09-08 (section 8); the sweep configs are `scripts/configs/predicatorv3/protocol_continual_noise_boil_p12_r{03,07,15}.yaml`, each the earlier 1.25 cm pose point with the reading sigma on top (decided 2026-09-08: one experiment tests both channels at once), the 0.07 point launched the same day.
 
-Validation: domino at 1 cm with four seeds after step 3, which is where the advantage was lost first; boil under reading noise after step 7; the exact boil model-based baseline rerun under the sanitized-frame rule before the boil column is quoted; fan back in the sweep once its cap-stall fixes land.
+Validation: domino at 1 cm with model-based seeds 0 and 1 after all features are built, compared with the existing model-free pair; boil under combined pose and reading noise; the exact boil model-based baseline rerun under the sanitized-frame rule before the boil column is quoted; fan back in the sweep once its cap-stall fixes land.
+The two-seed, model-based-only domino scope follows the 2026-09-08 decision to trim the launch and reuse the model-free baseline.
 
 ## 8. Implementation status
 
@@ -333,7 +335,7 @@ Step 7 of section 7 landed on 2026-09-08 (branch `bridge-learning`): the scalar-
 - The contract and the frame line describe the third sigma through the channel's own text, and the run card, the level index, the scorecard aggregator and the viewer carry it (`obs_noise_scalar`); cards written before the field load as exact readings.
 - Tests: the scalar case in `tests/test_observation_noise.py` and the card round trip in `tests/run/test_continual.py`.
 
-Every step of the build order is now built, all behind flags that default off, and none has run on a level yet: the validation runs of section 7 come next, with the ablations as flag flips on one code tree.
+Every step of the build order is now built, all behind flags that default off; validation with all model-based features enabled started on 2026-09-08, with the ablations to follow as flag flips on one code tree.
 The particle filter proper (3.3) stays unbuilt; the smoothed frame is its rest-window special case.
 
 First launch (step 2, one point of the sweep), 2026-09-07: fan and domino, both arms, seeds 0 and 1, position sigma 5 mm and orientation sigma 0.02 rad, declared, via `scripts/configs/predicatorv3/protocol_continual_noise_fan_domino.yaml` from the worktree `predicators-noise-r1` (Slurm 22197846 domino model-based, 22197847 fan model-based, 22197848 domino model-free, 22197849 fan model-free).
@@ -414,13 +416,78 @@ The sweep as a whole (exact baselines: domino model-based 2/2 in 297 against mod
 | Sigma | Domino model-based | Domino model-free | Boil model-based | Boil model-free |
 |---|---|---|---|---|
 | 5 mm (domino) | 2/2, 2/2 (397, 526) | 1/2, 1/2 (1153, 652) | | |
-| half tolerance (1 cm, 1.25 cm) | 1/2, 1/2 (786, 528) | 1/2, 1/2 (858, 1719) | 2/2, 2/2 (701, 1171) | 2/2, 2/2 (1525, 5409 with 18 resets) |
+| half tolerance (1 cm, 1.25 cm) | 1/2, 1/2 (786, 528) | 1/2, 1/2 (858, 1719) | 2/2, 2/2 (701, 1171) | 2/2, 2/2 (5409 with 18 resets, 1525) |
 | full tolerance (2 cm, 2.5 cm) | 1/2, 1/2 (660, 402) | 1/2, 1/2 (926, 1555) | 2/2, 2/2 (527, 539) | 2/2, 2/2 (2929, 1736) |
 
 Two readings.
-Boil keeps the model-based advantage at every sigma, and the advantage does not shrink with noise: the model-based cost stays within twenty percent of the exact baseline (527 to 1171 steps against 524) while the model-free cost is three to ten times it, paid in resets (spills at the noisy faucet position, jugs swept off the burner).
+Boil keeps the model-based advantage at every measured pose sigma: the model-based cost is 527 to 1171 steps, while the model-free cost is 1525 to 5409 steps, often paid in resets (spills at the noisy faucet position, jugs swept off the burner).
+The historical 524-step exact model-based run used unsanitized frames, so a claim about cost relative to exact observation must wait for its replacement.
 Boil's hidden mechanism is a monotone heating process the agent reads off a clean observable, so the noise on object poses only touches manipulation, where the model-based arm's planning on a simulator pays off; the fit plays no part.
 Domino loses the advantage at half tolerance and never recovers it, and every model-based loss traces to the friction fit under noise: at 1 cm one seed refused a near-correct fit and kept the anchor while the other deployed an overshoot, at 2 cm both seeds never moved off the 0.1 anchor, and in every case the agent screened its chain on a sliding substrate that the real, stickier dominoes did not follow.
 The model-free arm loses the same levels for its own reasons (bulldozed strikers, an evaluator rejection), so at the domino points the arms tie at 1/2 and the model-based advantage is gone rather than reversed.
 Domino's discriminating parameter has to be read from a few centimetres of motion in data whose per-frame noise is of that order, which is exactly what the section 3.3 filter, the section 3.4 evidence and the section 3.5 sigma-measured gates address; the sweep is the case for building them, and domino at 1 cm is their validation point.
 Fan's numbers stay out of the sweep until the cap-stall fixes land and its exact pair is rerun, and the exact boil baseline needs a rerun under the sanitized-frame rule before the boil column is quoted.
+
+### Validation with the uncertainty features enabled, 2026-09-08
+
+The validation worktree is `/home/ycliang/predicators-noise-r2` at `b780c93d4`.
+Domino started at `88df0b68b`; the later commit changes the boil configs to combined pose and reading noise, with no runtime code change.
+Every model-based uncertainty flag is enabled; the model-free arm remains the plain code-agent baseline without the harness belief frame.
+Domino uses only model-based seeds 0 and 1 (Slurm `22278734_[0-1]`), compared with the existing 1 cm model-free pair, both final 1/2.
+Boil at position sigma 1.25 cm, orientation sigma 0.05 rad and reading sigma 0.07 uses `22279968_[0-1]` (model-based) and `22279969_[0-1]` (model-free).
+
+Verified from the scorecards at 08:54 EDT on 2026-09-08; step counts cover the whole run, including both levels and resets:
+
+| Point | Arm | Seed 0 | Seed 1 |
+|---|---|---|---|
+| Domino 1 cm, all uncertainty features | Model-based | Final 2/2, 436 steps (train 173, test 263), 0 resets | Final 2/2, 317 steps (train 117, test 200), 0 resets |
+| Boil pose 1.25 cm + reading 0.07 | Model-based | Final 2/2, 728 steps, 0 resets | Final 2/2, 532 steps, 0 resets |
+| Boil pose 1.25 cm + reading 0.07 | Model-free | Final 0/2, 9961 steps, 9 resets; ended on train | Final 1/2, 3114 steps, 1 reset; gave up on test |
+
+Both domino model-based seeds have now won both levels and exited successfully.
+All six validation scorecards are final.
+Boil's combined point averages 100% of levels solved and zero resets for the model-based arm, versus 25% and five resets for the model-free arm.
+Mean steps over successful seeds is 630 for the model-based arm and undefined for the model-free arm, which has no seed that solved both levels.
+Boil's model-based runs remain comparable in step cost to the pose-only pair (701 and 1171), but there is no model-based feature-off result at the combined noise point.
+Domino now shows recovery on both seeds: the old model-based 1 cm pair both finished 1/2, whereas the pair with the uncertainty features finishes 2/2 in 436 and 317 steps.
+The historical exact-observation reference is seed 0 at 297 steps; the new noisy seed 0 takes about 47% more steps while matching its solve rate.
+Attributing the recovery to a particular feature requires an ablation.
+
+At 08:11 EDT, the user questioned whether the additional jobs are needed; all four new reading-point arrays and the exact boil control were placed on hold while their scope is reassessed.
+They will not launch unless explicitly released; the already running validation jobs continue.
+The held reading points use the same worktree, seeds 0 and 1 per arm, accounts `a,c`, and requeue enabled.
+If released, they cannot start before 20:05 EDT on 2026-09-08 (00:05 UTC on September 9), after account c's recorded 20:00 reset, and also wait for the current domino and boil model-free arrays to exit.
+The scheduler's actual start times and dependencies were checked after submission.
+The account usage endpoint did not provide readable balances (a returned 429, b and c returned 403); the local limit markers still exclude b until September 11 and c until this evening.
+
+| Point | Model-based array | Model-free array |
+|---|---|---|
+| Boil pose 1.25 cm + reading 0.03 | `22284017_[0-1]` | `22284018_[0-1]` |
+| Boil pose 1.25 cm + reading 0.15 | `22284116_[0-1]` | `22284119_[0-1]` |
+
+The exact-observation boil control is `protocol_continual_boil_exact_sanitized.yaml`, model-based seed 0, job `22284175_0`, held with dependencies on all four reading-point arrays.
+Its resolved flags match the original m3 command except for the new experiment name and explicit default values for the disabled noise and uncertainty features.
+It uses the validation code tree with sanitized frames and per-env heat storage; it does not reproduce the old unsanitized implementation.
+The separate experiment name prevents resuming the old 524-step run.
+Before its launch, three existing regression tests passed on a compute node in job `22284166`: exact observations are sanitized, sanitized states retain robot joint data, and boil heat stays local to each env.
+
+Results are captured in [the validation report](../logs/uncertainty_handoff_20260908/validation-results.md), with source scorecards in the accompanying JSON snapshot.
+The [averaged comparison and figures](uncertainty-results/README.md) include both arms' noiseless references, the full earlier pose sweep and the configurations with the new uncertainty features.
+Six curve plots show one metric per environment, with noise setting on the x-axis and one series per arm.
+Step means use only completed seeds that solved both levels; the solve-rate and reset means use all seeds.
+The table and step annotations report the successful-seed count, and settings with no successful seeds have no step point.
+Single reported settings remain isolated points, and the combined boil reading-noise point is separated from the pose sweep.
+Historical unsanitized boil references are marked explicitly and are not joined to the noisy curves.
+That comparison has a saved data snapshot and a regeneration script, with PNG, PDF and SVG exports under `docs/uncertainty-results/`.
+The [slide deck](slides/uncertainty_results_slides.html) and its [PDF copy](slides/uncertainty_results_slides.pdf) present the results, metric definitions, six MB features and current comparison limits.
+Jobs `22284264` and `22284265` refresh that report after the current validation arrays and the subsequent boil batch finish, respectively; they make no agent queries.
+The report can also be refreshed with `python logs/uncertainty_handoff_20260908/collect_status.py`.
+The domino pair is now final; feature ablations and a clean exact boil control would address attribution and the noiseless comparison, respectively.
+The feature ablations remain unsubmitted, and the additional boil jobs remain held.
+
+### Extension to bridge, fan and balloons
+
+The user prioritized bridge, fan and balloons, with two seeds per domain and three noisy arms: model-free, model-based without the six new uncertainty flags, and model-based with all six enabled.
+The [cross-domain plan](uncertainty-results/crossdomain-plan.md) records the noise settings, frozen experiment checkout, validation prerequisites and submitted job IDs.
+The 18 noisy runs use `mit_preemptable`; existing noiseless results are reused, and the 12 newly submitted noiseless controls were cancelled before starting at the user's request.
+The prepared exact-boil config is disabled by default and retained only as a reference.

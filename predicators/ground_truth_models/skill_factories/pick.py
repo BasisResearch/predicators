@@ -64,6 +64,12 @@ _PICK_PARAMS = [
      "at the grasp pose, making the grasp config infeasible)", 0.0, 0.1),
 ]
 
+# A grasp descend aborts once its target has moved this far (metres)
+# from where the descent was planned: a standing block that a finger
+# pad has started to tip drops millimetres at once, well before it
+# passes its tipping point, so stopping here leaves it standing.
+_DESCEND_DISTURBANCE_TOL = 0.004
+
 
 def create_pick_skill(
     name: str,
@@ -84,10 +90,16 @@ def create_pick_skill(
         0. **MoveAbove** -- Move above the object at ``config.transport_z``
            with closed gripper.
         1. **MoveToGrasp** -- Descend to object z + ``grasp_z_offset``
-           with open gripper: the straight segment from the MoveAbove
-           pose, accepted when it only touches the target and its
-           butted neighbours within the hard contact margin, else the
-           option fails naming the blocker (see ``Phase.direct_descend``).
+           with open gripper: the straight Cartesian path from the
+           MoveAbove pose (a millimetre-scale crossing to the target
+           xy, then vertical), accepted when it only touches the target
+           and its butted neighbours within the hard contact margin,
+           else the option fails naming the blocker (see
+           ``Phase.direct_descend``). The target is frozen at planning
+           time, and the option aborts as soon as the target moves
+           (``Phase.disturbance_abort_tol``): a descent that has
+           started to tip a standing block stops with it still
+           standing instead of chasing it over.
         2. **Grasp** -- Close fingers.
         3. **LiftSlightly** -- Lift slightly above the grasp height.
 
@@ -282,7 +294,8 @@ def create_pick_skill(
                            _descend_pose,
                            descend_finger_status,
                            validate_ik=True,
-                           direct_descend=True),
+                           direct_descend=True,
+                           disturbance_abort_tol=_DESCEND_DISTURBANCE_TOL),
         Phase(
             name="Grasp",
             action_type=PhaseAction.CHANGE_FINGERS,

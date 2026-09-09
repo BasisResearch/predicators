@@ -342,8 +342,9 @@ def check_cascade_legitimacy(
            with no probe available fails closed.
 
     ``step_options`` labels each transition ``states[t] -> states[t+1]``
-    (action index ``t``) with the producing option; when it is None the
-    action rules (a)/(b) are skipped, the staging rule anchors to the
+    (action index ``t``) with the producing option; when it is None or
+    contains only None (raw low-level actions), the action rules
+    (a)/(b) are skipped, the staging rule anchors to the
     state just before the first topple onset, and the probe falls back
     to that state as its pre-push state. ``goal`` feeds the probe's
     success check and the error messages - all dominoes are held to the
@@ -383,7 +384,8 @@ def check_cascade_legitimacy(
     pre_push_idx: Optional[int] = None
     pushed_greens: List[Object] = list(greens)
     push_params: Optional[Tuple[float, ...]] = None
-    if step_options is not None:
+    if step_options is not None and any(label is not None
+                                        for label in step_options):
         for i, step_option in enumerate(step_options):
             if step_option is None:
                 continue
