@@ -910,6 +910,30 @@ class BeliefProbe:
                         traj_idxs=traj_idxs,
                         num_particles=num_particles)
 
+    def validate(self,
+                 traj_idxs: Optional[List[int]] = None,
+                 params: Optional[Dict[str, float]] = None) -> str:
+        """Replay recorded actions at the current model's deployed parameters.
+
+        No fitting, segment rejection, or real actions. Returns errors
+        for every selected full trajectory, including ones a fit
+        rejected. ``traj_idxs`` indexes the available recordings, never
+        unseen tasks. ``params`` optionally overrides named
+        rule/physical values for this diagnostic only, e.g. estimates
+        from an exploratory subset fit. Exclude validation data from
+        fitting and model design to call it held out. Errors are not a
+        success certificate for a future plan.
+        """
+        ctx = self._ctx
+        _check_time_budget(ctx)
+        provider = ctx.probe_validation_provider
+        if provider is None:
+            raise RuntimeError("sim.validate is unavailable in this session: "
+                               "there is no candidate replay workbench.")
+        # Resolve edited files exactly as sim.run does, without an implicit fit.
+        self._option_model()
+        return provider(traj_idxs=traj_idxs, params=params)
+
     def predicates(self,
                    max_trajectories: int = 10,
                    max_groundings_per_predicate: int = 4) -> str:
@@ -1327,7 +1351,7 @@ class BeliefProbe:
                 "`Option(obj:type, ...)[params]` with a known option, typed "
                 "object refs, and exact params in `[]`.")
         status = ctx.probe_param_status
-        if status and status.startswith("UNFITTED"):
+        if status and not status.startswith("fitted ("):
             notices.append(f"PARAMS {status}.")
         return probe_task, sketch_steps, all_predicates, notices
 

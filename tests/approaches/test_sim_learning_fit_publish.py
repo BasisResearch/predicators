@@ -73,6 +73,8 @@ def test_pinned_fit_does_not_displace_a_finite_fit_of_the_same_file(
     assert fit.point_estimate["k"] == 2.0
     assert stub._fitted_params == {"k": 2.0}
     assert not _APPROACH._published_fit_is_pinned(stub)
+    assert "FIT REJECTED" in stub._tool_context.probe_param_status
+    assert "retaining earlier fitted" in stub._tool_context.probe_param_status
 
 
 def test_pinned_fit_is_canonical_when_nothing_finite_exists(
@@ -88,6 +90,7 @@ def test_pinned_fit_is_canonical_when_nothing_finite_exists(
     _, sse, version = published
     assert version == "cycle_000_vers_001"
     assert math.isfinite(sse) and sse == 77.4
+    assert stub._tool_context.probe_param_status.startswith("UNVALIDATED")
     assert _APPROACH._published_fit_is_pinned(stub)
 
 

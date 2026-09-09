@@ -132,7 +132,8 @@ def build_play_system_prompt(tool_names: Sequence[str],
         # placeholder line blank when empty.
         adaptive = ""
         if (CFG.agent_explorer_info_seeking
-                and CFG.agent_explorer_info_seeking_adaptive):
+                and CFG.agent_explorer_info_seeking_adaptive
+                and not CFG.agent_model_repair):
             adaptive = "\n" + render("play_system", "adaptive_info_seeking")
         sections.append(
             render("play_system",
@@ -141,6 +142,8 @@ def build_play_system_prompt(tool_names: Sequence[str],
                    adaptive_info_seeking=adaptive))
         if model_contract:
             sections.append(model_contract)
+        if CFG.agent_model_repair:
+            sections.append(render("play_system", "model_repair"))
     sections += [
         render("play_system", "journal"),
         render("play_system", "context"),

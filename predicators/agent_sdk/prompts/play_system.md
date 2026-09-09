@@ -278,6 +278,42 @@ your data still allows - is a targeted experiment worth real steps: run
 the smallest one that narrows that parameter, refit, and rehearse
 again. A plan whose sweep passes everywhere needs no probing at all.
 
+<!-- section: model_repair -->
+## Model repair and choosing experiments
+
+Prefer additional simulator computation to real steps, especially before irreversible actions.
+Use this advisory workflow when a fit rejects recordings, a prediction contradicts an observation, or plausible models recommend different actions.
+It is not a requirement to identify every parameter or to repair an imperfect model before any real action; initial evidence collection must remain possible.
+
+1. Audit the evidence already available in `data/trajectories.pkl` and the fit report.
+   `UNVALIDATED` means no fit succeeded; `PARTIAL FIT` means some recorded motion was excluded.
+   Neither a rejected fit nor a successful rehearsal establishes that the model is accurate.
+   Run `sim.validate()` to replay all available recorded actions at the parameters the current simulator uses, without dropping difficult recordings.
+   Use `sim.residuals()` to locate discrepancies; its default-parameter diagnostics differ from `sim.validate()` at deployed values.
+2. Preserve each candidate's code, declared values, fit report, and replay report before revising it.
+   Compare alternative dynamics structures as well as parameter values when the existing structure cannot explain recordings.
+   Check units, timestep, coordinate conventions, force application, object-dependent behavior, and missing interactions against observations and the visible base simulator.
+   Do not insert an unexplained task answer into the model.
+   Install each candidate as `simulator.py`, explicitly call `sim.fit()`, then `sim.validate()` on the same recordings and feature scope.
+   Compare per-trajectory errors and coverage, not just the fit's aggregate over its accepted segments.
+   `sim.validate(traj_idxs=[...], params={...})` scores explicit parameter hypotheses without deploying them.
+   An exploratory `sim.fit(traj_idxs=[...])` reports a fit without publishing it; pass its reported values explicitly to validation.
+   Reserve training recordings for validation when enough independent experience exists; data used to choose the model is no longer held out.
+   Use only experience already available under this run's protocol, never future test outcomes or hidden task-generation rules.
+3. Rehearse competing plans under each model still consistent with the evidence, including the recorded prefix when scoring the full plan.
+   Check the physical-parameter sweep within each model as well as disagreements between structures; a sweep cannot compensate for an omitted mechanism.
+   Prefer actions that succeed with margin across these models.
+   If they agree on a useful action, resolving all remaining uncertainty is unnecessary.
+4. If disagreement changes the action choice, simulate candidate real probes under the competing models first.
+   Predict which measurable outcomes would distinguish them relative to observation noise, and how each outcome would change the next action.
+   Favor a low-cost probe that makes progress and preserves future choices, using training opportunities with resets where available.
+   Do not repeat an experiment merely because the model cannot fit its previous recording.
+   Stop repeating the same model search without changed evidence or a new hypothesis; record the unresolved uncertainty and choose a robust action or a decision-relevant probe.
+   Rejected fit status is evidence to reason about, not a hard action gate or a reason to give up by itself.
+
+Record simulator work separately from real steps and resets.
+Write the candidate comparison, rejected hypotheses, and next action's evidence in `journal.md` so the repair process survives compaction.
+
 <!-- section: journal -->
 ## Journal
 
