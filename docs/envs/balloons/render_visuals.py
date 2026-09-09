@@ -18,7 +18,10 @@ import numpy as np
 import pybullet as p
 
 from predicators import utils
-from predicators.envs.pybullet_balloons import PyBulletBalloonsEnv
+from predicators.envs.pybullet_balloons import PyBulletBalloonsEnv, \
+    any_popped, box_at_rest
+from predicators.settings import CFG
+from predicators.structs import Action
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -26,6 +29,14 @@ import matplotlib.pyplot as plt
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 AUDIT = ROOT / "logs/balloons_followup_20260909/hatch-audit-seed5"
+
+
+def save_svg(figure, path):
+    """Write portable SVG without generator timestamps or trailing spaces."""
+    figure.savefig(path, metadata={"Date": None})
+    path.write_text("\n".join(line.rstrip()
+                              for line in path.read_text().splitlines()) +
+                    "\n")
 
 
 def configure(scene):
@@ -50,6 +61,12 @@ def configure(scene):
 
 def close_view(env):
     """Look at the box column from in front of the hatch."""
+    with env.render_attachments():
+        return _close_view_pixels(env)
+
+
+def _close_view_pixels(env):
+    """Capture the custom camera while the environment's ropes are visible."""
     client = env._physics_client_id
     view = p.computeViewMatrix((.42, .30, .88), (.42, 1.20, .78), (0, 0, 1),
                                physicsClientId=client)
@@ -70,35 +87,61 @@ def close_view(env):
 
 
 def record_sequence(initial, order, name, output, expected):
-    """Record the existing executable audit without changing its actions."""
+    """Replay the saved primitive actions and check their physical outcome."""
     configure("hatch")
     env = PyBulletBalloonsEnv(use_gui=False)
     frames = []
     samples = []
-    actions = []
+    actions_path = HERE / "visuals" / f"{name}-actions.npz"
+    with np.load(actions_path) as saved:
+        actions = saved["actions"].copy()
+    positions = []
+    rest = []
+    first_win = None
     try:
+        env._pybullet_robot.set_joints(
+            env._pybullet_robot.initial_joint_positions)
         env._set_state(initial)
+        current = env.get_observation()
         frames.append(close_view(env))
         imageio.imwrite(output / "hatch-initial.png", frames[0])
         imageio.imwrite(output / "hatch-overview.png", env.render()[0])
-        original_step = env._step_once
-
-        def capture(action, render_obs=False):
-            state = original_step(action, render_obs)
+        for action in actions:
+            current = env._step_once(Action(action))
+            env._current_observation = current
             step = len(samples) + 1
+            assert any_popped(current) is None
+            if env._InBand_holds(current, [env._box, env._band]):
+                if first_win is None:
+                    first_win = step
+            positions.append(
+                [current.get(env._box, f) for f in ("x", "y", "z")])
+            angular = p.getBaseVelocity(
+                env._box.id, physicsClientId=env._physics_client_id)[1]
+            rest.append(
+                box_at_rest(current, env._box)
+                and np.linalg.norm(angular) < .01)
             samples.append({
                 "step": step,
-                "height": float(state.get(env._box, "z")),
-                "pitch": float(state.get(env._box, "pitch")),
+                "height": float(current.get(env._box, "z")),
+                "pitch": float(current.get(env._box, "pitch")),
                 "wall_support": bool(env._wall_support()),
             })
-            actions.append(np.asarray(action.arr).copy())
             if step % 2 == 0:
                 frames.append(close_view(env))
-            return state
-
-        env._step_once = capture
-        result = env._run_release_sequence(initial, order)
+        window = CFG.balloons_probe_rest_steps
+        stationary = (len(rest) >= window and all(rest[-window:])
+                      and np.max(np.ptp(positions[-window:], axis=0)) <=
+                      CFG.balloons_probe_rest_tol)
+        support = all(s["wall_support"] for s in samples[-window:])
+        status = "unresolved"
+        if first_win is not None:
+            assert first_win == len(actions)
+            status = "won"
+        elif stationary:
+            status = "resting_outside"
+        result = env._probe_outcome(current, len(actions), status, stationary
+                                    and support)
         assert result.status == expected["status"], (name, result, expected)
         assert result.steps == expected["steps"], (name, result, expected)
         assert abs(result.height - expected["height"]) < 1e-4
@@ -126,6 +169,8 @@ def record_sequence(initial, order, name, output, expected):
             "order": order,
             "outcome": dataclasses.asdict(result),
             "samples": samples,
+            "source_actions": str(actions_path.relative_to(ROOT)),
+            "actions_sha256": hashlib.sha256(actions.tobytes()).hexdigest(),
             "video_fps": 8,
             "render_stride": 2,
             "playback": "16 primitive actions per second, with start/end holds"
@@ -165,7 +210,7 @@ def make_plot(runs, band, output):
     ax.legend(loc="upper left", fontsize=10, framealpha=.96)
     ax.grid(axis="y", alpha=.15)
     fig.savefig(output / "hatch-height.png", dpi=180)
-    fig.savefig(output / "hatch-height.svg")
+    save_svg(fig, output / "hatch-height.svg")
     plt.close(fig)
 
 
@@ -221,6 +266,10 @@ def main():
         "source_commit":
         subprocess.check_output(["git", "rev-parse", "HEAD"],
                                 text=True).strip(),
+        "source_dirty":
+        bool(
+            subprocess.check_output(["git", "status", "--porcelain"],
+                                    text=True).strip()),
         "source_initial":
         str(initial_file.relative_to(ROOT)),
         "source_sha256":
@@ -234,7 +283,7 @@ def main():
         "runs":
         runs,
         "note":
-        "Renders show physical states; configured observation noise is not painted into the scene.",
+        "Saved primitive actions are replayed exactly. Renders show physical states; configured observation noise is not painted into the scene.",
     }
     (args.output /
      "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")

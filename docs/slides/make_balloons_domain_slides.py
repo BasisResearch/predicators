@@ -234,10 +234,10 @@ def build():
     <div class="row"><div class="col"><h1>Float a box<br>past obstacles</h1>
     <p>Choose which balloons to release so the box reaches the green height band at low speed, without bursting a balloon.</p>
     <p class="muted">The original chute and the new hatch combine hidden lift dynamics with tilt and contact.</p>
-    <p class="small">New: hatch geometry and two mechanical replay videos.<br>Historical sweep results remain in a separate section.</p></div>
-    <figure class="col">{start}<figcaption>Actual sweep frame: model-based seed 0, level 3.</figcaption></figure></div>
+    <p class="small">Visible attachment ropes, matching clip colours and a ceiling canopy over the payload.<br>Historical sweep results remain in a separate section.</p></div>
+    <figure class="col">{visual_image("hatch-overview.png", "Refined hatch scene with an outlined canopy and matching balloon and clip colours")}<figcaption>Current hatch illustration; the ropes appear after release.</figcaption></figure></div>
     ''',
-        'Version: pybullet_balloons, contact-decoy generation; experiment keys balloons-agent_continual_uniform and balloons-agent_continual_model_free_uniform.'
+        'Current scene: visuals/manifest.json. Historical sweep: balloons-agent_continual_uniform and balloons-agent_continual_model_free_uniform.'
     )
 
     add(

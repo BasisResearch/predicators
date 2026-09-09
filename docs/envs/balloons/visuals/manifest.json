@@ -1,6 +1,7 @@
 {
   "kind": "mechanical illustration, not an agent or oracle result",
-  "source_commit": "71f0dbe20e1cf8928cccc51b03da9aefa3868f05",
+  "source_commit": "a698a777507e0c78138d6c68e26a129d2c762563",
+  "source_dirty": false,
   "source_initial": "logs/balloons_followup_20260909/hatch-audit-seed5/test0-initial.pkl",
   "source_sha256": "64d6909284bd5dd9e3e037002b73cb6f08b4cdfb134a234a1844468f82fd9e2e",
   "audit": "logs/balloons_followup_20260909/hatch-audit-seed5/report.json",
@@ -19,8 +20,8 @@
       "outcome": {
         "status": "resting_outside",
         "steps": 65,
-        "height": 0.5440090618716532,
-        "speed": 5.921431752337195e-06,
+        "height": 0.5440090618735156,
+        "speed": 5.921419603144859e-06,
         "wall_supported": true,
         "wall_free_won": false
       },
@@ -249,173 +250,175 @@
         },
         {
           "step": 38,
-          "height": 0.5443932545459124,
-          "pitch": -0.004074170923597658,
+          "height": 0.5443932530697988,
+          "pitch": -0.004074238221770934,
           "wall_support": true
         },
         {
           "step": 39,
-          "height": 0.5440784619568284,
-          "pitch": -0.0008306794650853686,
+          "height": 0.5440784619430296,
+          "pitch": -0.0008306853114102436,
           "wall_support": true
         },
         {
           "step": 40,
-          "height": 0.5440224423822555,
-          "pitch": -0.00017436864577321352,
+          "height": 0.5440224423726703,
+          "pitch": -0.0001743698816496677,
           "wall_support": true
         },
         {
           "step": 41,
-          "height": 0.5440121983110678,
-          "pitch": -5.192618292213124e-05,
+          "height": 0.5440121983232451,
+          "pitch": -5.1926409048561947e-05,
           "wall_support": true
         },
         {
           "step": 42,
-          "height": 0.5440096805519177,
-          "pitch": -3.207322474943198e-05,
+          "height": 0.5440096805517206,
+          "pitch": -3.207328226451628e-05,
           "wall_support": true
         },
         {
           "step": 43,
-          "height": 0.5440091796104193,
-          "pitch": -2.719849506481402e-05,
+          "height": 0.5440091796092673,
+          "pitch": -2.719850827458916e-05,
           "wall_support": true
         },
         {
           "step": 44,
-          "height": 0.5440090846022149,
-          "pitch": -2.617603854856318e-05,
+          "height": 0.5440090846035626,
+          "pitch": -2.6176043135789857e-05,
           "wall_support": true
         },
         {
           "step": 45,
-          "height": 0.5440090663278414,
-          "pitch": -2.59769921241203e-05,
+          "height": 0.544009066329603,
+          "pitch": -2.5977001348669595e-05,
           "wall_support": true
         },
         {
           "step": 46,
-          "height": 0.544009062864844,
-          "pitch": -2.5939402579377305e-05,
+          "height": 0.5440090628666873,
+          "pitch": -2.5939412725726574e-05,
           "wall_support": true
         },
         {
           "step": 47,
-          "height": 0.5440090622030826,
-          "pitch": -2.5932363793026413e-05,
+          "height": 0.5440090622049414,
+          "pitch": -2.5932374113491114e-05,
           "wall_support": true
         },
         {
           "step": 48,
-          "height": 0.544009062070084,
-          "pitch": -2.5931091994804992e-05,
+          "height": 0.5440090620719457,
+          "pitch": -2.593110234722281e-05,
           "wall_support": true
         },
         {
           "step": 49,
-          "height": 0.5440090620368795,
-          "pitch": -2.5930908612628825e-05,
+          "height": 0.5440090620387417,
+          "pitch": -2.5930918972849482e-05,
           "wall_support": true
         },
         {
           "step": 50,
-          "height": 0.5440090620225089,
-          "pitch": -2.593093064624351e-05,
+          "height": 0.5440090620243712,
+          "pitch": -2.5930941007179646e-05,
           "wall_support": true
         },
         {
           "step": 51,
-          "height": 0.5440090620116929,
-          "pitch": -2.5930991446758612e-05,
+          "height": 0.5440090620135551,
+          "pitch": -2.5931001808608516e-05,
           "wall_support": true
         },
         {
           "step": 52,
-          "height": 0.5440090620015476,
-          "pitch": -2.593105956414855e-05,
+          "height": 0.54400906200341,
+          "pitch": -2.5931069926030376e-05,
           "wall_support": true
         },
         {
           "step": 53,
-          "height": 0.5440090619915291,
-          "pitch": -2.5931129061706404e-05,
+          "height": 0.5440090619933915,
+          "pitch": -2.5931139423037154e-05,
           "wall_support": true
         },
         {
           "step": 54,
-          "height": 0.5440090619815344,
-          "pitch": -2.5931198819977547e-05,
+          "height": 0.5440090619833967,
+          "pitch": -2.5931209180065775e-05,
           "wall_support": true
         },
         {
           "step": 55,
-          "height": 0.5440090619715443,
-          "pitch": -2.593126862555294e-05,
+          "height": 0.5440090619734066,
+          "pitch": -2.5931278986096706e-05,
           "wall_support": true
         },
         {
           "step": 56,
-          "height": 0.544009061961555,
-          "pitch": -2.5931338439226706e-05,
+          "height": 0.5440090619634173,
+          "pitch": -2.5931348800252132e-05,
           "wall_support": true
         },
         {
           "step": 57,
-          "height": 0.5440090619515657,
-          "pitch": -2.5931408254917085e-05,
+          "height": 0.5440090619534281,
+          "pitch": -2.5931418615591904e-05,
           "wall_support": true
         },
         {
           "step": 58,
-          "height": 0.5440090619415767,
-          "pitch": -2.5931478071118293e-05,
+          "height": 0.5440090619434391,
+          "pitch": -2.5931488431015474e-05,
           "wall_support": true
         },
         {
           "step": 59,
-          "height": 0.5440090619315876,
-          "pitch": -2.593154788561392e-05,
+          "height": 0.5440090619334499,
+          "pitch": -2.5931558245571856e-05,
           "wall_support": true
         },
         {
           "step": 60,
-          "height": 0.5440090619215985,
-          "pitch": -2.59316176993131e-05,
+          "height": 0.5440090619234609,
+          "pitch": -2.593162806037313e-05,
           "wall_support": true
         },
         {
           "step": 61,
-          "height": 0.5440090619116094,
-          "pitch": -2.5931687513119717e-05,
+          "height": 0.5440090619134719,
+          "pitch": -2.593169787288517e-05,
           "wall_support": true
         },
         {
           "step": 62,
-          "height": 0.5440090619016203,
-          "pitch": -2.5931757326199175e-05,
+          "height": 0.5440090619034827,
+          "pitch": -2.5931767686174053e-05,
           "wall_support": true
         },
         {
           "step": 63,
-          "height": 0.5440090618916313,
-          "pitch": -2.5931827138785307e-05,
+          "height": 0.5440090618934937,
+          "pitch": -2.5931837498526983e-05,
           "wall_support": true
         },
         {
           "step": 64,
-          "height": 0.5440090618816422,
-          "pitch": -2.5931896950363188e-05,
+          "height": 0.5440090618835046,
+          "pitch": -2.5931907310514727e-05,
           "wall_support": true
         },
         {
           "step": 65,
-          "height": 0.5440090618716532,
-          "pitch": -2.5931966761476886e-05,
+          "height": 0.5440090618735156,
+          "pitch": -2.5931977121201327e-05,
           "wall_support": true
         }
       ],
+      "source_actions": "docs/envs/balloons/visuals/hatch-jam-actions.npz",
+      "actions_sha256": "940bea90ad5b2f8e9976ec0e6ba3f82cd84305bb07f1b9851ef12d4a23bd9a66",
       "video_fps": 8,
       "render_stride": 2,
       "playback": "16 primitive actions per second, with start/end holds"
@@ -430,7 +433,7 @@
         "status": "won",
         "steps": 79,
         "height": 0.8370617934718376,
-        "speed": 0.008488766321863928,
+        "speed": 0.00848876632186393,
         "wall_supported": false,
         "wall_free_won": false
       },
@@ -910,10 +913,12 @@
           "wall_support": false
         }
       ],
+      "source_actions": "docs/envs/balloons/visuals/hatch-pass-actions.npz",
+      "actions_sha256": "832fccc0457ad34872db722c3219022fc59393edbaef1645a0e70c1e45cc5784",
       "video_fps": 8,
       "render_stride": 2,
       "playback": "16 primitive actions per second, with start/end holds"
     }
   ],
-  "note": "Renders show physical states; configured observation noise is not painted into the scene."
+  "note": "Saved primitive actions are replayed exactly. Renders show physical states; configured observation noise is not painted into the scene."
 }
