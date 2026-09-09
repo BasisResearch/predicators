@@ -21,7 +21,7 @@ identification problem.
 Design notes (mirroring MuJoCo's official ``mujoco.sysid`` toolbox):
 
 * The agent declares a **sparse subset** of the parameters the env reveals
-  (``env.get_physical_param_info()``) as ``PHYSICAL_PARAMS`` — never "all
+  (``env.get_physical_param_info()``) as ``PHYSICAL_PARAM_SPECS`` — never "all
   params by default". Undeclared parameters keep the env's built-in values.
 * Physical parameters and learned-rule parameters are fit **jointly** in one
   posterior (one theta vector, one fit) so rules cannot silently absorb

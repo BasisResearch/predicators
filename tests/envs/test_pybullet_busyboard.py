@@ -1,11 +1,14 @@
-"""Unit tests for the busyboard env's wiring, charge dynamics, and skills.
+"""Unit tests for the busyboard env's wiring, latch, breaker, charge dynamics,
+and skills.
 
-Covers the four properties the domain rests on: the discrete hypothesis
-space is well formed (distinct, canonically ordered drive conditions),
-every generated goal is realizable while the degenerate "latch every
-button" policy is not a solution, the hidden charge is genuinely delayed
-and genuinely hidden under partial observability, and the shared push
-skill can operate every button.
+Covers the properties the domain rests on: the discrete hypothesis space
+is well formed (distinct drives, canonical conditions), every generated
+goal is realizable while the degenerate "latch every button" policy is
+not a solution, the arming latch makes press order matter, an inhibitor
+blocks its lamp, the breaker trips on overload and closes on a power
+cycle, the hidden charge is genuinely delayed and genuinely hidden under
+partial observability, the ground-truth simulator reproduces the env,
+and the shared push skill can operate every button.
 """
 # pylint: disable=protected-access
 from __future__ import annotations
@@ -55,126 +58,302 @@ def _env_module():
     return _make_env()
 
 
-def test_legal_pairs_are_canonical_and_distinct(env_module):
-    """The per-lamp hypothesis space is B plain drives plus B-choose-2
-    conjunctive ones, with no duplicate under the symmetry of AND."""
+def _hold(env) -> Action:
+    return Action(np.array(env._pybullet_robot.get_joints(), dtype=np.float32))
+
+
+def _run(env, action: Action, steps: int) -> None:
+    for _ in range(steps):
+        env.step(action)
+
+
+def test_legal_conditions_are_distinct_and_canonical(env_module):
+    """The per-lamp hypothesis space is every driver times the subsets of at
+    most two other buttons, driver and enablers distinct, enablers sorted."""
     mod, _ = env_module
-    for num_buttons in (2, 3, 4, 5):
+    for num_buttons in (2, 3, 4, 8):
+        conds = mod.legal_conditions(num_buttons)
+        assert len(conds) == len(set(conds))
+        others = num_buttons - 1
+        expected = num_buttons * (1 + others + others * (others - 1) // 2)
+        assert len(conds) == expected
+        for cond in conds:
+            assert cond == cond.canonical()
+            assert cond.driver not in cond.enablers
+            assert list(cond.enablers) == sorted(cond.enablers)
+            assert cond.inhibitor == mod.NO_BUTTON
+        # The one-enabler slice, as pairs, for older callers.
         pairs = mod.legal_pairs(num_buttons)
-        assert len(pairs) == len(set(pairs))
-        assert len(pairs) == num_buttons + num_buttons * (num_buttons - 1) // 2
-        for driver, enabler in pairs:
-            # Conjunctive pairs are stored low-index-first, so the two
-            # labellings of one condition are never separate hypotheses.
-            assert mod.canonical_pair(driver, enabler) == (driver, enabler)
-            if enabler != mod.NO_ENABLER:
-                assert driver < enabler
+        assert len(pairs) == num_buttons * num_buttons
+    # Canonical form drops a button that is both driver and enabler or
+    # both in the drive and the inhibitor slot, and orders the enablers.
+    cond = mod.Condition(2, (3, 2, 1), 3).canonical()
+    assert cond == mod.Condition(2, (1, 3), mod.NO_BUTTON)
+    assert str(mod.Condition(0, (2, ), 1)) == "b0 & b2 & not b1"
+    # Metrics round-trip.
+    metrics = mod.Condition(4, (1, 2), 5).to_metrics(3)
+    assert mod.Condition.from_metrics(metrics,
+                                      3) == mod.Condition(4, (1, 2), 5)
 
 
-def test_wiring_conditions_are_distinct_at_every_board_size(env_module):
-    """No two lamps share a drive condition.
+def test_wiring_drives_are_distinct_at_every_board_size(env_module):
+    """No two lamps share a drive.
 
-    Identically wired lamps could not be separated by any experiment,
+    Identically driven lamps could not be separated by any experiment,
     nor asked for by any goal, so the projection onto smaller boards
     must never collapse two of them together.
     """
     mod, _ = env_module
-    for num_buttons in (3, 4, 5, 6):
+    for num_buttons in (3, 4, 6, 8):
         for num_lamps in (1, 2, 3, 4):
-            driver, enabler = mod.canonical_wiring(num_buttons, num_lamps)
-            conditions = [
-                mod.canonical_pair(d, e) for d, e in zip(driver, enabler)
-            ]
-            assert len(set(conditions)) == len(conditions)
-            for d, e in zip(driver, enabler):
-                assert 0 <= d < num_buttons
-                assert e == mod.NO_ENABLER or 0 <= e < num_buttons
-                assert e != d
+            wiring = mod.canonical_wiring(num_buttons, num_lamps)
+            keys = [c.drive_key() for c in wiring]
+            assert len(set(keys)) == len(keys)
+            for cond in wiring:
+                assert cond == cond.canonical()
+                assert all(0 <= b < num_buttons for b in cond.buttons)
+                assert len(cond.enablers) <= mod.MAX_ENABLERS
 
 
 def test_every_goal_is_realizable_and_needs_some_lamp_dark(env_module):
     """Generated goals are achievable, and never solved by latching all."""
-    _, env = env_module
+    mod, env = env_module
+    from predicators.settings import \
+        CFG  # pylint: disable=import-outside-toplevel
     tasks = env._generate_train_tasks() + env._generate_test_tasks()
     assert tasks
     for task in tasks:
         metrics = task.offline_task_metrics
         num_lamps = int(metrics["wiring_num_lamps"])
         num_buttons = int(metrics["wiring_num_buttons"])
-        driver = [int(metrics[f"wiring_driver_{i}"]) for i in range(num_lamps)]
-        enabler = [
-            int(metrics[f"wiring_enabler_{i}"]) for i in range(num_lamps)
+        wiring = [
+            mod.Condition.from_metrics(metrics, i) for i in range(num_lamps)
         ]
         want = {
             atom.objects[0].name: atom.predicate.name == "LampOn"
             for atom in task.goal_description
         }
-        target = [want[f"lamp{i}"] for i in range(num_lamps)]
-
-        assert tuple(target) in set(
-            env._realizable_targets(driver, enabler, num_buttons))
+        target = tuple(want[f"lamp{i}"] for i in range(num_lamps))
+        assert target in set(mod.realizable_targets(wiring, num_buttons))
+        assert sum(target) <= CFG.busyboard_breaker_limit
         # With more than one lamp, some lamp must be dark - otherwise
         # turning every button on would solve the task without knowing
         # anything about the board.
         if num_lamps >= 2:
             assert not all(target)
-        all_on = [True] * num_buttons
-        latch_everything = [
-            env._driven(all_on, d, e) for d, e in zip(driver, enabler)
-        ]
+        # Pressing everything in board order either trips the breaker
+        # or lights the wrong set.
+        driven, max_driven = mod.press_sequence_outcome(
+            wiring, list(range(num_buttons)), latch=True)
         if num_lamps >= 2:
-            assert latch_everything != target
+            assert max_driven > CFG.busyboard_breaker_limit or \
+                driven != target
 
 
-def test_charge_is_delayed_and_conjunctive(env_module):
-    """A lamp lights only after a sustained drive, and an interlocked lamp
-    ignores its driver until the enabler is on too."""
+def test_latch_makes_press_order_a_hypothesis(env_module):
+    """Two lamps on the same two buttons in opposite roles are different
+    hypotheses: with the latch, either one can be lit alone, and the goal
+    sampler knows it; without the latch nothing separates them."""
+    mod, _ = env_module
+    from predicators.settings import \
+        CFG  # pylint: disable=import-outside-toplevel
+    wiring = [mod.Condition(0, (1, )), mod.Condition(1, (0, ))]
+    assert mod.press_sequence_outcome(wiring, [1, 0], True)[0] == \
+        (True, False)
+    assert mod.press_sequence_outcome(wiring, [0, 1], True)[0] == \
+        (False, True)
+    assert mod.press_sequence_outcome(wiring, [0, 1], False)[0] == \
+        (True, True)
+    assert set(mod.realizable_targets(wiring, 2)) == {(True, False),
+                                                      (False, True)}
+    CFG.busyboard_latch = False
+    assert not mod.realizable_targets(wiring, 2)
+    CFG.busyboard_latch = True
+    # An inhibitor and the breaker shape the set too: a sole lamp with an
+    # inhibitor can be kept dark only by pressing it, and three drivable
+    # lamps cannot all be lit at once under a limit of two.
+    wiring = [
+        mod.Condition(0, (), 3),
+        mod.Condition(1, (0, )),
+        mod.Condition(2, (0, ))
+    ]
+    targets = set(mod.realizable_targets(wiring, 4))
+    assert (False, True, True) in targets
+    assert (True, True, False) in targets
+    assert all(sum(t) <= 2 for t in targets)
+    CFG.busyboard_breaker_limit = 0
+    assert (True, True, True) not in set(mod.realizable_targets(wiring, 4))
+    CFG.busyboard_breaker_limit = 2
+
+
+def test_charge_is_delayed_conjunctive_and_latched(env_module):
+    """A lamp lights only after a sustained drive, only once its enablers were
+    on when its driver was pressed, and darkens when the drive is lost."""
     mod, env = env_module
     env._generate_train_tasks()
     env.reset("train", 0)
     lamps = env._lamps[:env._num_active_lamps]
     buttons = env._buttons[:env._num_active_buttons]
-    hold = Action(np.array(env._pybullet_robot.get_joints(), dtype=np.float32))
+    hold = _hold(env)
 
-    # Pick a lamp with an interlock if this board has one.
-    idx = next((i for i, e in enumerate(env._enabler) if e != mod.NO_ENABLER),
-               None)
-    if idx is not None:
-        # Driver alone: no charge accumulates at all.
-        env._set_button_on(buttons[env._driver[idx]], True)
-        for _ in range(40):
-            env.step(hold)
-        assert env._charges[lamps[idx].name] == 0.0
+    idx = next(i for i, c in enumerate(env._wiring) if c.enablers)
+    cond = env._wiring[idx]
+    lamp = lamps[idx]
 
-        # Adding the enabler starts the accumulation, but the lamp stays
-        # visibly dark well past the point where it is already charging.
-        env._set_button_on(buttons[env._enabler[idx]], True)
-        for _ in range(10):
-            env.step(hold)
-        state = env._get_state()
-        assert env._charges[lamps[idx].name] > 0.0
-        assert float(state.get(lamps[idx], "brightness")) == 0.0
-        assert not env._LampOn_holds(state, [lamps[idx]])
+    # Driver first: nothing, even with every enabler on afterwards.
+    env._set_button_on(buttons[cond.driver], True)
+    _run(env, hold, 5)
+    for e in cond.enablers:
+        env._set_button_on(buttons[e], True)
+    _run(env, hold, 60)
+    assert env._charges[lamp.name] == 0.0
+    assert not env._armed[lamp.name]
+    assert float(env._get_state().get(lamp, "armed")) == 0.0
 
-        # Held long enough, it lights.
-        for _ in range(60):
-            env.step(hold)
-        state = env._get_state()
-        assert env._LampOn_holds(state, [lamps[idx]])
+    # Re-pressing the driver with the enablers on arms it; the charge
+    # builds while the lamp stays visibly dark, then it lights.
+    env._set_button_on(buttons[cond.driver], False)
+    _run(env, hold, 3)
+    env._set_button_on(buttons[cond.driver], True)
+    _run(env, hold, 10)
+    state = env._get_state()
+    assert env._armed[lamp.name]
+    assert float(state.get(lamp, "armed")) == 1.0
+    assert env._charges[lamp.name] > 0.0
+    assert float(state.get(lamp, "brightness")) == 0.0
+    assert not env._LampOn_holds(state, [lamp])
+    _run(env, hold, 60)
+    state = env._get_state()
+    assert env._LampOn_holds(state, [lamp])
 
-        # Dropping the enabler puts it out again, and faster.
-        env._set_button_on(buttons[env._enabler[idx]], False)
-        for _ in range(25):
-            env.step(hold)
-        state = env._get_state()
-        assert env._LampOff_holds(state, [lamps[idx]])
-        assert env._charges[lamps[idx].name] == 0.0
+    # Dropping an enabler puts it out again, and faster; the latch holds
+    # until the driver itself goes off.
+    env._set_button_on(buttons[cond.enablers[0]], False)
+    _run(env, hold, 25)
+    state = env._get_state()
+    assert env._LampOff_holds(state, [lamp])
+    assert env._charges[lamp.name] == 0.0
+    assert env._armed[lamp.name]
+    env._set_button_on(buttons[cond.driver], False)
+    _run(env, hold, 2)
+    assert not env._armed[lamp.name]
+    del mod
 
 
-def test_charge_is_hidden_under_partial_observability():
-    """PO mode drops charge from the observation but keeps the readout."""
+def test_inhibitor_blocks_its_lamp(env_module):
+    """A lamp with an inhibitor charges only while that button is off."""
+    mod, env = env_module
+    env._generate_train_tasks()
+    env._generate_test_tasks()
+    for split, count in (("train", 3), ("test", 3)):
+        for task_idx in range(count):
+            env.reset(split, task_idx)
+            inhibited = [
+                i for i, c in enumerate(env._wiring)
+                if c.inhibitor != mod.NO_BUTTON
+            ]
+            if inhibited:
+                break
+        if inhibited:
+            break
+    assert inhibited, "the seed-0 boards have an inhibited lamp"
+    idx = inhibited[0]
+    cond = env._wiring[idx]
+    lamp = env._lamps[idx]
+    buttons = env._buttons[:env._num_active_buttons]
+    hold = _hold(env)
+    for e in cond.enablers:
+        env._set_button_on(buttons[e], True)
+    _run(env, hold, 3)
+    env._set_button_on(buttons[cond.driver], True)
+    _run(env, hold, 20)
+    charged = env._charges[lamp.name]
+    assert charged > 0.0
+    env._set_button_on(buttons[cond.inhibitor], True)
+    _run(env, hold, 25)
+    assert env._charges[lamp.name] == 0.0
+    assert env._armed[lamp.name]  # the latch is untouched by the inhibitor
+    env._set_button_on(buttons[cond.inhibitor], False)
+    _run(env, hold, 20)
+    assert env._charges[lamp.name] > 0.0
+
+
+def test_breaker_trips_on_overload_and_closes_on_power_cycle(env_module):
+    """Driving more lamps than the limit trips the breaker: every charge drops,
+    nothing charges, the tile reads tripped; releasing every button closes it
+    again."""
+    mod, env = env_module
+    from predicators.settings import \
+        CFG  # pylint: disable=import-outside-toplevel
+    env._generate_test_tasks()
+    env.reset("test", 0)
+    wiring = env._wiring
+    num_buttons = env._num_active_buttons
+    buttons = env._buttons[:num_buttons]
+    lamps = env._lamps[:env._num_active_lamps]
+    hold = _hold(env)
+    # A press order that drives two lamps (a realizable target) ...
+    target = next(t for t in mod.realizable_targets(wiring, num_buttons)
+                  if sum(t) == 2)
+    order = None
+    for mask in range(1 << num_buttons):
+        on = [b for b in range(num_buttons) if mask >> b & 1]
+        drivable = [c for c in wiring if all(b in on for b in c.drive_set)]
+        ordered = sorted({b for c in drivable for b in c.drive_set})
+        rest = [b for b in on if b not in ordered]
+        from itertools import \
+            permutations  # pylint: disable=import-outside-toplevel
+        for perm in permutations(ordered):
+            seq = rest + list(perm)
+            driven, max_driven = mod.press_sequence_outcome(wiring, seq, True)
+            if driven == target and max_driven <= 2:
+                order = seq
+                break
+        if order is not None:
+            break
+    assert order is not None
+    for b in order:
+        env._set_button_on(buttons[b], True)
+        _run(env, hold, 3)
+    _run(env, hold, 30)
+    assert not env._tripped
+    assert [env._charges[l.name] > 0 for l in lamps] == list(target)
+
+    # ... overloads the breaker once the limit is one.
+    CFG.busyboard_breaker_limit = 1
+    _run(env, hold, 2)
+    assert env._tripped
+    state = env._get_state()
+    breaker = next(o for o in state if o.type.name == "breaker")
+    assert env._BreakerTripped_holds(state, [breaker])
+    assert all(env._charges[l.name] == 0.0 for l in lamps)
+    assert not any(env._armed[l.name] for l in lamps)
+    # Nothing charges while tripped, whatever the buttons say.
+    _run(env, hold, 40)
+    assert all(env._charges[l.name] == 0.0 for l in lamps)
+    # A power cycle closes it.
+    for b in order:
+        env._set_button_on(buttons[b], False)
+    _run(env, hold, 2)
+    assert not env._tripped
+    state = env._get_state()
+    assert env._BreakerClosed_holds(state, [breaker])
+    CFG.busyboard_breaker_limit = 2
+    # The state round-trips the breaker: a restored tripped board stays
+    # tripped until its buttons are released.
+    tripped_state = state.copy()
+    tripped_state.set(breaker, "tripped", 1.0)
+    env._set_state(tripped_state)
+    assert env._tripped
+    assert float(env._get_state().get(breaker, "tripped")) == 1.0
+
+
+def test_charge_and_latch_are_hidden_under_partial_observability():
+    """PO mode drops charge and the latch from the observation but keeps the
+    readout and the breaker."""
     _, env = _make_env(partially_observable=True)
     assert "charge" not in env._lamp_type.feature_names
+    assert "armed" not in env._lamp_type.feature_names
     assert "brightness" in env._lamp_type.feature_names
     env._generate_train_tasks()
     env.reset("train", 0)
@@ -182,6 +361,21 @@ def test_charge_is_hidden_under_partial_observability():
     lamp = env._lamps[0]
     with pytest.raises(Exception):
         state.get(lamp, "charge")
+    with pytest.raises(Exception):
+        state.get(lamp, "armed")
+    breaker = next(o for o in state if o.type.name == "breaker")
+    assert float(state.get(breaker, "tripped")) == 0.0
+    # Restoring a PO state keeps the instance's own latch for a lamp
+    # whose driver is on, and clears it for one whose driver is off.
+    cond = env._wiring[0]
+    env._armed[lamp.name] = True
+    env._set_state(state)
+    assert not env._armed[lamp.name]
+    on_state = state.copy()
+    on_state.set(env._buttons[cond.driver], "is_on", 1.0)
+    env._armed[lamp.name] = True
+    env._set_state(on_state)
+    assert env._armed[lamp.name]
 
 
 def test_push_skill_operates_every_button(env_module):
@@ -196,12 +390,13 @@ def test_push_skill_operates_every_button(env_module):
     options = {o.name: o for o in get_gt_options("pybullet_busyboard")}
     assert set(options) == {"PressButton", "ReleaseButton", "Wait"}
 
-    env._generate_train_tasks()
-    env.reset("train", 0)
+    env._generate_test_tasks()
+    env.reset("test", 0)
     state = env._get_state()
     robot = next(o for o in state if o.type.name == "robot")
     buttons = sorted((o for o in state if o.type.name == "button"),
                      key=lambda o: o.name)
+    assert len(buttons) >= 7
 
     for name, want_on in (("PressButton", 1.0), ("ReleaseButton", 0.0)):
         for button in buttons:
@@ -222,12 +417,12 @@ def test_ground_truth_simulator_reproduces_the_env(env_module):
     The env applies its residual after the base sim has stepped, so it
     reads the button states an action ends with while a teacher-forced
     prediction reads the state the action starts from. The two therefore
-    differ by exactly one charge increment on the step a button latches,
-    and agree everywhere else.
+    differ on the step a button latches (by one charge increment, or by
+    the driver's edge landing a step apart) and agree everywhere else.
     """
-    _, env = env_module
+    mod, env = env_module
     # pylint: disable=import-outside-toplevel
-    from predicators.code_sim_learning.utils import apply_rules
+    from predicators.code_sim_learning.utils import apply_rules_with_latent
     from predicators.ground_truth_models import get_gt_options, \
         get_gt_simulator
 
@@ -243,14 +438,21 @@ def test_ground_truth_simulator_reproduces_the_env(env_module):
     robot = next(o for o in state if o.type.name == "robot")
     buttons = sorted((o for o in state if o.type.name == "button"),
                      key=lambda o: o.name)
+    # Enablers first, then the driver, so the lamp arms and charges.
+    cond = next(c for c in env._wiring if c.enablers)
+    press_order = [buttons[e] for e in cond.enablers] + [buttons[cond.driver]]
 
     steps = disagreements = 0
+    history = []
+    latent = {}
 
     def _step(action):
         nonlocal state, steps, disagreements
         steps += 1
         before = [float(state.get(b, "is_on")) for b in buttons]
-        predicted = apply_rules(state, rules, params)
+        predicted = apply_rules_with_latent(state, latent, history, rules,
+                                            params)
+        history.append((state, action))
         state = env.step(action)
         after = [float(state.get(b, "is_on")) for b in buttons]
         worst = max((abs(float(state.get(obj, feat)) - float(value))
@@ -259,12 +461,11 @@ def test_ground_truth_simulator_reproduces_the_env(env_module):
                     default=0.0)
         if worst > 1e-9:
             disagreements += 1
-            # Only ever at a latch step, and only ever by one increment.
+            # Only ever at a latch step.
             assert before != after
-            assert worst == pytest.approx(params["charge_rate"])
 
     press = options["PressButton"]
-    for button in buttons[:2]:
+    for button in press_order:
         option = press.ground([robot, button], _PUSH_PARAMS)
         option.initiable(state)
         for _ in range(300):
@@ -277,16 +478,20 @@ def test_ground_truth_simulator_reproduces_the_env(env_module):
         _step(wait.policy(state))
 
     assert steps > 100
-    assert disagreements <= len(buttons[:2])
+    assert disagreements <= 2 * len(press_order)
+    lamp = env._lamps[env._wiring.index(cond)]
+    assert float(state.get(lamp, "charge")) > 0.0
+    del mod
 
 
 def test_training_wiring_extends_to_every_test_board(env_module):
     """The core (training) board's wiring is a sub-relation of every board.
 
     What an agent learns about a lamp on the training board has to stay
-    true of that lamp on every test board, so a core lamp keeps its
-    drive condition verbatim at every size, and the lamps a bigger board
-    adds draw their driver from the buttons it adds.
+    true of that lamp on every test board while the added buttons stay
+    off, so a core lamp keeps its drive verbatim at every size and may
+    only gain an inhibitor among the added buttons; the lamps a bigger
+    board adds draw their driver from the buttons it adds.
     """
     mod, _ = env_module
     from predicators.settings import \
@@ -294,38 +499,47 @@ def test_training_wiring_extends_to_every_test_board(env_module):
     core_buttons, core_lamps = mod.core_board()
     assert (core_buttons, core_lamps) == (4, 3)
     # The board sizes the distribution produces: train, then test.
-    sizes = [(4, 3), (5, 4), (6, 4)]
+    sizes = [(4, 3), (7, 4), (8, 4)]
+    saw_extension_inhibitor = False
     for seed in range(5):
         CFG.seed = seed
-        core_driver, core_enabler = mod.canonical_wiring(
-            core_buttons, core_lamps)
-        assert all(0 <= d < core_buttons for d in core_driver)
-        assert all(e == mod.NO_ENABLER or 0 <= e < core_buttons
-                   for e in core_enabler)
+        core = mod.canonical_wiring(core_buttons, core_lamps)
+        for cond in core:
+            assert all(0 <= b < core_buttons for b in cond.buttons)
         for num_buttons, num_lamps in sizes:
-            driver, enabler = mod.canonical_wiring(num_buttons, num_lamps)
-            assert driver[:core_lamps] == core_driver
-            assert enabler[:core_lamps] == core_enabler
-            # Canonical form orders a pair by index, so the extension
-            # button may sit in either slot; what matters is that the
-            # condition involves a button the training board lacks.
-            for d, e in zip(driver[core_lamps:], enabler[core_lamps:]):
-                assert any(core_buttons <= b < num_buttons for b in (d, e))
+            wiring = mod.canonical_wiring(num_buttons, num_lamps)
+            for cond, core_cond in zip(wiring[:core_lamps], core):
+                assert cond.drive_key() == core_cond.drive_key()
+                if core_cond.inhibitor != mod.NO_BUTTON:
+                    assert cond.inhibitor == core_cond.inhibitor
+                elif cond.inhibitor != mod.NO_BUTTON:
+                    assert cond.inhibitor >= core_buttons
+                    saw_extension_inhibitor = True
+            for cond in wiring[core_lamps:]:
+                assert any(core_buttons <= b < num_buttons
+                           for b in cond.drive_set)
+    assert saw_extension_inhibitor
 
 
-def test_extension_lamps_are_only_ever_dark_targets(env_module):
-    """A lamp the training board never showed is never asked to be lit."""
+def test_extension_lamps_can_be_lit_targets_only_when_allowed(env_module):
+    """A lamp the training board never showed is a lit target at test only
+    under ``busyboard_test_extension_lit``."""
     mod, _ = env_module
-    _, env = _make_env(num_test_tasks=12)
     _, core_lamps = mod.core_board()
-    saw_extension_lamp = False
-    for task in env._generate_test_tasks():
-        for atom in task.goal_description:
-            lamp_idx = int(atom.objects[0].name[len("lamp"):])
-            if lamp_idx >= core_lamps:
-                saw_extension_lamp = True
-                assert atom.predicate.name == "LampOff"
-    assert saw_extension_lamp
+
+    def _extension_lit(env) -> bool:
+        for task in env._generate_test_tasks():
+            for atom in task.goal_description:
+                lamp_idx = int(atom.objects[0].name[len("lamp"):])
+                if lamp_idx >= core_lamps and \
+                        atom.predicate.name == "LampOn":
+                    return True
+        return False
+
+    _, env = _make_env(num_test_tasks=12, busyboard_test_extension_lit=True)
+    assert _extension_lit(env)
+    _, env = _make_env(num_test_tasks=12, busyboard_test_extension_lit=False)
+    assert not _extension_lit(env)
 
 
 def test_colours_are_distinct_and_stable(env_module):
@@ -347,6 +561,7 @@ def test_colours_are_distinct_and_stable(env_module):
         assert colours["button0"] == "red"
         assert colours["lamp0"] == "yellow"
         assert "the yellow lamp (lamp0)" in task.goal_nl
+    assert len(seen) >= 8 + 4
     # The live readout agrees with the task's init state.
     env.reset("train", 0)
     live = env._get_state()
@@ -358,7 +573,8 @@ def test_colours_are_distinct_and_stable(env_module):
 
 def test_test_goals_light_at_least_min_lit_lamps(env_module):
     """Test goals compose conditions: at least ``busyboard_min_lit_test`` lamps
-    lit, while train goals may ask for a single lamp."""
+    lit and never more than the breaker allows, while train goals may ask for a
+    single lamp."""
     del env_module  # only its config matters; this test builds its own env
     from predicators.settings import \
         CFG  # pylint: disable=import-outside-toplevel
@@ -371,18 +587,71 @@ def test_test_goals_light_at_least_min_lit_lamps(env_module):
 
     test_lit = [_num_lit(t) for t in env._generate_test_tasks()]
     assert min(test_lit) >= CFG.busyboard_min_lit_test
+    assert max(test_lit) <= CFG.busyboard_breaker_limit
     train_lit = [_num_lit(t) for t in env._generate_train_tasks()]
     assert min(train_lit) >= CFG.busyboard_min_lit_train
     assert 1 in train_lit, "training still has single-lamp goals"
 
-    # The filter itself, on a hand-built board: lamps needing {0,1} and
-    # {2,3} can be lit together (mask 0b1111 lights both), and a third
-    # lamp needing {0,2} makes "both of the first two, third dark"
-    # impossible, so with min_lit=2 the only targets light lamp 2 too or
-    # pair it with one of the others.
-    driver, enabler = [0, 2, 0], [1, 3, 2]
-    with_min = set(env._realizable_targets(driver, enabler, 4, min_lit=2))
-    assert with_min
-    assert all(sum(t) >= 2 for t in with_min)
-    assert with_min < set(env._realizable_targets(driver, enabler, 4))
-    assert (True, True, True) not in with_min, "all lit is trivial"
+
+def test_oracle_helper_predicates_and_processes(env_module):
+    """The oracle's wiring predicates read the board's conditions off any
+    state, the derived predicates follow the atoms, and the process model
+    builds."""
+    mod, env = env_module
+    # pylint: disable=import-outside-toplevel
+    from predicators.ground_truth_models import get_gt_helper_predicates, \
+        get_gt_options, get_gt_processes
+    from predicators.structs import GroundAtom
+
+    # pylint: enable=import-outside-toplevel
+    helpers = {
+        p.name: p
+        for p in get_gt_helper_predicates("pybullet_busyboard")
+    }
+    env._generate_test_tasks()
+    env.reset("test", 0)
+    state = env._get_state()
+    preds = set(env.predicates) | set(helpers.values())
+    atoms = utils.abstract(state, preds)
+    buttons = env._buttons[:env._num_active_buttons]
+    lamps = env._lamps[:env._num_active_lamps]
+    for i, cond in enumerate(env._wiring):
+        assert GroundAtom(helpers["Drives"],
+                          [buttons[cond.driver], lamps[i]]) in atoms
+        for e in cond.enablers:
+            assert GroundAtom(helpers["Enables"],
+                              [buttons[e], lamps[i]]) in atoms
+        if cond.inhibitor != mod.NO_BUTTON:
+            assert GroundAtom(helpers["Inhibits"],
+                              [buttons[cond.inhibitor], lamps[i]]) in atoms
+        assert GroundAtom(helpers["Disarmed"], [lamps[i]]) in atoms
+        assert GroundAtom(helpers["Undriven"], [lamps[i]]) in atoms
+        assert GroundAtom(helpers["Uninhibited"], [lamps[i]]) in atoms
+        assert (GroundAtom(helpers["Enabled"], [lamps[i]]) in atoms) == \
+            (not cond.enablers)
+    assert GroundAtom(helpers["AllButtonsOff"], []) in atoms
+    assert GroundAtom(helpers["Overloaded"], []) not in atoms
+    assert not any(a.predicate.name == "JustPressed" for a in atoms)
+
+    # Drive a lamp for real: Armed, Enabled and Driven follow.
+    cond = env._wiring[0]
+    hold = _hold(env)
+    for e in cond.enablers:
+        env._set_button_on(buttons[e], True)
+    _run(env, hold, 2)
+    env._set_button_on(buttons[cond.driver], True)
+    _run(env, hold, 2)
+    atoms = utils.abstract(env._get_state(), preds)
+    assert GroundAtom(helpers["Armed"], [lamps[0]]) in atoms
+    assert GroundAtom(helpers["Enabled"], [lamps[0]]) in atoms
+    assert GroundAtom(helpers["Driven"], [lamps[0]]) in atoms
+    assert GroundAtom(helpers["Undriven"], [lamps[0]]) not in atoms
+    assert GroundAtom(helpers["AllButtonsOff"], []) not in atoms
+
+    options = set(get_gt_options("pybullet_busyboard"))
+    processes = get_gt_processes("pybullet_busyboard", preds, options)
+    names = {p.name for p in processes}
+    assert {
+        "PressButton", "ReleaseButton", "Wait", "ClearPressed", "ArmLamp",
+        "DisarmLamp", "LightLamp", "DarkenLamp", "TripBreaker", "ResetBreaker"
+    } <= names

@@ -133,6 +133,25 @@ def _describe_git_revision() -> str:
 
 # ── Approach ─────────────────────────────────────────────────────
 
+# The allowlist value that keeps no env predicate at all: an empty list
+# means "not set" (keep the class default), so "none" is the explicit
+# spelling of an empty vocabulary.
+NO_KEPT_PREDICATES = "none"
+
+
+def resolve_kept_predicate_names(
+        default: Optional[FrozenSet[str]]) -> Optional[FrozenSet[str]]:
+    """Names of the env predicates an agent starts with: the CFG allowlist
+    ``agent_sim_learn_kept_predicates_names`` when non-empty (``["none"]``
+    keeps none), else ``default`` (``None`` = every env predicate)."""
+    override = getattr(CFG, "agent_sim_learn_kept_predicates_names", None)
+    if override:
+        names = frozenset(override)
+        if names == {NO_KEPT_PREDICATES}:
+            return frozenset()
+        return names
+    return default
+
 
 class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
     """Bilevel planning with a learned step-level simulator.
@@ -281,7 +300,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # base_pred_triples back into per-trajectory chunks (latent
         # threads within a trajectory, not across).
         self._fit_trajectories: List[LowLevelTrajectory] = []
-        # System identification: PHYSICAL_PARAMS export (agent-declared
+        # System identification: PHYSICAL_PARAM_SPECS export (agent-declared
         # sparse subset of self._base_env.get_physical_param_info()),
         # identified values applied in place to the base env. The rollout
         # fit itself builds a fresh headless env per rollout (see
@@ -351,11 +370,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
 
         The CFG flag overrides the class default.
         """
-        cfg_override = getattr(CFG, "agent_sim_learn_kept_predicates_names",
-                               None)
-        if cfg_override:
-            return frozenset(cfg_override)
-        return self.KEPT_INITIAL_PREDICATE_NAMES
+        return resolve_kept_predicate_names(self.KEPT_INITIAL_PREDICATE_NAMES)
 
     def _compute_kept_initial_predicates(self) -> Set[Predicate]:
         """Apply the allowlist, then closure-strip derived predicates.
@@ -1754,9 +1769,9 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
 
         Returns ``(rules, specs, residual_features)`` or None when no
         loadable simulator exists. The optional LATENT_INIT /
-        PHYSICAL_PARAMS side exports are recorded on ``self`` before the
-        loadability check, so they are picked up even from an artifact
-        whose rules fail to load.
+        PHYSICAL_PARAM_SPECS side exports are recorded on ``self``
+        before the loadability check, so they are picked up even from an
+        artifact whose rules fail to load.
         """
         final_sim_tag = finalize_versioned_snapshot(
             paths.simulator_file,
@@ -1776,7 +1791,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # leaves every latent path dormant.
         self._latent_init = (read_latent_init(sim_ns) if isinstance(
             sim_ns, dict) else None)
-        # Optional PHYSICAL_PARAMS export: base-sim parameters to
+        # Optional PHYSICAL_PARAM_SPECS export: base-sim parameters to
         # identify jointly with the rule params (system ID). The fit
         # scale (log vs linear) is stamped from the env registry; agents
         # copy name/init/bounds but need not know about it.
@@ -2107,7 +2122,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                           label="oracle")
         return sse
 
-    # ── System identification (PHYSICAL_PARAMS) support ──────────
+    # ── System identification (PHYSICAL_PARAM_SPECS) support ──────────
 
     def _get_rollout_fit_env(self) -> Any:
         """Factory for the headless envs the rollout fit rolls out in.
@@ -2249,11 +2264,11 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
 
         The applied set exactly mirrors ``identified``: params applied
         by an earlier fit but absent here (e.g. dropped from a later
-        artifact's PHYSICAL_PARAMS) are reverted to the env's registry
-        defaults, because the env-side override is sticky per param and
-        a stale value from a superseded fit would otherwise silently
-        keep steering the planner. The override survives resets but not
-        env recreation; ``_recreate_base_env`` re-applies from
+        artifact's PHYSICAL_PARAM_SPECS) are reverted to the env's
+        registry defaults, because the env-side override is sticky per
+        param and a stale value from a superseded fit would otherwise
+        silently keep steering the planner. The override survives resets
+        but not env recreation; ``_recreate_base_env`` re-applies from
         ``self._identified_physical_params``.
         """
         stale = set(self._identified_physical_params) - set(identified)
@@ -2288,7 +2303,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
     ) -> Tuple[FitResult, float]:
         """Joint physical+rule fit against free-running base-sim rollouts.
 
-        Reached when the artifact declares ``PHYSICAL_PARAMS``. Consumes
+        Reached when the artifact declares ``PHYSICAL_PARAM_SPECS``. Consumes
         the RAW observed trajectories rather than ``base_pred_triples``:
         physical parameters only manifest when momentum free-runs, which
         the teacher-forced triples destroy (``State`` has no
@@ -2633,7 +2648,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                 f"- physical param '{name}': {label}. An experiment whose "
                 "observable outcome CHANGES when this parameter changes "
                 "would identify it; if none exists, drop it from "
-                "PHYSICAL_PARAMS.")
+                "PHYSICAL_PARAM_SPECS.")
         self._last_sysid_diagnostics = ("\n".join(lines) if lines else "")
 
     def _sync_tool_context(self) -> None:
@@ -3138,7 +3153,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             return None, None, None, None
 
         rules, specs, features = read_simulator_components(ns)
-        # A physics-only artifact (PHYSICAL_PARAMS with no residual rules)
+        # A physics-only artifact (PHYSICAL_PARAM_SPECS with no residual rules)
         # is valid: the base sim carries all the dynamics once its
         # parameters are identified, so rules/specs default to empty.
         physics_only = read_physical_param_specs(ns) is not None
@@ -3481,7 +3496,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         ``CFG.partially_observable``, which also swaps the env's
         observation and the GT simulator module, so prompt and world
         never disagree; under the flag only the recurrent 5-arg form is
-        shown), the optional PHYSICAL_PARAMS section (env parameter
+        shown), the optional PHYSICAL_PARAM_SPECS section (env parameter
         menu), the scene-visualization hint, and the subclass extras.
         """
         return learn_prompts.build_learn_system_prompt(
@@ -3519,7 +3534,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                 "positions where the effect did vs. did not fire")
 
     def _physical_params_prompt_section(self) -> str:
-        """Markdown for the optional PHYSICAL_PARAMS (system-ID) block.
+        """Markdown for the optional PHYSICAL_PARAM_SPECS (system-ID) block.
 
         Built from the base env's revealed parameter menu
         (``get_physical_param_info``); empty when the env reveals none,
@@ -3543,6 +3558,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         doesn't contradict it.
         """
         if CFG.partially_observable:
+            # The example's body reads `state`; bind it so the recurrent
+            # form is a runnable rule, not a signature over a foreign name.
             return ("def residual_rule(observation, latent, history, "
-                    "updates, params):")
+                    "updates, params):\n    state = observation")
         return "def residual_rule(state, updates, params):"

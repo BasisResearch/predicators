@@ -249,6 +249,10 @@ def _gluing(observation: State, latent: Dict[str, Any], history: History,
                 attached[f"{mate.name}|{mate_slot}"] = blk.name
                 glue_next[blk][face] = 0.0
                 cures.pop(key, None)
+                if mate_slot in GLUE_FACES:
+                    # The env consumes a wet mate face with the joint.
+                    glue_next[mate][mate_slot] = 0.0
+                    cures.pop(f"{mate.name}|{mate_slot}", None)
 
     for blk in blocks:
         for face in GLUE_FACES:

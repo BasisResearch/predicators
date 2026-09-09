@@ -33,6 +33,7 @@ of the normal ``AgentSessionManager``::
     responses = await manager.query("Solve this task...")
     await manager.close()
 """
+import asyncio
 import datetime
 import logging
 import os
@@ -49,6 +50,11 @@ from predicators.agent_sdk.session_base import SandboxSessionManagerBase, \
 from predicators.agent_sdk.tools import ToolContext, session_log_filename
 
 logger = logging.getLogger(__name__)
+
+# The CLI's wall-clock limit per MCP tool call, in milliseconds, unless
+# the environment sets MCP_TOOL_TIMEOUT: six hours, room for a learning
+# session run inside one tool call.
+MCP_TOOL_TIMEOUT_MS = 6 * 3600 * 1000
 
 # Grace period past the solve-attempt deadline before interrupting a
 # still-streaming agent turn (cooperative tool refusals normally end
@@ -130,8 +136,15 @@ class LocalSandboxSessionManager(SandboxSessionManagerBase):
             setting_sources=["project", "local"],
             hooks=extra_hooks,
             # Every python the agent starts loads the sandbox's
-            # sitecustomize guard (sandbox_setup.write_pyguard).
-            env=pyguard_env(self._sandbox_dir),
+            # sitecustomize guard (sandbox_setup.write_pyguard); a
+            # single run_python call may fit a model or run a rollout
+            # sweep, so the CLI's per-call tool timeout is raised.
+            env={
+                "MCP_TOOL_TIMEOUT":
+                os.environ.get("MCP_TOOL_TIMEOUT", str(MCP_TOOL_TIMEOUT_MS)),
+                **pyguard_env(self._sandbox_dir),
+            },
+            resume=self.resume_session_id,
         )
 
         self._client = ClaudeSDKClient(options=options)
@@ -189,13 +202,34 @@ class LocalSandboxSessionManager(SandboxSessionManagerBase):
             except Exception as e:  # pylint: disable=broad-except
                 logger.warning("Interrupt failed: %s", e)
 
-        collected = await self._run_streamed_query(
-            message,
-            log_path=log_path,
-            kind=kind,
-            on_entry=_maybe_interrupt_on_deadline)
+        async def _on_entry(entry: Dict[str, Any]) -> None:
+            # The context counters behind the play tools' [context] line.
+            self._tool_context.note_stream_entry(entry)
+            await _maybe_interrupt_on_deadline(entry)
+
+        collected = await self._run_streamed_query(message,
+                                                   log_path=log_path,
+                                                   kind=kind,
+                                                   on_entry=_on_entry)
+        await self._note_context_window()
 
         return collected
+
+    async def _note_context_window(self) -> None:
+        """Record the context window size the CLI reports, once per run: the
+        play tools show the conversation's size against it."""
+        ctx = self._tool_context
+        if ctx.context_window_tokens is not None or self._client is None:
+            return
+        try:
+            usage = await asyncio.wait_for(self._client.get_context_usage(),
+                                           timeout=15.0)
+        except Exception as e:  # pylint: disable=broad-except
+            logger.debug("get_context_usage failed: %s", e)
+            return
+        max_tokens = int((usage or {}).get("maxTokens") or 0)
+        if max_tokens > 0:
+            ctx.context_window_tokens = max_tokens
 
     def _session_info_extras(self) -> Dict[str, Any]:
         """Extra session-info keys: manager type + sandbox location."""

@@ -92,7 +92,7 @@ def build_candidate_option_model(
             # teacher-forced objectives below cannot see them; fit
             # against free-running rollouts instead (the same routing
             # sim.fit uses). The joint fit also covers any declared
-            # PHYSICAL_PARAMS, which _load_simulator_from_module_file
+            # PHYSICAL_PARAM_SPECS, which _load_simulator_from_module_file
             # published onto the approach before this runs.
             fit_result, fit_sse = approach._fit_parameters_joint_rollout(
                 rules, specs, residual_features)

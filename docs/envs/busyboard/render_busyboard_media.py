@@ -41,8 +41,9 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from predicators import utils
-from predicators.envs.pybullet_busyboard import NO_ENABLER, \
-    PyBulletBusyBoardEnv, canonical_wiring, core_board
+from predicators.envs.pybullet_busyboard import NO_BUTTON, Condition, \
+    PyBulletBusyBoardEnv, canonical_wiring, core_board, \
+    press_sequence_outcome, realizable_targets
 from predicators.ground_truth_models import get_gt_options
 from predicators.settings import CFG
 from predicators.structs import EnvironmentTask, State
@@ -101,12 +102,13 @@ def _font(paths: Sequence[str], size: int) -> Any:
 # ── Board bookkeeping ────────────────────────────────────────────
 
 
-def _wiring(task: EnvironmentTask) -> List[Tuple[int, int]]:
-    """The task's true (driver, enabler) per lamp, from its oracle metrics."""
+def _wiring(task: EnvironmentTask) -> List[Condition]:
+    """The task's true condition per lamp, from its oracle metrics."""
     metrics = task.offline_task_metrics
-    return [(int(metrics[f"wiring_driver_{i}"]),
-             int(metrics[f"wiring_enabler_{i}"]))
-            for i in range(int(metrics["wiring_num_lamps"]))]
+    return [
+        Condition.from_metrics(metrics, i)
+        for i in range(int(metrics["wiring_num_lamps"]))
+    ]
 
 
 def _target(task: EnvironmentTask, num_lamps: int) -> List[bool]:
@@ -120,20 +122,31 @@ def _target(task: EnvironmentTask, num_lamps: int) -> List[bool]:
 
 def _solving_buttons(env: PyBulletBusyBoardEnv, task: EnvironmentTask,
                      num_buttons: int) -> List[int]:
-    """The button set that realizes the goal exactly.
+    """A press sequence that realizes the goal exactly.
 
-    Exhaustive over the 2**num_buttons settings - this is the oracle, so
-    it reads the answer off the true wiring rather than inferring it.
+    Exhaustive over the button settings and, under the latch, the press
+    orders of the buttons that matter - this is the oracle, so it reads
+    the answer off the true wiring rather than inferring it. Enablers
+    come before their drivers in the sequence returned.
     """
+    del env  # the rule is the env's; press_sequence_outcome carries it
+    from itertools import \
+        permutations  # pylint: disable=import-outside-toplevel
     wiring = _wiring(task)
-    target = _target(task, len(wiring))
+    target = tuple(_target(task, len(wiring)))
+    limit = int(CFG.busyboard_breaker_limit)
     for mask in range(1 << num_buttons):
-        on = [bool(mask >> b & 1) for b in range(num_buttons)]
-        if all(
-                env._driven(on, d, e) == t  # pylint: disable=protected-access
-                for (d, e), t in zip(wiring, target)):
-            return [b for b in range(num_buttons) if on[b]]
-    raise RuntimeError("Goal is unrealizable, which task generation forbids.")
+        on = [b for b in range(num_buttons) if mask >> b & 1]
+        drivable = [c for c in wiring if all(b in on for b in c.drive_set)]
+        ordered = sorted({b for c in drivable for b in c.drive_set})
+        rest = [b for b in on if b not in ordered]
+        for order in permutations(ordered):
+            seq = rest + list(order)
+            driven, max_driven = press_sequence_outcome(
+                wiring, seq, bool(CFG.busyboard_latch))
+            if driven == target and (not limit or max_driven <= limit):
+                return seq
+    raise RuntimeError("the goal has no solving press sequence")
 
 
 def _bname(button_idx: int) -> str:
@@ -150,12 +163,13 @@ def _lname(lamp_idx: int) -> str:
             f"lamp{lamp_idx}")
 
 
-def _condition_str(driver: int, enabler: int) -> str:
-    """Human-readable drive condition, e.g. ``green b1 AND blue b2``."""
-    if enabler == NO_ENABLER:
-        return _bname(driver)
-    lo, hi = min(driver, enabler), max(driver, enabler)
-    return f"{_bname(lo)} AND {_bname(hi)}"
+def _condition_str(cond: Condition) -> str:
+    """Human-readable condition, e.g. ``green b1 AND blue b2 NOT red b0``, the
+    driver first."""
+    text = " AND ".join(_bname(b) for b in cond.drive_set)
+    if cond.inhibitor != NO_BUTTON:
+        text += f" NOT {_bname(cond.inhibitor)}"
+    return text
 
 
 # ── Annotation panel ─────────────────────────────────────────────
@@ -199,13 +213,13 @@ def _draw_panel(env: PyBulletBusyBoardEnv, state: State, task: EnvironmentTask,
 
     draw.text((x0, y), "HIDDEN WIRING  (never observed)", font=h2, fill=MUTED)
     y += 22
-    for i, (driver, enabler) in enumerate(wiring):
+    for i, cond in enumerate(wiring):
         draw.text((x0 + 6, y),
-                  f"{_lname(i)} <- {_condition_str(driver, enabler)}",
+                  f"{_lname(i)} <- {_condition_str(cond)}",
                   font=mono,
                   fill=INK)
         y += 19
-    driven_any = {b for d, e in wiring for b in (d, e) if b != NO_ENABLER}
+    driven_any = {b for cond in wiring for b in cond.buttons}
     decoys = [b.name for i, b in enumerate(buttons) if i not in driven_any]
     if decoys:
         draw.text((x0 + 6, y),
@@ -425,21 +439,25 @@ def _main() -> None:
     # The cast for the interlock and confound clips: a lamp with a
     # conjunctive drive, the two buttons it needs, and one button that is
     # irrelevant to it.
-    conj = next(i for i, (_, e) in enumerate(wiring) if e != NO_ENABLER)
-    lamp0_driver, lamp0_enabler = wiring[conj]
-    held = {lamp0_driver, lamp0_enabler}
+    conj = next(i for i, c in enumerate(wiring) if c.enablers)
+    lamp0_driver = wiring[conj].driver
+    lamp0_enablers = list(wiring[conj].enablers)
+    held = set(wiring[conj].drive_set)
 
     def _completes_another_lamp(button: int) -> bool:
-        """Whether pressing ``button`` on top of the held pair lights some
-        OTHER lamp, which would muddy a clip about this one."""
-        return any({d, e} - {NO_ENABLER} <= held | {button}
-                   for i, (d, e) in enumerate(wiring) if i != conj)
+        """Whether pressing ``button`` on top of the held set lights some OTHER
+        lamp, which would muddy a clip about this one."""
+        return any(
+            set(c.drive_set) <= held | {button} for i, c in enumerate(wiring)
+            if i != conj)
 
-    irrelevant = next(b for b in range(num_buttons)
-                      if b not in held and not _completes_another_lamp(b))
+    irrelevant = next(
+        b for b in range(num_buttons)
+        if b not in wiring[conj].buttons and not _completes_another_lamp(b))
     lamp = PyBulletBusyBoardEnv.lamp_label(conj)
     drv = PyBulletBusyBoardEnv.button_label(lamp0_driver)
-    enb = PyBulletBusyBoardEnv.button_label(lamp0_enabler)
+    enb = " and ".join(
+        PyBulletBusyBoardEnv.button_label(e) for e in lamp0_enablers)
     other = PyBulletBusyBoardEnv.button_label(irrelevant)
 
     target = _target(task, len(wiring))
@@ -455,26 +473,26 @@ def _main() -> None:
            2 * FPS)] + [("press", b)
                         for b in range(num_buttons)] + [("wait", 110)], True),
         ("interlock", [
-            ("note", f"{lamp} needs {drv} AND {enb}. Press just one of "
-             "them.", 2 * FPS),
-            ("press", lamp0_enabler),
+            ("note", f"{lamp} needs {enb} on, then {drv} pressed. Press "
+             "the enablers alone.", 2 * FPS),
+        ] + [("press", e) for e in lamp0_enablers] + [
             ("wait", 90),
             ("note", "Nothing. Not a slow response - the charge bar never "
              "left zero, so the drive condition was never met.", 3 * FPS),
             ("press", lamp0_driver),
             ("wait", 120),
-            ("note", f"With both on, the charge climbs and {lamp} lights. "
-             "This conjunction is the relation prior busyboard "
-             "benchmarks exclude by design.", 3 * FPS),
+            ("note", f"With the driver pressed last, the charge climbs and "
+             f"{lamp} lights. Pressed first, the driver would have armed "
+             "nothing: the order is part of the rule.", 3 * FPS),
         ], False),
         (
             "delayed_credit",
             [
-                ("note", f"Press {drv}, then {enb}: the condition of "
+                ("note", f"Press {enb}, then {drv}: the condition of "
                  f"{lamp} is now met and it starts charging invisibly.",
                  2 * FPS),
+            ] + [("press", e) for e in lamp0_enablers] + [
                 ("press", lamp0_driver),
-                ("press", lamp0_enabler),
                 ("wait", 26),
                 # Tenseless on purpose: this note is still on screen at the
                 # moment lamp0 lights, so "nothing is visible yet" would be
@@ -622,11 +640,13 @@ def _print_goal_distribution(num_tasks: int = 120) -> None:
                  if split == "train" else CFG.busyboard_num_lamps_test)
         for num_buttons in buttons:
             for num_lamps in lamps:
-                driver, enabler = canonical_wiring(num_buttons, num_lamps)
-                targets = env._realizable_targets(  # pylint: disable=protected-access
-                    driver, enabler, num_buttons,
-                    min(num_lamps,
-                        core_board()[1]), min_lit)
+                wiring = canonical_wiring(num_buttons, num_lamps)
+                candidates = num_lamps if (split == "test"
+                                           and CFG.busyboard_test_extension_lit
+                                           ) else min(num_lamps,
+                                                      core_board()[1])
+                targets = realizable_targets(wiring, num_buttons, candidates,
+                                             min_lit)
                 by_lit: Dict[int, int] = {}
                 for target in targets:
                     by_lit[sum(target)] = by_lit.get(sum(target), 0) + 1

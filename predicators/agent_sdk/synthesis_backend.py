@@ -159,7 +159,10 @@ class PredicateSynthesisBackend(SynthesisBackend, Protocol):
     """The extra surface ``make_predicate_quality_loader`` needs.
 
     Only the predicate-invention subclass provides these, so they live
-    off the core protocol.
+    off the core protocol. An approach may also define
+    ``_on_predicates_installed() -> None``; the loader calls it after
+    each successful install so state outside the approach (a live run's
+    abstraction) follows the draft.
     """
 
     # Agent-invented predicates (read back through

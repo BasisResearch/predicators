@@ -36,7 +36,9 @@ Mechanics:
 - While a wet face is in aligned resting contact with another block
   (neither block held), that joint's hidden ``cure_*`` counter ticks;
   at ``cure_threshold`` the joint irreversibly latches: the wet glue is
-  consumed, both blocks record the attachment (``attached_*`` = partner
+  consumed on both faces of the joint (one wet face is enough to cure;
+  a wet mate face is consumed with it, never left wet on an attached
+  face), both blocks record the attachment (``attached_*`` = partner
   block index), and a physical weld constraint is created.
 - Interrupting the contact resets the counter (wet glue persists).
 
@@ -1488,6 +1490,13 @@ class PyBulletBridgeEnv(PyBulletEnv):
         self._set_attr(mate, f"attached_{mate_slot}",
                        float(self._block_index[blk.name]))
         self._set_attr(blk, f"glue_{face}", 0.0)
+        if mate_slot in GLUE_FACES:
+            # The joint consumes the mate's wet face too. An attached
+            # face never cures again, so glue left on it would be a
+            # wet flag that can never clear: the continual agent glued
+            # both faces of every joint and waited 360 steps for the
+            # second flag (bridge seed 0, 2026-09-04).
+            self._set_attr(mate, f"glue_{mate_slot}", 0.0)
         assert blk.id is not None and mate.id is not None
         if self._face_world_dir(state, blk, face)[2] > np.cos(np.pi / 4):
             # The mate rests on blk's upward face: a vertical joint.

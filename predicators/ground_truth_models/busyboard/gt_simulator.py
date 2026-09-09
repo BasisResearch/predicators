@@ -1,15 +1,21 @@
 """Ground-truth simulator program for pybullet_busyboard residual dynamics.
 
-The board's hidden process is one rule applied to every lamp: while the
-lamp's drive condition holds - its driver button on, and its enabler
-button on too if it has one - a hidden charge accumulates; otherwise the
-charge bleeds away. The observable ``brightness`` is a flat-then-ramp
-readout of that charge, so the early accumulation is invisible.
+The board's hidden process is one rule applied to every lamp. A lamp is
+*armed* on the rising edge of its driver button if every enabler is on
+at that moment, and disarmed when the driver goes off. While it is
+armed, its driver and enablers are on, its inhibitor (if any) is off
+and the breaker is closed, a hidden charge accumulates; otherwise the
+charge bleeds away. Driving more lamps at once than the breaker allows
+trips it: every charge drops to zero and nothing charges until every
+button is released. The observable ``brightness`` is a flat-then-ramp
+readout of the charge, so the early accumulation is invisible.
 
-This module is the fully-observable answer key, where ``charge`` is a
-visible feature and only the WIRING is unknown. Its sibling
-``gt_simulator_po.py`` carries the charge in the recurrent ``latent``
-block for the partially-observable setting.
+This module is the fully-observable answer key, where ``charge`` and
+``armed`` are visible lamp features and only the WIRING is unknown. Its
+sibling ``gt_simulator_po.py`` carries both in the recurrent ``latent``
+block for the partially-observable setting. Both use the recurrent
+5-arg rule signature: the latch is edge-triggered, so a rule needs the
+previous observation (``history[-1]``) to see the driver rise.
 
 **How the wiring enters the fit, and what is wrong with that.** The
 fitting stack's only hypothesis vocabulary is ``ParamSpec``: a named
@@ -37,10 +43,10 @@ after the base sim has stepped, so it reads the button states an action
 *ends* with, while a teacher-forced prediction from this module is a
 function of the state the action *starts* from. On the single step where
 a push latches a button the two therefore disagree by one charge
-increment, and agree exactly everywhere else (measured: 1 discrepancy in
-135 steps of a two-press-then-wait rollout, at the latch step). This is
-the same phase offset boil's reference notes for its burner warm-up, and
-it is a property of the convention rather than of the rule.
+increment (and see the driver's edge one step apart), and agree exactly
+everywhere else. This is the same phase offset boil's reference notes
+for its burner warm-up, and it is a property of the convention rather
+than of the rule.
 
 **Per-run, not per-task.** ``PARAM_SPECS`` resolves once, after CFG is
 final and before any task is chosen, so the true wiring this module
@@ -50,18 +56,17 @@ that flag off the env rewires per task and this reference is no longer
 an answer key - the per-task parameter scope needed to make it one does
 not exist yet.
 """
-
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
 from predicators.code_sim_learning.fit_space import ParamSpec
-from predicators.code_sim_learning.utils import Params, ResidualUpdate, \
-    objs_by_type
-from predicators.envs.pybullet_busyboard import NO_ENABLER, canonical_wiring, \
-    core_board, project_wiring
+from predicators.code_sim_learning.utils import History, Params, \
+    ResidualUpdate, objs_by_type
+from predicators.envs.pybullet_busyboard import NO_BUTTON, Condition, \
+    core_board, full_wiring, project_wiring
 from predicators.ground_truth_models import GroundTruthSimulatorFactory
 from predicators.settings import CFG
 from predicators.structs import State
@@ -93,20 +98,38 @@ def _button_states(observation: State) -> List[bool]:
     return [observation.get(b, "is_on") > 0.5 for b in buttons]
 
 
+def _previous_button_states(history: History,
+                            fallback: List[bool]) -> List[bool]:
+    """The button states one step earlier, for the driver's edge."""
+    if history:
+        prev = _button_states(history[-1][0])
+        if len(prev) == len(fallback):
+            return prev
+    return list(fallback)
+
+
+def _breaker_tripped(observation: State) -> Optional[bool]:
+    """The breaker tile's state, when the observation shows one."""
+    breakers = objs_by_type(observation).get("breaker", [])
+    if not breakers:
+        return None
+    return bool(observation.get(breakers[0], "tripped") > 0.5)
+
+
 def _wired_index(value: float, max_buttons: int) -> int:
     """Decode a relaxed real-valued button index into a button.
 
-    Values at or below ``NO_ENABLER + 0.5`` mean "no button"; everything
+    Values at or below ``NO_BUTTON + 0.5`` mean "no button"; everything
     else rounds and clamps into range. The rounding is exactly the
     staircase the module docstring warns about.
     """
-    if value <= NO_ENABLER + 0.5:
-        return NO_ENABLER
+    if value <= NO_BUTTON + 0.5:
+        return NO_BUTTON
     return int(np.clip(round(value), 0, max(max_buttons - 1, 0)))
 
 
 def wiring_from_params(params: Params, num_lamps: int,
-                       num_buttons: int) -> Tuple[List[int], List[int]]:
+                       num_buttons: int) -> List[Condition]:
     """Decode the params' max-board wiring onto the observed board.
 
     The parameters describe the largest board the task distribution can
@@ -121,52 +144,122 @@ def wiring_from_params(params: Params, num_lamps: int,
     max_lamps = max(
         list(CFG.busyboard_num_lamps_train) +
         list(CFG.busyboard_num_lamps_test))
-    driver_full = [
-        _wired_index(params.get(f"driver_{i}", 0.0), max_buttons)
-        for i in range(max_lamps)
-    ]
-    enabler_full = [
-        _wired_index(params.get(f"enabler_{i}", NO_ENABLER), max_buttons)
-        for i in range(max_lamps)
-    ]
-    return project_wiring(driver_full, enabler_full, num_buttons, num_lamps)
+    wiring_full = []
+    for i in range(max_lamps):
+        enablers = tuple(e for e in (
+            _wired_index(params.get(f"enabler_{i}", NO_BUTTON), max_buttons),
+            _wired_index(params.get(f"enabler2_{i}", NO_BUTTON), max_buttons))
+                         if e != NO_BUTTON)
+        wiring_full.append(
+            Condition(
+                _wired_index(params.get(f"driver_{i}", 0.0), max_buttons),
+                enablers,
+                _wired_index(params.get(f"inhibitor_{i}", NO_BUTTON),
+                             max_buttons)).canonical())
+    return project_wiring(wiring_full, num_buttons, num_lamps)
 
 
-def _driven(button_on: List[bool], driver: int, enabler: int) -> bool:
-    """Whether a lamp's conjunctive drive condition holds."""
-    if not 0 <= driver < len(button_on) or not button_on[driver]:
+def _driven(button_on: List[bool], cond: Condition, armed: bool) -> bool:
+    """Whether a lamp's drive holds: armed, driver and enablers on, inhibitor
+    off."""
+    if not armed:
         return False
-    if enabler == NO_ENABLER:
-        return True
-    return 0 <= enabler < len(button_on) and button_on[enabler]
+    if not 0 <= cond.driver < len(button_on) or \
+            not button_on[cond.driver]:
+        return False
+    for e in cond.enablers:
+        if not 0 <= e < len(button_on) or not button_on[e]:
+            return False
+    if cond.inhibitor != NO_BUTTON and \
+            0 <= cond.inhibitor < len(button_on) and \
+            button_on[cond.inhibitor]:
+        return False
+    return True
+
+
+def step_board(button_on: List[bool], prev_on: List[bool],
+               wiring: List[Condition], charges: Dict[str, float],
+               armed: Dict[str, bool], tripped: bool, lamp_names: List[str],
+               params: Params) -> bool:
+    """One step of the board's hidden rule, in place; returns the breaker.
+
+    Shared by the fully- and partially-observable answer keys: the same
+    rule, fed the charge and latch from the observation in one and from
+    the latent block in the other.
+    """
+    if tripped and not any(button_on):
+        tripped = False
+    driven: List[bool] = []
+    for i, name in enumerate(lamp_names):
+        if i >= len(wiring):
+            driven.append(False)
+            continue
+        cond = wiring[i]
+        d = cond.driver
+        driver_on = 0 <= d < len(button_on) and button_on[d]
+        if not driver_on:
+            armed[name] = False
+        elif not prev_on[d] or not CFG.busyboard_latch:
+            armed[name] = all(0 <= e < len(button_on) and button_on[e]
+                              for e in cond.enablers)
+        driven.append(not tripped
+                      and _driven(button_on, cond, armed.get(name, False)))
+    limit = int(CFG.busyboard_breaker_limit)
+    if 0 < limit < sum(driven) and not tripped:
+        tripped = True
+        driven = [False] * len(driven)
+        for name in lamp_names:
+            charges[name] = 0.0
+            armed[name] = False
+    for i, name in enumerate(lamp_names):
+        charge = float(charges.get(name, 0.0))
+        if driven[i]:
+            charge = min(1.0, charge + params["charge_rate"])
+        else:
+            charge = max(0.0, charge - params["decay_rate"])
+        charges[name] = charge
+    return tripped
 
 
 # ── Residual rules ────────────────────────────────────────────────
 
 
-def _charging(observation: State, updates: ResidualUpdate,
-              params: Params) -> ResidualUpdate:
-    """Driven lamps charge, undriven lamps bleed; brightness follows.
+def _charging(  # pylint: disable=unused-argument
+        observation: State, latent: Dict[str, Any], history: History,
+        updates: ResidualUpdate, params: Params) -> ResidualUpdate:
+    """Driven lamps charge, undriven lamps bleed; latch, breaker and brightness
+    follow.
 
     One rule covers the whole board: the per-lamp differences live
-    entirely in the wiring parameters, not in the control flow. Both the
-    charge and its brightness readout are written, because in the fully-
-    observable setting both are features the fit is scored on.
+    entirely in the wiring parameters, not in the control flow. Charge,
+    brightness and the latch are written, because in the fully-
+    observable setting all three are features the fit is scored on. The
+    latch is edge-triggered, so the previous observation in ``history``
+    supplies the driver's earlier state.
     """
     objs = objs_by_type(observation)
     lamps = sorted(objs.get("lamp", []), key=lambda o: o.name)
     button_on = _button_states(observation)
-    driver, enabler = wiring_from_params(params, len(lamps), len(button_on))
-
-    for i, lamp in enumerate(lamps):
-        charge = float(observation.get(lamp, "charge"))
-        if _driven(button_on, driver[i], enabler[i]):
-            charge = min(1.0, charge + params["charge_rate"])
-        else:
-            charge = max(0.0, charge - params["decay_rate"])
-        updates.setdefault(lamp, {})["charge"] = charge
-        updates[lamp]["brightness"] = _brightness(charge)
-
+    prev_on = _previous_button_states(history, button_on)
+    wiring = wiring_from_params(params, len(lamps), len(button_on))
+    names = [lamp.name for lamp in lamps]
+    charges = {
+        lamp.name: float(observation.get(lamp, "charge"))
+        for lamp in lamps
+    }
+    armed = {
+        lamp.name: bool(observation.get(lamp, "armed") > 0.5)
+        for lamp in lamps
+    }
+    tripped = _breaker_tripped(observation)
+    tripped = step_board(button_on, prev_on, wiring, charges, armed,
+                         bool(tripped), names, params)
+    for lamp in lamps:
+        updates.setdefault(lamp, {})["charge"] = charges[lamp.name]
+        updates[lamp]["brightness"] = _brightness(charges[lamp.name])
+        updates[lamp]["armed"] = float(armed[lamp.name])
+    for breaker in objs.get("breaker", []):
+        updates.setdefault(breaker, {})["tripped"] = float(tripped)
     return updates
 
 
@@ -188,46 +281,68 @@ def _build_param_specs() -> List[ParamSpec]:
     max_lamps = max(
         list(CFG.busyboard_num_lamps_train) +
         list(CFG.busyboard_num_lamps_test))
-    driver, enabler = canonical_wiring(max_buttons, max_lamps)
+    wiring = full_wiring()
     core_buttons, core_lamps = core_board()
-
     specs = [
         ParamSpec("charge_rate", CFG.busyboard_charge_rate, lo=0.0, hi=1.0),
         ParamSpec("decay_rate", CFG.busyboard_decay_rate, lo=0.0, hi=1.0),
     ]
     for i in range(max_lamps):
-        # A core lamp is wired to core buttons only (the extension
-        # contract of ``project_wiring``), so its range is the core board's.
+        cond = wiring[i]
+        # A core lamp's drive is wired to core buttons only (the
+        # extension contract of ``project_wiring``), so its range is the
+        # core board's; its inhibitor may be any button.
         hi = float((core_buttons if i < core_lamps else max_buttons) - 1)
+        enablers = list(cond.enablers) + [NO_BUTTON, NO_BUTTON]
         # Wiring slots are indices the rule rounds before use: discrete,
         # so uncertainty jitter must not perturb them into a rewiring.
         specs.append(
             ParamSpec(f"driver_{i}",
-                      float(driver[i]),
+                      float(cond.driver),
                       lo=0.0,
                       hi=hi,
                       discrete=True))
         specs.append(
             ParamSpec(f"enabler_{i}",
-                      float(enabler[i]),
-                      lo=float(NO_ENABLER),
+                      float(enablers[0]),
+                      lo=float(NO_BUTTON),
                       hi=hi,
+                      discrete=True))
+        specs.append(
+            ParamSpec(f"enabler2_{i}",
+                      float(enablers[1]),
+                      lo=float(NO_BUTTON),
+                      hi=hi,
+                      discrete=True))
+        specs.append(
+            ParamSpec(f"inhibitor_{i}",
+                      float(cond.inhibitor),
+                      lo=float(NO_BUTTON),
+                      hi=float(max_buttons - 1),
                       discrete=True))
     return specs
 
 
 # ── Public API: consumed by read_simulator_components ────────────
+
 # Same contract used by agent-synthesized simulator files. PARAM_SPECS is
 # bound to the callable so CFG-dependent defaults resolve when the loader
 # pulls the value, after CFG is final.
-
 RESIDUAL_RULES = [_charging]
-
 PARAM_SPECS = _build_param_specs
-
 RESIDUAL_FEATURES: Dict[str, List[str]] = {
-    "lamp": ["charge", "brightness"],
+    "lamp": ["charge", "brightness", "armed"],
+    "breaker": ["tripped"],
 }
+
+
+def _latent_init() -> Dict[str, Any]:
+    """The fully-observable key keeps nothing hidden; the block exists so the
+    recurrent signature has one to thread."""
+    return {}
+
+
+LATENT_INIT = _latent_init
 
 # ── Factory binding ──────────────────────────────────────────────
 

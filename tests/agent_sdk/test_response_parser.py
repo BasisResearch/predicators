@@ -8,8 +8,8 @@ dataclasses, so the recognized branches use real (pure, offline)
 instances; the unknown-block fallback branches use local stub classes.
 No network or subprocess is involved: these are plain dataclasses.
 """
-from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock, \
-    ThinkingBlock, ToolResultBlock, ToolUseBlock, UserMessage
+from claude_agent_sdk import AssistantMessage, ResultMessage, SystemMessage, \
+    TextBlock, ThinkingBlock, ToolResultBlock, ToolUseBlock, UserMessage
 
 from predicators.agent_sdk.response_parser import parse_assistant_message, \
     parse_message, parse_result_message, parse_user_message
@@ -185,6 +185,7 @@ def test_result_message_fields():
         "total_cost_usd": 1.25,
         "is_error": True,
         "result": "hit the turn cap",
+        "session_id": "sess",
     }
 
 
@@ -198,6 +199,7 @@ def test_result_message_missing_attrs_default_to_none():
         "total_cost_usd": None,
         "is_error": False,
         "result": None,
+        "session_id": None,
     }
 
 
@@ -212,6 +214,43 @@ def test_parse_message_dispatches_by_type():
         TextBlock(text="hi")))["type"] == "assistant"
     assert parse_message(UserMessage(content=[]))["type"] == "user"
     assert parse_message(_result(total_cost_usd=0.5))["type"] == "result"
+
+
+def test_assistant_usage_is_kept():
+    """An assistant message's token usage rides on the entry (the play tools'
+    context line reads it); without usage the key is absent."""
+    msg = AssistantMessage(content=[TextBlock(text="hi")],
+                           model="test-model",
+                           usage={
+                               "input_tokens": 12,
+                               "cache_read_input_tokens": 3000
+                           })
+    entry = parse_assistant_message(msg)
+    assert entry["usage"] == {
+        "input_tokens": 12,
+        "cache_read_input_tokens": 3000
+    }
+    assert "usage" not in parse_assistant_message(
+        _assistant(TextBlock(text="x")))
+
+
+def test_system_message_keeps_only_the_compaction_boundary():
+    """The compaction boundary becomes a system entry with its metadata; the
+    SDK's other system messages parse to None."""
+    boundary = SystemMessage(
+        subtype="compact_boundary",
+        data={"compact_metadata": {
+            "trigger": "auto",
+            "pre_tokens": 150000
+        }})
+    entry = parse_message(boundary)
+    assert entry == {
+        "type": "system",
+        "subtype": "compact_boundary",
+        "trigger": "auto",
+        "pre_tokens": 150000,
+    }
+    assert parse_message(SystemMessage(subtype="init", data={})) is None
 
 
 def test_parse_message_unknown_type_returns_none():

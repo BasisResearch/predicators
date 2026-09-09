@@ -9,6 +9,7 @@ the self-contained ``VALIDATE_SANDBOX_SCRIPT`` Bash/file-path hook.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 
@@ -118,6 +119,11 @@ _BLOCK_BASH_ONLY = [
     "python3 -I -c 'print(1)'",
     "python -Es script.py",
     "/usr/bin/python3 -S script.py",
+    # Hidden imports inside a quoted python -c body, or spelled through
+    # __import__ / importlib, are screened wherever they appear.
+    "python3 -c 'import predicators.envs.pybullet_boil'",
+    "python3 -c 'from predicators.envs.pybullet_boil import PyBulletBoilEnv'",
+    "python3 -c \"__import__('predicators.ground_truth_models.boil')\"",
 ]
 _ALLOW_BASH = [
     "python3 -c 'import sys; print(sys.path)'",
@@ -154,6 +160,79 @@ def test_hook_screens_bash(tmp_path) -> None:
     for text in _ALLOW_BASH:
         assert not _run_hook(tmp_path, "Bash", {"command": text}), text
         assert _screen_text_for_sandbox_escape(text, str(tmp_path)) is None
+
+
+def test_hook_denies_real_paths_under_unlisted_roots(tmp_path) -> None:
+    """An absolute path that exists on disk is a real location even when its
+    mount is not in SYSTEM_ROOTS (bind mounts such as /orcd), so a ``cat`` of
+    it is denied; printed data that only looks like a path is still allowed."""
+    script = tmp_path / "validate_sandbox.py"
+    from predicators.agent_sdk.tools.sandbox_guard import \
+        SANDBOX_SYSTEM_ROOTS  # pylint: disable=import-outside-toplevel
+    stripped = VALIDATE_SANDBOX_SCRIPT.replace(
+        "SYSTEM_ROOTS = " + repr(SANDBOX_SYSTEM_ROOTS), "SYSTEM_ROOTS = ()")
+    assert stripped != VALIDATE_SANDBOX_SCRIPT
+
+    def run(command: str) -> bool:
+        script.write_text(stripped)
+        payload = json.dumps({
+            "tool_name": "Bash",
+            "tool_input": {
+                "command": command
+            }
+        })
+        out = subprocess.run([sys.executable, "validate_sandbox.py"],
+                             cwd=str(tmp_path),
+                             input=payload,
+                             capture_output=True,
+                             text=True,
+                             check=True)
+        return '"deny"' in out.stdout
+
+    outside = os.path.join(sys.prefix, "lib")  # exists, not under /tmp
+    assert not outside.startswith(str(tmp_path))
+    assert run(f"cat {outside}/x.py")
+    assert run(f"ls {os.path.dirname(sys.prefix)}")
+    # The sandbox's own mount root is real even with no roots listed.
+    assert run(f"cat {tmp_path.parent}/other.txt")
+    assert not run('print("/done")')
+    assert not run("cat /no_such_root_xyz/file.txt")
+    assert not run(f"cat {tmp_path}/mine.txt")
+
+
+def test_hook_reads_other_spellings_from_the_mount_table(tmp_path) -> None:
+    """With a mount table naming a second mount of the sandbox's source, the
+    sandbox under that spelling is inside; a hidden path under it is still
+    outside."""
+    mnt_a, mnt_b = tmp_path / "mnt_a", tmp_path / "mnt_b"
+    sandbox = mnt_a / "sb"
+    sandbox.mkdir(parents=True)
+    (mnt_a / "secret.txt").write_text("x")
+    mnt_b.symlink_to(mnt_a, target_is_directory=True)
+    mounts = tmp_path / "mounts"
+    mounts.write_text(f"nfs:/export {mnt_a} nfs4 rw 0 0\n"
+                      f"nfs:/export {mnt_b} nfs4 rw 0 0\n")
+    script = sandbox / "validate_sandbox.py"
+    script.write_text(
+        VALIDATE_SANDBOX_SCRIPT.replace('MOUNTS_FILE = "/proc/self/mounts"',
+                                        f"MOUNTS_FILE = {str(mounts)!r}"))
+    # Run the script's definitions with the request stubbed out (the
+    # tool dispatch after the "# File-path tools" marker is dropped).
+    probe = ("import json, sys; sys.argv = ['x']; "
+             "exec(open('validate_sandbox.py').read().replace("
+             "'data = json.load(sys.stdin)', 'data = {}').split("
+             "'\\n# File-path tools')[0]); "
+             "print(json.dumps({'spellings': SANDBOX_SPELLINGS, "
+             f"'inside': within({str(mnt_b / 'sb' / 'a.txt')!r}), "
+             f"'outside': within({str(mnt_b / 'secret.txt')!r})}}))")
+    out = subprocess.run([sys.executable, "-c", probe],
+                         cwd=str(sandbox),
+                         capture_output=True,
+                         text=True,
+                         check=True)
+    got = json.loads(out.stdout.strip().splitlines()[-1])
+    assert str(mnt_b / "sb") in got["spellings"]
+    assert got["inside"] and not got["outside"]
 
 
 def test_hook_validates_file_paths(tmp_path) -> None:

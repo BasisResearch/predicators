@@ -58,19 +58,89 @@ PATH_RE = re.compile(r"""(?:^|(?<=[\s'"`(=]))((?:/|\.\.)[^\s'"`)<>|;:,]*)""")
 # Hidden-implementation imports (e.g. inside `python -c`); the public
 # authoring surface (predicators.structs / predicators.utils) stays
 # importable. The module alternation is injected from tools.py.
-HIDDEN_IMPORT_RE = re.compile(
-    r"(?:^|[\s;])(?:from|import)\s+" + __HIDDEN_MODULES_PATTERN__)
+# Anywhere in the command: a hidden module path has no legitimate use in
+# a shell command, however it is imported (python -c, __import__,
+# importlib), and the runtime guard is the real barrier behind this.
+HIDDEN_IMPORT_RE = re.compile(r"(?<![\w.])" + __HIDDEN_MODULES_PATTERN__)
 
 data = json.load(sys.stdin)
 tool_name = data.get("tool_name", "")
 tool_input = data.get("tool_input", {})
+MOUNTS_FILE = "/proc/self/mounts"
+
+
+def _mount_spellings(path):
+    # Other mount points of the source holding ``path`` (one export
+    # mounted twice, a bind mount): the same tree under other names,
+    # which realpath cannot see through. Linux only; elsewhere the mount
+    # table is absent and there is nothing to add.
+    try:
+        with open(MOUNTS_FILE, "r", encoding="utf-8") as f:
+            rows = [line.split() for line in f]
+    except OSError:
+        return []
+    mounts = [(r[1], r[0], r[2]) for r in rows if len(r) >= 3 and "/" in r[0]]
+    holder = None
+    for mnt, src, fs in mounts:
+        if (path == mnt or path.startswith(mnt.rstrip("/") + "/")) and (
+                holder is None or len(mnt) > len(holder[0])):
+            holder = (mnt, src, fs)
+    if holder is None:
+        return []
+    rel = path[len(holder[0].rstrip("/")):]
+    return sorted(other.rstrip("/") + rel for other, src, fs in mounts
+                  if other != holder[0] and (src, fs) == holder[1:])
+
+
 sandbox = os.path.realpath(os.getcwd())
+SANDBOX_SPELLINGS = [sandbox] + _mount_spellings(sandbox)
+try:
+    _SANDBOX_STAT = os.stat(sandbox)
+except OSError:
+    _SANDBOX_STAT = None
+# The mounts holding the sandbox count as real filesystem roots too.
+REAL_ROOTS = tuple(SYSTEM_ROOTS) + tuple(
+    r for r in {"/" + s.split(os.sep)[1] for s in SANDBOX_SPELLINGS}
+    if len(r) > 1)
+
+
+def _inside_by_inode(path):
+    # True when ``path`` or one of its existing ancestors is the sandbox
+    # directory itself, under any spelling of it.
+    if _SANDBOX_STAT is None:
+        return False
+    cur = path
+    while True:
+        try:
+            if os.path.samestat(os.stat(cur), _SANDBOX_STAT):
+                return True
+        except OSError:
+            pass
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            return False
+        cur = parent
 
 
 def within(path):
     resolved = os.path.realpath(
         path if os.path.isabs(path) else os.path.join(sandbox, path))
-    return resolved == sandbox or resolved.startswith(sandbox + os.sep)
+    return (any(resolved == s or resolved.startswith(s + os.sep)
+                for s in SANDBOX_SPELLINGS) or _inside_by_inode(resolved))
+
+
+def _real_path(token):
+    # An absolute token names a real location when it starts with a known
+    # root or when it, or an ancestor below "/", exists on disk; anything
+    # else is printed data that merely looks like a path.
+    if any(token == r or token.startswith(r + "/") for r in REAL_ROOTS):
+        return True
+    cur = token.rstrip("/")
+    while cur and cur != "/":
+        if os.path.lexists(cur):
+            return True
+        cur = os.path.dirname(cur)
+    return False
 
 
 def deny(reason):
@@ -112,10 +182,8 @@ if tool_name == "Bash":
         token = match.group(1)
         if within(token):
             continue
-        if token.startswith("/") and not any(
-                token == r or token.startswith(r + "/")
-                for r in SYSTEM_ROOTS):
-            # Absolute but not a real filesystem path (printed data) — skip.
+        if token.startswith("/") and not _real_path(token):
+            # Absolute but not a real filesystem path (printed data): skip.
             continue
         deny("Blocked: path '" + token +
              "' in the command resolves outside the sandbox directory")
@@ -177,12 +245,37 @@ HIDDEN_DIRS = __HIDDEN_DIRS__
 SANDBOX_DIR = __SANDBOX_DIR__
 GUARD_DIR = __GUARD_DIR__
 PYTHON_BYPASS_RE = re.compile(__PYTHON_BYPASS_PATTERN__)
+MOUNTS_FILE = __MOUNTS_FILE__
+
+
+def _mount_spellings(path):
+    # Other mount points of the source holding ``path`` (one export
+    # mounted twice, a bind mount): the same tree under other names,
+    # which realpath cannot see through. Linux only; elsewhere the mount
+    # table is absent and there is nothing to add.
+    try:
+        with open(MOUNTS_FILE, "r", encoding="utf-8") as f:
+            rows = [line.split() for line in f]
+    except OSError:
+        return []
+    mounts = [(r[1], r[0], r[2]) for r in rows if len(r) >= 3 and "/" in r[0]]
+    holder = None
+    for mnt, src, fs in mounts:
+        if (path == mnt or path.startswith(mnt.rstrip("/") + "/")) and (
+                holder is None or len(mnt) > len(holder[0])):
+            holder = (mnt, src, fs)
+    if holder is None:
+        return []
+    rel = path[len(holder[0].rstrip("/")):]
+    return sorted(other.rstrip("/") + rel for other, src, fs in mounts
+                  if other != holder[0] and (src, fs) == holder[1:])
 
 
 def _root_spellings():
     # The repo can be reachable under several spellings (bind mounts,
     # symlinks realpath cannot see through): the one the harness ran
-    # from, and the one the installed package resolves to here.
+    # from, the one the installed package resolves to here, and every
+    # other mount of the same source.
     roots = {REPO_ROOT}
     try:
         spec = importlib.util.find_spec("predicators")
@@ -192,6 +285,8 @@ def _root_spellings():
         locations = []
     for loc in locations:
         roots.add(os.path.dirname(os.path.realpath(loc)))
+    for root in list(roots):
+        roots.update(_mount_spellings(root))
     return sorted(roots)
 
 
@@ -209,7 +304,8 @@ def _spellings(path):
 
 
 ROOTS = _root_spellings()
-SANDBOX_PREFIXES = _spellings(SANDBOX_DIR)
+SANDBOX_PREFIXES = sorted(
+    set(_spellings(SANDBOX_DIR)) | set(_mount_spellings(SANDBOX_DIR)))
 DENY_PREFIXES = [
     p for d in HIDDEN_DIRS for p in _spellings(os.path.join(REPO_ROOT, d))
 ]
@@ -224,6 +320,54 @@ def _resolve(path):
     return os.path.realpath(path)
 
 
+def _ident(path):
+    try:
+        st = os.stat(path)
+    except (OSError, ValueError):
+        return None
+    return (st.st_dev, st.st_ino)
+
+
+# The same directories by identity, for spellings the prefixes miss: a
+# bind mount presents one tree under several paths and realpath cannot
+# unify them, but the inode can.
+IDENTS = [(ident, label) for label, paths in (
+    ("sandbox", [SANDBOX_DIR]),
+    ("deny", [os.path.join(REPO_ROOT, d) for d in HIDDEN_DIRS]),
+    ("source", [os.path.join(REPO_ROOT, "predicators")]),
+) for path in paths for ident in [_ident(path)] if ident is not None]
+_INODE_CACHE = {}
+
+
+def _classify_by_inode(path):
+    # Walk up from the deepest existing ancestor; the deepest match wins,
+    # so the sandbox (under the repo tree) beats the directories above it.
+    cur = path
+    chain = []
+    label = None
+    while True:
+        if cur in _INODE_CACHE:
+            label = _INODE_CACHE[cur]
+            break
+        chain.append(cur)
+        ident = _ident(cur)
+        if ident is not None:
+            hit = [lbl for known, lbl in IDENTS if known == ident]
+            if hit:
+                label = hit[0]
+                break
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        cur = parent
+    if len(_INODE_CACHE) > 4096:
+        _INODE_CACHE.clear()
+    for c in chain:
+        if os.path.isdir(c):
+            _INODE_CACHE[c] = label
+    return label
+
+
 def _classify(path):
     # 'sandbox', 'deny', 'source' or None; the sandbox (which lives under
     # the repo's logs/ tree) wins over the directories it sits in.
@@ -233,7 +377,7 @@ def _classify(path):
         for prefix in group:
             if _under(path, prefix):
                 return label
-    return None
+    return _classify_by_inode(path)
 
 
 def _check_read(raw_path, importing=False):
@@ -318,9 +462,15 @@ def pyguard_env(sandbox_dir: str) -> Dict[str, str]:
     return {"PYTHONPATH": os.pathsep.join(parts)}
 
 
-def write_pyguard(sandbox_dir: str, repo_root: str) -> str:
+def write_pyguard(sandbox_dir: str,
+                  repo_root: str,
+                  mounts_file: str = "/proc/self/mounts") -> str:
     """Write the ``sitecustomize`` guard for ``sandbox_dir``; returns its
-    directory (the value ``pyguard_env`` puts on PYTHONPATH)."""
+    directory (the value ``pyguard_env`` puts on PYTHONPATH).
+
+    ``mounts_file`` is the mount table the guard reads for other
+    spellings of the repo (tests pass a fake one).
+    """
     root = os.path.realpath(repo_root)
     guard = pyguard_dir(sandbox_dir)
     os.makedirs(guard, exist_ok=True)
@@ -331,6 +481,7 @@ def write_pyguard(sandbox_dir: str, repo_root: str) -> str:
         "__SANDBOX_DIR__": os.path.realpath(sandbox_dir),
         "__GUARD_DIR__": guard,
         "__PYTHON_BYPASS_PATTERN__": SANDBOX_PYTHON_BYPASS_PATTERN,
+        "__MOUNTS_FILE__": mounts_file,
     }
     script = _PYGUARD_TEMPLATE
     for marker, value in substitutions.items():

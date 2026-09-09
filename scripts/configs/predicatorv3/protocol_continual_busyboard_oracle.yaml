@@ -1,0 +1,19 @@
+# The continual protocol's oracle on busyboard alone (docs/continual-protocol.md).
+# Usage: python scripts/engaging/launch.py \
+#            -c predicatorv3/protocol_continual_busyboard_oracle.yaml \
+#            --partition mit_preemptable
+# The oracle is the solvability check for the busyboard's mechanics (the
+# arming latch, the breaker, inhibitors, 7-8 button test boards): it must
+# win every level within the step cap.
+---
+includes:
+  - protocol_continual.yaml
+ENVS:
+  boil:
+    SKIP: True
+  busyboard:
+    SKIP: False
+APPROACHES:
+  oracle:
+    SKIP: False
+...

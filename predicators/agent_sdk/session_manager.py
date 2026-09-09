@@ -26,6 +26,9 @@ class SessionManagerProtocol(Protocol):
     """
 
     session_id: Optional[str]
+    # A CLI session to continue instead of opening a new one (set before
+    # the first query; see BaseAgentSessionManager).
+    resume_session_id: Optional[str]
 
     @property
     def tool_names(self) -> List[str]:
@@ -104,6 +107,7 @@ class AgentSessionManager(BaseAgentSessionManager):
             max_buffer_size=self._config.max_buffer_size,
             reasoning_effort=self._config.reasoning_effort,
             hooks=extra_hooks,
+            resume=self.resume_session_id,
         )
 
         self._client = ClaudeSDKClient(options=options)

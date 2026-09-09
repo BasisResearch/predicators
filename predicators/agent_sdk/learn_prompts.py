@@ -90,7 +90,7 @@ def build_learn_system_prompt(
 
 def render_physical_params_section(
         info: Mapping[str, Mapping[str, Any]]) -> str:
-    """The ``PHYSICAL_PARAMS`` section for a revealed parameter menu.
+    """The ``PHYSICAL_PARAM_SPECS`` section for a revealed parameter menu.
 
     ``info`` maps a parameter name to its ``default``, ``lo``, ``hi``,
     ``description``, and optional ``scale``; empty input renders

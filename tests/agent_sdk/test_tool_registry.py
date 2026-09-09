@@ -67,14 +67,14 @@ def test_create_synthesis_tools_matches_constant(tmp_path) -> None:
 
 
 def test_sysid_fit_gate_traj_idxs_vs_fixed(tmp_path) -> None:
-    """On the PHYSICAL_PARAMS path, ``fixed`` is rejected (pinning goes through
-    the param's bounds in the declaration) while ``traj_idxs`` passes.
+    """On the PHYSICAL_PARAM_SPECS path, ``fixed`` is rejected (pinning goes
+    through the param's bounds in the declaration) while ``traj_idxs`` passes.
 
     the gate as an exploratory subset fit - with no approach bound it then
     stops at the no-approach error rather than the gate.
     """
     sim_file = tmp_path / "simulator.py"
-    sim_file.write_text("PHYSICAL_PARAMS = [\n"
+    sim_file.write_text("PHYSICAL_PARAM_SPECS = [\n"
                         "    ParamSpec('lateral_friction', 0.2, lo=0.01, "
                         "hi=1.0)\n"
                         "]\n")

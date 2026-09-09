@@ -4,7 +4,7 @@ A separate physics engine (the base sim) handles robot motion, grasping, and rig
 
 ## What you produce
 
-One file, `simulator.py` (path given in the first message), defining three top-level names:
+One file, `simulator.py` (at the path your instructions give), defining three top-level names:
 
 ```python
 RESIDUAL_RULES:    List[Callable]            # rule functions (signature below)
@@ -14,7 +14,7 @@ RESIDUAL_FEATURES: Dict[str, List[str]]      # {type_name: [feature_names]} your
 
 `RESIDUAL_FEATURES` defines both the loss scope and the test-time overwrite scope: only the listed `(type, feature)` pairs are scored against observations, and only those are written on top of the base sim at test time. List exactly the features your rules update; a listed feature no rule writes inflates the loss without giving the fit anything to optimize.
 
-## Base-sim system identification (`PHYSICAL_PARAMS`)
+## Base-sim system identification (`PHYSICAL_PARAM_SPECS`)
 
 The base sim's rigid-body physics is itself parameterized, and its built-in values may be mis-calibrated relative to the real environment. It reveals these tunable parameters:
 
@@ -23,14 +23,14 @@ The base sim's rigid-body physics is itself parameterized, and its built-in valu
 When observed trajectories diverge from the base sim on rigid-body motion itself (not on a process layered on top of it), declare a fourth export:
 
 ```python
-PHYSICAL_PARAMS: List[ParamSpec]  # subset of the names above; init = your hypothesis, lo/hi from the box
+PHYSICAL_PARAM_SPECS: List[ParamSpec]  # subset of the names above; init = your hypothesis, lo/hi from the box
 ```
 
 - Decide from open-loop evidence, in either direction. Per-step (teacher-forced) residuals predict each step from the recorded state, so the compounding divergence a wrong friction or mass produces is invisible to them; near-zero per-step residuals are compatible with free-running rollouts that are far worse than at the correct value. Run `sim.residuals(rollout=True, sweep_params="all")` (or name the suspect parameters): it replays the recorded trajectories free-running and sweeps each parameter across its box, and `phys_params={name: value}` scores one hypothesized point. Declare a parameter whose sweep is materially better away from the baseline; a flat sweep is honest evidence that the data cannot constrain it, and the only justification for omitting it.
 - Undeclared parameters keep their built-in values in every base-sim rollout, including the verification replay that decides what counts as a solve. Rules fit to observed data can compensate for a mis-set built-in value only near that data; identifying the parameter fixes the substrate itself.
 - Start with one parameter, the one with a physical story for the observed residual, and add another only if the calibrated fit still leaves structure unexplained. Co-declared parameters compensate each other along a data-equivalent ridge, and a parameter cannot be identified from data that does not exercise it.
 - `sim.fit()` reports per-parameter identifiability (posterior contraction). Drop a parameter reported not identified or insensitive; its fitted value is noise. A parameter reported "anchored" moved only to compensate the others and was reverted to its baseline; keep it only if you can collect an interaction that excites it specifically.
-- With `PHYSICAL_PARAMS` declared, the fit matches free-running rollouts of full trajectories and fits physical and rule parameters jointly in one posterior, so rules cannot silently absorb physics error. A physics-only artifact is valid: `RESIDUAL_RULES = []` and `PARAM_SPECS = []` with a non-empty `PHYSICAL_PARAMS` means the calibrated base sim carries all the dynamics; `RESIDUAL_FEATURES` must still name the features the rollout is scored on.
+- With `PHYSICAL_PARAM_SPECS` declared, the fit matches free-running rollouts of full trajectories and fits physical and rule parameters jointly in one posterior, so rules cannot silently absorb physics error. A physics-only artifact is valid: `RESIDUAL_RULES = []` and `PARAM_SPECS = []` with a non-empty `PHYSICAL_PARAM_SPECS` means the calibrated base sim carries all the dynamics; `RESIDUAL_FEATURES` must still name the features the rollout is scored on.
 - After the fit, the identified values are applied to the planning base env, so probe rollouts and test-time planning use the calibrated physics.
 
 ### Rule signature
@@ -56,17 +56,17 @@ def rule(..., cmds):        # same leading args as above, plus `cmds`
     cmds.apply_force(obj, (fx, fy, fz))    # world-frame Newtons
     cmds.apply_torque(obj, (tx, ty, tz))   # world-frame N*m
     cmds.set_velocity(obj, linear=(vx, vy, vz))   # kinematic override
-    cmds.attach(obj_a, obj_b)   # rigid weld at their CURRENT relative pose
+    cmds.attach(obj_a, obj_b)   # fixed joint at their CURRENT relative pose
     return updates
 ```
 
-`cmds.attach` is the primitive for two bodies that move as one rigid body from some event on (a cured joint, a latch, a magnetized contact): the engine creates a fixed constraint at the pair's current relative pose and keeps it exactly while the command is re-emitted, so the base sim carries the whole assembly through pick, transport, and contact. Latch the decision in the rule's latent or feature state and re-emit from the latch every step. Do not emulate a weld by writing follower poses from the leader's pose: pose-written followers do not collide, do not support anything, and swing free during a carry, so plans validate in the belief and fail for real.
+`cmds.attach` is the primitive for two bodies that move as one rigid body from some event on (a latch, a snap fit, a magnetized contact): the engine creates a fixed constraint at the pair's current relative pose and keeps it exactly while the command is re-emitted, so the base sim carries the whole assembly through pick, transport, and contact. Latch the decision in the rule's latent or feature state and re-emit from the latch every step. Do not emulate an attachment by writing follower poses from the leader's pose: pose-written followers do not collide, do not support anything, and swing free during a carry, so plans validate in the belief and fail for real.
 
 Commands act during the next env action and then expire, so re-emit them on every step the process is active (a force that acts while a device is on is "emit the force whenever `is_on > 0.5`"). A force or torque is re-applied on every physics substep of that action, like a continuous push. The engine resolves whatever the commanded motion runs into (contact stops, sliding, deflection); do not re-derive collision handling in rule code.
 
 Choosing the channel, in order:
 
-1. The base sim already produces the motion but quantitatively off (bodies move on replay, with drifting angles or timing): the mechanism lives in the engine and the error is a function of its physical parameters. Declare `PHYSICAL_PARAMS` and write no rule for it.
+1. The base sim already produces the motion but quantitatively off (bodies move on replay, with drifting angles or timing): the mechanism lives in the engine and the error is a function of its physical parameters. Declare `PHYSICAL_PARAM_SPECS` and write no rule for it.
 2. A body moves in the data but is inert in base-sim replay whenever some observable condition holds: the mechanism is missing, an influence the engine knows nothing about. Model it with force or velocity commands gated on the condition. If the missing mechanism is that two bodies move together rigidly after an event, the command is `cmds.attach`, not a pose rule.
 3. The feature is not a rigid-body pose at all (a level, a temperature, a counter): use the feature-update channel.
 

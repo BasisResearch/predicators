@@ -57,6 +57,55 @@ class GlobalSettings:
     # per task) must succeed before early stopping is triggered. Catches
     # "lucky single-sample" successes that mask a buggy learned model.
     online_learning_early_stopping_require_all_attempts = False
+    # ── Continual protocol (docs/continual-protocol.md) ─────────────
+    # "phased": today's explore/learn/test loop. "continual": one run per
+    # env plays its levels in order; every env step is counted, resets
+    # are counted separately, the sandbox is free, and the scorecard is
+    # the result. Selected on the command line; the phased loop is
+    # untouched when it is off.
+    experiment_protocol = "phased"
+    # Level order: the env's train tasks then its test tasks (4.1).
+    continual_levels = "train_then_test"
+    # Whether the agent may reset a test level (4.6). Off by default: a
+    # test level is one shot, so GAME_OVER on it ends the level as lost
+    # and, under the no-skipping rule, the run. Train levels always
+    # allow resets.
+    continual_allow_test_resets = False
+    # Pooled step cap per run: this many low-level steps per level,
+    # summed over the run's levels (4.8). A guard, not a scoring term.
+    continual_steps_per_level = 5000
+    # Active wall-clock cap per env run, in hours (6.5).
+    continual_wall_clock_hours = 48.0
+    # One directory per run (predicators/run/paths.py):
+    # <continual_runs_dir>/<approach>/<experiment_id>/seed<k>/run_<stamp>/
+    # holds the scorecard, the level recordings, the agent's files and
+    # the video, beside the launch's logs (the same subdir --log_file
+    # names, so keep this equal to the log root).
+    continual_runs_dir = "logs"
+    # Save a PNG render at level start, after each skill invocation, on
+    # resets and at episode ends (4.7).
+    continual_render = True
+    # Primitive-only arms flush the recording every N steps; skill arms
+    # flush at every invocation regardless.
+    continual_flush_every_steps = 50
+    # Write recordings/<run_id>/run.mp4 when the run ends: the recorded
+    # actions replayed through the env with a label panel (level, goal,
+    # the skill running, steps against the cap, resets) beside the
+    # render. One frame every continual_video_stride steps at video_fps;
+    # a 900 px PyBullet render costs about 1 s on a CPU node, so stride 2
+    # keeps a 5000-step run's video under an hour. The offline builder
+    # scripts/continual_video.py takes the same flags.
+    continual_make_video = False
+    continual_video_stride = 2
+    # The oracle controller gives up a level after this many planning or
+    # execution failures (6.7).
+    continual_max_replans_per_level = 20
+    # An agent that plays this many consecutive rounds of its
+    # conversation without an env step or model work has stalled; the
+    # run ends (6.5). A round is one harness message and the agent's
+    # turn on it. There is no per-round clock: the run's wall-clock cap
+    # is the only clock.
+    continual_max_idle_rounds = 5
     # Slack (in reward units) below a task's ``early_stop_min_reward`` bar
     # that still counts as solved for early stopping. Only tasks that set
     # ``EnvironmentTask.early_stop_min_reward`` are affected (e.g. domino
@@ -1014,7 +1063,7 @@ class GlobalSettings:
     # without lighting the third. Four buttons give six pairs and leave
     # room for goals that light two lamps and keep one dark.
     busyboard_num_buttons_train = [4]
-    busyboard_num_buttons_test = [5, 6]
+    busyboard_num_buttons_test = [7, 8]
     busyboard_num_lamps_train = [3]
     busyboard_num_lamps_test = [4]
     # Fewest lamps a goal asks to be lit, per split. Test goals need at
@@ -1027,13 +1076,43 @@ class GlobalSettings:
     # value up to the number of training lamps is always satisfiable.
     busyboard_min_lit_train = 1
     busyboard_min_lit_test = 2
-    # Probability that a lamp's drive is conjunctive (needs a second
-    # "enabler" button on as well as its driver). This is the many-to-one
-    # relation that undirected play confounds. At 1.0 every lamp is an
-    # interlock, so every goal needs a combination of buttons rather than
-    # a single press; 0.5 mixes plain and conjunctive drives; 0.0 ablates
-    # the interlock and recovers a one-to-one board.
+    # Whether a test goal may ask for a lamp the training board never
+    # showed to be lit. Off, an extension lamp is only ever a dark
+    # target and leaving the unfamiliar buttons alone is always safe;
+    # on, a test level can require a condition the agent has to find
+    # among the buttons it never saw.
+    busyboard_test_extension_lit = True
+    # Probability that a lamp's drive is conjunctive (needs an "enabler"
+    # button on as well as its driver). This is the many-to-one relation
+    # that undirected play confounds. At 1.0 every lamp is an interlock,
+    # so every goal needs a combination of buttons rather than a single
+    # press; 0.5 mixes plain and conjunctive drives; 0.0 ablates the
+    # interlock and recovers a one-to-one board.
     busyboard_interlock_prob = 1.0
+    # Given a conjunctive drive, the probability that it needs TWO
+    # enablers (a three-input condition) rather than one.
+    busyboard_double_enabler_prob = 0.5
+    # Probability that a lamp has an inhibitor: a button that must stay
+    # OFF for the lamp to respond. With one, "press everything" is never
+    # a solution even for a single lamp.
+    busyboard_inhibitor_prob = 0.5
+    # Probability that a core (training) lamp's inhibitor is a button the
+    # training board does not have. The rule learned in training stays
+    # true at test while that button stays off; pressing it, as a policy
+    # that probes every button does, breaks the lamp.
+    busyboard_extension_inhibitor_prob = 0.5
+    # The arming latch: a lamp responds to its driver only if the driver
+    # was pressed while every enabler was already on, and is disarmed
+    # when the driver goes off. The board is then not a function of the
+    # button setting - the same setting reached in two orders behaves
+    # differently - which is what makes a model with state necessary.
+    # False ablates the latch: a lamp is driven whenever its buttons are.
+    busyboard_latch = True
+    # Driving more than this many lamps at once trips the breaker: every
+    # charge drops to zero and nothing charges until every button has
+    # been released. Test goals ask for at least busyboard_min_lit_test
+    # lamps lit, so the limit must be at least that. 0 disables it.
+    busyboard_breaker_limit = 2
     # One wiring per run (extended onto each board size) rather than a fresh
     # one per task. True is what today's fitting stack supports: PARAM_SPECS
     # resolves once, before any task is chosen, so a hidden quantity that
@@ -2294,7 +2373,9 @@ class GlobalSettings:
     # (keep every env predicate), {"Holding"} for the invention approach.
     # Setting it on agent_sim_learning strips the named-out predicates -
     # even goal predicates - from the agent's prompts/tools; tasks whose
-    # goal atoms are stripped must then carry goal_nl.
+    # goal atoms are stripped must then carry goal_nl. An empty list
+    # keeps the approach's own default; ["none"] keeps no env predicate.
+    # The continual arms default to none (agent_continual_approach).
     agent_sim_learn_kept_predicates_names: List[str] = []
     # Ablation axis ("the robot knows its own simulator"): when True,
     # copy the env's declared base-sim source modules
