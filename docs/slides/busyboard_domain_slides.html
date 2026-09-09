@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>The Busyboard Domain</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/dist/reveal.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/dist/theme/white.css">
+<style>
+  .reveal { font-size: 30px; }
+  .reveal h1 { font-size: 1.6em; }
+  .reveal h2 { font-size: 1.15em; margin-bottom: 0.6em; }
+  .reveal ul { font-size: 0.82em; line-height: 1.45; }
+  .reveal li { margin: 0.28em 0; }
+  .reveal table { font-size: 0.62em; margin: 0 auto; }
+  .reveal table th, .reveal table td { padding: 0.28em 0.6em; }
+  .reveal .small { font-size: 0.6em; color: #555; }
+  .reveal .good { color: #1a7a1a; }
+  .reveal .bad { color: #a01515; }
+  .reveal .hl { color: #b3541e; font-weight: 600; }
+  .reveal img { max-height: 540px; border-radius: 6px; }
+  .reveal blockquote { font-size: 0.75em; width: 92%; }
+  .reveal code { color: #2a5d8a; }
+  .reveal pre { font-size: 0.55em; width: 96%; }
+  .reveal .cols { display: flex; gap: 0.8em; align-items: flex-start; }
+  .reveal .cols > div { flex: 1; }
+  .reveal svg text { font-family: "Source Sans Pro", sans-serif; }
+  .reveal .strip { display: flex; gap: 0.4em; justify-content: center; }
+  .reveal .strip figure { flex: 1; margin: 0; }
+  .reveal .strip img { width: 100%; max-height: 260px; object-fit: cover; }
+  /* Two rows of 900x770 cards must fit under the heading in reveal's
+     700px-high slide: 66% of the width gives 316px-wide, 270px-high cards. */
+  .reveal .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 0.2em 0.4em; width: 66%; margin: 0 auto; }
+  .reveal .cards figure { margin: 0; }
+  .reveal .cards img { width: 100%; max-height: 270px; object-fit: contain; }
+  .reveal figcaption { font-size: 0.55em; color: #555; margin-top: 0.2em; }
+  .reveal video { max-height: 480px; border-radius: 6px; }
+  .reveal .wire { font-family: monospace; font-size: 0.9em; }
+</style>
+</head>
+<body>
+<div class="reveal"><div class="slides">
+
+<!-- 1 - Title -->
+<section>
+  <h1>The Busyboard Domain</h1>
+  <p>Buttons, lamps, and wiring the robot never sees</p>
+  <p class="small">
+    <code>pybullet_busyboard</code> - branch <code>bridge-learning</code><br>
+    Assets: <code>docs/envs/busyboard/</code>
+  </p>
+</section>
+
+<!-- 2 - Why this domain -->
+<section>
+  <h2>Why another domain?</h2>
+  <ul>
+    <li>Every other domain in the suite hides <b>numbers</b>: fan wind, boil heat, glue cure time, domino friction.
+      The <em>shape</em> of the hidden process is known and a few knobs are fitted.</li>
+    <li>Busyboard hides <span class="hl">structure</span>: which button feeds which lamp.
+      No setting of a continuous parameter vector expresses it.</li>
+    <li>Some lamps need <b>two</b> buttons at once (an interlock).
+      Earlier busyboard benchmarks for robot learning left that out on purpose to keep the board easy to read from random play.</li>
+    <li>Evidence arrives <b>late</b>: a lamp only lights after its buttons have been held for a while,
+      so the button pressed most recently is often not the one that caused the light.</li>
+    <li>Some buttons do <b>nothing</b>, and every goal asks for some lamp to stay dark.
+      "Press everything" is therefore not a strategy.</li>
+  </ul>
+</section>
+
+<!-- 3 - The world -->
+<section>
+  <h2>The world</h2>
+  <div class="cols">
+    <div style="flex:1.35">
+      <img src="../envs/busyboard/init_5buttons_4lamps.png" alt="A five-button, four-lamp board at its initial state">
+    </div>
+    <div>
+      <ul style="font-size:0.72em">
+        <li>A Panda arm faces a children's busy board resting on the table.</li>
+        <li><b>Buttons</b> (front): toggle switches. Pushed from one side they latch on, from the other off.
+          The pale slider's position <em>is</em> the button's state.</li>
+        <li><b>Lamps</b> (back): grey blocks that glow in their own colour as they light.
+          Each bulb stands on a base in that colour, which says which lamp it is while it is dark.
+          The robot never touches them.</li>
+        <li>Every button and lamp has a <b>fixed colour</b>, carried in the state as a <code>color</code> feature.
+          The red button is the same control on every board, so a rule can be stated as
+          "the yellow lamp needs the green button".</li>
+        <li>Three buttons fit in one row.
+          Every board here has at least four, so two rows.</li>
+        <li>The only things the robot can do: <b>press</b> a button, <b>release</b> a button, or <b>wait</b>.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 4 - What the board hides -->
+<section>
+  <h2>What the board hides</h2>
+  <ul>
+    <li>Each lamp has a <b>drive condition</b>: two buttons that must both be on ("<span class="wire">green &amp; blue</span>").
+      One button alone never lights anything.</li>
+    <li>While the condition holds, a hidden <b>charge</b> builds up.
+      When it stops holding, the charge drains, faster than it built.</li>
+    <li>What the camera sees is <b>brightness</b>.
+      It stays at exactly zero for the first ~60% of the charge and only then ramps up.
+      A lamp that is half-way to lighting looks identical to a dead one.</li>
+    <li>Example: the five-button, four-lamp board used in all the videos (seed 0).</li>
+  </ul>
+  <table>
+    <tr><th>Lamp</th><th>Needs</th><th>Plain words</th></tr>
+    <tr><td>yellow (lamp0)</td><td class="wire">blue &amp; orange</td><td>blue (button2) and orange (button3) both on</td></tr>
+    <tr><td>cyan (lamp1)</td><td class="wire">red &amp; green</td><td>red (button0) and green (button1) both on</td></tr>
+    <tr><td>magenta (lamp2)</td><td class="wire">red &amp; blue</td><td>red (button0) and blue (button2) both on</td></tr>
+    <tr><td>white (lamp3)</td><td class="wire">green &amp; purple</td><td>green (button1) and purple (button4) both on</td></tr>
+  </table>
+  <p class="small">Buttons are shared: blue sits in the yellow and magenta conditions, red in the cyan and magenta ones, green in the cyan and white ones.
+    The white lamp is the one this board adds beyond the training board, so goals only ever ask for it to stay dark.</p>
+</section>
+
+<!-- 5 - Timing -->
+<section>
+  <h2>How slow is slow?</h2>
+  <table>
+    <tr><th>Quantity</th><th>Value</th><th>Meaning</th></tr>
+    <tr><td>One button press</td><td>~22 low-level steps</td><td>the unit of "time" the robot can spend</td></tr>
+    <tr><td>Charge gained per driven step</td><td>0.017</td><td>set by <code>busyboard_charge_rate</code></td></tr>
+    <tr><td>Brightness starts rising at</td><td>charge 0.60</td><td>~36 driven steps, invisible until then</td></tr>
+    <tr><td><code>LampOn</code> becomes true at</td><td>brightness 0.50 (charge 0.80)</td><td>~48 driven steps, about <b>two presses</b> later</td></tr>
+    <tr><td>Charge lost per undriven step</td><td>0.050</td><td>full to dark in ~20 steps, under one press</td></tr>
+  </table>
+  <ul style="font-size:0.75em; margin-top:0.6em">
+    <li>So the gap between cause and visible effect is roughly two button operations.
+      Press A, then press B, and the lamp lights during B.</li>
+    <li>Undoing is cheap: release a button and its lamp is dark before the next press finishes.</li>
+    <li><b>Waiting is a real action.</b> A lamp only lights while the board is left alone in a driving configuration.</li>
+  </ul>
+</section>
+
+<!-- 6 - Mechanism videos -->
+<section>
+  <h2>Two clips that show the difficulty</h2>
+  <div class="cols">
+    <div>
+      <video controls muted loop playsinline src="../envs/busyboard/interlock.mp4"></video>
+      <p class="small"><b>Interlock.</b> The orange button alone, then wait ten seconds: the yellow lamp's charge bar never moves.
+        Add the blue button and the yellow lamp charges and lights.</p>
+    </div>
+    <div>
+      <video controls muted loop playsinline src="../envs/busyboard/delayed_credit.mp4"></video>
+      <p class="small"><b>Delayed credit.</b> The blue and orange buttons are on, the yellow lamp is charging invisibly.
+        The unrelated green button is pressed, and the yellow lamp lights during that press.
+        The button that looks responsible is not.</p>
+    </div>
+  </div>
+  <p class="small">Right-hand panel in each clip is experimenter-only: true wiring and latent charge.
+    The red mark on each bar is where brightness begins.</p>
+</section>
+
+<!-- 7 - Goals -->
+<section>
+  <h2>Goals: light these, keep those dark</h2>
+  <div class="cols">
+    <div>
+      <ul style="font-size:0.75em">
+        <li>Every board starts fully off: all buttons released, all lamps dark and uncharged.</li>
+        <li>A goal is a lit/dark assignment over the lamps, e.g.
+          <em>"Use the buttons to leave the cyan lamp (lamp1), the magenta lamp (lamp2) lit and the yellow lamp (lamp0), the white lamp (lamp3) dark."</em></li>
+        <li>Goals are drawn only from assignments that some button setting <b>exactly</b> realizes,
+          so every task is solvable.</li>
+        <li>With two or more lamps, at least one lamp must stay <b>dark</b>.
+          That off-target is the whole point.</li>
+        <li>Test goals ask for <b>at least two</b> lamps lit (<code>busyboard_min_lit_test = 2</code>):
+          two learned conditions composed, with any button they share held.
+          Training goals may ask for one.</li>
+      </ul>
+    </div>
+    <div>
+      <video controls muted loop playsinline src="../envs/busyboard/press_everything_fails.mp4"></video>
+      <p class="small"><b>Latch everything and wait.</b> Lights all four lamps.
+        The yellow and white lamps were supposed to stay dark, so the task fails.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 8 - State, predicates, skills -->
+<section>
+  <h2>State, predicates, skills</h2>
+  <div class="cols">
+    <div>
+      <p><b>Objects and features</b></p>
+      <ul style="font-size:0.7em">
+        <li><code>robot</code>: x, y, z, fingers, roll, tilt, wrist</li>
+        <li><code>button</code>: x, y, z, rot, <b>color</b>, <b>is_on</b></li>
+        <li><code>lamp</code>: x, y, z, rot, <b>color</b>, <b>brightness</b>
+          (+ <b>charge</b> only when fully observable)</li>
+        <li><code>color</code> is an index into a named palette: buttons red, green, blue, orange, purple, black;
+          lamps yellow, cyan, magenta, white. Fixed per object on every board.</li>
+      </ul>
+      <p><b>Predicates</b> (all visible to the agent)</p>
+      <ul style="font-size:0.7em">
+        <li><code>ButtonOn(b)</code>, <code>ButtonOff(b)</code></li>
+        <li><code>LampOn(l)</code>, <code>LampOff(l)</code>: brightness ≥ 0.5</li>
+        <li><code>HandEmpty(r)</code></li>
+      </ul>
+    </div>
+    <div>
+      <p><b>Skills</b> (shared factories, no board-specific motion code)</p>
+      <ul style="font-size:0.7em">
+        <li><code>PressButton(r, b)</code>: push the slider to the on side</li>
+        <li><code>ReleaseButton(r, b)</code>: push it back</li>
+        <li><code>Wait(r)</code>: hold still</li>
+      </ul>
+      <p><b>Partially observable run</b> (<code>--partially_observable True</code>)</p>
+      <ul style="font-size:0.7em">
+        <li>The <code>charge</code> feature is dropped. The agent sees only brightness
+          and has to postulate the accumulator itself.</li>
+        <li>Same shape as boil's hidden heat behind <code>bubbling_level</code>,
+          but here the latent sits <em>behind an unknown wiring</em>.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 9 - Train/test split -->
+<section>
+  <h2>Train / test split</h2>
+  <table>
+    <tr><th></th><th>Buttons</th><th>Lamps</th><th>Conditions per lamp</th><th>Setting</th></tr>
+    <tr><td><b>Train</b></td><td>4</td><td>3</td><td>10</td><td><code>busyboard_num_{buttons,lamps}_train</code></td></tr>
+    <tr><td><b>Test</b></td><td>5 or 6</td><td>4</td><td>15 or 21</td><td><code>busyboard_num_{buttons,lamps}_test</code></td></tr>
+  </table>
+  <ul style="font-size:0.75em; margin-top:0.5em">
+    <li>Test boards are <b>bigger</b> than anything seen in training, and they <b>extend</b> the training board:
+      every training lamp keeps exactly its training drive condition, the way glue chemistry or fan thrust is the same at test in the other domains.</li>
+    <li>What a test board adds is either a <b>decoy</b> button or a new lamp whose driver is one of the new buttons.
+      Goals only ever ask for that new lamp to stay <b>dark</b>, so the agent must leave the buttons it knows nothing about alone.</li>
+    <li>One wiring per seed (<code>busyboard_fixed_wiring = True</code>), sampled over the largest board (6 buttons, 4 lamps)
+      under that contract and projected down by keeping the first lamps and folding new-button indices into the buttons a board has.</li>
+    <li>Every lamp is an interlock (<code>busyboard_interlock_prob = 1.0</code>), so every goal needs a combination of buttons.
+      Two lamps are never wired identically, so every lamp can be told apart by some experiment.</li>
+    <li>Four training buttons, not three: three buttons have exactly three pairs, a three-lamp board would use them all,
+      and no button setting could light two lamps without the third. Six pairs leave room for two-lit goals with an off-target.</li>
+    <li>Test goals light <b>at least two</b> lamps (<code>busyboard_min_lit_test = 2</code>); training goals may light one.</li>
+    <li>Board images: <code>init_4buttons_3lamps.png</code> (train size),
+      <code>init_5buttons_4lamps.png</code>, <code>init_6buttons_4lamps.png</code> (test sizes).</li>
+  </ul>
+</section>
+
+<!-- 10 - Split in practice -->
+<section>
+  <h2>The split in practice (seed 0)</h2>
+  <table>
+    <tr><th>Board</th><th>yellow needs</th><th>cyan needs</th><th>magenta needs</th><th>white needs</th><th>Decoys</th></tr>
+    <tr><td><b>Train</b> 4 buttons, 3 lamps</td><td class="wire">blue &amp; orange</td><td class="wire">red &amp; green</td><td class="wire">red &amp; blue</td><td>-</td><td>-</td></tr>
+    <tr><td><b>Test</b> 5 buttons, 4 lamps</td><td class="wire">blue &amp; orange</td><td class="wire">red &amp; green</td><td class="wire">red &amp; blue</td><td class="wire">green &amp; purple</td><td>-</td></tr>
+    <tr><td><b>Test</b> 6 buttons, 4 lamps</td><td class="wire">blue &amp; orange</td><td class="wire">red &amp; green</td><td class="wire">red &amp; blue</td><td class="wire">green &amp; purple</td><td>black</td></tr>
+  </table>
+  <ul style="font-size:0.75em; margin-top:0.5em">
+    <li>The three training lamps keep their conditions on <b>every</b> test board.
+      "The yellow lamp needs the blue and orange buttons" learned in training is true at test.</li>
+    <li>Checked for seeds 0-4: in <b>5 of 5</b> seeds the training wiring is a sub-relation of every test board's.</li>
+    <li>The white lamp is new at test and is only ever a dark target.
+      Its condition always involves a new button, so leaving the unfamiliar buttons alone keeps it dark.</li>
+    <li>Buttons are shared across lamps (red feeds cyan and magenta; blue feeds yellow and magenta),
+      so a two-lit test goal such as "yellow and magenta" needs three buttons held and one specific button left off.</li>
+    <li>Per-episode wiring (<code>busyboard_fixed_wiring = False</code>) remains available as the harder setting,
+      where a synthesized policy would have to identify the board before acting.</li>
+  </ul>
+</section>
+
+<!-- 11 - Sample tasks -->
+<section>
+  <h2>Sample tasks (seed 0): train and test</h2>
+  <div class="cards">
+    <figure><img src="../envs/busyboard/task_train_0.png" alt="Train task 0: four buttons, three lamps, magenta on"></figure>
+    <figure><img src="../envs/busyboard/task_train_3.png" alt="Train task 3: four buttons, three lamps, yellow and magenta on"></figure>
+    <figure><img src="../envs/busyboard/task_test_6.png" alt="Test task 6: five buttons, four lamps, yellow and magenta on"></figure>
+    <figure><img src="../envs/busyboard/task_test_0.png" alt="Test task 0: five buttons, four lamps, cyan and magenta on"></figure>
+  </div>
+  <p class="small" style="margin-top:0.3em">
+    Goals name lamps by colour; the oracle answer under each card reads the hidden wiring the agent never sees.
+    A training answer is the answer for that lamp on every test board; a test goal composes two or three of them.
+  </p>
+</section>
+
+<!-- 12 - More tasks -->
+<section>
+  <h2>More tasks (seed 0)</h2>
+  <div class="cards">
+    <figure><img src="../envs/busyboard/task_train_4.png" alt="Train task 4: four buttons, three lamps, yellow on"></figure>
+    <figure><img src="../envs/busyboard/task_test_5.png" alt="Test task 5: six buttons, four lamps, cyan and magenta on"></figure>
+    <figure><img src="../envs/busyboard/task_test_3.png" alt="Test task 3: six buttons, four lamps, yellow and magenta on"></figure>
+    <figure><img src="../envs/busyboard/task_test_9.png" alt="Test task 9: six buttons, four lamps, yellow, cyan and magenta on"></figure>
+  </div>
+  <p class="small" style="margin-top:0.3em">
+    Purple feeds the white lamp, which is only ever a dark target, and black is a decoy, so leaving the unfamiliar buttons alone is always right.
+    Cards: <code>task_&lt;split&gt;_&lt;idx&gt;.png</code>, rendered with 6 train and 12 test tasks so every goal type shows up.
+  </p>
+</section>
+
+<!-- 13 - Goal distribution -->
+<section>
+  <h2>Goal distribution (seed 0)</h2>
+  <p class="small">A goal is drawn uniformly from the assignments some button setting realizes, minus "nothing lit" and "everything lit".
+    Only training lamps can be lit targets. Test goals need at least two lit.</p>
+  <table>
+    <tr><th>Split</th><th>Board</th><th>Realizable goals</th><th>1 lamp lit</th><th>2 lamps lit</th><th>3 lamps lit</th></tr>
+    <tr><td><b>Train</b></td><td>4 buttons, 3 lamps</td><td>5</td><td>3 (60%)</td><td>2 (40%)</td><td>0</td></tr>
+    <tr><td><b>Test</b></td><td>5 buttons, 4 lamps</td><td>3</td><td>0</td><td>2 (67%)</td><td>1 (33%)</td></tr>
+    <tr><td><b>Test</b></td><td>6 buttons, 4 lamps</td><td>3</td><td>0</td><td>2 (67%)</td><td>1 (33%)</td></tr>
+  </table>
+  <table style="margin-top:0.6em">
+    <tr><th>Split</th><th>Goal</th><th>Buttons to hold</th></tr>
+    <tr><td rowspan="5"><b>Train</b></td><td>yellow</td><td class="wire">blue, orange</td></tr>
+    <tr><td>cyan</td><td class="wire">red, green</td></tr>
+    <tr><td>magenta</td><td class="wire">red, blue</td></tr>
+    <tr><td>yellow + magenta</td><td class="wire">red, blue, orange</td></tr>
+    <tr><td>cyan + magenta</td><td class="wire">red, green, blue</td></tr>
+    <tr><td rowspan="3"><b>Test</b></td><td>yellow + magenta (cyan, white dark)</td><td class="wire">red, blue, orange</td></tr>
+    <tr><td>cyan + magenta (yellow, white dark)</td><td class="wire">red, green, blue</td></tr>
+    <tr><td>yellow + cyan + magenta (white dark)</td><td class="wire">red, green, blue, orange</td></tr>
+  </table>
+  <p class="small" style="margin-top:0.4em">
+    Yellow + cyan is never a goal: their conditions cover all four training buttons, which lights magenta too.
+    Train has no three-lit goal because that would light every lamp; test has one, the new white lamp being its off-target.
+    Sampled 120 tasks per split: train 75 / 45; test 91 / 29 across the two sizes.
+    Regenerate with the render script, which prints both the sample and the exact shares.
+  </p>
+</section>
+
+<!-- 14 - Why this split -->
+<section>
+  <h2>Why this split, and why colours</h2>
+  <ul style="font-size:0.72em">
+    <li><b>The problem with the first draft.</b> Wiring was projected onto smaller boards by reducing button indices modulo the button count,
+      so the training lamps' conditions were different on every test board in 5/5 seeds.
+      A learner that got training exactly right still failed test, and test-time attempts never touch the real board, so nothing could correct it.</li>
+    <li><b>Two coherent designs.</b>
+      <span class="hl">A</span>: the wiring is the hidden physics, fixed for a run; test extends the board (chosen).
+      <span class="hl">B</span>: the wiring is a per-episode latent; train varies it too, and the agent synthesizes a closed-loop policy that identifies the board before acting.
+      B is the richer claim and needs a belief simulator that can represent an unknown wiring, which nothing does yet. It stays available as <code>busyboard_fixed_wiring = False</code>.</li>
+    <li><b>Switch identity is part of the rule.</b> In fan and boil a rule is lifted over features ("the switch on this side drives this fan").
+      Here nothing about a button says which lamp it feeds, so the rule has to name the button.
+      Giving every button and lamp a fixed <code>color</code> feature makes that rule lifted again:
+      "the yellow lamp needs the green and blue buttons" is stated over features and is true on every board.</li>
+    <li><b>Colour never leaks the wiring.</b> It is identity only, the same on every board; which colours feed which lamp is still the thing to learn.</li>
+  </ul>
+</section>
+
+<!-- 15 - Hypothesis space -->
+<section>
+  <h2>How much is there to find out?</h2>
+  <ul>
+    <li>Per lamp, the candidate conditions are: any single button, or any unordered pair.</li>
+  </ul>
+  <table>
+    <tr><th>Buttons</th><th>Single</th><th>Pairs</th><th>Conditions per lamp</th><th>Distinct 3-lamp wirings</th><th>Distinct 4-lamp wirings</th></tr>
+    <tr><td>4 (train)</td><td>4</td><td>6</td><td>10</td><td>720</td><td>5040</td></tr>
+    <tr><td>5 (test)</td><td>5</td><td>10</td><td>15</td><td>2730</td><td>32760</td></tr>
+    <tr><td>6 (test)</td><td>6</td><td>15</td><td>21</td><td>7980</td><td>143640</td></tr>
+  </table>
+  <ul style="font-size:0.75em; margin-top:0.5em">
+    <li>Small enough to enumerate exactly, so information gain per experiment can be scored in bits against an optimal splitter.</li>
+    <li>A conjunction is symmetric: "b0 and b2" and "b2 and b0" are one hypothesis, not two.
+      With every lamp an interlock the singles drop out: 120 three-lamp wirings on the training board.</li>
+    <li>The useful experiments are the ones that <b>hold a configuration still</b> long enough for the ramp to show.
+      Covering every button once is not enough; the interlock and the delay both confound it.</li>
+  </ul>
+</section>
+
+<!-- 16 - Oracle -->
+<section>
+  <h2>The oracle: how the demonstrator plans</h2>
+  <div class="cols">
+    <div>
+      <ul style="font-size:0.72em">
+        <li>Pressing a button has no fixed effect, so a STRIPS operator cannot describe it.
+          The oracle uses <b>processes</b> instead.</li>
+        <li>Two <b>helper predicates</b>, given to oracle approaches only:
+          <code>SoleDriver(b, l)</code> and <code>JointDrivers(b1, b2, l)</code>.
+          They reconstruct the wiring from the board size, so the planner and the env cannot drift apart.</li>
+        <li>Exogenous processes: <code>LightLampSole</code>, <code>LightLampJoint</code> (condition: all drive buttons on, held for the delay),
+          plus the matching darkening processes.</li>
+        <li>Endogenous: <code>PressButton</code>, <code>ReleaseButton</code>, <code>Wait</code>.</li>
+        <li>Result: <span class="good">10/10 test tasks</span> with <code>oracle_process_planning</code>
+          and <code>--sesame_check_expected_atoms False</code>.</li>
+      </ul>
+    </div>
+    <div>
+      <video controls muted loop playsinline src="../envs/busyboard/oracle_solve.mp4"></video>
+      <p class="small">Goal: cyan and magenta lamps lit, yellow and white lamps dark.
+        Plan: press the red, green and blue buttons, then wait.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 17 - Oracle vs agent knowledge -->
+<section>
+  <h2>What the agent gets vs what the oracle gets</h2>
+  <table>
+    <tr><th></th><th>Oracle</th><th>Learning agent</th></tr>
+    <tr><td>Wiring</td><td>helper predicates + true params</td><td class="bad">nothing</td></tr>
+    <tr><td>Charge</td><td>true rule and rates</td><td>brightness only (PO); charge feature (FO)</td></tr>
+    <tr><td>Base simulator</td><td>-</td><td>the visible sim core, byte-identical to what its rollouts run
+      (<code>pybullet_busyboard_base.py</code>), on which no button lights anything</td></tr>
+    <tr><td>Predicates</td><td>Button/Lamp On/Off + helpers</td><td>Button/Lamp On/Off, HandEmpty</td></tr>
+    <tr><td>Skills</td><td colspan="2" style="text-align:center">same three skills</td></tr>
+  </table>
+  <ul style="font-size:0.72em; margin-top:0.5em">
+    <li>The <b>visibility contract is structural</b>: the base file carries geometry and button mechanics and nothing else.
+      Wiring, charge law, task distribution and goal thresholds live only in the subclass, which the agent never reads.</li>
+    <li>The true wiring is recorded in each task's <code>offline_task_metrics</code>, an experimenter-only channel,
+      so runs can score how much of the wiring an agent actually recovered.</li>
+  </ul>
+</section>
+
+<!-- 18 - Readiness -->
+<section>
+  <h2>Is it ready to run? What to expect</h2>
+  <ul style="font-size:0.78em">
+    <li class="good"><b>Ready:</b> env tests pass (11/11), oracle solves 10/10 at the 4/3 to 5-6/4 sizes, config wired into <code>envs/all.yaml</code>
+      and <code>exp_busyboard.yaml</code>.</li>
+    <li class="good"><b>Oracle hybrid-sim arm</b> (<code>agent_oracle_hybrid_sim</code>): should solve.
+      Its params carry the max-board wiring and project it onto any board, and it has already captured a Wait-based 5-step plan end to end.</li>
+    <li class="good"><b>Learning arms</b> (<code>sim_predicator</code>, <code>agent_sim_learning</code>): a model that gets the training wiring right
+      is right on every test board. What test adds is more buttons to ignore, a lamp to keep dark, and goals that need two conditions at once.
+      On the earlier 3/2 to 4-5/2-3 split, <code>sim_predicator</code> solved its test task from cycle 1 on (job 21869973).</li>
+    <li>What the agent has to learn is discrete: which coloured buttons feed which lamp, and that a lamp charges only while its whole condition holds.
+      The continuous fitter cannot recover that (the wiring params are a staircase with zero gradient almost everywhere);
+      the agent has to write it into its model itself, from designed experiments.</li>
+    <li>Test-time attempts run against the agent's <em>own</em> simulator, not the real board,
+      so a wrong wiring is never corrected before the one real execution. Getting it right in training is the whole game.</li>
+  </ul>
+  <p class="small">Held in reserve: <code>busyboard_fixed_wiring = False</code> draws a fresh wiring per episode.
+    That is the setting where a synthesized closed-loop policy would identify the board before committing, and it needs
+    the belief simulator to represent an unknown wiring, which nothing does yet.</p>
+</section>
+
+<!-- 19 - Run it -->
+<section>
+  <h2>Running it</h2>
+  <pre>
+# Oracle demo (solves 10/10)
+python predicators/main.py --env pybullet_busyboard \
+    --approach oracle_process_planning --seed 0 \
+    --num_train_tasks 0 --num_test_tasks 10 \
+    --sesame_check_expected_atoms False
+
+# Experiment sweep (oracle hybrid-sim arm; flip more arms' SKIP in the yaml)
+python scripts/local/launch_simp.py -c predicatorv3/exp_busyboard.yaml --parallel
+  </pre>
+  <ul style="font-size:0.78em">
+    <li>Add <code>--partially_observable True</code> to hide the charge feature.</li>
+    <li>Quick visual check: <code>python predicators/envs/pybullet_busyboard.py</code> (GUI, latches every button in turn).</li>
+    <li>Key files:
+      <code>envs/pybullet_busyboard{,_base}.py</code>,
+      <code>ground_truth_models/busyboard/{predicates,options,processes,gt_simulator,gt_simulator_po}.py</code>,
+      <code>tests/envs/test_pybullet_busyboard.py</code>.</li>
+    <li>Regenerate media: <code>PYTHONPATH=. python docs/envs/busyboard/render_busyboard_media.py</code></li>
+  </ul>
+</section>
+
+</div></div>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/dist/reveal.js"></script>
+<script>
+  Reveal.initialize({ hash: true, slideNumber: true });
+</script>
+</body>
+</html>

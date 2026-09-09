@@ -7,6 +7,7 @@ interaction episodes it learns from.
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import List, Optional, Sequence, Tuple
 
@@ -14,7 +15,7 @@ from predicators import utils
 from predicators.cogman import CogMan, run_episode_and_get_observations
 from predicators.envs import BaseEnv
 from predicators.run.checkpoints import ApproachCheckpoints, \
-    InflightInteractions, test_results_exist
+    InflightInteractions, test_results_exist, test_results_path
 from predicators.run.early_stopping import EarlyStopping, below_reward_bar_msg
 from predicators.run.testing import format_test_results_line, run_testing, \
     save_test_results
@@ -38,9 +39,8 @@ def run_pipeline(env: BaseEnv,
 
         # Run initial evaluation if needed
         initial_test_summary: Optional[Tuple[str, Metrics]] = None
-        if CFG.skip_until_cycle < 0 and \
-           not CFG.skip_test_until_last_ite_or_early_stopping and \
-           not CFG.skip_initial_test:
+        if initial_test_due(
+                ApproachCheckpoints.for_cogman(cogman).mtime(None)):
             results = run_testing(env, cogman, online_learning_cycle=None)
             results.update({
                 "num_offline_transitions": num_offline_trans,
@@ -66,6 +66,53 @@ def run_pipeline(env: BaseEnv,
             "learning_time": 0.0
         })
         save_test_results(results, online_learning_cycle=None)
+
+
+def initial_test_due(checkpoint_mtime: Optional[float] = None) -> bool:
+    """Whether the pre-loop test runs.
+
+    Governed by ``skip_initial_test`` alone; the per-cycle tests have
+    their own switch (``skip_test_until_last_ite_or_early_stopping``),
+    so a run can evaluate the unlearned model and then only the final
+    one. On a fresh start it runs unless skipped. On an
+    ``--auto_resume`` relaunch that found only the post-offline
+    checkpoint (``skip_until_cycle`` 0) it runs again when no pre-loop
+    result was saved by this lineage: a requeue mid-test would otherwise
+    skip the one evaluation a zero-cycle arm has. A result file older
+    than the checkpoint (``checkpoint_mtime``) belongs to an earlier run
+    of the same config and does not count.
+    """
+    if CFG.skip_initial_test:
+        return False
+    if CFG.skip_until_cycle < 0:
+        return True
+    if not getattr(CFG, "auto_resume", False) or CFG.skip_until_cycle != 0:
+        return False
+    if not test_results_exist(None):
+        return True
+    return (checkpoint_mtime is not None
+            and os.path.getmtime(test_results_path(None)) < checkpoint_mtime)
+
+
+def resumed_cycle_test_due(cycle: int,
+                           checkpoint_mtime: Optional[float] = None) -> bool:
+    """Whether a resumed run must test ``cycle`` before continuing.
+
+    A cycle's checkpoint is written at the end of its learn, before its
+    test, so a kill during the test leaves a loadable cycle with no
+    result. The test is due when per-cycle testing is on and no result
+    for the cycle was saved by this lineage: a result file older than
+    the cycle's checkpoint (``checkpoint_mtime``) belongs to an earlier
+    run of the same config and does not count (bridge seed 3,
+    2026-09-03: a cycle-0 result from the previous day's run hid a
+    cycle-0 test that a requeue had cut short).
+    """
+    if CFG.skip_test_until_last_ite_or_early_stopping:
+        return False
+    if not test_results_exist(cycle):
+        return True
+    return (checkpoint_mtime is not None
+            and os.path.getmtime(test_results_path(cycle)) < checkpoint_mtime)
 
 
 def _handle_offline_learning(
@@ -173,9 +220,8 @@ def run_online_learning_loop(
             # before its test; a kill during the test phase leaves a
             # loadable cycle i-1 with no test results. Run that test
             # first so the resumed run loses no evaluation datapoint.
-            if (i == CFG.skip_until_cycle
-                    and not CFG.skip_test_until_last_ite_or_early_stopping
-                    and not test_results_exist(i - 1)):
+            if i == CFG.skip_until_cycle and resumed_cycle_test_due(
+                    i - 1, checkpoints.mtime(i - 1)):
                 logging.info(
                     "Resumed past cycle %d whose test never ran; testing "
                     "it now before continuing.", i - 1)

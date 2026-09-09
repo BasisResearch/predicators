@@ -94,7 +94,8 @@ def perturbation_ensemble(
 
     Parameters absent from ``point`` are skipped (the caller's point
     estimate is the source of truth for which params exist); parameters
-    in ``point`` without a matching spec are carried through unperturbed.
+    in ``point`` without a matching spec, and ``discrete`` parameters,
+    are carried through unperturbed.
     """
     if num_members < 1:
         raise ValueError("num_members must be >= 1")
@@ -105,7 +106,7 @@ def perturbation_ensemble(
         member = dict(anchor)
         for name, value in anchor.items():
             spec = spec_by_name.get(name)
-            if spec is None:
+            if spec is None or spec.discrete:
                 continue
             sigma = perturb_frac * _param_width(spec)
             if is_log(spec) and value > 0:

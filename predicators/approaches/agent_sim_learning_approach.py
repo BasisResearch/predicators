@@ -22,6 +22,7 @@ import dataclasses
 import hashlib
 import inspect
 import logging
+import math
 import os
 import subprocess
 from contextlib import contextmanager
@@ -901,7 +902,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             base_pred_triples = []
             inferred_hint = {}
         else:
-            # Zero-shot synthesis (ablation A1): the session runs with
+            # Zero-shot synthesis (ablation A2): the session runs with
             # nothing recorded, so the artifacts come from the task
             # description, the scene and the agent's own knowledge; the
             # params deploy at their declared inits.
@@ -998,6 +999,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         sse: float = float("nan"),
         applied_physical: Optional[Dict[str, float]] = None,
         sigma_points: Optional[List[Dict[str, float]]] = None,
+        pinned: bool = False,
     ) -> None:
         """Deploy a canonical ``sim.fit`` result to the candidate probe.
 
@@ -1010,18 +1012,40 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         physical values actually applied to the planning env are kept
         so the cycle's deployed model can be exactly this fit (see
         :meth:`_published_fit_for_file`).
+
+        ``pinned`` marks a fit that never ran: rollout sysID found no
+        trajectory explainable at any candidate parameters and left the
+        values at the declared inits. Such a publish must not displace
+        a real fit of the SAME file content: the earlier finite fit
+        stays canonical and the pinned attempt is only logged, so the
+        deployed model is never silently downgraded from a validated
+        fit to unvalidated inits (bridge seed 3, 2026-09-03: an "SSE
+        nan" model was deployed and every certification that cycle
+        ran against it). ``sse`` must be finite; a pinned fit reports
+        the SSE at the inits over all segments rather than nan.
         """
-        self._fitted_params.clear()
-        self._fitted_params.update(params)
         digest = None
         if os.path.isfile(simulator_file):
             with open(simulator_file, "rb") as f:
                 digest = hashlib.sha256(f.read()).hexdigest()
         state = self._probe_fit_state()
+        if pinned and state.get("fit_result") is not None and \
+                state.get("digest") == digest and \
+                not state.get("pinned", False) and \
+                math.isfinite(float(state.get("sse", float("nan")))):
+            logger.warning(
+                "sim.fit (%s) ran no fit (nothing explainable at any "
+                "params); keeping the earlier finite fit %s (SSE %.6f) of "
+                "the same simulator.py as canonical.", version_tag,
+                state.get("version"), float(state["sse"]))
+            return
+        self._fitted_params.clear()
+        self._fitted_params.update(params)
         state["digest"] = digest
         state["version"] = version_tag
         state["fit_result"] = fit_result
         state["sse"] = sse
+        state["pinned"] = bool(pinned)
         state["applied_physical"] = dict(applied_physical or {})
         state["sigma_points"] = list(sigma_points or [])
         self._probe_model_cache().clear()
@@ -1041,7 +1065,9 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         and over exactly ``expected_names``; ``None`` when nothing was
         published, the file changed after the fit (an UNFITTED edit), or
         the parameter set differs (a spec added or dropped after the
-        fit).
+        fit). A pinned publish (see :meth:`_publish_probe_fit`) is
+        returned like any other; :meth:`_published_fit_is_pinned` says
+        whether the values were ever fit.
         """
         state = self._probe_fit_state()
         fit = state.get("fit_result")
@@ -1055,6 +1081,10 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             return None
         return fit, float(state.get("sse",
                                     float("nan"))), str(state.get("version"))
+
+    def _published_fit_is_pinned(self) -> bool:
+        """Whether the canonical published fit never actually ran."""
+        return bool(self._probe_fit_state().get("pinned", False))
 
     def _make_candidate_probe_model_provider(
         self,
@@ -1187,20 +1217,35 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         return fit_num_steps
 
     def _rebuild_param_ensemble(self) -> None:
-        """Rebuild the active-experiment parameter ensemble.
+        """Rebuild the learned model's rule-parameter ensemble.
 
-        No-op (clears the ensemble) unless info-seeking exploration is
-        enabled and a fit has populated ``_fitted_params``. The ensemble
-        can use an exploration-only posterior even when solver params
-        remain at the global-budget point estimate.
+        Two consumers share it: info-seeking exploration (off under
+        ablation A6) and the capture gate's rule-param margin (off under
+        ablation A7). Built when either is on, a fit has populated
+        ``_fitted_params`` and parameter uncertainty is in use; cleared
+        otherwise. The ensemble can use an exploration-only posterior
+        even when solver params remain at the global-budget point
+        estimate.
 
         Picks the most *calibrated* ensemble the fit affords, preferring
         spreads that reflect real posterior uncertainty over uniform
         jitter (see :meth:`_select_param_ensemble`).
         """
-        if (not CFG.agent_explorer_info_seeking or not self._fitted_params
+        wanted = (CFG.agent_explorer_info_seeking
+                  or CFG.agent_plan_validation_rule_param_margin)
+        if (not wanted or not self._fitted_params
                 or not CFG.agent_sim_learn_param_uncertainty):
             self._param_ensemble = []
+            return
+        if CFG.agent_sim_learn_oracle_sim_params:
+            # Oracle params carry no uncertainty: no fit ran, so the only
+            # ensemble on offer would be box jitter around the truth,
+            # which manufactures wrong models (a zero rate, a rewired
+            # lamp) that the capture gate would then demand every plan
+            # survive. Nothing to hedge against, so no ensemble.
+            self._param_ensemble = []
+            logger.info("Oracle sim params: no rule-parameter ensemble "
+                        "(nothing uncertain to sweep).")
             return
         num_members = CFG.agent_explorer_info_ensemble_size
         self._param_ensemble, method = self._select_param_ensemble(num_members)
@@ -1818,10 +1863,30 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                     self._resolve_synthesis_paths().simulator_file, expected)
             if published is not None:
                 fit_result, self._fit_sse, version = published
-                logger.info(
-                    "Deploying the agent's published sim.fit (%s) of the "
-                    "final simulator.py: %d params, SSE %.6f.", version,
-                    len(expected), self._fit_sse)
+                if self._published_fit_is_pinned() or \
+                        not math.isfinite(self._fit_sse):
+                    # Deployed all the same - the cycle has no better
+                    # model, and refusing outright would strand the run
+                    # on a structure the next learn session is meant to
+                    # fix - but never as a validated fit: the SSE is the
+                    # value AT THE DECLARED INITS, and the certification
+                    # gates that trust this model are trusting an
+                    # unvalidated guess.
+                    logger.error(
+                        "UNVALIDATED MODEL: the agent's canonical sim.fit "
+                        "(%s) ran no fit - no recorded motion segment was "
+                        "explainable at any candidate parameters - so the "
+                        "deployed %d params are the DECLARED INITS "
+                        "(SSE at inits %.6f). Plans certified against "
+                        "this model are not evidence about the real "
+                        "environment; the next learn session must change "
+                        "the simulator's structure, not its numbers.", version,
+                        len(expected), self._fit_sse)
+                else:
+                    logger.info(
+                        "Deploying the agent's published sim.fit (%s) of "
+                        "the final simulator.py: %d params, SSE %.6f.",
+                        version, len(expected), self._fit_sse)
                 applied = self._probe_fit_state().get("applied_physical")
                 if self._physical_param_specs and applied:
                     # Mirror _fit_parameters_joint_rollout's deploy: the
@@ -1885,8 +1950,9 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
     ) -> List[Dict[str, float]]:
         """The capture gate's physics-margin grid for ``applied``.
 
-        Empty under ``agent_sim_learn_param_uncertainty`` False (ablation
-        A5: point estimates only, so there is no width to sweep) - the
+        Empty under ``agent_sim_learn_param_uncertainty`` False (ablations
+        A6+A7 combined: point estimates only, so there is no width to
+        sweep) - the
         single place that decides, so the joint fit, the published-fit
         deploy and the declared-params deploy cannot disagree.
         """
@@ -1905,7 +1971,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         base_pred_triples: List[Tuple[State, Action, State]],
         residual_features: Dict[str, List[str]],
     ) -> None:
-        """Deploy the agent's declaration as the estimate (ablation A3).
+        """Deploy the agent's declaration as the estimate (ablation A4).
 
         No fit runs. Every rule param takes its ``init_value``; the
         declared physical inits are applied to the planning env; the

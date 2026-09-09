@@ -314,6 +314,23 @@ class ToolContext:
         self.attempt_deadline = (self.attempt_start +
                                  wall_clock if wall_clock > 0 else None)
 
+    def pause_attempt_clock(self, seconds: float) -> None:
+        """Push every armed wall-clock mark ``seconds`` into the future.
+
+        Called by the session manager after it slept out a usage limit,
+        so the wait is charged to neither the attempt's budget nor the
+        run_python call in flight, and the budget footer's elapsed time
+        stays honest.
+        """
+        if seconds <= 0:
+            return
+        if self.attempt_start is not None:
+            self.attempt_start += seconds
+        if self.attempt_deadline is not None:
+            self.attempt_deadline += seconds
+        if self.python_call_deadline is not None:
+            self.python_call_deadline += seconds
+
     def clear_plan_capture(self) -> None:
         """Clear the four ``solved_plan*`` fields together.
 

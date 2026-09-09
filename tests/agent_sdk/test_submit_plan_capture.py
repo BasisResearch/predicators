@@ -459,6 +459,85 @@ def _physics_scope_ctx(model, points):
     return ctx, scope_overrides
 
 
+class _AdditiveModel(_PhysicsAwareModel):
+    """Fake model where each Move ADDS its parameter to block.x.
+
+    Two Move(0.5) steps are both necessary to reach x >= 0.9, while a
+    Move(0.95) makes any other Move padding - the two shapes the
+    necessity gate has to tell apart.
+    """
+
+    def get_next_state_and_num_actions(self, state, option):
+        self.num_calls += 1
+        nxt = state.copy()
+        nxt.set(_block, "x",
+                float(state.get(_block, "x")) + float(option.params[0]))
+        self.last_trajectory = LowLevelTrajectory(
+            [state, nxt], [Action(np.zeros(1, dtype=np.float32))])
+        return nxt, 1
+
+
+_REDUNDANT_PLAN_TEXT = (
+    "Move(block0:block)[0.95]\n"
+    "Move(block0:block)[0.95] -> {ReachedHi(block0:block)}")
+_TWO_STEP_PLAN_TEXT = ("Move(block0:block)[0.5]\n"
+                       "Move(block0:block)[0.5] -> {ReachedHi(block0:block)}")
+
+
+def test_redundant_step_is_not_captured():
+    """A plan that still reaches the goal with a step removed is refused.
+
+    Regression for run_20260902_152811: a validated capture pressed
+    three of four buttons and released one that was never on, for a goal
+    its own model reached with two presses and a Wait. Every gate ran at
+    the full plan, so none could see the padding.
+    """
+    utils.reset_config({
+        "agent_plan_validation_rollouts": 3,
+        "agent_plan_validation_fresh_env": True,
+        "agent_plan_validation_physics_margin": False,
+        "agent_plan_validation_necessity": True,
+    })
+    ctx, _ = _physics_scope_ctx(_AdditiveModel(), [])
+    text = _call_tool(ctx, plan_text=_REDUNDANT_PLAN_TEXT)
+    assert "REDUNDANT (plan NOT captured)" in text
+    assert "without step 0 (Move(block0)): goal STILL reached" in text
+    assert ctx.solved_plan is None
+    # The best refused submission is stashed for the best-effort nudge.
+    assert ctx.best_uncaptured_plan_lines is not None
+
+
+def test_necessary_steps_are_captured_with_note():
+    """A plan whose every step is needed captures with the check's note."""
+    utils.reset_config({
+        "agent_plan_validation_rollouts": 3,
+        "agent_plan_validation_fresh_env": True,
+        "agent_plan_validation_physics_margin": False,
+        "agent_plan_validation_necessity": True,
+    })
+    ctx, _ = _physics_scope_ctx(_AdditiveModel(), [])
+    text = _call_tool(ctx, plan_text=_TWO_STEP_PLAN_TEXT)
+    assert "Captured as the current answer" in text
+    assert "Necessity check passed" in text
+    assert ctx.solved_plan is not None
+
+
+def test_necessity_gate_disabled_by_config():
+    """The default-off flag captures the padded plan without ablations."""
+    utils.reset_config({
+        "agent_plan_validation_rollouts": 3,
+        "agent_plan_validation_fresh_env": True,
+        "agent_plan_validation_physics_margin": False,
+        "agent_plan_validation_necessity": False,
+    })
+    ctx, scope_overrides = _physics_scope_ctx(_AdditiveModel(), [])
+    text = _call_tool(ctx, plan_text=_REDUNDANT_PLAN_TEXT)
+    assert "Captured as the current answer" in text
+    assert "REDUNDANT" not in text
+    # Main rollout + 2 execution repeats, no ablation rollouts.
+    assert scope_overrides == [None, None, None]
+
+
 def test_param_sensitive_plan_is_not_captured():
     """A plan that fails at a -1-sigma physics point is refused.
 

@@ -346,3 +346,170 @@ def test_run_streamed_query_retries_after_limit(tmp_path, monkeypatch):
     assert len(sleeps) == 1 and sleeps[0] > 0
     assert collected == healthy_resp
     assert BaseAgentSessionManager._consecutive_fatal_queries == 0
+
+
+def test_run_streamed_query_polls_after_the_reset(tmp_path, monkeypatch):
+    """A limited query is polled every _LIMIT_POLL_SECS regardless of the
+    banner's stated reset (the limit can lift earlier), every wait pauses the
+    attempt clock by the same amount, and the total wait is capped."""
+    mgr = _make_base_manager(tmp_path)
+    limit_resp = [
+        _text_entry("You've hit your session limit · resets 5:10pm "
+                    "(America/New_York)"),
+    ]
+    healthy_resp = [_text_entry("fine"), _result_entry()]
+    responses = [
+        list(limit_resp),
+        list(limit_resp),
+        list(limit_resp),
+        list(healthy_resp)
+    ]
+
+    async def _fake_stream(_client, message, **_kwargs):
+        del message
+        return responses.pop(0)
+
+    sleeps = []
+
+    async def _fake_sleep(secs):
+        sleeps.append(secs)
+
+    class _Ctx:
+        attempt_start = 100.0
+        attempt_deadline = 2800.0
+        python_call_deadline = None
+        paused = 0.0
+
+        def pause_attempt_clock(self, seconds):
+            """Shift the armed marks like the real ToolContext does."""
+            self.paused += seconds
+            self.attempt_start += seconds
+            self.attempt_deadline += seconds
+
+    ctx = _Ctx()
+    monkeypatch.setattr(sb, "stream_agent_response", _fake_stream)
+    monkeypatch.setattr(sb.asyncio, "sleep", _fake_sleep)
+    # Refusals take no time here, so only the sleeps are paused.
+    monkeypatch.setattr(sb.time, "perf_counter", lambda: 0.0)
+    mgr._client = object()
+    mgr._tool_context = ctx
+    collected = asyncio.run(
+        mgr._run_streamed_query("do the thing", log_path=None, kind="test"))
+    assert collected == healthy_resp
+    assert sleeps == [sb._LIMIT_POLL_SECS] * 3
+    assert ctx.paused == sum(sleeps)
+    assert ctx.attempt_deadline == 2800.0 + sum(sleeps)
+    # Past the total cap the limited response is handed back as-is.
+    monkeypatch.setattr(sb, "_LIMIT_MAX_TOTAL_WAIT_SECS", 1.0)
+    responses[:] = [list(limit_resp), list(healthy_resp)]
+    sleeps.clear()
+    collected = asyncio.run(
+        mgr._run_streamed_query("again", log_path=None, kind="test"))
+    assert collected == limit_resp and not sleeps
+
+
+def test_run_streamed_query_retries_server_overload(tmp_path, monkeypatch):
+    """A query refused with a server-side error (529 Overloaded) is re-issued
+    every _OVERLOAD_POLL_SECS with the attempt clock paused, and the healthy
+    retry is what the caller receives."""
+    mgr = _make_base_manager(tmp_path)
+    overloaded = [
+        _result_entry(subtype="error",
+                      is_error=True,
+                      result="API Error: 529 Overloaded. This is a "
+                      "server-side issue, usually temporary.")
+    ]
+    healthy_resp = [_text_entry("fine"), _result_entry()]
+    responses = [list(overloaded), list(overloaded), list(healthy_resp)]
+    # The SDK takes a while to give up on an overloaded backend (~200 s
+    # of internal retries per query in the 2026-09-03 storm); that time
+    # did no work and must be paused along with the sleep.
+    clock = [0.0]
+    refusal_secs = 200.0
+
+    async def _fake_stream(_client, message, **_kwargs):
+        del message
+        response = responses.pop(0)
+        if response is not healthy_resp:
+            clock[0] += refusal_secs
+        return response
+
+    sleeps = []
+
+    async def _fake_sleep(secs):
+        sleeps.append(secs)
+
+    paused = []
+    monkeypatch.setattr(sb, "stream_agent_response", _fake_stream)
+    monkeypatch.setattr(sb.asyncio, "sleep", _fake_sleep)
+    monkeypatch.setattr(sb.time, "perf_counter", lambda: clock[0])
+    monkeypatch.setattr(mgr, "_pause_attempt_clock", paused.append)
+    mgr._client = object()
+    collected = asyncio.run(
+        mgr._run_streamed_query("learn", log_path=None, kind="test"))
+    assert collected == healthy_resp
+    assert sleeps == [sb._OVERLOAD_POLL_SECS] * 2
+    assert paused == [sb._OVERLOAD_POLL_SECS + refusal_secs] * 2
+    assert BaseAgentSessionManager._consecutive_fatal_queries == 0
+    assert sb.transient_retry_wait_seconds(
+        "error result: invalid api key") is None
+
+
+def test_run_streamed_query_resumes_a_turn_cut_short(tmp_path, monkeypatch):
+    """A turn that already made tool calls and then died on a 5xx is not the
+    agent's final answer: it is resumed in the same session with the
+    continuation message, its entries kept ahead of the resumed turn's (in the
+    returned response and in every flush), and only the sleep is paused since
+    the cut-short turn did real work."""
+    mgr = _make_base_manager(tmp_path)
+    banner = ("API Error: 500 Internal server error. This is a server-side "
+              "issue, usually temporary.")
+    cut_short = [
+        _tool_use_entry(),
+        _text_entry(banner),
+        _result_entry(subtype="error_during_execution",
+                      is_error=True,
+                      result=banner),
+    ]
+    healthy_resp = [_text_entry("done"), _result_entry()]
+    assert sb.query_fatal_error(cut_short) is None
+    assert sb.transient_turn_error(cut_short) == banner
+    assert sb.transient_turn_error(healthy_resp) is None
+    # A turn whose LAST assistant block is a tool call ended on the tool,
+    # not on a banner, even if an earlier text mentioned one.
+    assert sb.transient_turn_error(
+        [_text_entry(banner),
+         _tool_use_entry(),
+         _result_entry()]) is None
+    responses = [list(cut_short), list(healthy_resp)]
+    sent = []
+
+    async def _fake_stream(_client, message, **kwargs):
+        sent.append(message)
+        response = responses.pop(0)
+        kwargs["flush"](list(response))
+        return response
+
+    sleeps = []
+
+    async def _fake_sleep(secs):
+        sleeps.append(secs)
+
+    paused = []
+    flushed = []
+    monkeypatch.setattr(sb, "stream_agent_response", _fake_stream)
+    monkeypatch.setattr(sb.asyncio, "sleep", _fake_sleep)
+    monkeypatch.setattr(mgr, "_pause_attempt_clock", paused.append)
+    monkeypatch.setattr(mgr, "_flush_log",
+                        lambda _path, response: flushed.append(list(response)))
+    mgr._client = object()
+    collected = asyncio.run(
+        mgr._run_streamed_query("solve", log_path="log.md", kind="test"))
+    assert sent == ["solve", sb._CONTINUE_AFTER_TRANSIENT_ERROR]
+    assert collected == cut_short + healthy_resp
+    assert flushed[-1] == cut_short + healthy_resp
+    assert flushed[1] == cut_short + healthy_resp
+    assert sleeps == [sb._OVERLOAD_POLL_SECS]
+    assert paused == sleeps
+    assert mgr._conversation_log[-1]["response"] == cut_short + healthy_resp
+    assert BaseAgentSessionManager._consecutive_fatal_queries == 0

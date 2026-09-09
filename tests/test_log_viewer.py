@@ -4,8 +4,9 @@ scripts/log_viewer.py."""
 from pathlib import Path
 from typing import Any, Dict
 
-from scripts.log_viewer import _explore_results, _misc_chip, _parse_info_log, \
-    chain_summary, resume_chains
+from scripts.log_viewer import LiveProcs, _explore_results, _misc_chip, \
+    _parse_info_log, chain_summary, grid_layout, leaf_groups, resume_chains, \
+    run_row, split_exp
 
 _SAVE = ("INFO: Saved local sandbox query/response to logs/x/sandbox/"
          "session_logs/{name}.md")
@@ -282,3 +283,125 @@ def test_certified_chip_mark() -> None:
     assert "018 explore ✓ 1.00 ◆" in html
     assert "belief-certified" in html
     assert _explore_results([dict(ep, cycle_tag="cycle2")]) == [(2, 1, 1, 1.0)]
+
+
+def test_run_row_marks_live_rows_for_the_running_only_toggle() -> None:
+    """The index row carries data-live so the show-running toggle can hide dead
+    rows client-side; only a live (pinned or newest-unpinned) head run gets 1,
+    and a done run stays 0 even with a stale live process."""
+    layout = grid_layout([])
+    pinned = _run("run_20260827_121109")
+    dead = _run("run_20260827_150302")
+    done = _run("run_20260827_171610")
+    live: LiveProcs = ({("fam/exp", "seed0", pinned["name"])}, set())
+    summaries: Dict[str, Dict[str, Any]] = {}
+    row = run_row([pinned], {}, summaries, layout, live, False)
+    assert "data-live='1'" in row and "kill</button>" in row
+    row = run_row([dead], {}, summaries, layout, live, False)
+    assert "data-live='0'" in row and "kill</button>" not in row
+    row = run_row([done], {"done": True}, summaries, layout,
+                  (set(), {("fam/exp", "seed0")}), True)
+    assert "data-live='0'" in row
+
+
+def test_split_exp_reads_env_and_agent_from_the_dir_name() -> None:
+    """<family>/<env>-<agent> splits at the first dash (env names carry
+    underscores, never dashes); a dir outside the layout keeps its family as
+    the env so it still gets a group."""
+    assert split_exp("agent_sim_predicate_invention/"
+                     "bridge-sim_predicator_validation_no_uncertainty") == (
+                         "bridge", "sim_predicator_validation_no_uncertainty")
+    assert split_exp(
+        "agent_model_free/domino_high_friction_turn-"
+        "agent_model_free_planning") == ("domino_high_friction_turn",
+                                         "agent_model_free_planning")
+    assert split_exp("place_drift/baseline") == ("place_drift", "baseline")
+    assert split_exp("(root)") == ("(root)", "(root)")
+
+
+def test_leaf_groups_pool_by_agent_and_env_across_families() -> None:
+    """Leaves key on (agent, env) whatever family dir the runs live in;
+    lineages never cross dirs; chains order newest head first across seeds,
+    numeric seed order breaking ties."""
+
+    def _r(exp: str, seed: str, name: str) -> dict:
+        return dict(_run(name, seed), exp=exp, rel=f"{exp}/{seed}/{name}")
+
+    old = _r("old_family/bridge-sim_predicator", "seed0",
+             "run_20260827_121109")
+    new = _r("agent_sim_predicate_invention/bridge-sim_predicator", "seed0",
+             "run_20260901_121109")
+    resumed = _r("agent_sim_predicate_invention/bridge-sim_predicator",
+                 "seed0", "run_20260901_150000")
+    s10 = _r("agent_sim_predicate_invention/bridge-sim_predicator", "seed10",
+             "run_20260901_130000")
+    s2 = _r("agent_sim_predicate_invention/bridge-sim_predicator", "seed2",
+            "run_20260901_130000")
+    s3 = _r("agent_sim_predicate_invention/bridge-sim_predicator", "seed3",
+            "run_20260901_140000")
+    boil = _r("agent_sim_predicate_invention/boil-sim_predicator", "seed0",
+              "run_20260901_121109")
+    summaries: Dict[str, Dict[str, Any]] = {
+        resumed["rel"]: {
+            "resume_cycle": 1
+        },
+    }
+    leaves = leaf_groups([boil, s2, s10, resumed, s3, new, old], summaries)
+    assert set(leaves) == {("sim_predicator", "bridge"),
+                           ("sim_predicator", "boil")}
+    bridge = [[r["rel"] for r in ch]
+              for ch in leaves[("sim_predicator", "bridge")]]
+    assert bridge == [
+        [new["rel"], resumed["rel"]],  # head started 15:00
+        [s3["rel"]],  # 14:00
+        [s2["rel"]],  # 13:00, tie with seed10 -> numeric seed order
+        [s10["rel"]],
+        [old["rel"]],
+    ]
+    assert leaves[("sim_predicator", "boil")] == [[boil]]
+
+
+def test_interaction_index_resets_per_cycle_without_learn_sessions(
+        tmp_path: Path) -> None:
+    """An arm with no learn phase (agent_model_free) numbers each cycle's
+    verdict-earning explore sessions from 0, so the second cycle's sessions
+    match their __ep0/__ep1 videos.
+
+    The counter used to reset only on a learn session and ran 0, 1, 2, 3
+    ... across the whole run.
+    """
+    # pylint: disable=import-outside-toplevel
+    from scripts import log_viewer
+    run = tmp_path / "fam" / "exp" / "seed0" / "run_20260902_152641"
+    run.mkdir(parents=True)
+    names = [
+        "001_explore_20260902_152643", "002_explore_20260902_152729",
+        "003_explore_20260902_152908", "004_explore_20260902_152949"
+    ]
+    for name in names:
+        (run / f"{name}.md").write_text("# q\n", encoding="utf-8")
+    (run / "info.log").write_text("\n".join([
+        "ONLINE LEARNING CYCLE 0",
+        _SAVE.format(name=names[0]),
+        _SAVE.format(name=names[1]),
+        _VERDICT.format(r="0.00", t="False", a="False"),
+        _VERDICT.format(r="0.00", t="False", a="False"),
+        "ONLINE LEARNING CYCLE 1",
+        _SAVE.format(name=names[2]),
+        _SAVE.format(name=names[3]),
+        _VERDICT.format(r="0.00", t="False", a="False"),
+        _VERDICT.format(r="1.00", t="True", a="True"),
+    ]) + "\n",
+                                  encoding="utf-8")
+    old_root = log_viewer.LOGS_ROOT
+    log_viewer.LOGS_ROOT = str(tmp_path)
+    try:
+        summary = log_viewer.run_summary("fam/exp/seed0/run_20260902_152641")
+    finally:
+        log_viewer.LOGS_ROOT = old_root
+    assert summary is not None
+    by_num = {e["num"]: e for e in summary["episodes"]}
+    assert [by_num[n]["interaction_idx"] for n in (1, 2, 3, 4)] == \
+        [0, 1, 0, 1]
+    assert [by_num[n]["cycle_tag"] for n in (1, 2, 3, 4)] == \
+        ["cycle0", "cycle0", "cycle1", "cycle1"]

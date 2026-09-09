@@ -1,21 +1,22 @@
-# BRIDGE sweep over every paper arm (C7 dropped), 5 seeds each.
+# BRIDGE sweep over every paper arm (C7 dropped), 3 seeds each.
 # Usage: python scripts/engaging/launch.py -c predicatorv3/exp_bridge_sweep.yaml
 ---
 includes:
   - common.yaml
   - envs/all.yaml
   - approaches/all.yaml
-NUM_SEEDS: 5
+NUM_SEEDS: 3
 ENVS:
   bridge:
     SKIP: False
+    FLAGS:
+      num_test_tasks: 5
 APPROACHES:
-# Learning arms skip the pre-loop test; U1 and A1 (no cycles) are evaluated by it.
+# Every arm is tested after every learning cycle. Learning arms skip the pre-loop
+# test; U1 and A2 (no cycles) are evaluated by it, and C1 keeps it as A1 (no learning).
   # C1
   sim_predicator:
     SKIP: False
-    FLAGS:
-      skip_initial_test: True
     ARGS:
       - auto_resume
   # C1 in policy mode (parked; the paper's C1 is plan mode).
@@ -69,40 +70,47 @@ APPROACHES:
       agent_bilevel_max_execution_replans: 0
     ARGS:
       - auto_resume
-  # A1
+  # A2
   sim_predicator_zero_shot:
     SKIP: False
     ARGS:
       - auto_resume
-  # A2
+  # A3
   sim_predicator_undirected_explore:
     SKIP: False
     FLAGS:
       skip_initial_test: True
     ARGS:
       - auto_resume
-  # A3 (the rule-param margin samples the declared intervals here)
+  # A4 (the rule-param margin samples the declared intervals here)
   sim_predicator_no_param_fit:
     SKIP: False
     FLAGS:
       skip_initial_test: True
     ARGS:
       - auto_resume
-  # A4
+  # A5
   sim_predicator_no_validation:
     SKIP: False
     FLAGS:
       skip_initial_test: True
     ARGS:
       - auto_resume
-  # A5
-  sim_predicator_no_uncertainty:
+  # A6
+  sim_predicator_explore_no_disagreement:
     SKIP: False
     FLAGS:
       skip_initial_test: True
     ARGS:
       - auto_resume
-  # A6
+  # A7
+  sim_predicator_validation_no_uncertainty:
+    SKIP: False
+    FLAGS:
+      skip_initial_test: True
+    ARGS:
+      - auto_resume
+  # A8
   sim_predicator_no_predicates:
     SKIP: False
     FLAGS:

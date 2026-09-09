@@ -229,6 +229,9 @@ def _fmt_option_params(params: Array) -> str:
 # (state, objects, params, config) -> (x, y, z, yaw)
 TargetPoseFn = Callable[[State, Sequence[Object], Array, SkillConfig],
                         Tuple[float, float, float, float]]
+# Objects a skill contacts by design beyond its arguments, for a
+# grounding; see ``PhaseSkill.contact_objects``.
+ContactObjectsFn = Callable[[State, Sequence[Object]], Set[Object]]
 
 # ---------------------------------------------------------------------------
 # Internal type aliases for Phase target functions
@@ -334,6 +337,20 @@ class Phase:
     # goal fixes that without the cost/regressions of globally validating
     # every transport/retreat IK.
     validate_ik: bool = False
+    # A grasp descend: the previous phase parked the end effector directly
+    # above the target, so the straight segment down to the (validated)
+    # grasp configuration meets nothing but the target and whatever is
+    # butted against it. The phase takes that segment under the hard
+    # contact margin alone - no bystander clearance - or fails; it never
+    # plans a detour. The planner's clearance check used to reject a
+    # descend between butted neighbours (a glued span row) and return a
+    # detour arriving laterally at block-top height, which its waypoint-
+    # resolution check accepted and the executed sweep did not (bridge
+    # seed 3, 2026-09-04: planner seed 6 raked the target off the table;
+    # the same plan ran clean on the real board). A descend that cannot
+    # go straight down is a bad grasp pose, and the failure names the
+    # blocking body so the caller can change the pose.
+    direct_descend: bool = False
     # Additionally collision-check this phase's BiRRT goal config with the
     # fingers OPEN. Set on a place descent whose next phase opens the
     # gripper: the opening sweep itself is not planned, so a drop pose
@@ -418,14 +435,16 @@ class PhaseSkill:
         option = PhaseSkill("Pick", types, params_space, config, phases).build()
     """
 
-    def __init__(self,
-                 name: str,
-                 types: Sequence[Type],
-                 params_space: Box,
-                 config: SkillConfig,
-                 phases: List[Phase],
-                 params_description: Optional[Tuple[str, ...]] = None,
-                 base_mode: Optional[str] = None) -> None:
+    def __init__(
+            self,
+            name: str,
+            types: Sequence[Type],
+            params_space: Box,
+            config: SkillConfig,
+            phases: List[Phase],
+            params_description: Optional[Tuple[str, ...]] = None,
+            base_mode: Optional[str] = None,
+            contact_objects_fn: Optional[ContactObjectsFn] = None) -> None:
         assert len(phases) > 0
         self._name = name
         self._types = types
@@ -433,6 +452,9 @@ class PhaseSkill:
         self._config = config
         self._phases = phases
         self._params_description = params_description
+        # Objects the skill touches by design beyond its arguments (a
+        # push's switch); see ``contact_objects``.
+        self._contact_objects_fn = contact_objects_fn
         # Mobile-base positioning mode for this skill (None disables it):
         #   "home"        park at the robot's home base (good offset to press a
         #                 switch; diagonal fixed-base reach for far targets).
@@ -457,6 +479,22 @@ class PhaseSkill:
             terminal=self._terminal,
             params_description=self._params_description,
         )
+
+    def contact_objects(self, state: State,
+                        objects: Sequence[Object]) -> Set[Object]:
+        """Objects this skill contacts by design that are not among its
+        arguments, for the given grounding.
+
+        A push skill's argument is the appliance (faucet, burner, fan)
+        while the body its finger strikes is that appliance's switch, a
+        separate object. Robot-clearance checks (the capture gate's
+        bystander probe) exempt these along with the arguments: the
+        contact is the skill's purpose, not a margin-free near miss.
+        Empty when the skill declares none.
+        """
+        if self._contact_objects_fn is None:
+            return set()
+        return set(self._contact_objects_fn(state, objects))
 
     def _initiable(self, state: State, memory: Dict, objects: Sequence[Object],
                    params: Array) -> bool:
@@ -660,6 +698,33 @@ class PhaseSkill:
                  target_pose.position[1] + aim[1], target_pose.position[2]),
                 target_pose.orientation)
         return current_pose, target_pose, finger_status
+
+    def _held_contact_liftoff_applies(self, phase: Phase, state: State,
+                                      memory: Dict, objects: Sequence[Object],
+                                      params: Array) -> bool:
+        """Whether a BiRRT refusal should become an incremental-IK lift-off.
+
+        True when the phase tolerates shallow held-object contact, its
+        target lies ABOVE the current end effector (a retreat or lift,
+        whose motion leaves the contact - a place descend carries the
+        same tolerance flag but moves into its support, and pressing on
+        with incremental IK there is not a lift-off), and the planner's
+        diagnostics name ONLY start-configuration contacts of the held
+        object: no goal contact (the target itself is infeasible) and no
+        robot-body contact (the arm, not the payload, is wedged).
+        """
+        if not phase.allow_shallow_held_object_contacts:
+            return False
+        diags = self._last_plan_diagnostics
+        if not diags:
+            return False
+        if not all(
+                d.startswith("START: ") and not d.startswith("START: robot ")
+                for d in diags):
+            return False
+        current_pose, target_pose, _ = self._phase_targets(
+            phase, state, memory, objects, params)
+        return target_pose.position[2] > current_pose.position[2] + 1e-3
 
     def _check_ik_stall(self, phase: Phase, state: State, memory: Dict,
                         objects: Sequence[Object], params: Array) -> None:
@@ -1108,6 +1173,27 @@ class PhaseSkill:
                     logging.debug(
                         "[%s/%s] BiRRT failed; falling back to "
                         "incremental IK.", self._name, phase.name)
+                    memory[traj_key] = None
+                elif self._held_contact_liftoff_applies(
+                        phase, state, memory, objects, params):
+                    # A retreat/lift (tolerates shallow held-object
+                    # contact, target above the end effector) whose ONLY
+                    # blocker is the held object pressed into a bystander
+                    # at the start: the phase's motion leaves that
+                    # contact, so refusing to plan from it aborts the
+                    # safest move available.
+                    # Incremental IK lifts straight off toward the
+                    # phase target under the stall guard. Measured on the
+                    # 2026-09-02 bridge seed3 rerun: a glue dab's bottle
+                    # tip settled 6.5 mm into a block (past the 5 mm
+                    # shallow allowance) and the retreat's refusal ended
+                    # a belief-certified episode with the dab already
+                    # delivered.
+                    logging.warning(
+                        "[%s/%s] BiRRT refused a start in held-object "
+                        "contact (%s); lifting off with incremental IK "
+                        "instead of aborting.", self._name, phase.name,
+                        "; ".join(self._last_plan_diagnostics))
                     memory[traj_key] = None
                 else:
                     detail = ""
@@ -1567,6 +1653,8 @@ class PhaseSkill:
                 held_bystander_clearance=(
                     self._config.held_bystander_clearance),
                 goal_candidates=candidates,
+                relaxed_direct=(phase.direct_descend
+                                if phase is not None else False),
             )
 
         def _resolve_goal_ik(

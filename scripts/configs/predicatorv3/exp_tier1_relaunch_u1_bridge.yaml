@@ -1,0 +1,18 @@
+# Relaunch of the tier-1 U1 bridge run whose resumed pre-loop test was skipped; 1 seed, 1 test task.
+# Usage: python scripts/engaging/launch.py -c predicatorv3/exp_tier1_relaunch_u1_bridge.yaml --partition mit_preemptable
+---
+includes:
+  - common.yaml
+  - envs/all.yaml
+  - approaches/all.yaml
+ENVS:
+  bridge:
+    SKIP: False
+APPROACHES:
+  agent_oracle_hybrid_sim:
+    SKIP: False
+    FLAGS:
+      partially_observable: True
+      agent_bilevel_max_execution_replans: 0
+    ARGS:
+      - auto_resume
