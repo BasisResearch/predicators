@@ -21,13 +21,19 @@ The observation carries the box's pose, colour and speed, every balloon's pose, 
 
 Train levels have a pine or oak box and two or three balloons; together they show both materials and every balloon colour.
 Test levels hold the whole palette, four balloons, on a pine or oak box: a combination training never showed, built from lifts and a mass it did.
-Every level has exactly one subset of its balloons whose lift hangs the box in the band by the analytic law, and the generator keeps a level only when the oracle's own plan (open that subset's clips, weakest lift first) hangs the box in the band on the simulator's physics.
+Generation version 2 chooses a reference subset whose tested immediate release orders all reach the evaluator's goal.
+Test levels also contain a witnessed losing release sequence with an in-band analytic equilibrium.
+Other subsets and orders may win too; uniqueness is not claimed.
+The generator checks every simulation frame, requires sustained rest before classifying off-target failure, and keeps timeouts unresolved.
+A jam label additionally requires the same sequence to win in a diagnostic replay without box-wall collisions.
 The oracle plans with `Needed` and `Holds` helpers and a derived `AllNeededTied`.
 
-## Why it favours a learned model of the physics
+## What the model must predict
 
 Which clips to open is a small choice, but the height each choice gives is a quantitative composition of per colour lifts, the fade and the box's mass, and one balloon too many bursts on the ceiling.
-An agent that has identified the lifts, the fade and the masses from the training levels computes the subset for a rack it has never seen; an agent guessing pays with the level.
+Release order also changes the ascent: the same pair can burst in one order and succeed in the reverse order.
+A model can help compare these choices before irreversible actions, but an advantage over a free-coding MF agent must be measured.
+See [the version 2 validation plan](../../uncertainty-results/balloons-v2-plan.md) for the checked release schedules and benchmark scope.
 
 ## Files
 
@@ -35,5 +41,6 @@ An agent that has identified the lifts, the fade and the masses from the trainin
 - `predicators/envs/pybullet_balloons.py`: release, lift, pop, masses, tasks, evaluator, predicates.
 - `predicators/ground_truth_models/balloons/`: options, helper predicates, processes, the oracle's plan.
 - `tests/envs/test_pybullet_balloons.py`.
+- The video and images below are historical illustrations from an earlier generator, not version 2 results.
 - `oracle_solve.mp4` in this directory: the oracle playing a train level then a test level under the continual protocol.
 - `train_start.jpg`, `train_won.jpg`, `test_start.jpg`, `test_won.jpg`: four frames of that video, used by `docs/slides/balloons_domain_slides.html` (the reveal.js deck) and by `overview_slides.html` (the standalone overview).
