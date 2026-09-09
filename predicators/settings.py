@@ -1341,19 +1341,20 @@ class GlobalSettings:
     balloons_push_approach = 0.07
     balloons_push_contact_z = 0.05
     balloons_probe_max_steps = 400
+    # Consecutive low-speed, stable-position frames to classify a non-goal rest.
+    # Success still follows the evaluator on each individual frame.
+    balloons_probe_rest_steps = 20
+    balloons_probe_rest_tol = 1e-4
     # Test levels need two subsets in one band with only one overshoot-safe,
     # a rarer draw than a single in-band subset, so allow more attempts.
     balloons_max_sampling_attempts = 80
-    # Contact-only test levels (the default): require an in-band decoy that
-    # fails by JAM (the tilted box wedges in the chute), not by height or
-    # burst, whose equilibrium sits within balloons_contact_height_tol of the
-    # unique safe subset's. Then the safe subset and the decoy are
-    # indistinguishable by rest height or net lift - only a contact rollout
-    # (sim.run) tells them apart - so a model that reasons from equilibrium
-    # height alone cannot pick the winner and must trial-and-error (real
-    # steps, resets, or an irreversible burst). False keeps the original chute
-    # generation, where an in-band decoy may instead fail by overshoot burst.
-    balloons_require_jam_decoy = True
+    # Optional strict contact challenge. Require sustained off-target rest
+    # with vertical load on the chute wall; timeouts and turning points do
+    # not establish a jam. This can exhaust task sampling under some physics.
+    # Default generation also permits witnessed overshoot/burst decoys.
+    # Corrected task selection changes seeded levels; keep old experiments
+    # on their frozen generator when comparing agent changes.
+    balloons_require_jam_decoy = False
     balloons_contact_height_tol = 0.02
 
     # crane env
