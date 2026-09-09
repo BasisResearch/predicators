@@ -450,6 +450,9 @@ def test_predicate_invention_with_oracle_clustering():
 def test_predicate_invention_with_custom_clustering():
     """Test for predicate invention with a custom clustering algorithm."""
     additional_settings = {
+        # Exercise clustering and checkpoint loading without a 10-second
+        # planning deadline that depends on the compute node's speed.
+        "timeout": 60,
         "grammar_search_pred_selection_approach": "clustering",
         "grammar_search_pred_clusterer": "option-type-number-sample",
         "segmenter": "option_changes",
