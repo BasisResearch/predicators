@@ -58,6 +58,9 @@ All arms use the same corrected generator and frozen runtime.
 The last two MB arms differ only in the repair flag.
 No new noiseless controls are needed.
 Fresh noisy protocol oracle checks must pass before the comparison is submitted.
+Seeds 0 and 1 were used to diagnose and develop the changes, so seeds 2 and 3 provide a small additional check beyond those examples.
+The original-task repair comparison retains seeds 0 and 1 for direct before/after evaluation.
+Two new seeds are still a small sample, not a precise generalization estimate.
 
 Fresh noisy protocol oracle array 22373440 won all three levels for both seeds: seed 2 used 250 real steps and seed 3 used 211, with zero resets in both.
 This exercises the actual continual runner and configured skills, in addition to the generator's own probes.
@@ -66,3 +69,24 @@ Combined MB-repair and generator checks passed in job 22373693, including full m
 The source changes are committed on `bridge-learning` as `61e44d4ce` (MB repair) and `06a5c131e` (task validation).
 The original-task experiment checkout remains unchanged at `df53ca75f`.
 The corrected benchmark configuration is `scripts/configs/predicatorv3/protocol_continual_balloons_validated_v2.yaml`.
+
+## Submitted corrected-task runs
+
+The corrected runtime is frozen at `24e23125c` in `/home/ycliang/predicators-balloons-v2-r1`.
+Preflight job 22374025 passed: it verified the completed diagnostics and noisy oracle scorecards, unchanged physics and evaluator methods, and frozen source hashes.
+
+| Arm | Seeds | Slurm array |
+|---|---|---|
+| MB with uncertainty features and repair | 2, 3 | 22374077 |
+| MB with uncertainty features | 2, 3 | 22374078 |
+| MB without uncertainty features | 2, 3 | 22374080 |
+| MF | 2, 3 | 22374081 |
+
+All arrays use `mit_preemptable`, the existing account-selection launcher, and requeue/resume support.
+They follow the original-task sequence's final array 22372901 and run in two-seed batches, with every array requiring the preflight gate.
+The resolved settings and source hashes are in `logs/mb_repair_20260909/balloons-v2/launch-manifest.json` and `frozen-source.json`.
+No corrected-task agent outcomes were available at submission.
+
+Collector 22374089 will update [the corrected-task table](balloons-v2-table.md), snapshot and TSV after the four arrays terminate.
+Steps average only whole-run successful seeds; solve rate and resets use all seeds, and incomplete arms withhold averages.
+The original-task results retain their [separate table](model-repair-table.md).

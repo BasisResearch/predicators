@@ -1,0 +1,118 @@
+{
+  "generated_by": "make_model_repair_table.py; do not edit manually",
+  "observed_at": "2026-09-09T11:28:40.155641+00:00",
+  "manifest": "/home/ycliang/predicators/logs/mb_repair_20260909/balloons-v2/launch-manifest.json",
+  "base_sha": "24e23125c3c2b803442f855cec16b26fce93ba9f",
+  "task_generation_version": 2,
+  "source_tree": "/home/ycliang/predicators-balloons-v2-r1",
+  "rows": [
+    {
+      "domain": "Balloons",
+      "noise": "10 mm / 0.02 rad",
+      "arm": "MF",
+      "experiment_id": "balloons-agent_continual_model_free_validated_v2",
+      "job_id": "22374081",
+      "uncertainty_flags": {
+        "code_sim_learning_interval_belief": false,
+        "agent_explorer_info_seeking_noise_aware": false,
+        "code_sim_learning_rollout_noise_filter": false,
+        "code_sim_learning_carry_posterior": false,
+        "code_sim_learning_fit_evidence": false,
+        "continual_belief_frame": false
+      },
+      "runs": [
+        {
+          "seed": 2,
+          "finished_at": null,
+          "status": "Missing"
+        },
+        {
+          "seed": 3,
+          "finished_at": null,
+          "status": "Missing"
+        }
+      ]
+    },
+    {
+      "domain": "Balloons",
+      "noise": "10 mm / 0.02 rad",
+      "arm": "MB without features",
+      "experiment_id": "balloons-agent_continual_validated_v2_off",
+      "job_id": "22374080",
+      "uncertainty_flags": {
+        "code_sim_learning_interval_belief": false,
+        "agent_explorer_info_seeking_noise_aware": false,
+        "code_sim_learning_rollout_noise_filter": false,
+        "code_sim_learning_carry_posterior": false,
+        "code_sim_learning_fit_evidence": false,
+        "continual_belief_frame": false
+      },
+      "runs": [
+        {
+          "seed": 2,
+          "finished_at": null,
+          "status": "Missing"
+        },
+        {
+          "seed": 3,
+          "finished_at": null,
+          "status": "Missing"
+        }
+      ]
+    },
+    {
+      "domain": "Balloons",
+      "noise": "10 mm / 0.02 rad",
+      "arm": "MB with features",
+      "experiment_id": "balloons-agent_continual_validated_v2_on",
+      "job_id": "22374078",
+      "uncertainty_flags": {
+        "code_sim_learning_interval_belief": true,
+        "agent_explorer_info_seeking_noise_aware": true,
+        "code_sim_learning_rollout_noise_filter": true,
+        "code_sim_learning_carry_posterior": true,
+        "code_sim_learning_fit_evidence": true,
+        "continual_belief_frame": true
+      },
+      "runs": [
+        {
+          "seed": 2,
+          "finished_at": null,
+          "status": "Missing"
+        },
+        {
+          "seed": 3,
+          "finished_at": null,
+          "status": "Missing"
+        }
+      ]
+    },
+    {
+      "domain": "Balloons",
+      "noise": "10 mm / 0.02 rad",
+      "arm": "MB with features + repair",
+      "experiment_id": "balloons-agent_continual_validated_v2_repair",
+      "job_id": "22374077",
+      "uncertainty_flags": {
+        "code_sim_learning_interval_belief": true,
+        "agent_explorer_info_seeking_noise_aware": true,
+        "code_sim_learning_rollout_noise_filter": true,
+        "code_sim_learning_carry_posterior": true,
+        "code_sim_learning_fit_evidence": true,
+        "continual_belief_frame": true
+      },
+      "runs": [
+        {
+          "seed": 2,
+          "finished_at": null,
+          "status": "Missing"
+        },
+        {
+          "seed": 3,
+          "finished_at": null,
+          "status": "Missing"
+        }
+      ]
+    }
+  ]
+}
