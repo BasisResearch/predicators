@@ -81,7 +81,7 @@ MB array `22412376` was submitted at 21:14 UTC on September 9, 2026, with seeds 
 Both tasks were verified RUNNING at 21:15 UTC on `mit_preemptable`, with 8 CPUs and 16 GB per seed.
 The existing result watcher was extended and restarted with its notification history preserved; both new task IDs appear in its status snapshot.
 The separate hatch MB/MF pilot remains on its existing frozen runtime.
-
+Both original-task MB jobs subsequently completed with Slurm state `COMPLETED`, exit code `0:0`, and final `all_levels_won` scorecards, verified September 10, 2026.
 
 The [launch manifest](../../logs/balloons_original_subclass_20260909/launch-manifest.json) records the frozen source, exact flags, validation jobs and job IDs.
 The [distribution preflight report](../../logs/balloons_original_subclass_20260909/distribution-preflight.json) records the six freshly sampled levels.
@@ -93,14 +93,24 @@ Run outputs use the standard continual viewer layout under `logs/agent_continual
 |---|---:|---:|---:|---:|---|
 | Existing MF | 0 | 2/3 | 513 | 0 | Agent ended |
 | Existing MF | 1 | 3/3 | 461 | 1 | All levels won |
-| Latest subclass MB | 0 | - | - | - | Running: `22412376_0` |
-| Latest subclass MB | 1 | - | - | - | Running: `22412376_1` |
+| Latest subclass MB | 0 | 3/3 | 466 | 0 | All levels won |
+| Latest subclass MB | 1 | 3/3 | 338 | 1 | All levels won |
 
 MF seed 0: [scorecard](../../logs/agent_continual_model_free/balloons-agent_continual_model_free_cross_noise/seed0/run_20260909_075624/scorecard.json).
 MF seed 1: [scorecard](../../logs/agent_continual_model_free/balloons-agent_continual_model_free_cross_noise/seed1/run_20260909_075654/scorecard.json).
-The existing MF baseline won 5/6 levels and completed 1/2 whole runs.
-Mean steps over whole-run successful MF seeds is 461, with qualifying count n=1.
-Mean resets across both MF runs is 0.5.
+MB seed 0: [scorecard](../../logs/agent_continual/balloons-agent_continual_original_subclass_r1/seed0/run_20260909_171523/scorecard.json).
+MB seed 1: [scorecard](../../logs/agent_continual/balloons-agent_continual_original_subclass_r1/seed1/run_20260909_171520/scorecard.json).
+
+| Arm | Levels won | Whole-run success | Mean steps, successful runs only | Qualifying seeds | Mean resets, all runs |
+|---|---:|---:|---:|---|---:|
+| Latest subclass MB | 6/6 (100%) | 2/2 (100%) | 402 | 0, 1 (n=2) | 0.5 |
+| Historical MF | 5/6 (83.3%) | 1/2 (50%) | 461 | 1 (n=1) | 0.5 |
+
+MB seed 0 won its two training levels in 235 and 48 steps, then the test level in 183 steps.
+MB seed 1 won its two training levels in 81 and 209 steps, then the test level in 48 steps.
+The reset occurred during seed 1's second training level.
+The successful-only step means use different qualifying seed sets because MF seed 0 did not finish all levels.
+The comparison is now complete for these two development seeds; it does not isolate which MB changes caused the observed outcomes.
 
 Keep this comparison separate from the earlier repair-agent runs and all hatch agents or oracles.
 These two seeds have already informed development, so this is a paired development check rather than an independent held-out estimate.
