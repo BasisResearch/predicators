@@ -1,0 +1,23 @@
+#!/bin/bash
+#SBATCH -J dom_turn_gen
+#SBATCH -o logs/%A_%a.out
+#SBATCH -e logs/%A_%a.err
+#SBATCH -N 1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=2
+#SBATCH --get-user-env
+#SBATCH --mem=8000
+#SBATCH -t 04:00:00
+#SBATCH --partition=ellis,gpu,default_partition
+#SBATCH --array=1-2
+
+# Warm the min-block task cache for the L-shaped domino variant, one seed per
+# array task, so an agent run does not spend its wall clock on task search.
+cd /home/wp237/predicators
+export PYTHONHASHSEED=0
+export OPENBLAS_NUM_THREADS=1
+mkdir -p logs "$HOME/arc_scratch"
+uv run python -m agent_robot_control.experiments.domino_turn_probe \
+    "$SLURM_ARRAY_TASK_ID" \
+    "$HOME/arc_scratch/domino_turn_seed${SLURM_ARRAY_TASK_ID}.png" \
+    domino_turn 900x506

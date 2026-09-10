@@ -37,7 +37,9 @@ def test_claude_code_command_and_mcp_config(tmp_path):
     mcp = claude_code.write_mcp_config(run_dir)
     data = json.loads(mcp.read_text())
     srv = data["mcpServers"]["robot"]
-    assert srv["args"][-2:] == ["--run-dir", str(run_dir)]
+    # The server is wrapped in `bash -c` so it can set its cwd and keep its
+    # stderr; the run dir it serves still has to reach it.
+    assert f"--run-dir {run_dir}" in " ".join(srv["args"])
     assert srv["env"]["OPENBLAS_NUM_THREADS"] == "1"
     sys_file = run_dir / "system.md"
     sys_file.write_text("x")
@@ -119,3 +121,19 @@ def test_budget_cap_is_detected(tmp_path):
     parsed = claude_code.parse_stream_json(p)
     assert parsed["budget_cap"] is True
     assert parsed["account_limit"] is False
+
+
+def test_mcp_server_runs_from_the_repo(tmp_path):
+    """The server must not inherit the agent's workspace as its cwd.
+
+    Settings that name a relative path (the domino min-block task cache) would
+    resolve inside the sandbox, which turned every task-cache hit into a
+    several-minute regeneration and blew the MCP connect timeout (2026-09-09).
+    """
+    from agent_robot_control.harness.base import REPO, server_command
+    cmd = server_command(tmp_path / "run")
+    assert cmd[0] == "bash" and cmd[1] == "-c"
+    assert f"cd {REPO}" in cmd[2]
+    # And the server's own stderr is kept, or a startup failure is invisible.
+    assert str(tmp_path / "run" / "mcp_server.log") in cmd[2]
+    assert "agent_robot_control.mcp_server.server" in cmd[2]

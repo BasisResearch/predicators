@@ -31,13 +31,23 @@ def main() -> None:
         cost = res.get("cost_usd") or parsed.get("cost_usd") or 0.0
         budget = bool(parsed.get("budget_cap")) or cost >= 0.98 * args.cap
         account = bool(parsed.get("account_limit"))
-        invalid = (budget or account) and not res.get("goal_reached_ever")
+        # No robot tool call and no interaction at all: the MCP server never
+        # connected, so the agent had no arm. Infrastructure, not a result.
+        counts = res.get("tool_call_counts") or {}
+        mcp_dead = (int(res.get("interactions_used") or 0) == 0
+                    and not any(k.startswith("mcp__") for k in counts))
+        # On a domain with its own certificate, the goal atom is not success
+        # (see run_experiment): an illegitimate topple satisfies the atom.
+        succeeded = bool(res.get("goal_reached_ever"))
+        if res.get("evaluator"):
+            succeeded = succeeded and bool(res.get("evaluator_solved"))
+        invalid = ((budget or account) and not succeeded) or mcp_dead
         before = (res.get("budget_cap_hit"), res.get("account_limit_hit"),
-                  res.get("invalid"))
-        after = (budget, account, invalid)
+                  res.get("mcp_unavailable"), res.get("invalid"))
+        after = (budget, account, mcp_dead, invalid)
         if before != after:
             res.update(budget_cap_hit=budget, account_limit_hit=account,
-                       invalid=invalid)
+                       mcp_unavailable=mcp_dead, invalid=invalid)
             path.write_text(json.dumps(res, indent=2, default=str))
             changed += 1
             print(f"{path.parent.relative_to(args.root)}: cost ${cost:.2f} "

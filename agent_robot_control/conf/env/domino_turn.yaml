@@ -1,0 +1,55 @@
+# The hard domino variant: the one the shared branch's own continual sweep runs
+# (`domino_high_friction_turn` in scripts/configs/predicatorv3/envs/all.yaml).
+# Three things make it harder than conf/env/domino.yaml:
+#   * every task is an L, not a straight line (turn_ratio 1.0), so the chain has
+#     to round a 90 degree corner and corner placement is what decides it;
+#   * min-block tasks with four spare blues and a 0.1 reward penalty each, so
+#     the count is part of the objective rather than forced;
+#   * a friction mismatch (true 0.5, planning 0.1) and narrow span/leg bands,
+#     chosen so the believed-cheapest layout differs from the one that works.
+# Our session reads TRAIN tasks, so train_turn_ratio (his config only sets the
+# test one) is what has to be 1.0 here. Task generation runs simulated
+# minimum-block searches and is slow but cached under
+# saved_datasets/domino_min_block_tasks, keyed on the config, seed and code.
+name: pybullet_domino
+# Both domino configs share the env name, and run dirs are
+# <output_root>/<env.name><clearance_tier>/<condition>/<harness>/seed_k - so
+# without a suffix this variant would overwrite the straight-domino runs.
+# analyze.py reads the directory name as the env label.
+clearance_tier: _turn
+task_idx: 0
+prompt_file: task_domino_turn.md
+class_overrides: {}
+cfg_overrides:
+  domino_use_domino_blocks_as_target: true
+  domino_use_continuous_place: true
+  domino_has_glued_dominos: false
+  domino_initialize_at_finished_state: false
+  domino_min_block_tasks: true
+  domino_train_turn_ratio: 1.0
+  domino_test_turn_ratio: 1.0
+  domino_true_friction: 0.5
+  domino_planning_friction: 0.1
+  domino_min_block_span_lo: 0.29
+  domino_min_block_span_hi: 0.31
+  domino_min_block_turn_entry_lo: 0.21
+  domino_min_block_turn_entry_hi: 0.24
+  domino_min_block_turn_exit_lo: 0.17
+  domino_min_block_turn_exit_hi: 0.20
+  domino_min_block_num_blues: 4
+  domino_block_cost: 0.1
+  # One task per seed: each kept task costs a full minimum-block search.
+  num_train_tasks: 1
+record_states: true
+task_text: >-
+  Arrange the blue dominoes so that when the green domino is pushed, the purple
+  domino topples. The chain has to turn a corner to get there. Only the blue
+  dominoes may be rearranged: the green and purple dominoes must stay untouched
+  where they were staged, upright and never held, until the green is pushed, and
+  nothing may topple before that push. Only the green domino may ever be pushed.
+  Use as few blue dominoes as you can - each one you spend costs you reward. A
+  solve only counts if the push itself causes the cascade: it is verified by
+  replaying your push with every robot link except the fingertips made
+  intangible, so the layout you built must still cascade to the goal. Topples
+  that needed the arm's body earn nothing. The dominoes are 7 cm wide, 1.5 cm
+  thick and 15 cm tall, and they stand on a table 40 cm above the floor.

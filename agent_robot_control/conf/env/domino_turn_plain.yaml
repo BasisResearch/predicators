@@ -1,0 +1,31 @@
+# His `domino_turns` variant: the same plain chain generator as conf/env/domino.yaml,
+# but every task is an L (turn ratio 1.0). No min-block search, no friction
+# mismatch, no per-blue reward penalty - so the scene stages only the blues the
+# chain needs, not a budget of four to choose from. This is the lighter of the
+# two turn variants; conf/env/domino_turn.yaml is the min-block one his current
+# continual sweep runs as `domino_high_friction_turn`.
+name: pybullet_domino
+clearance_tier: _turnplain
+task_idx: 0
+prompt_file: task_domino_turn.md
+class_overrides: {}
+cfg_overrides:
+  domino_use_domino_blocks_as_target: true
+  domino_use_continuous_place: true
+  domino_has_glued_dominos: false
+  domino_initialize_at_finished_state: false
+  domino_train_turn_ratio: 1.0
+  domino_test_turn_ratio: 1.0
+record_states: true
+task_text: >-
+  Arrange the blue dominoes so that when the green domino is pushed, the purple
+  domino topples. The chain has to turn a corner to get there. Only the blue
+  dominoes may be rearranged: the green and purple dominoes must stay untouched
+  where they were staged, upright and never held, until the green is pushed, and
+  nothing may topple before that push. Only the green domino may ever be pushed.
+  Use as few blue dominoes as you can. A solve only counts if the push itself
+  causes the cascade: it is verified by replaying your push with every robot link
+  except the fingertips made intangible, so the layout you built must still
+  cascade to the goal. Topples that needed the arm's body earn nothing. The
+  dominoes are 7 cm wide, 1.5 cm thick and 15 cm tall, and they stand on a table
+  40 cm above the floor.

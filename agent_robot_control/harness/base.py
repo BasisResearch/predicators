@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -32,17 +33,46 @@ class HarnessOutcome:
 
 
 def server_command(run_dir: Path) -> List[str]:
-    """Command that starts the stdio MCP server for ``run_dir``."""
-    return [
-        "uv", "run", "--project", str(REPO), "python", "-m",
-        "agent_robot_control.mcp_server.server", "--run-dir", str(run_dir)
-    ]
+    """Command that starts the stdio MCP server for ``run_dir``.
+
+    The interpreter is named directly rather than going through ``uv run``.
+    ``uv run`` takes a lock on the shared ``.venv`` while it revalidates the
+    environment, so several array tasks starting at once serialise on it: on
+    2026-09-09 two of three domino runs sat behind that lock until Claude
+    Code's 300 s MCP connect timeout fired, and their agents spent the run
+    reporting that no robot tools existed. ``sys.executable`` is already the
+    project venv's python (run_experiment itself runs under ``uv run``), and
+    a plain interpreter start needs no lock.
+    """
+    python = sys.executable or "python"
+    if not Path(python).exists():  # pragma: no cover - defensive
+        python = str(REPO / ".venv" / "bin" / "python")
+    inner = " ".join(shlex.quote(a) for a in [
+        python, "-m", "agent_robot_control.mcp_server.server",
+        "--run-dir", str(run_dir)
+    ])
+    # Keep the server's stderr: the harness pipes it somewhere we cannot read,
+    # so a server that fails to start used to leave no trace at all - the agent
+    # just reported that no robot tools existed (2026-09-09).
+    log = shlex.quote(str(run_dir / "mcp_server.log"))
+    # Run from the repo. The server would otherwise inherit the harness's cwd,
+    # which is the agent's workspace sandbox, and env settings that name a
+    # RELATIVE path then resolve inside that sandbox. The domino min-block task
+    # cache (CFG.domino_min_block_task_cache_dir = "saved_datasets/...") is one:
+    # every server missed the repo's cache and regenerated its task, 217-345 s
+    # of search against Claude Code's 300 s MCP connect timeout, so two of
+    # three domino-turn runs started with no robot tools at all (2026-09-09).
+    return ["bash", "-c",
+            f"cd {shlex.quote(str(REPO))} && exec {inner} 2>> {log}"]
 
 
 def server_env() -> Dict[str, str]:
     """Environment for the server subprocess."""
     return {"OPENBLAS_NUM_THREADS": "1", "PYTHONHASHSEED": "0",
-            "PYTHONUNBUFFERED": "1"}
+            "PYTHONUNBUFFERED": "1",
+            # ``uv run`` used to put the repo on the path; naming the
+            # interpreter directly means saying so here instead.
+            "PYTHONPATH": str(REPO)}
 
 
 def render_task_prompt(cfg: DictConfig, run_dir: Path, initial_image: Path,

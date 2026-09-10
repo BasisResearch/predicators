@@ -99,12 +99,30 @@ def run(cfg: DictConfig) -> Dict[str, Any]:
         "budget_cap_hit": bool(outcome.extra.get("budget_cap")) or (
             outcome.cost_usd is not None
             and outcome.cost_usd >= 0.98 * float(cfg.harness.max_budget_usd)),
-        "invalid": False,  # set below, once budget_cap_hit is known
+        # The robot MCP server never became available, so the agent had no
+        # arm to move: an infrastructure failure, not a task failure. Detected
+        # as zero interactions with no robot tool call in the whole session.
+        "mcp_unavailable": (
+            int(sim.get("interactions_used") or 0) == 0
+            and not any(k.startswith("mcp__") for k in
+                        (outcome.tool_call_counts or {}))),
+        "invalid": False,  # set below, once the stop flags are known
     }
-    if merged["invalid"]:
+    # A truncated run still counts if it had already SUCCEEDED - but on a
+    # domain that ships its own certificate the goal atom is not success:
+    # domino's atom can hold after an illegitimate topple, and an agent cut
+    # off in that state might well have gone on to fix its layout. So take
+    # the evaluator's verdict as the success bit wherever there is one.
+    succeeded = bool(merged.get("goal_reached_ever", False))
+    if sim.get("evaluator"):
+        succeeded = succeeded and bool(sim.get("evaluator_solved"))
+    merged["invalid"] = (
+        (merged["account_limit_hit"] or merged["budget_cap_hit"])
+        and not succeeded) or merged["mcp_unavailable"]
+    if merged["mcp_unavailable"]:
+        log.warning("the robot MCP server never connected; marked invalid")
+    elif merged["invalid"]:
         log.warning("run truncated by the account usage limit; marked invalid")
-    merged["invalid"] = (merged["account_limit_hit"] or merged["budget_cap_hit"]) \
-        and not merged.get("goal_reached_ever", False)
     (run_dir / "results.json").write_text(json.dumps(merged, indent=2, default=str))
     log.info("done: success=%s first_success=%s interactions=%s turns=%s",
              merged.get("goal_reached_ever"), merged.get("first_success_interaction"),
