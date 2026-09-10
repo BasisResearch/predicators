@@ -1,0 +1,34 @@
+#!/bin/bash
+#SBATCH -J arc_vid3
+#SBATCH -o logs/%A_%a.out
+#SBATCH -e logs/%A_%a.err
+#SBATCH -N 1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=1
+#SBATCH --get-user-env
+#SBATCH --mem=1500
+#SBATCH -t 01:00:00
+#SBATCH --partition=ellis,gpu,default_partition
+#SBATCH --array=0-3%4
+
+# Replay videos for the sweep-3 successes quoted in the report.
+cd /home/wp237/predicators
+export PYTHONHASHSEED=0
+export OPENBLAS_NUM_THREADS=1
+A=$HOME/arc_outputs3
+OUT=${1:-$A/videos}
+mkdir -p "$OUT" logs
+
+RUNS=(
+  "plug_seed0:$A/pybullet_plug_outlet/move_to/claude_code/seed_0"
+  "donut_seed2:$A/pybullet_donut/move_to/claude_code/seed_2"
+  "airport_seed1:$A/pybullet_airport/move_to/claude_code/seed_1"
+  "airport_seed2:$A/pybullet_airport/move_to/claude_code/seed_2"
+)
+ENTRY=${RUNS[$SLURM_ARRAY_TASK_ID]}
+NAME=${ENTRY%%:*}
+DIR=${ENTRY#*:}
+echo "task $SLURM_ARRAY_TASK_ID: $NAME <- $DIR"
+uv run python -m agent_robot_control.experiments.replay "$DIR" \
+    --video "$OUT/$NAME.mp4" --camera 480x270 --fps 25 --every 2 \
+    --stop-at-success

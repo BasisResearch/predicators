@@ -17,23 +17,24 @@ from predicators.structs import Action, EnvironmentTask, GroundAtom, \
 
 class PyBulletAirportEnv(PyBulletEnv, AirportEnv):
     """PyBullet Airport domain."""
-    # Framed to include the pusher at rest. At the old 0.9 m on (1.5, 0.75)
-    # the retracted pusher occupied ZERO pixels: it parks at y = 0.1, off the
-    # bottom of frame, and only appeared once extended -- 40 steps after a
-    # press, by which time nothing on screen connected it to the button.
-    # Sweep-3 airport seed 0 pressed twice, saw nothing happen, and reported
-    # "a 'pusher' object the camera never sees". At 1.3 m the pusher is 850 px
-    # retracted and 371 px extended, so the mechanism is at least observable;
-    # the goal item drops from 291 px to 96, still a clear blob, and agents
-    # measure its position with pixels_to_particles rather than by eye.
-    _camera_distance: ClassVar[float] = 1.3
+    # Framed to include the pusher at rest, which is the whole mechanism the
+    # agent has to discover. Originally 0.9 m on (1.5, 0.75), where the
+    # retracted pusher occupied ZERO pixels -- it parks off the bottom of
+    # frame and appeared only once extended, 40 steps after a press, by which
+    # time nothing on screen connected it to the button. Sweep-3 airport seed
+    # 0 pressed twice, saw nothing, and reported "a 'pusher' object the camera
+    # never sees". Widening to 1.3 m fixed that; shifting the scene 0.30 m
+    # away then put the pusher back off-frame at 0 px, hence 1.5 m here.
+    # Measured 2026-09-10 at the sweep's 335x180: pusher 596 px retracted and
+    # 327 extended, goal item 84 px, button 73 px.
+    _camera_distance: ClassVar[float] = 1.5
     _camera_yaw: ClassVar[float] = 0.0
     _camera_pitch: ClassVar[float] = -45.0
-    _camera_target: ClassVar[Pose3D] = (1.7, 0.7, 0.4)
+    _camera_target: ClassVar[Pose3D] = (1.65, 0.55, 0.4)
     robot_init_x: ClassVar[float] = 1.5
     robot_init_y: ClassVar[float] = 0.75
     robot_init_z: ClassVar[float] = 0.5
-    y_lb: ClassVar[float] = 0.2
+    y_lb: ClassVar[float] = -0.1
     y_ub: ClassVar[float] = 1.3
     robot_base_pos: ClassVar[Pose3D] = (1.5, 1.5, 0.0)
     robot_base_orn: ClassVar[Quaternion] = (0.0, 0.0, -0.7071, 0.7071)
@@ -45,7 +46,25 @@ class PyBulletAirportEnv(PyBulletEnv, AirportEnv):
     # the belt behaves like a loop and every item keeps coming back.
     conveyor_length: ClassVar[float] = 3.0
     conveyor_x: ClassVar[float] = 2.0
-    conveyor_y: ClassVar[float] = 0.5
+    # The belt, the pusher and the table were all shifted 0.30 m away from
+    # the arm (belt 0.50 -> 0.20, table 1.00 -> 0.70, pusher -0.20), which is
+    # what makes the button the task rather than one option in it. In sweep 3
+    # every airport agent ignored the button and took the cube by hand,
+    # tilting to roll -60..-75 deg to get the fingertips onto the belt; one
+    # tried the pusher, called it a dead end, and reached over instead.
+    #
+    # Measured 2026-09-10 over a grid of 175 wrist orientations, using the
+    # same test move_to's pre-flight uses: the arm's envelope ends between
+    # 1.00 m (an item there IS reachable) and 1.03 m (one there is not). At
+    # this offset the nearest item sits 1.30 m out and the belt's near edge
+    # 1.10 m, both unreachable at every orientation, while the button stays
+    # at 0.42 m and the table at 0.54 m. The table may stay in reach: an item
+    # only ever arrives there via the pusher, and the goal fires on arrival.
+    #
+    # The shift is rigid, so the mechanism's timing is untouched -- the
+    # pusher still travels 0.40 m from its home to the belt centre, and the
+    # working press lead is the same 0.62-0.66 m.
+    conveyor_y: ClassVar[float] = 0.2
     belt_speed: ClassVar[float] = 0.01
     belt_wrap_margin: ClassVar[float] = 0.15
     item_spacing: ClassVar[float] = 0.5
@@ -64,7 +83,7 @@ class PyBulletAirportEnv(PyBulletEnv, AirportEnv):
     pusher_length: ClassVar[float] = 0.15
     pusher_height: ClassVar[float] = 0.1
     pusher_init_x: ClassVar[float] = 2.0
-    pusher_init_y: ClassVar[float] = 0.1
+    pusher_init_y: ClassVar[float] = -0.2
     pusher_init_z: ClassVar[float] = 0.45
     # Metres of pusher travel per env step, extending and retracting alike.
     # The 0.6 m stroke is crossed in 30 steps rather than 60. Note this does
@@ -78,7 +97,7 @@ class PyBulletAirportEnv(PyBulletEnv, AirportEnv):
     table_length: ClassVar[float] = 0.6
     table_height: ClassVar[float] = 0.4
     table_x: ClassVar[float] = 2.0
-    table_y: ClassVar[float] = 1.0
+    table_y: ClassVar[float] = 0.7
 
     def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
         # Delay line on the button: the pusher obeys the button as it was

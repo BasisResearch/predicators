@@ -101,6 +101,40 @@ def test_the_pusher_is_small_late_and_fast():
     assert stroke / PyBulletAirportEnv.pusher_speed == pytest.approx(30.0)
 
 
+def test_the_belt_is_out_of_reach_and_the_button_is_not():
+    """The button is the only way in.
+
+    Sweep 3 measured the shortcut: all three airport agents ignored the
+    button, reached over the belt at roll -60..-75 deg and took the cube by
+    hand, 21 to 39 reaches into the belt lane against 1 to 3 presses. Belt,
+    pusher and table were then shifted 0.30 m away from the arm. The arm's
+    envelope ends between 1.00 and 1.03 m; the nearest item now sits 1.30 m
+    out. This pins that, through the public API an agent actually calls, at
+    the orientations the agents actually used.
+    """
+    env = make_env("pybullet_airport", PyBulletAirportEnv)
+    s = env.reset("train", 2)
+    ctl = EEController(env)
+    base = PyBulletAirportEnv.robot_base_pos
+    item_z = PyBulletAirportEnv.conveyor_height + 0.03
+    # Straight in front of the base is the closest the belt ever comes.
+    for x in (base[0], PyBulletAirportEnv.conveyor_x):
+        target = (x, PyBulletAirportEnv.conveyor_y, item_z)
+        dist = np.hypot(target[0] - base[0], target[1] - base[1])
+        assert dist > 1.15, f"belt only {dist:.2f} m from the base"
+        for roll, pitch in ((0, 0), (-45, 0), (-75, 0), (-90, 0), (-60, -45)):
+            res = ctl.move_to(target, ctl.quat_from_rpy_deg(roll, pitch, 0),
+                              max_steps=40)
+            assert res.steps == 0, \
+                f"arm moved toward the belt at rpy ({roll},{pitch},0)"
+            assert res.extra.get("refused"), res.summary()
+    # The button is still comfortably in reach, or the task is impossible.
+    bx, by = PyBulletAirportEnv.button_stand_x, PyBulletAirportEnv.button_stand_y
+    bz = PyBulletAirportEnv.button_stand_z + PyBulletAirportEnv.button_height
+    reached = ctl.move_to((bx, by, bz + 0.10), gripper="close", max_steps=200)
+    assert reached.reached, reached.summary()
+
+
 def test_pusher_obeys_the_button_only_after_the_delay():
     """The pusher sees the button as it was pusher_delay_steps ago."""
     env = make_env("pybullet_airport", PyBulletAirportEnv)
