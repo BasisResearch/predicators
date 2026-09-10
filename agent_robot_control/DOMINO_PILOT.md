@@ -236,12 +236,62 @@ domino numbers no longer sit on the same controller as sweeps 1 and 2.
 
 ---
 
-## 8. State of the tree
+## 8. The hard variant (his `domino_high_friction_turn`)
+
+Same env class, three things harder at once: every task is an L (90 degree
+corner), four blues are staged against a searched minimum of **K\* = 2** with
+each one spent costing 0.1 reward, and the true friction is 0.5 while the
+planner that generated the task believes 0.1 - with span/leg bands chosen so
+the believed-cheapest layout is not the one that works. His own anatomy figure
+(`docs/envs/domino_min_block/task_anatomy.png`) states the trap: believing the
+blocks reach further than they do, you plan one blue and the chain dies.
+
+Task generation runs simulated minimum-block searches (217-345 s per seed,
+~1 turn candidate in 30 survives) and caches under
+`saved_datasets/domino_min_block_tasks`.
+
+Opus 5, `move_to`, three seeds:
+
+| seed | blues used | certified | reward | first success | interactions | cost |
+|---|---|---|---|---|---|---|
+| 0 | 3 | yes | +0.7 | 358 | 425 | $7.06 |
+| 1 | 2 (= K\*) | yes | +0.8 | 310 | 374 | $3.29 |
+| 2 | 2 (= K\*) | yes | +0.8 | 317 | 343 | $4.08 |
+
+3/3 certified, 2/3 at the oracle minimum. The corner makes it a real placement
+problem - a block square to either leg does not transmit round the bend, so the
+solves place blues at oblique yaws (seed 1 at -60 and -30 degrees). Median first
+success moves from 154 interactions on the straight task to 317 here.
+
+Four runs were discarded and re-run before these three: three whose robot tool
+server never started (section 9) and one cut off by the account usage limit.
+
+## 9. Two bugs the hard variant exposed in our stack
+
+1. **The MCP server inherited the harness's working directory** - the agent's
+   workspace sandbox - so any setting naming a *relative* path resolved inside
+   that sandbox. The domino task cache is one, so every server missed the warm
+   cache and regenerated its task (217-345 s) against Claude Code's 300 s
+   tool-server connect timeout. Two of the first three runs began with no robot
+   tools at all; the third survived only because its task takes 217 s. The
+   server now runs from the repo, is launched by naming the venv interpreter
+   instead of `uv run` (which locks the shared venv), and keeps its stderr in
+   `<run_dir>/mcp_server.log` - previously piped somewhere unreadable, which is
+   why a server that never started left no trace.
+2. **Validity keyed on the goal atom.** A run truncated by the usage limit
+   counted as a result whenever the atom held - but on a domain with a
+   certificate the atom is not success, and an agent cut off having toppled the
+   target illegitimately might well have gone on to fix its layout. Validity now
+   takes the evaluator's verdict where there is one, and a run whose server never
+   connected (zero interactions, no robot tool call) is invalid rather than a
+   failure.
+
+## 10. State of the tree
 
 - Committed: the merge (`2f309ee`) and the domino wiring (`d7a4bad`).
 - Uncommitted: the `move_to` reachability fix, its tests, the analyzer's new
   certificate table, `slurm/make_videos_domino.sub`.
-- The full suite passes on the fixed controller: **50 passed** (Slurm job
+- The full suite passes: **54 passed** (job 654468). Earlier: **50 passed** (Slurm job
   636001, 1m54s), including the 4 new domino gate tests and the 2 new
   controller regression tests. One failure on the first run was unrelated —
   `test_harness.py` pinned `--model claude-opus-5` while the sweep-3 commit
