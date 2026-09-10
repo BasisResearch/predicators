@@ -55,7 +55,23 @@ Scorecards appear after task generation, which took tens of minutes in the oracl
 
 ## Results
 
-There are no completed agent results at launch.
+All four pilot runs are complete, verified from final scorecards on 2026-09-10.
+
+| Arm | Seed | Levels won | Whole run successful | Primitive steps | Resets | Final outcome |
+|---|---:|---:|---|---:|---:|---|
+| MB | 4 | 3/3 | Yes | 728 | 1 | All levels won |
+| MB | 5 | 2/3 | No | 4,234 | 1 | Agent gave up above the test target band |
+| MF | 4 | 2/3 | No | 2,681 | 7 | Balloon burst on the test level |
+| MF | 5 | 2/3 | No | 3,247 | 2 | Balloon burst on the test level |
+
+| Arm | Whole-run solve rate | Level solve rate | Mean steps, successful whole runs only | Qualifying seeds | Mean resets, all completed seeds |
+|---|---:|---:|---:|---:|---:|
+| MB | 50% (1/2) | 83.3% (5/6) | 728 | 1 (seed 4) | 1.0 |
+| MF | 0% (0/2) | 66.7% (4/6) | Not available | 0 | 4.5 |
+
+These two-seed pilot results favor MB, but neither establish a stable population-level advantage nor isolate the effects of individual features.
+The MB seed 5 [failure investigation](balloons-hatch-seed5-diagnosis.md) includes exact recorded-action replay and separately labeled alternative-action diagnostics.
+Those diagnostics do not change the agent scorecards.
 Keep this pilot separate from original balloons, corrected balloons v2 and the hatch v3/v4 oracle checks.
 Report each seed's levels won, primitive steps and resets.
 Compute mean steps only over whole-run successful seeds and include their qualifying count.
