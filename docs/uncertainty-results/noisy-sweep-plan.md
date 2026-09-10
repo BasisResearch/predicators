@@ -55,6 +55,18 @@ Account selection uses `a,c`, with the existing limit-aware selection at startup
 Balloons MB seed 2 reached the normal continual play loop on compute node `node2904`, with frozen-source verification passing and a fresh 15,000-step scorecard.
 All nine later arrays were verified pending on their recorded dependencies, and every MF array had lower priority than MB.
 
+### Boil MB seed 1 account recovery
+
+On September 10, boil MB seed 1's original job `22456626_1` stopped because account c reached its weekly usage limit.
+Its scorecard remained unfinished at zero environment steps and zero resets, so this interruption does not enter agent performance averages.
+The user authorized relaunching the same seed with account a (`yorkliang16@gmail.com`).
+Replacement job `22491586_1` uses only account a, the original command and flags, the same frozen source, and `--auto_resume` against the existing `run_20260910_133006` directory.
+This is a resumed attempt of the same seed, keeping the sweep at 30 results overall.
+The active manifest splits boil MB into original-array seeds 0 and 2 and replacement seed 1, preserving the superseded attempt in its retry history.
+Bridge MF now waits for both the original boil MB array and the replacement, preserving MB priority and the three-run concurrency bound.
+The [retry record](../../logs/noisy_sweep_20260910/boil-seed1-account-a-relaunch.json) records the account change, original scorecard, job IDs, and frozen source.
+The frozen scorecard implementation retains the account recorded at run creation, so that scorecard may still display c; the replacement batch log and retry record identify a as the current account.
+
 Compute job `22456127` passed all 10 config resolutions, exact balloons MB flag parity, reuse scorecard validation, and 36 focused functional tests.
 The tests cover all five native simulator bases, model memory, real MB/MF joint and Wait tools, continual play, fit noise filtering, and observation belief.
 Initial setup job `22456022` stopped at a path assertion because compute nodes resolve `/home` to the physical shared-filesystem path.
