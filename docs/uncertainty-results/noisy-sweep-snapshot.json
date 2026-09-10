@@ -1,6 +1,6 @@
 {
   "generated_by": "make_noisy_sweep_table.py; do not edit manually",
-  "updated_at": "2026-09-10T08:34:47.125947+00:00",
+  "updated_at": "2026-09-10T10:54:01.030158+00:00",
   "manifest": "/home/ycliang/predicators/logs/noisy_sweep_20260910/launch-manifest.json",
   "source_commit": "b09217bb38f2c3082136994ae43fbef2eb590e82",
   "rows": [
@@ -11,14 +11,15 @@
       "source_commit": "b09217bb38f2c3082136994ae43fbef2eb590e82",
       "job": "22456623_0",
       "reused": false,
-      "status": "Not started",
-      "finished": false,
-      "wins": null,
+      "status": "Finished",
+      "finished": true,
+      "wins": 2,
       "levels": 2,
-      "steps": null,
-      "resets": null,
-      "success": false,
-      "scorecard": null
+      "steps": 2306,
+      "resets": 0,
+      "success": true,
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/bridge-agent_continual_noise_sweep_r1/seed0/run_20260910_052215/scorecard.json",
+      "end_reason": "all_levels_won"
     },
     {
       "domain": "Bridge",
@@ -27,14 +28,15 @@
       "source_commit": "b09217bb38f2c3082136994ae43fbef2eb590e82",
       "job": "22456623_1",
       "reused": false,
-      "status": "Not started",
-      "finished": false,
-      "wins": null,
+      "status": "Finished",
+      "finished": true,
+      "wins": 2,
       "levels": 2,
-      "steps": null,
-      "resets": null,
-      "success": false,
-      "scorecard": null
+      "steps": 1950,
+      "resets": 0,
+      "success": true,
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/bridge-agent_continual_noise_sweep_r1/seed1/run_20260910_052213/scorecard.json",
+      "end_reason": "all_levels_won"
     },
     {
       "domain": "Bridge",
@@ -43,14 +45,15 @@
       "source_commit": "b09217bb38f2c3082136994ae43fbef2eb590e82",
       "job": "22456623_2",
       "reused": false,
-      "status": "Not started",
-      "finished": false,
-      "wins": null,
+      "status": "Finished",
+      "finished": true,
+      "wins": 2,
       "levels": 2,
-      "steps": null,
-      "resets": null,
-      "success": false,
-      "scorecard": null
+      "steps": 2386,
+      "resets": 0,
+      "success": true,
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/bridge-agent_continual_noise_sweep_r1/seed2/run_20260910_052219/scorecard.json",
+      "end_reason": "all_levels_won"
     },
     {
       "domain": "Bridge",
@@ -107,14 +110,15 @@
       "source_commit": "b09217bb38f2c3082136994ae43fbef2eb590e82",
       "job": "22456624_0",
       "reused": false,
-      "status": "Not started",
-      "finished": false,
-      "wins": null,
+      "status": "Finished",
+      "finished": true,
+      "wins": 2,
       "levels": 2,
-      "steps": null,
-      "resets": null,
-      "success": false,
-      "scorecard": null
+      "steps": 312,
+      "resets": 0,
+      "success": true,
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/fan-agent_continual_noise_sweep_r1/seed0/run_20260910_062635/scorecard.json",
+      "end_reason": "all_levels_won"
     },
     {
       "domain": "Fan",
@@ -123,14 +127,15 @@
       "source_commit": "b09217bb38f2c3082136994ae43fbef2eb590e82",
       "job": "22456624_1",
       "reused": false,
-      "status": "Not started",
+      "status": "In progress",
       "finished": false,
-      "wins": null,
+      "wins": 1,
       "levels": 2,
-      "steps": null,
-      "resets": null,
+      "steps": 82,
+      "resets": 0,
       "success": false,
-      "scorecard": null
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/fan-agent_continual_noise_sweep_r1/seed1/run_20260910_062648/scorecard.json",
+      "end_reason": null
     },
     {
       "domain": "Fan",
@@ -139,14 +144,15 @@
       "source_commit": "b09217bb38f2c3082136994ae43fbef2eb590e82",
       "job": "22456624_2",
       "reused": false,
-      "status": "Not started",
+      "status": "In progress",
       "finished": false,
-      "wins": null,
+      "wins": 1,
       "levels": 2,
-      "steps": null,
-      "resets": null,
+      "steps": 218,
+      "resets": 0,
       "success": false,
-      "scorecard": null
+      "scorecard": "/home/ycliang/predicators/logs/agent_continual/fan-agent_continual_noise_sweep_r1/seed2/run_20260910_062710/scorecard.json",
+      "end_reason": null
     },
     {
       "domain": "Fan",
@@ -429,15 +435,15 @@
       "source_commit": "b09217bb38f2c3082136994ae43fbef2eb590e82",
       "job": "22456622_2",
       "reused": false,
-      "status": "In progress",
-      "finished": false,
-      "wins": 0,
+      "status": "Finished",
+      "finished": true,
+      "wins": 3,
       "levels": 3,
-      "steps": 0,
+      "steps": 293,
       "resets": 0,
-      "success": false,
+      "success": true,
       "scorecard": "/home/ycliang/predicators/logs/agent_continual/balloons-agent_continual_noise_sweep_r1/seed2/run_20260910_043043/scorecard.json",
-      "end_reason": null
+      "end_reason": "all_levels_won"
     },
     {
       "domain": "Balloons",
@@ -492,14 +498,14 @@
     {
       "domain": "Bridge",
       "arm": "MB",
-      "finished": 0,
+      "finished": 3,
       "expected": 3,
-      "successful": 0,
-      "whole_run_solve_pct": null,
-      "level_solve_pct": null,
-      "mean_steps_successful": null,
-      "steps_n": 0,
-      "mean_resets_finished": null
+      "successful": 3,
+      "whole_run_solve_pct": 100.0,
+      "level_solve_pct": 100.0,
+      "mean_steps_successful": 2214,
+      "steps_n": 3,
+      "mean_resets_finished": 0
     },
     {
       "domain": "Bridge",
@@ -516,14 +522,14 @@
     {
       "domain": "Fan",
       "arm": "MB",
-      "finished": 0,
+      "finished": 1,
       "expected": 3,
-      "successful": 0,
-      "whole_run_solve_pct": null,
-      "level_solve_pct": null,
-      "mean_steps_successful": null,
-      "steps_n": 0,
-      "mean_resets_finished": null
+      "successful": 1,
+      "whole_run_solve_pct": 100.0,
+      "level_solve_pct": 100.0,
+      "mean_steps_successful": 312,
+      "steps_n": 1,
+      "mean_resets_finished": 0
     },
     {
       "domain": "Fan",
@@ -588,14 +594,14 @@
     {
       "domain": "Balloons",
       "arm": "MB",
-      "finished": 2,
+      "finished": 3,
       "expected": 3,
-      "successful": 2,
+      "successful": 3,
       "whole_run_solve_pct": 100.0,
       "level_solve_pct": 100.0,
-      "mean_steps_successful": 402,
-      "steps_n": 2,
-      "mean_resets_finished": 0.5
+      "mean_steps_successful": 365.6666666666667,
+      "steps_n": 3,
+      "mean_resets_finished": 0.3333333333333333
     },
     {
       "domain": "Balloons",

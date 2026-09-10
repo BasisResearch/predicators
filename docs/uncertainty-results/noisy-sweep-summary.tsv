@@ -1,11 +1,11 @@
 domain	arm	finished	expected	successful	whole_run_solve_pct	level_solve_pct	mean_steps_successful	steps_n	mean_resets_finished
-Bridge	MB	0	3	0	NA	NA	NA	0	NA
+Bridge	MB	3	3	3	100.0	100.0	2214	3	0
 Bridge	MF	0	3	0	NA	NA	NA	0	NA
-Fan	MB	0	3	0	NA	NA	NA	0	NA
+Fan	MB	1	3	1	100.0	100.0	312	1	0
 Fan	MF	0	3	0	NA	NA	NA	0	NA
 Domino	MB	0	3	0	NA	NA	NA	0	NA
 Domino	MF	0	3	0	NA	NA	NA	0	NA
 Boil	MB	0	3	0	NA	NA	NA	0	NA
 Boil	MF	0	3	0	NA	NA	NA	0	NA
-Balloons	MB	2	3	2	100.0	100.0	402	2	0.5
+Balloons	MB	3	3	3	100.0	100.0	365.6666666666667	3	0.3333333333333333
 Balloons	MF	0	3	0	NA	NA	NA	0	NA

@@ -73,6 +73,8 @@ The reused balloons MB seeds remain in their original experiment group, `balloon
 The [live results table](noisy-sweep-table.md) combines these explicitly identified sources.
 Regenerate it with `python docs/uncertainty-results/make_noisy_sweep_table.py`.
 The result watcher refreshes the table and reports newly finished results in the authorized conversation.
+As requested, the same table is maintained throughout the sweep, with averages grouped by domain and MB/MF arm.
+It refreshes every two minutes, showing finished-seed counts, whole-run and level solve rates, mean steps over successful whole runs with qualifying n, and mean resets over finished seeds.
 It does not launch, resume, cancel, or otherwise change experiments.
 
 Whole-run success means winning every training and test level.
