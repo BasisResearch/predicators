@@ -1,0 +1,404 @@
+# Frozen subclass sweep: 28 new runs plus two reused original balloons MB seeds.
+# Three seeds per domain/arm overall; the first document adds only balloons MB seed 2.
+START_SEED: 2
+NUM_SEEDS: 1
+ARGS:
+- debug
+- make_failure_videos
+- make_test_videos
+- make_interaction_videos
+- auto_resume
+FLAGS:
+  num_online_learning_cycles: 5
+  online_learning_early_stopping: true
+  online_learning_early_stopping_require_all_attempts: true
+  online_learning_early_stopping_skip_redundant_test: true
+  online_nsrt_learning_requests_per_cycle: 2
+  skill_phase_use_motion_planning: true
+  max_num_steps_interaction_request: 500
+  pretrained_model_service_provider: openrouter
+  llm_model_name: google/gemini-2.5-pro
+  llm_openai_max_response_tokens: 1e6
+  terminate_on_goal_reached: false
+  pybullet_ik_validate: false
+  num_train_tasks: 1
+  num_test_tasks: 1
+  video_fps: 20
+  pybullet_camera_height: 900
+  pybullet_camera_width: 900
+  planning_filter_unreachable_nsrt: false
+  timeout: 600
+  log: /home/ycliang/predicators/logs/
+  no_repeated_arguments_in_grounding: true
+  experiment_protocol: continual
+  continual_levels: train_then_test
+  continual_steps_per_level: 5000
+  continual_wall_clock_hours: 48.0
+  continual_render: true
+  continual_make_video: true
+  test_fresh_env_per_episode: true
+  continual_runs_dir: /home/ycliang/predicators/logs
+  continual_obs_noise_position: 0.01
+  continual_obs_noise_orientation: 0.02
+  continual_obs_noise_scalar: 0.0
+  continual_obs_noise_declared: true
+  agent_sdk_use_local_sandbox: true
+  partially_observable: true
+  agent_sdk_max_agent_turns_per_iteration: 10000
+  agent_sdk_image_max_px: 900
+  agent_solve_use_journal: true
+  continual_max_idle_rounds: 5
+  agent_bilevel_use_llm_initial_params: true
+  agent_validation_parallel_workers: 6
+  code_sim_learning_rollout_min_posterior_width: 0.1
+  agent_plan_validation_rule_param_margin: true
+  agent_explorer_info_seeking: true
+  agent_explorer_info_seeking_adaptive: true
+  code_sim_learning_interval_belief: true
+  agent_explorer_info_seeking_noise_aware: true
+  code_sim_learning_rollout_noise_filter: true
+  code_sim_learning_carry_posterior: true
+  code_sim_learning_fit_evidence: true
+  continual_belief_frame: true
+  agent_model_repair: true
+ENVS:
+  balloons:
+    NAME: pybullet_balloons
+    FLAGS:
+      max_initial_demos: 0
+      horizon: 1500
+      sesame_check_expected_atoms: false
+      pybullet_birrt_path_subsample_ratio: 2
+      continual_obs_noise_position: 0.01
+      continual_obs_noise_orientation: 0.02
+      continual_obs_noise_scalar: 0.0
+      continual_steps_per_level: 5000
+      num_train_tasks: 2
+      balloons_scene: chute
+      balloons_task_generation: original
+      balloons_require_jam_decoy: true
+APPROACHES:
+  agent_continual_noise_sweep_r1:
+    NAME: agent_continual
+---
+START_SEED: 0
+NUM_SEEDS: 3
+ARGS:
+- debug
+- make_failure_videos
+- make_test_videos
+- make_interaction_videos
+- auto_resume
+FLAGS:
+  num_online_learning_cycles: 5
+  online_learning_early_stopping: true
+  online_learning_early_stopping_require_all_attempts: true
+  online_learning_early_stopping_skip_redundant_test: true
+  online_nsrt_learning_requests_per_cycle: 2
+  skill_phase_use_motion_planning: true
+  max_num_steps_interaction_request: 500
+  pretrained_model_service_provider: openrouter
+  llm_model_name: google/gemini-2.5-pro
+  llm_openai_max_response_tokens: 1e6
+  terminate_on_goal_reached: false
+  pybullet_ik_validate: false
+  num_train_tasks: 1
+  num_test_tasks: 1
+  video_fps: 20
+  pybullet_camera_height: 900
+  pybullet_camera_width: 900
+  planning_filter_unreachable_nsrt: false
+  timeout: 600
+  log: /home/ycliang/predicators/logs/
+  no_repeated_arguments_in_grounding: true
+  experiment_protocol: continual
+  continual_levels: train_then_test
+  continual_steps_per_level: 5000
+  continual_wall_clock_hours: 48.0
+  continual_render: true
+  continual_make_video: true
+  test_fresh_env_per_episode: true
+  continual_runs_dir: /home/ycliang/predicators/logs
+  continual_obs_noise_position: 0.01
+  continual_obs_noise_orientation: 0.02
+  continual_obs_noise_scalar: 0.0
+  continual_obs_noise_declared: true
+  agent_sdk_use_local_sandbox: true
+  partially_observable: true
+  agent_sdk_max_agent_turns_per_iteration: 10000
+  agent_sdk_image_max_px: 900
+  agent_solve_use_journal: true
+  continual_max_idle_rounds: 5
+  agent_bilevel_use_llm_initial_params: true
+  agent_validation_parallel_workers: 6
+  code_sim_learning_rollout_min_posterior_width: 0.1
+  agent_plan_validation_rule_param_margin: true
+  agent_explorer_info_seeking: true
+  agent_explorer_info_seeking_adaptive: true
+  code_sim_learning_interval_belief: true
+  agent_explorer_info_seeking_noise_aware: true
+  code_sim_learning_rollout_noise_filter: true
+  code_sim_learning_carry_posterior: true
+  code_sim_learning_fit_evidence: true
+  continual_belief_frame: true
+  agent_model_repair: true
+ENVS:
+  bridge:
+    NAME: pybullet_bridge
+    FLAGS:
+      max_initial_demos: 0
+      horizon: 3000
+      max_num_steps_interaction_request: 2000
+      skill_place_settle_preload_force: 3.0
+      process_planning_heuristic_weight: 10.0
+      process_planning_max_execution_replans: 3
+      wait_option_max_steps: 120
+      pybullet_birrt_contact_margin: -0.005
+      pybullet_pin_held_weld_assemblies: true
+      continual_obs_noise_position: 0.005
+      continual_obs_noise_orientation: 0.02
+      continual_obs_noise_scalar: 0.0
+      continual_steps_per_level: 10000
+      num_train_tasks: 1
+  fan:
+    NAME: pybullet_fan
+    FLAGS:
+      max_initial_demos: 0
+      excluded_objects_in_state_str: switch
+      terminate_on_goal_reached: true
+      process_planning_heuristic_weight: 10.0
+      horizon: 500
+      pybullet_birrt_path_subsample_ratio: 2
+      process_planning_max_execution_replans: 3
+      continual_obs_noise_position: 0.005
+      continual_obs_noise_orientation: 0.02
+      continual_obs_noise_scalar: 0.0
+      continual_steps_per_level: 5000
+      num_train_tasks: 1
+  domino_high_friction_turn:
+    NAME: pybullet_domino
+    FLAGS:
+      max_initial_demos: 0
+      excluded_objects_in_state_str: loc,rot,angle,direction
+      horizon: 500
+      domino_initialize_at_finished_state: false
+      domino_use_domino_blocks_as_target: true
+      domino_use_continuous_place: true
+      process_planning_heuristic_weight: 2.0
+      domino_has_glued_dominos: false
+      keep_failed_demos: true
+      predicate_invent_invent_derived_predicates: true
+      pybullet_birrt_extend_num_interp: 20
+      pybullet_birrt_path_subsample_ratio: 2
+      domino_min_block_tasks: true
+      domino_true_friction: 0.5
+      domino_planning_friction: 0.1
+      domino_min_block_span_lo: 0.29
+      domino_min_block_span_hi: 0.31
+      domino_min_block_turn_entry_lo: 0.21
+      domino_min_block_turn_entry_hi: 0.24
+      domino_min_block_turn_exit_lo: 0.17
+      domino_min_block_turn_exit_hi: 0.2
+      domino_min_block_num_blues: 4
+      domino_block_cost: 0.1
+      domino_test_turn_ratio: 1.0
+      online_learning_early_stopping_ignore_reward_bar: true
+      continual_obs_noise_position: 0.01
+      continual_obs_noise_orientation: 0.04
+      continual_obs_noise_scalar: 0.0
+      continual_steps_per_level: 5000
+      num_train_tasks: 1
+  boil:
+    NAME: pybullet_boil
+    FLAGS:
+      max_initial_demos: 0
+      excluded_objects_in_state_str: switch
+      max_num_steps_option_rollout: 100
+      horizon: 500
+      boil_goal: simple
+      boil_require_jug_full_to_heatup: true
+      script_option_file_name: boil.txt
+      boil_water_fill_speed: 0.0015
+      pybullet_birrt_path_subsample_ratio: 2
+      boil_num_jugs_train:
+      - 1
+      boil_num_jugs_test:
+      - 1
+      boil_num_burner_train:
+      - 1
+      boil_num_burner_test:
+      - 1
+      continual_obs_noise_position: 0.0125
+      continual_obs_noise_orientation: 0.05
+      continual_obs_noise_scalar: 0.07
+      continual_steps_per_level: 5000
+      num_train_tasks: 1
+APPROACHES:
+  agent_continual_noise_sweep_r1:
+    NAME: agent_continual
+---
+START_SEED: 0
+NUM_SEEDS: 3
+ARGS:
+- debug
+- make_failure_videos
+- make_test_videos
+- make_interaction_videos
+- auto_resume
+FLAGS:
+  num_online_learning_cycles: 5
+  online_learning_early_stopping: true
+  online_learning_early_stopping_require_all_attempts: true
+  online_learning_early_stopping_skip_redundant_test: true
+  online_nsrt_learning_requests_per_cycle: 2
+  skill_phase_use_motion_planning: true
+  max_num_steps_interaction_request: 500
+  pretrained_model_service_provider: openrouter
+  llm_model_name: google/gemini-2.5-pro
+  llm_openai_max_response_tokens: 1e6
+  terminate_on_goal_reached: false
+  pybullet_ik_validate: false
+  num_train_tasks: 1
+  num_test_tasks: 1
+  video_fps: 20
+  pybullet_camera_height: 900
+  pybullet_camera_width: 900
+  planning_filter_unreachable_nsrt: false
+  timeout: 600
+  log: /home/ycliang/predicators/logs/
+  no_repeated_arguments_in_grounding: true
+  experiment_protocol: continual
+  continual_levels: train_then_test
+  continual_steps_per_level: 5000
+  continual_wall_clock_hours: 48.0
+  continual_render: true
+  continual_make_video: true
+  test_fresh_env_per_episode: true
+  continual_runs_dir: /home/ycliang/predicators/logs
+  continual_obs_noise_position: 0.01
+  continual_obs_noise_orientation: 0.02
+  continual_obs_noise_scalar: 0.0
+  continual_obs_noise_declared: true
+  agent_sdk_use_local_sandbox: true
+  partially_observable: true
+  agent_sdk_max_agent_turns_per_iteration: 10000
+  agent_sdk_image_max_px: 900
+  agent_solve_use_journal: true
+  continual_max_idle_rounds: 5
+  code_sim_learning_interval_belief: false
+  agent_explorer_info_seeking_noise_aware: false
+  code_sim_learning_rollout_noise_filter: false
+  code_sim_learning_carry_posterior: false
+  code_sim_learning_fit_evidence: false
+  continual_belief_frame: false
+  agent_model_repair: false
+  agent_planner_use_simulator: false
+ENVS:
+  bridge:
+    NAME: pybullet_bridge
+    FLAGS:
+      max_initial_demos: 0
+      horizon: 3000
+      max_num_steps_interaction_request: 2000
+      skill_place_settle_preload_force: 3.0
+      process_planning_heuristic_weight: 10.0
+      process_planning_max_execution_replans: 3
+      wait_option_max_steps: 120
+      pybullet_birrt_contact_margin: -0.005
+      pybullet_pin_held_weld_assemblies: true
+      continual_obs_noise_position: 0.005
+      continual_obs_noise_orientation: 0.02
+      continual_obs_noise_scalar: 0.0
+      continual_steps_per_level: 10000
+      num_train_tasks: 1
+  fan:
+    NAME: pybullet_fan
+    FLAGS:
+      max_initial_demos: 0
+      excluded_objects_in_state_str: switch
+      terminate_on_goal_reached: true
+      process_planning_heuristic_weight: 10.0
+      horizon: 500
+      pybullet_birrt_path_subsample_ratio: 2
+      process_planning_max_execution_replans: 3
+      continual_obs_noise_position: 0.005
+      continual_obs_noise_orientation: 0.02
+      continual_obs_noise_scalar: 0.0
+      continual_steps_per_level: 5000
+      num_train_tasks: 1
+  domino_high_friction_turn:
+    NAME: pybullet_domino
+    FLAGS:
+      max_initial_demos: 0
+      excluded_objects_in_state_str: loc,rot,angle,direction
+      horizon: 500
+      domino_initialize_at_finished_state: false
+      domino_use_domino_blocks_as_target: true
+      domino_use_continuous_place: true
+      process_planning_heuristic_weight: 2.0
+      domino_has_glued_dominos: false
+      keep_failed_demos: true
+      predicate_invent_invent_derived_predicates: true
+      pybullet_birrt_extend_num_interp: 20
+      pybullet_birrt_path_subsample_ratio: 2
+      domino_min_block_tasks: true
+      domino_true_friction: 0.5
+      domino_planning_friction: 0.1
+      domino_min_block_span_lo: 0.29
+      domino_min_block_span_hi: 0.31
+      domino_min_block_turn_entry_lo: 0.21
+      domino_min_block_turn_entry_hi: 0.24
+      domino_min_block_turn_exit_lo: 0.17
+      domino_min_block_turn_exit_hi: 0.2
+      domino_min_block_num_blues: 4
+      domino_block_cost: 0.1
+      domino_test_turn_ratio: 1.0
+      online_learning_early_stopping_ignore_reward_bar: true
+      continual_obs_noise_position: 0.01
+      continual_obs_noise_orientation: 0.04
+      continual_obs_noise_scalar: 0.0
+      continual_steps_per_level: 5000
+      num_train_tasks: 1
+  boil:
+    NAME: pybullet_boil
+    FLAGS:
+      max_initial_demos: 0
+      excluded_objects_in_state_str: switch
+      max_num_steps_option_rollout: 100
+      horizon: 500
+      boil_goal: simple
+      boil_require_jug_full_to_heatup: true
+      script_option_file_name: boil.txt
+      boil_water_fill_speed: 0.0015
+      pybullet_birrt_path_subsample_ratio: 2
+      boil_num_jugs_train:
+      - 1
+      boil_num_jugs_test:
+      - 1
+      boil_num_burner_train:
+      - 1
+      boil_num_burner_test:
+      - 1
+      continual_obs_noise_position: 0.0125
+      continual_obs_noise_orientation: 0.05
+      continual_obs_noise_scalar: 0.07
+      continual_steps_per_level: 5000
+      num_train_tasks: 1
+  balloons:
+    NAME: pybullet_balloons
+    FLAGS:
+      max_initial_demos: 0
+      horizon: 1500
+      sesame_check_expected_atoms: false
+      pybullet_birrt_path_subsample_ratio: 2
+      continual_obs_noise_position: 0.01
+      continual_obs_noise_orientation: 0.02
+      continual_obs_noise_scalar: 0.0
+      continual_steps_per_level: 5000
+      num_train_tasks: 2
+      balloons_scene: chute
+      balloons_task_generation: original
+      balloons_require_jam_decoy: true
+APPROACHES:
+  agent_continual_model_free_noise_sweep_r1:
+    NAME: agent_continual_model_free
