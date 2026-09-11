@@ -1,6 +1,6 @@
 """The continual protocol loop: one agent, one environment, a scorecard.
 
-See ``docs/continual-protocol.md``. The run plays an env's levels in
+See ``docs/protocol/design.md``. The run plays an env's levels in
 order (its train tasks, then its test tasks). The only primitive is the
 low-level env step; ``env.reset()`` is a step and a reset; skills are an
 agent-side library invoked through the same session. Nothing in the

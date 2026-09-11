@@ -1,5 +1,8 @@
 # Continual agents with minimal built-in knowledge
 
+Archived experiment design.
+Its configuration and sweep discussion are historical; use the [protocol index](../protocol/README.md) and [results index](../uncertainty-results/INDEX.md) for the corresponding current references.
+
 The minimal arms share the continual protocol's observations, goal descriptions, persistent sandbox, journal, trajectory recording, evaluator and pooled step budget.
 They receive no primitive skills, supplied predicates, helper objects or domain-specific simulator.
 This boundary is enforced by their approach constructors, tool rosters and reference-file selection, including when configuration flags request additional scaffolding.

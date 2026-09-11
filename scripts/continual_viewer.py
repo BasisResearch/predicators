@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local web viewer for continual-protocol runs (docs/continual-protocol.md).
+"""Local web viewer for continual-protocol runs (docs/protocol/design.md).
 
 Stdlib-only browser over the run directories under one root
 (``predicators/run/paths.py``), one per run at

@@ -1,4 +1,4 @@
-"""The LLM agent arms of the continual protocol (docs/continual-protocol.md).
+"""The LLM agent arms of the continual protocol (docs/protocol/design.md).
 
 Both arms mix :class:`ContinualPlayMixin` (the play loop) in front of
 the phased approach class that holds their machinery:
@@ -156,7 +156,7 @@ class AgentContinualApproach(ContinualPlayMixin,
         from predicators.agent_sdk.play_prompts import build_model_contract, \
             build_play_system_prompt
 
-        # The contract of the model files (docs/continual-protocol.md,
+        # The contract of the model files (docs/protocol/design.md,
         # 5): model memory follows CFG.partially_observable, the
         # system-identification menu is the base env's.
         contract = build_model_contract(

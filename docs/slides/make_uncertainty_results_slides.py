@@ -169,7 +169,7 @@ def build():
 
     def add(title,
             body,
-            source="Source: docs/continual-uncertainty.md, implementation status (§8).",
+            source="Source: docs/uncertainty/design.md, implementation status (§8).",
             notes="",
             graphic=False):
         page = len(slides) + 1

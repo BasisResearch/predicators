@@ -1,5 +1,5 @@
 """Tests for the interval-first parameter belief
-(``code_sim_learning_interval_belief``, docs/continual-uncertainty.md 3.7).
+(``code_sim_learning_interval_belief``, docs/uncertainty/design.md 3.7).
 
 The verdict switch discarded a moved-but-wide posterior for the anchor
 (domino at 1 cm noise: friction 0.40 with interval [0.22, 0.72] reverted

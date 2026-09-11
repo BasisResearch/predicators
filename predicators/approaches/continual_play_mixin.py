@@ -1,5 +1,6 @@
-"""The play loop of the continual protocol's agent arms (docs/continual-
-protocol.md, section 5).
+"""The play loop of the continual protocol's agent arms.
+
+See docs/protocol/design.md, section 5.
 
 ``ContinualPlayMixin`` is the level player for an agent arm: it plays
 the run's levels through one conversation of the SDK machinery, whose

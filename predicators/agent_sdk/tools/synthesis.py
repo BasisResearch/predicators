@@ -34,7 +34,7 @@ def _trim_cause_note(traj_rms: Sequence[float], threshold: float) -> List[str]:
     so; only far-over segments get the chaotic-recording advice.
 
     Under a declared observation-noise channel the note leads with the
-    exceeds-sigma bit (docs/continual-uncertainty.md, 3.5): the
+    exceeds-sigma bit (docs/uncertainty/design.md, 3.5): the
     threshold is in units of the total noise with the declared sigma
     folded in, so a dropped segment's residual exceeds what the noise
     can explain and the model, not the fit, has to change.

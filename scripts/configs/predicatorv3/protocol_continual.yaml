@@ -1,4 +1,4 @@
-# Continual protocol launcher (docs/continual-protocol.md).
+# Continual protocol launcher (docs/protocol/design.md).
 # Usage: python scripts/engaging/launch.py -c predicatorv3/protocol_continual.yaml \
 #            --partition mit_preemptable
 # One Slurm job per env x arm x seed. Each job plays the env's levels
@@ -70,7 +70,7 @@ APPROACHES:
     SKIP: True
   # The LLM agent arm: C1's learner (hybrid simulator, parameter fit,
   # predicate invention) playing through the protocol's env and skill
-  # tools (docs/continual-protocol.md, section 5). Flags mirror the C1
+  # tools (docs/protocol/design.md, section 5). Flags mirror the C1
   # arm in approaches/all.yaml minus the phased-loop machinery.
   agent_continual:
     NAME: "agent_continual"

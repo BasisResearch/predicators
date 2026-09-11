@@ -1,5 +1,5 @@
 # Fan and domino under the observation-noise channel
-# (docs/continual-uncertainty.md): both agent arms see every non-robot
+# (docs/uncertainty/design.md): both agent arms see every non-robot
 # object's position with 5 mm Gaussian noise and its orientation with
 # 0.02 rad, one draw per env step, declared in their contract; the
 # evaluators and the recording keep the true state. Fan's target

@@ -1,5 +1,5 @@
 """Tests for the execution-time belief (``predicators/observation_belief.py``,
-docs/continual-uncertainty.md 3.3 and 3.6)."""
+docs/uncertainty/design.md 3.3 and 3.6)."""
 
 import numpy as np
 import pytest

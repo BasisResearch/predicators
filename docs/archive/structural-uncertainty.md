@@ -1,5 +1,8 @@
 # Structural uncertainty in the learned residual model
 
+Archived proposal, not a description of structural uncertainty management in the current agent.
+For the implemented features and the newer proposal, see the [uncertainty index](../uncertainty/README.md).
+
 Status: design proposal, not implemented (2026-08-26, branch `bridge-learning`).
 Origin: discussion following the weld-pin work, where the agent's learned model committed silently to one mechanism hypothesis among several the replay buffer could not distinguish.
 

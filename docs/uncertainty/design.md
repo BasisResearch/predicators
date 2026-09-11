@@ -1,6 +1,9 @@
 # Perceptual uncertainty in the continual protocol
 
-Companion to `docs/continual-protocol.md`, which defines the protocol this document extends.
+This document records the original design and dated implementation notes.
+For a source-level account of the current features, read the [implementation explanation](explained.md); the [simplification proposal](simplification-proposal.md) describes proposed changes.
+
+Companion to `docs/protocol/design.md`, which defines the protocol this document extends.
 
 Status: design settled 2026-09-07; the channel (step 1 of section 7) is implemented the same day, see section 8.
 Decision: the protocol gains a Gaussian observation channel that both agent arms see.
@@ -471,15 +474,15 @@ It uses the validation code tree with sanitized frames and per-env heat storage;
 The separate experiment name prevents resuming the old 524-step run.
 Before its launch, three existing regression tests passed on a compute node in job `22284166`: exact observations are sanitized, sanitized states retain robot joint data, and boil heat stays local to each env.
 
-Results are captured in [the validation report](../logs/uncertainty_handoff_20260908/validation-results.md), with source scorecards in the accompanying JSON snapshot.
-The [averaged comparison and figures](uncertainty-results/README.md) include both arms' noiseless references, the full earlier pose sweep and the configurations with the new uncertainty features.
+Results are captured in [the validation report](../../logs/uncertainty_handoff_20260908/validation-results.md), with source scorecards in the accompanying JSON snapshot.
+The [averaged comparison and figures](../uncertainty-results/README.md) include both arms' noiseless references, the full earlier pose sweep and the configurations with the new uncertainty features.
 Six curve plots show one metric per environment, with noise setting on the x-axis and one series per arm.
 Step means use only completed seeds that solved both levels; the solve-rate and reset means use all seeds.
 The table and step annotations report the successful-seed count, and settings with no successful seeds have no step point.
 Single reported settings remain isolated points, and the combined boil reading-noise point is separated from the pose sweep.
 Historical unsanitized boil references are marked explicitly and are not joined to the noisy curves.
 That comparison has a saved data snapshot and a regeneration script, with PNG, PDF and SVG exports under `docs/uncertainty-results/`.
-The [slide deck](slides/uncertainty_results_slides.html) and its [PDF copy](slides/uncertainty_results_slides.pdf) present the results, metric definitions, six MB features and current comparison limits.
+The [slide deck](../slides/uncertainty_results_slides.html) and its [PDF copy](../slides/uncertainty_results_slides.pdf) present the results, metric definitions, six MB features and current comparison limits.
 Jobs `22284264` and `22284265` refresh that report after the current validation arrays and the subsequent boil batch finish, respectively; they make no agent queries.
 The report can also be refreshed with `python logs/uncertainty_handoff_20260908/collect_status.py`.
 The domino pair is now final; feature ablations and a clean exact boil control would address attribution and the noiseless comparison, respectively.
@@ -488,6 +491,6 @@ The feature ablations remain unsubmitted, and the additional boil jobs remain he
 ### Extension to bridge, fan and balloons
 
 The user prioritized bridge, fan and balloons, with two seeds per domain and three noisy arms: model-free, model-based without the six new uncertainty flags, and model-based with all six enabled.
-The [cross-domain plan](uncertainty-results/crossdomain-plan.md) records the noise settings, frozen experiment checkout, validation prerequisites and submitted job IDs.
+The [cross-domain plan](../uncertainty-results/crossdomain-plan.md) records the noise settings, frozen experiment checkout, validation prerequisites and submitted job IDs.
 The 18 noisy runs use `mit_preemptable`; existing noiseless results are reused, and the 12 newly submitted noiseless controls were cancelled before starting at the user's request.
 The prepared exact-boil config is disabled by default and retained only as a reference.

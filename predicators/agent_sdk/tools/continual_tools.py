@@ -1,5 +1,5 @@
 """The env, skill, learning and session tools of a continual-protocol play
-session (docs/continual-protocol.md, section 5.1).
+session (docs/protocol/design.md, section 5.1).
 
 The tools translate agent commands into typed requests for the run's
 ``InteractionExecutor`` and format its results. The driver owns physical

@@ -57,7 +57,7 @@ class GlobalSettings:
     # per task) must succeed before early stopping is triggered. Catches
     # "lucky single-sample" successes that mask a buggy learned model.
     online_learning_early_stopping_require_all_attempts = False
-    # ── Continual protocol (docs/continual-protocol.md) ─────────────
+    # ── Continual protocol (docs/protocol/design.md) ─────────────
     # "phased": today's explore/learn/test loop. "continual": one run per
     # env plays its levels in order; every env step is counted, resets
     # are counted separately, the sandbox is free, and the scorecard is
@@ -115,7 +115,7 @@ class GlobalSettings:
     # turn on it. There is no per-round clock: the run's wall-clock cap
     # is the only clock.
     continual_max_idle_rounds = 5
-    # Observation-noise channel (docs/continual-uncertainty.md, 3.1):
+    # Observation-noise channel (docs/uncertainty/design.md, 3.1):
     # additive zero-mean Gaussian noise on every non-robot object's
     # position features (x, y, z; metres) and orientation features (rot,
     # roll, pitch, yaw and a Type's angular_features; radians) in the
@@ -140,7 +140,7 @@ class GlobalSettings:
     # where the agent has to find the noise itself and the harness's
     # model tools know nothing about it either.
     continual_obs_noise_declared = True
-    # The execution-time belief (docs/continual-uncertainty.md, sections
+    # The execution-time belief (docs/uncertainty/design.md, sections
     # 3.3 and 3.6; predicators/observation_belief.py). Under a declared
     # channel the observation carries, beside the raw frame, the
     # smoothed frame: per object, the mean of its noisy features over
@@ -2257,7 +2257,7 @@ class GlobalSettings:
     # the robustness on levels where a fragile plan is caught. Off =>
     # info-seeking is always active (the original behaviour).
     agent_explorer_info_seeking_adaptive = False
-    # Noise-aware probe value (docs/continual-uncertainty.md, section
+    # Noise-aware probe value (docs/uncertainty/design.md, section
     # 3.5): under a declared observation-noise channel the ensemble
     # disagreement that ranks probes (sim.suggest_probes, the
     # info-seeking sampler, the explorer's disagreement summary) is the
@@ -2351,7 +2351,7 @@ class GlobalSettings:
     # of an arbitrary interior grid point. 0 disables the flat set (the
     # raw per-candidate argmin wins, the legacy behavior).
     code_sim_learning_rollout_grid_flat_frac = 0.05
-    # Interval-first parameter belief (docs/continual-uncertainty.md,
+    # Interval-first parameter belief (docs/uncertainty/design.md,
     # section 3.7): the planner's belief about a physical parameter is
     # the fit's posterior - the most likely value with its +-1 sigma
     # interval - for every parameter the data moved off its anchor, not
@@ -2560,7 +2560,7 @@ class GlobalSettings:
     # Consecutive settled steps (per settle_tol) required for a rest
     # point to become a segment boundary.
     code_sim_learning_rollout_segment_min_rest_steps = 10
-    # The fit-side filter (docs/continual-uncertainty.md, section 3.3,
+    # The fit-side filter (docs/uncertainty/design.md, section 3.3,
     # the errors-in-variables fallback): under a declared
     # observation-noise channel the settled-tail truncation and the
     # rest-point segmentation detect motion sigma-relatively. A step is
@@ -2624,7 +2624,7 @@ class GlobalSettings:
     # Diagnostic: log the Hessian eigendecomposition at the MAP to
     # spot unidentifiable parameter combinations. Adds ~5-15s per fit.
     code_sim_learning_log_hessian_identifiability = False
-    # The Laplace evidence (docs/continual-uncertainty.md, section 3.4):
+    # The Laplace evidence (docs/uncertainty/design.md, section 3.4):
     # every rollout fit with a Jacobian at the MAP reports its log
     # evidence next to its SSE, and the sim.fit report quotes the delta
     # against the previous canonical simulator version when both score

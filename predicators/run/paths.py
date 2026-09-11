@@ -16,7 +16,7 @@ the same ``CFG.run_subdir``), holding:
   ``continual_make_video`` or by ``scripts/continual_video.py``.
 
 A launch is a new run directory unless it resumes (``--auto_resume``,
-section 6.6 of docs/continual-protocol.md): then it adopts the newest
+section 6.6 of docs/protocol/design.md): then it adopts the newest
 run directory of the same approach, experiment id and seed whose
 scorecard is unfinished. Nothing is keyed on the run id alone, so
 relaunching an experiment never writes into an earlier run's files, and

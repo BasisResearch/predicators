@@ -379,7 +379,7 @@ def build_agent_options(*,
         # Continue an earlier CLI session's transcript (same ``cwd``: the
         # CLI keys transcripts by the working directory). Used by the
         # continual protocol to pick a level's session back up after a
-        # requeue (docs/continual-protocol.md, 6.6).
+        # requeue (docs/protocol/design.md, 6.6).
         extra["resume"] = resume
     return ClaudeAgentOptions(
         allowed_tools=allowed_tools,

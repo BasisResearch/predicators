@@ -1,5 +1,6 @@
-"""The execution-time belief over the observed frame (docs/continual-
-uncertainty.md, sections 3.3 and 3.6).
+"""The execution-time belief over the observed frame.
+
+See docs/uncertainty/design.md, sections 3.3 and 3.6.
 
 Under the observation-noise channel every frame is one noisy draw. An
 object that has not moved for a while has been observed several times,

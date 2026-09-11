@@ -1,7 +1,10 @@
 # Continual protocol: one agent, one environment, a scorecard
 
-A short overview for collaborators is `docs/continual-protocol-overview.md`.
-Perceptual uncertainty (the observation-noise channel, the sweep, and the filter) is designed in `docs/continual-uncertainty.md`.
+This document preserves the original design and subsequent implementation notes.
+The [protocol index](README.md) separates the evaluation rules from the implemented agents; the [results index](../uncertainty-results/INDEX.md) points to experiment reports.
+
+A short overview for collaborators is `docs/protocol/overview.md`.
+Perceptual uncertainty (the observation-noise channel, the sweep, and the filter) is designed in `docs/uncertainty/design.md`.
 
 Status: design settled 2026-09-04; step 1 of the build (the protocol core, no LLM) is implemented and verified on cover and on PyBullet boil the same day.
 Decision: the paper's main table moves to this protocol.

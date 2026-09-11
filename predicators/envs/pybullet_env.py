@@ -5,7 +5,7 @@ environments including robot control, state synchronization, grasp detection,
 and rendering.
 
 For a comprehensive guide on creating new PyBullet environments, see:
-    docs/pybullet_env_guide.md
+    docs/envs/pybullet-guide.md
 
 Main public API:
     reset(train_or_test, task_idx) - reset env to a task, returns observation

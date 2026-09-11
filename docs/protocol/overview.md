@@ -1,8 +1,11 @@
 # The continual protocol: an overview for collaborators
 
+This overview includes early results and implementation notes from September 2026.
+For result selection, use the [results index](../uncertainty-results/INDEX.md); for the shared request executor, see the [interaction driver](interaction-driver.md).
+
 Draft of 2026-09-04, updated the same evening with the changes listed at the end.
 This is the short version.
-The full design, with the reasoning behind each choice, is `docs/continual-protocol.md`.
+The full design, with the reasoning behind each choice, is `docs/protocol/design.md`.
 
 ## In one paragraph
 

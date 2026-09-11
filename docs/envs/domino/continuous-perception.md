@@ -1,5 +1,8 @@
 # Open-loop execution + markerless continuous perception for the friction fit
 
+This is a real-robot perception design and implementation note dated August 2026.
+It is separate from the simulated observation-noise experiments in the [results index](../../uncertainty-results/INDEX.md).
+
 ## Repo state as of 2026-08-14
 
 Checked against both remotes, not against these documents.
