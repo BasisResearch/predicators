@@ -61,4 +61,4 @@ Read those files to inspect the observed scene or the outcome of an execution.
   Use the tools and the reference files instead.
 - Do not reach into harness internals from executed code.
   `State.privileged`, the probe's `_ctx`, and env flags or attributes are hidden environment ground truth and are blocked.
-  Learn the world model from observable state features and the documented tool surface only; a conclusion derived from hidden internals is an invalid result.
+  Base your conclusions on observable state features and the documented tool surface only; a conclusion derived from hidden internals is an invalid result.

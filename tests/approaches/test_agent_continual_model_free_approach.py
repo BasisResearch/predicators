@@ -118,7 +118,8 @@ def test_model_free_arm_has_no_model_surface(tmp_path: Any) -> None:
     prompt = approach._get_agent_system_prompt()  # pylint: disable=protected-access
     assert "`learn_run`" not in prompt and "`run_python`" not in prompt
     assert "`sim`" not in prompt and "## Learning" not in prompt
-    assert "no learned model" in prompt and "`give_up`" in prompt
+    assert "No simulator is supplied" in prompt and "`give_up`" in prompt
+    assert "model memory" not in prompt and "candidate models" not in prompt
     assert "`handoff`" not in prompt and "### Conversation rounds" in prompt
     # The play loop is a mixin in front of each arm's phased base, not
     # an approach of its own, so the registry never sees it.

@@ -53,6 +53,7 @@ def build_minimal_play_system_prompt(*, model_based: bool) -> str:
     from predicators.agent_sdk.tools.continual_tools import \
         PRIMITIVE_TOOL_NAMES
 
+    variant = "" if model_based else "_model_free"
     sections = [
         render("play_minimal", "identity"),
         render("play_minimal", "protocol")
@@ -61,7 +62,7 @@ def build_minimal_play_system_prompt(*, model_based: bool) -> str:
     if noise.enabled and noise.declared:
         sections.append(
             render("play_system",
-                   "observation_noise",
+                   "observation_noise" + variant,
                    noise_line=noise.describe() + "."))
     sections.extend([
         render("play_system",
@@ -70,7 +71,7 @@ def build_minimal_play_system_prompt(*, model_based: bool) -> str:
         render("play_minimal", "policy"),
         render("play_minimal", "sandbox"),
         render("play_minimal", "model_based" if model_based else "model_free"),
-        render("play_system", "journal"),
+        render("play_system", "journal" + variant),
         render("play_system", "context"),
     ])
     return "\n\n".join(section.strip() for section in sections)
@@ -106,12 +107,13 @@ def build_play_system_prompt(tool_names: Sequence[str],
     sections = [
         render("play_system", "identity" + variant),
         render("play_system", "protocol"),
+        render("play_system", "observations" + variant),
     ]
     noise = ObservationNoise.from_cfg()
     if noise.enabled and noise.declared:
         sections.append(
             render("play_system",
-                   "observation_noise",
+                   "observation_noise" + variant,
                    noise_line=noise.describe() + "."))
     adaptive = ""
     if (model and CFG.agent_explorer_info_seeking
@@ -132,7 +134,7 @@ def build_play_system_prompt(tool_names: Sequence[str],
                "sandbox",
                model_files=render("play_system",
                                   "sandbox" + variant + "_files")),
-        render("play_system", "journal"),
+        render("play_system", "journal" + variant),
         render("play_system", "context"),
     ]
     if model:
