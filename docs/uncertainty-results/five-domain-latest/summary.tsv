@@ -1,0 +1,21 @@
+domain	condition	arm	seeds	successful_seeds	solve_percent	mean_steps_all	mean_steps_success	mean_resets_all	source_git_shas	experiments
+Balloons	Noiseless	MB	3	3	100.0	481.6666666666667	481.6666666666667	0.6666666666666666	ec09e55fcaac, fefee34c6206	balloons-agent_continual_uniform
+Balloons	Noiseless	MF	3	2	88.88888888888889	495.6666666666667	464.5	1	ec09e55fcaac, fefee34c6206	balloons-agent_continual_model_free_uniform
+Balloons	Noisy	MB	2	2	100.0	402	402	0.5	41e4334270a2	balloons-agent_continual_original_subclass_r1
+Balloons	Noisy	MF	2	1	83.33333333333333	487	461	0.5	92d37ec9723b	balloons-agent_continual_model_free_cross_noise
+Boil	Noiseless	MB	3	3	100.0	1587.3333333333333	1587.3333333333333	0.6666666666666666	fefee34c6206	boil-agent_continual_uniform
+Boil	Noiseless	MF	3	2	83.33333333333334	2161	1627	1	fefee34c6206	boil-agent_continual_model_free_uniform
+Boil	Noisy	MB	2	2	100.0	630	630	0	b780c93d43d8	boil-agent_continual_noise_p12_r07
+Boil	Noisy	MF	2	0	25.0	6537.5		5	b780c93d43d8	boil-agent_continual_model_free_noise_p12_r07
+Bridge	Noiseless	MB	3	3	100.0	2209	2209	0	fefee34c6206	bridge-agent_continual_uniform_r2
+Bridge	Noiseless	MF	3	1	66.66666666666666	6586.333333333333	7352	2	ec09e55fcaac, fefee34c6206	bridge-agent_continual_model_free_uniform
+Bridge	Noisy	MB	2	2	100.0	2066	2066	0	92d37ec9723b	bridge-agent_continual_cross_noise_on
+Bridge	Noisy	MF	2	2	100.0	2180.5	2180.5	0	92d37ec9723b	bridge-agent_continual_model_free_cross_noise
+Domino	Noiseless	MB	3	3	100.0	364	364	0	fefee34c6206	domino_high_friction_turn-agent_continual_uniform_r2
+Domino	Noiseless	MF	3	0	50.0	911.6666666666666		0	ec09e55fcaac, fefee34c6206	domino_high_friction_turn-agent_continual_model_free_uniform
+Domino	Noisy	MB	2	2	100.0	376.5	376.5	0	88df0b68b38f	domino_high_friction_turn-agent_continual_noise10mm_v2
+Domino	Noisy	MF	2	0	50.0	1288.5		0	ab100053b757	domino_high_friction_turn-agent_continual_model_free_noise10mm
+Fan	Noiseless	MB	3	3	100.0	312.6666666666667	312.6666666666667	0	ec09e55fcaac, fefee34c6206	fan-agent_continual_uniform
+Fan	Noiseless	MF	3	2	83.33333333333334	4637.666666666667	5064.5	0.6666666666666666	ec09e55fcaac, fefee34c6206	fan-agent_continual_model_free_uniform
+Fan	Noisy	MB	2	2	100.0	316.5	316.5	0	92d37ec9723b	fan-agent_continual_cross_noise_on
+Fan	Noisy	MF	2	1	75.0	4550.5	654	1	92d37ec9723b	fan-agent_continual_model_free_cross_noise

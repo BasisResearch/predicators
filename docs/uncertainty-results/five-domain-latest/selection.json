@@ -1,0 +1,383 @@
+{
+  "selection_policy": "All 30 noiseless paths from the frozen noiseless-sweep-results-20260909 manifest; latest completed noisy feature-on MB per original domain, plus matching available historical MF. Include every scheduled seed in these cohorts, irrespective of outcome. Exclude hatch and cancelled repair/noiseless jobs. Boil MF noiseless seed 2 uses the pre-existing archive recency choice.",
+  "noiseless_archive_tag": "noiseless-sweep-results-20260909",
+  "noise_sigmas": {
+    "Balloons": [
+      0.01,
+      0.02,
+      0
+    ],
+    "Boil": [
+      0.0125,
+      0.05,
+      0.07
+    ],
+    "Bridge": [
+      0.005,
+      0.02,
+      0
+    ],
+    "Domino": [
+      0.01,
+      0.04,
+      0
+    ],
+    "Fan": [
+      0.005,
+      0.02,
+      0
+    ]
+  },
+  "runs": [
+    {
+      "domain": "Balloons",
+      "arm": "MB",
+      "condition": "Noiseless",
+      "seed": 0,
+      "source": "logs/agent_continual/balloons-agent_continual_uniform/seed0/run_20260907_102820/scorecard.json"
+    },
+    {
+      "domain": "Balloons",
+      "arm": "MB",
+      "condition": "Noiseless",
+      "seed": 1,
+      "source": "logs/agent_continual/balloons-agent_continual_uniform/seed1/run_20260907_160923/scorecard.json"
+    },
+    {
+      "domain": "Balloons",
+      "arm": "MB",
+      "condition": "Noiseless",
+      "seed": 2,
+      "source": "logs/agent_continual/balloons-agent_continual_uniform/seed2/run_20260907_160930/scorecard.json"
+    },
+    {
+      "domain": "Balloons",
+      "arm": "MF",
+      "condition": "Noiseless",
+      "seed": 0,
+      "source": "logs/agent_continual_model_free/balloons-agent_continual_model_free_uniform/seed0/run_20260907_102819/scorecard.json"
+    },
+    {
+      "domain": "Balloons",
+      "arm": "MF",
+      "condition": "Noiseless",
+      "seed": 1,
+      "source": "logs/agent_continual_model_free/balloons-agent_continual_model_free_uniform/seed1/run_20260907_160938/scorecard.json"
+    },
+    {
+      "domain": "Balloons",
+      "arm": "MF",
+      "condition": "Noiseless",
+      "seed": 2,
+      "source": "logs/agent_continual_model_free/balloons-agent_continual_model_free_uniform/seed2/run_20260907_160921/scorecard.json"
+    },
+    {
+      "domain": "Boil",
+      "arm": "MB",
+      "condition": "Noiseless",
+      "seed": 0,
+      "source": "logs/agent_continual/boil-agent_continual_uniform/seed0/run_20260907_144501/scorecard.json"
+    },
+    {
+      "domain": "Boil",
+      "arm": "MB",
+      "condition": "Noiseless",
+      "seed": 1,
+      "source": "logs/agent_continual/boil-agent_continual_uniform/seed1/run_20260907_160923/scorecard.json"
+    },
+    {
+      "domain": "Boil",
+      "arm": "MB",
+      "condition": "Noiseless",
+      "seed": 2,
+      "source": "logs/agent_continual/boil-agent_continual_uniform/seed2/run_20260907_160920/scorecard.json"
+    },
+    {
+      "domain": "Boil",
+      "arm": "MF",
+      "condition": "Noiseless",
+      "seed": 0,
+      "source": "logs/agent_continual_model_free/boil-agent_continual_model_free_uniform/seed0/run_20260907_144511/scorecard.json"
+    },
+    {
+      "domain": "Boil",
+      "arm": "MF",
+      "condition": "Noiseless",
+      "seed": 1,
+      "source": "logs/agent_continual_model_free/boil-agent_continual_model_free_uniform/seed1/run_20260907_160924/scorecard.json"
+    },
+    {
+      "domain": "Boil",
+      "arm": "MF",
+      "condition": "Noiseless",
+      "seed": 2,
+      "source": "logs/agent_continual_model_free/boil-agent_continual_model_free_uniform/seed2/run_20260907_220406/scorecard.json"
+    },
+    {
+      "domain": "Bridge",
+      "arm": "MB",
+      "condition": "Noiseless",
+      "seed": 0,
+      "source": "logs/agent_continual/bridge-agent_continual_uniform_r2/seed0/run_20260908_075640/scorecard.json"
+    },
+    {
+      "domain": "Bridge",
+      "arm": "MB",
+      "condition": "Noiseless",
+      "seed": 1,
+      "source": "logs/agent_continual/bridge-agent_continual_uniform_r2/seed1/run_20260908_075639/scorecard.json"
+    },
+    {
+      "domain": "Bridge",
+      "arm": "MB",
+      "condition": "Noiseless",
+      "seed": 2,
+      "source": "logs/agent_continual/bridge-agent_continual_uniform_r2/seed2/run_20260908_075645/scorecard.json"
+    },
+    {
+      "domain": "Bridge",
+      "arm": "MF",
+      "condition": "Noiseless",
+      "seed": 0,
+      "source": "logs/agent_continual_model_free/bridge-agent_continual_model_free_uniform/seed0/run_20260907_102819/scorecard.json"
+    },
+    {
+      "domain": "Bridge",
+      "arm": "MF",
+      "condition": "Noiseless",
+      "seed": 1,
+      "source": "logs/agent_continual_model_free/bridge-agent_continual_model_free_uniform/seed1/run_20260907_160928/scorecard.json"
+    },
+    {
+      "domain": "Bridge",
+      "arm": "MF",
+      "condition": "Noiseless",
+      "seed": 2,
+      "source": "logs/agent_continual_model_free/bridge-agent_continual_model_free_uniform/seed2/run_20260907_160927/scorecard.json"
+    },
+    {
+      "domain": "Domino",
+      "arm": "MB",
+      "condition": "Noiseless",
+      "seed": 0,
+      "source": "logs/agent_continual/domino_high_friction_turn-agent_continual_uniform_r2/seed0/run_20260908_075659/scorecard.json"
+    },
+    {
+      "domain": "Domino",
+      "arm": "MB",
+      "condition": "Noiseless",
+      "seed": 1,
+      "source": "logs/agent_continual/domino_high_friction_turn-agent_continual_uniform_r2/seed1/run_20260908_075707/scorecard.json"
+    },
+    {
+      "domain": "Domino",
+      "arm": "MB",
+      "condition": "Noiseless",
+      "seed": 2,
+      "source": "logs/agent_continual/domino_high_friction_turn-agent_continual_uniform_r2/seed2/run_20260908_075707/scorecard.json"
+    },
+    {
+      "domain": "Domino",
+      "arm": "MF",
+      "condition": "Noiseless",
+      "seed": 0,
+      "source": "logs/agent_continual_model_free/domino_high_friction_turn-agent_continual_model_free_uniform/seed0/run_20260907_102820/scorecard.json"
+    },
+    {
+      "domain": "Domino",
+      "arm": "MF",
+      "condition": "Noiseless",
+      "seed": 1,
+      "source": "logs/agent_continual_model_free/domino_high_friction_turn-agent_continual_model_free_uniform/seed1/run_20260907_160930/scorecard.json"
+    },
+    {
+      "domain": "Domino",
+      "arm": "MF",
+      "condition": "Noiseless",
+      "seed": 2,
+      "source": "logs/agent_continual_model_free/domino_high_friction_turn-agent_continual_model_free_uniform/seed2/run_20260907_160924/scorecard.json"
+    },
+    {
+      "domain": "Fan",
+      "arm": "MB",
+      "condition": "Noiseless",
+      "seed": 0,
+      "source": "logs/agent_continual/fan-agent_continual_uniform/seed0/run_20260907_102945/scorecard.json"
+    },
+    {
+      "domain": "Fan",
+      "arm": "MB",
+      "condition": "Noiseless",
+      "seed": 1,
+      "source": "logs/agent_continual/fan-agent_continual_uniform/seed1/run_20260907_160921/scorecard.json"
+    },
+    {
+      "domain": "Fan",
+      "arm": "MB",
+      "condition": "Noiseless",
+      "seed": 2,
+      "source": "logs/agent_continual/fan-agent_continual_uniform/seed2/run_20260907_160923/scorecard.json"
+    },
+    {
+      "domain": "Fan",
+      "arm": "MF",
+      "condition": "Noiseless",
+      "seed": 0,
+      "source": "logs/agent_continual_model_free/fan-agent_continual_model_free_uniform/seed0/run_20260907_102819/scorecard.json"
+    },
+    {
+      "domain": "Fan",
+      "arm": "MF",
+      "condition": "Noiseless",
+      "seed": 1,
+      "source": "logs/agent_continual_model_free/fan-agent_continual_model_free_uniform/seed1/run_20260907_160936/scorecard.json"
+    },
+    {
+      "domain": "Fan",
+      "arm": "MF",
+      "condition": "Noiseless",
+      "seed": 2,
+      "source": "logs/agent_continual_model_free/fan-agent_continual_model_free_uniform/seed2/run_20260907_160928/scorecard.json"
+    },
+    {
+      "domain": "Balloons",
+      "arm": "MB",
+      "condition": "Noisy",
+      "seed": 0,
+      "source": "logs/agent_continual/balloons-agent_continual_original_subclass_r1/seed0/run_20260909_171523/scorecard.json"
+    },
+    {
+      "domain": "Balloons",
+      "arm": "MB",
+      "condition": "Noisy",
+      "seed": 1,
+      "source": "logs/agent_continual/balloons-agent_continual_original_subclass_r1/seed1/run_20260909_171520/scorecard.json"
+    },
+    {
+      "domain": "Balloons",
+      "arm": "MF",
+      "condition": "Noisy",
+      "seed": 0,
+      "source": "logs/agent_continual_model_free/balloons-agent_continual_model_free_cross_noise/seed0/run_20260909_075624/scorecard.json"
+    },
+    {
+      "domain": "Balloons",
+      "arm": "MF",
+      "condition": "Noisy",
+      "seed": 1,
+      "source": "logs/agent_continual_model_free/balloons-agent_continual_model_free_cross_noise/seed1/run_20260909_075654/scorecard.json"
+    },
+    {
+      "domain": "Boil",
+      "arm": "MB",
+      "condition": "Noisy",
+      "seed": 0,
+      "source": "logs/agent_continual/boil-agent_continual_noise_p12_r07/seed0/run_20260908_063739/scorecard.json"
+    },
+    {
+      "domain": "Boil",
+      "arm": "MB",
+      "condition": "Noisy",
+      "seed": 1,
+      "source": "logs/agent_continual/boil-agent_continual_noise_p12_r07/seed1/run_20260908_063739/scorecard.json"
+    },
+    {
+      "domain": "Boil",
+      "arm": "MF",
+      "condition": "Noisy",
+      "seed": 0,
+      "source": "logs/agent_continual_model_free/boil-agent_continual_model_free_noise_p12_r07/seed0/run_20260908_063739/scorecard.json"
+    },
+    {
+      "domain": "Boil",
+      "arm": "MF",
+      "condition": "Noisy",
+      "seed": 1,
+      "source": "logs/agent_continual_model_free/boil-agent_continual_model_free_noise_p12_r07/seed1/run_20260908_063818/scorecard.json"
+    },
+    {
+      "domain": "Bridge",
+      "arm": "MB",
+      "condition": "Noisy",
+      "seed": 0,
+      "source": "logs/agent_continual/bridge-agent_continual_cross_noise_on/seed0/run_20260908_165814/scorecard.json"
+    },
+    {
+      "domain": "Bridge",
+      "arm": "MB",
+      "condition": "Noisy",
+      "seed": 1,
+      "source": "logs/agent_continual/bridge-agent_continual_cross_noise_on/seed1/run_20260908_165814/scorecard.json"
+    },
+    {
+      "domain": "Bridge",
+      "arm": "MF",
+      "condition": "Noisy",
+      "seed": 0,
+      "source": "logs/agent_continual_model_free/bridge-agent_continual_model_free_cross_noise/seed0/run_20260909_030602/scorecard.json"
+    },
+    {
+      "domain": "Bridge",
+      "arm": "MF",
+      "condition": "Noisy",
+      "seed": 1,
+      "source": "logs/agent_continual_model_free/bridge-agent_continual_model_free_cross_noise/seed1/run_20260909_030544/scorecard.json"
+    },
+    {
+      "domain": "Domino",
+      "arm": "MB",
+      "condition": "Noisy",
+      "seed": 0,
+      "source": "logs/agent_continual/domino_high_friction_turn-agent_continual_noise10mm_v2/seed0/run_20260908_063304/scorecard.json"
+    },
+    {
+      "domain": "Domino",
+      "arm": "MB",
+      "condition": "Noisy",
+      "seed": 1,
+      "source": "logs/agent_continual/domino_high_friction_turn-agent_continual_noise10mm_v2/seed1/run_20260908_063304/scorecard.json"
+    },
+    {
+      "domain": "Domino",
+      "arm": "MF",
+      "condition": "Noisy",
+      "seed": 0,
+      "source": "logs/agent_continual_model_free/domino_high_friction_turn-agent_continual_model_free_noise10mm/seed0/run_20260907_102801/scorecard.json"
+    },
+    {
+      "domain": "Domino",
+      "arm": "MF",
+      "condition": "Noisy",
+      "seed": 1,
+      "source": "logs/agent_continual_model_free/domino_high_friction_turn-agent_continual_model_free_noise10mm/seed1/run_20260907_102757/scorecard.json"
+    },
+    {
+      "domain": "Fan",
+      "arm": "MB",
+      "condition": "Noisy",
+      "seed": 0,
+      "source": "logs/agent_continual/fan-agent_continual_cross_noise_on/seed0/run_20260908_192755/scorecard.json"
+    },
+    {
+      "domain": "Fan",
+      "arm": "MB",
+      "condition": "Noisy",
+      "seed": 1,
+      "source": "logs/agent_continual/fan-agent_continual_cross_noise_on/seed1/run_20260908_192723/scorecard.json"
+    },
+    {
+      "domain": "Fan",
+      "arm": "MF",
+      "condition": "Noisy",
+      "seed": 0,
+      "source": "logs/agent_continual_model_free/fan-agent_continual_model_free_cross_noise/seed0/run_20260909_040222/scorecard.json"
+    },
+    {
+      "domain": "Fan",
+      "arm": "MF",
+      "condition": "Noisy",
+      "seed": 1,
+      "source": "logs/agent_continual_model_free/fan-agent_continual_model_free_cross_noise/seed1/run_20260909_040219/scorecard.json"
+    }
+  ]
+}
