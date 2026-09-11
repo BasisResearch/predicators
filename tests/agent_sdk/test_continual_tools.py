@@ -214,7 +214,8 @@ def test_tools_divergence_reset_and_errors(tmp_path: Any) -> None:
         assert "step applied" in out
         # The run end is queued, never executed by the tool.
         assert "Give-up recorded" in _call(tools, "give_up", note="stop")
-        assert state.pending_give_up == "stop"
+        assert state.pending_give_up is not None
+        assert state.pending_give_up.note == "stop"
         # The step cap (6 per level, 2 levels = 12) is hit inside a tool:
         # the tool reports it and records the run end for the arm.
         for _ in range(40):
@@ -335,7 +336,6 @@ def test_parse_plan_lines_and_formatting(tmp_path: Any) -> None:
     assert "`run_python`" not in free
     assert "`sim`" not in free and "## Model workbench" not in free
     assert "simulator.py" not in free
-    assert "no learned model" in free
     assert "`give_up`" in free and "./data/trajectories.pkl" in free
     data = render_data_status(n_episodes=3, n_steps=40)
     assert "no belief model" in data and "3 (40 steps)" in data

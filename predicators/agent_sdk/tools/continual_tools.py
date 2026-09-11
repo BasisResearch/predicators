@@ -1,23 +1,22 @@
 """The env, skill, learning and session tools of a continual-protocol play
 session (docs/continual-protocol.md, section 5.1).
 
-The tools are thin text adapters over ``ProtocolSession``: every charged
-call goes through the session, which counts, records and enforces the
-caps. The tools never judge intent; they report what happened and end
-every result with the ledger line.
-
-Two things a tool cannot do from inside a running SDK session, ending
-the session and running a learning sub-session, are recorded on the
-shared ``PlayState`` and acted on by the arm after the query returns.
+The tools translate agent commands into typed requests for the run's
+``InteractionExecutor`` and format its results. The driver owns physical
+execution, including the inner skill-plan and primitive-policy loops.
+The protocol counts, records and enforces caps. Every tool result
+carries the ledger. Give-up is deferred until the conversation has saved
+its notes.
 """
 from __future__ import annotations
 
 import dataclasses
 import json
 import logging
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, \
-    Optional, Sequence, Set, Tuple
+from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Dict, \
+    Iterable, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 
@@ -32,8 +31,12 @@ from predicators.observation_belief import atom_fractions, \
     describe_fractions, uncertain_atoms
 from predicators.observation_noise import ObservationNoise
 from predicators.run.episode import EpisodeOver, EpisodeState
+from predicators.run.interaction import ActionSelector, ExecutePlan, \
+    ExecutePolicy, ExecuteSkill, ExecutionObserver, ExecutionProgress, \
+    ExecutionRequest, GiveUp, PrimitiveAction, RequestReset, SkillExecution
 from predicators.settings import CFG
-from predicators.structs import GroundAtom, Predicate, State, Task, _Option
+from predicators.structs import Action, GroundAtom, Predicate, State, Task, \
+    _Option
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle through approaches
     from predicators.run.continual import InvocationResult, \
@@ -63,7 +66,7 @@ GRAMMAR = (
 @dataclass
 class PlayState:
     """What the tools record for the arm to act on after the query."""
-    pending_give_up: Optional[str] = None
+    pending_give_up: Optional[GiveUp] = None
     run_ended: Optional[Tuple[str, str]] = None
     charged_calls: int = 0
 
@@ -318,10 +321,9 @@ def build_continual_tools(
     # pylint: enable=import-outside-toplevel
     wanted = set(tool_names) if tool_names is not None else set(
         CONTINUAL_TOOL_NAMES)
-    policy_running = False
 
     def _ended() -> Optional[Dict[str, Any]]:
-        if policy_running:
+        if session.executor.busy:
             return _error_result("A policy is running; wait for its call to "
                                  "finish before issuing another environment "
                                  "command." + _footer())
@@ -378,6 +380,32 @@ def build_continual_tools(
         return _error_result(f"Error: {type(e).__name__}: {e}" + _footer())
 
     env_predicates = list(session.env_predicates)
+
+    async def _execute(request: ExecutionRequest,
+                       progress: ExecutionProgress,
+                       observer: Optional[ExecutionObserver] = None) -> None:
+
+        def attempted() -> None:
+            state.charged_calls += 1
+
+        observer = observer or ExecutionObserver()
+        observer.on_attempt = attempted
+        await session.executor.execute(request, progress, observer)
+
+    def _skill_reporter(lines: List[str], total: int = 0) -> ExecutionObserver:
+        before: Set[GroundAtom] = set()
+
+        def started(frame: State) -> None:
+            nonlocal before
+            before = visible_atoms(ctx, frame)
+
+        def finished(invocation: SkillExecution) -> None:
+            after = visible_atoms(ctx, invocation.after)
+            text = _format_result(invocation.result, before, after)
+            prefix = f"[{len(lines) + 1}/{total}] " if total else ""
+            lines.append(prefix + text)
+
+        return ExecutionObserver(before_skill=started, after_skill=finished)
 
     def _observe_text(with_state: bool, tag: str) -> str:
         obs = session.observe()
@@ -441,8 +469,10 @@ def build_continual_tools(
         try:
             action = primitive_action(args.get("action", []),
                                       session.action_space)
-            state.charged_calls += 1
-            outcome = session.step(action)
+            progress = ExecutionProgress()
+            await _execute(PrimitiveAction(action), progress)
+            outcome = progress.step_outcome
+            assert outcome is not None
             text = (f"step applied; episode {outcome.state.value}"
                     f"{' (' + outcome.reason + ')' if outcome.reason else ''}"
                     "\n" +
@@ -472,52 +502,47 @@ def build_continual_tools(
             "required": ["path", "max_steps"],
         })
     async def env_run_policy(args: Dict[str, Any]) -> Dict[str, Any]:
-        nonlocal policy_running
         ended = _ended()
         if ended is not None:
             return ended
-        applied = 0
-        steps_before = session.observe().ledger.run_steps
-        try:
-            limit = args.get("max_steps")
-            if type(limit) is not int or limit <= 0:  # pylint: disable=unidiomatic-typecheck
-                raise ValueError("max_steps must be a positive integer")
+        progress = ExecutionProgress()
+
+        @asynccontextmanager
+        async def open_controller() -> AsyncIterator[ActionSelector]:
             if not ctx.sandbox_dir:
                 raise ValueError("policy execution requires a sandbox")
             obs = session.observe()
-            if obs.state is not EpisodeState.NOT_FINISHED:
-                raise EpisodeOver(f"episode is {obs.state.value}")
             seconds = min(
                 CFG.agent_sdk_python_call_timeout,
                 obs.ledger.wall_clock_cap_seconds - obs.ledger.active_seconds)
-            policy_running = True
             async with open_primitive_policy(str(args.get("path", "")),
                                              ctx.sandbox_dir,
                                              seconds) as policy:
-                for _ in range(limit):
-                    observation = primitive_observation(session)
-                    values = await policy.action(observation)
+
+                async def get_action(
+                        observation: ProtocolObservation) -> Optional[Action]:
+                    values = await policy.action(
+                        primitive_observation(session, observation))
                     if values is None:
-                        break
-                    action = primitive_action(values, session.action_space)
-                    state.charged_calls += 1
-                    outcome = session.step(action)
-                    applied += 1
-                    if outcome.state is not EpisodeState.NOT_FINISHED:
-                        break
+                        return None
+                    return primitive_action(values, session.action_space)
+
+                yield get_action
+
+        try:
+            await _execute(
+                ExecutePolicy(open_controller, args.get("max_steps", 0)),
+                progress)
             return _text_result(
-                f"policy applied {applied} step(s)\n" +
+                f"policy applied {progress.steps} step(s)\n" +
                 _observe_text(True, f"policy_{state.charged_calls:04d}"))
         except Exception as e:  # pylint: disable=broad-except
             # A step that reaches a run cap is recorded before step() raises.
-            applied = session.observe().ledger.run_steps - steps_before
             result = _protocol_error(e)
             result["content"][0]["text"] = (
-                f"policy applied {applied} step(s) before stopping\n" +
+                f"policy applied {progress.steps} step(s) before stopping\n" +
                 result["content"][0]["text"])
             return result
-        finally:
-            policy_running = False
 
     @tool(
         "env_reset",
@@ -539,8 +564,8 @@ def build_continual_tools(
         if ended is not None:
             return ended
         try:
-            state.charged_calls += 1
-            session.reset(str(args.get("note", "")))
+            await _execute(RequestReset(str(args.get("note", ""))),
+                           ExecutionProgress())
             return _text_result(
                 "reset done\n" +
                 _observe_text(True, f"reset_{state.charged_calls:04d}"))
@@ -564,7 +589,8 @@ def build_continual_tools(
         ended = _ended()
         if ended is not None:
             return ended
-        state.pending_give_up = str(args.get("note", "")) or "agent gave up"
+        state.pending_give_up = GiveUp(
+            str(args.get("note", "")) or "agent gave up")
         return _text_result("Give-up recorded. It takes effect when you "
                             "stop and forfeits every remaining level: "
                             "write your notes and stop.")
@@ -615,12 +641,12 @@ def build_continual_tools(
                                  _footer())
         option, expected, absent = parsed[0]
         try:
-            before = visible_atoms(ctx, session.observe().frame)
-            state.charged_calls += 1
-            result = session.invoke(option, expected,
-                                    str(args.get("note", "")), absent)
-            after = visible_atoms(ctx, session.observe().frame)
-            text = _format_result(result, before, after)
+            progress = ExecutionProgress()
+            lines: List[str] = []
+            await _execute(
+                ExecuteSkill(option, expected, str(args.get("note", "")),
+                             absent), progress, _skill_reporter(lines))
+            text = lines[0]
             render = save_render(f"invoke_{state.charged_calls:04d}")
             if render:
                 text += f"\n[render] {render}"
@@ -662,26 +688,22 @@ def build_continual_tools(
             return _error_result(f"Could not parse the plan: {e}" + _footer())
         stop = bool(args.get("stop_on_divergence", True))
         note = str(args.get("note", ""))
+        progress = ExecutionProgress()
         lines: List[str] = []
+
         try:
-            for i, (option, expected, absent) in enumerate(parsed):
-                before = visible_atoms(ctx, session.observe().frame)
-                state.charged_calls += 1
-                result = session.invoke(option, expected, note, absent)
-                after = visible_atoms(ctx, session.observe().frame)
-                lines.append(f"[{i + 1}/{len(parsed)}] " +
-                             _format_result(result, before, after))
-                if result.status != "succeeded":
-                    lines.append(f"plan stopped: skill {i + 1} "
-                                 f"{result.status}")
-                    break
-                if stop and result.diverged:
-                    lines.append(f"plan stopped after skill {i + 1}: "
-                                 "divergence")
-                    break
-                if result.outcome.episode_state is not \
-                        EpisodeState.NOT_FINISHED:
-                    break
+            request = ExecutePlan(
+                tuple(
+                    ExecuteSkill(option, expected, note, absent)
+                    for option, expected, absent in parsed), stop)
+            await _execute(request, progress,
+                           _skill_reporter(lines, len(parsed)))
+            count = len(progress.skills)
+            if progress.stop_reason == "divergence":
+                lines.append(f"plan stopped after skill {count}: divergence")
+            elif progress.stop_reason not in ("", "terminal"):
+                lines.append(f"plan stopped: skill {count} "
+                             f"{progress.stop_reason}")
             render = save_render(f"plan_{state.charged_calls:04d}")
             if render:
                 lines.append(f"[render] {render}")

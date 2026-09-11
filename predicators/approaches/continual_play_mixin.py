@@ -252,7 +252,7 @@ class ContinualPlayMixin:
                 raise _run_ended(reason, note)
             if state.pending_give_up is not None:
                 self.save(session.level_index)
-                session.end_run(state.pending_give_up)
+                session.executor.finish(state.pending_give_up)
             steps_after = session.observe().ledger.run_steps
             productive = self._round_was_productive(session, state,
                                                     steps_before, steps_after)

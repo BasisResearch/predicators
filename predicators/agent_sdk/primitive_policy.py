@@ -9,7 +9,7 @@ import sys
 import tempfile
 import time
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Any, AsyncIterator, Dict
+from typing import TYPE_CHECKING, Any, AsyncIterator, Dict, Optional
 
 import numpy as np
 from gym.spaces import Box
@@ -21,12 +21,14 @@ from predicators.agent_sdk.tools.sandbox_guard import _scrub_host_paths
 from predicators.structs import Action
 
 if TYPE_CHECKING:
-    from predicators.run.continual import ProtocolSession
+    from predicators.run.continual import ProtocolObservation, ProtocolSession
 
 
-def primitive_observation(session: ProtocolSession) -> Dict[str, Any]:
+def primitive_observation(
+        session: ProtocolSession,
+        observation: Optional[ProtocolObservation] = None) -> Dict[str, Any]:
     """A detached, JSON-compatible view of the current observed frame."""
-    obs = session.observe()
+    obs = observation if observation is not None else session.observe()
     objects = {
         obj.name: {
             "type": obj.type.name,

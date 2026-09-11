@@ -33,6 +33,7 @@ from predicators.observation_noise import ObservationNoise, noise_or_none, \
 from predicators.run import paths
 from predicators.run.episode import EpisodeOver, EpisodeRunner, EpisodeState, \
     InvocationOutcome, StepOutcome
+from predicators.run.interaction import InteractionExecutor
 from predicators.run.recording import LevelRecording, sanitize_state, \
     states_close
 from predicators.run.scorecard import EpisodeRecord, LevelCard, RunCard
@@ -226,6 +227,7 @@ class ProtocolSession:
     def __init__(self, run: "ContinualRun") -> None:
         self._run = run
         self._data_listener: Optional[Callable[[], None]] = None
+        self.executor = InteractionExecutor(self)
 
     # -- The arm's data hook -------------------------------------------------
 
