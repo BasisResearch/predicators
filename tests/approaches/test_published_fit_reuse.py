@@ -2,14 +2,15 @@
 
 ``_publish_probe_fit`` keeps the full FitResult; after the session the
 approach reuses it when it fitted exactly the final simulator.py over
-exactly the deployed parameter set, and falls back to a harness fit
-otherwise.
+exactly the deployed parameter set. Otherwise it carries compatible
+values without fitting.
 """
 # pylint: disable=protected-access
 from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
+import pytest
 
 from predicators import utils
 from predicators.agent_sdk.tools import ToolContext
@@ -140,3 +141,60 @@ def test_publish_without_a_fit_result_never_deploys(tmp_path: Any) -> None:
                                 str(sim_file))
     assert approach._fitted_params == {"k": 2.0}
     assert approach._published_fit_for_file(str(sim_file), ["k"]) is None
+
+
+@pytest.mark.parametrize("has_data", [False, True])
+def test_unfitted_deployment_carries_values_and_clears_evidence(
+        tmp_path: Any, monkeypatch: Any, has_data: bool) -> None:
+    """Edits retain compatible values, initialize new specs, and retire the old
+    model's posterior without calling any fitting backend."""
+    utils.reset_config({"agent_sim_learn_param_uncertainty": False})
+    sim_file = tmp_path / "simulator.py"
+    sim_file.write_text("before", encoding="utf-8")
+    approach = _approach()
+    old_fit = _fit(["mu", "k", "bounded", "removed"], [.7, 1.5, 4., 9.])
+    approach._publish_probe_fit(old_fit.point_estimate,
+                                "old",
+                                str(sim_file),
+                                fit_result=old_fit,
+                                sse=.5)
+    setattr(approach, "_last_fit_result", old_fit)
+    approach._identified_physical_params = {"mu": .7, "removed": 9.}
+    approach._identified_physical_sigma_points = [{"mu": .6}]
+    approach._cycle_applied_physical = dict(
+        approach._identified_physical_params)
+    approach._physical_param_specs = [ParamSpec("mu", .5, 0., 1.)]
+    specs = [
+        ParamSpec("k", 1., 0., 2.),
+        ParamSpec("bounded", 2., 0., 3.),
+        ParamSpec("new", .25, 0., 1.)
+    ]
+    sim_file.write_text("after", encoding="utf-8")
+    monkeypatch.setattr(approach, "_resolve_synthesis_paths",
+                        lambda: SimpleNamespace(simulator_file=str(sim_file)))
+    applied = []
+
+    def apply(params):
+        applied.append(dict(params))
+        approach._identified_physical_params = dict(params)
+        approach._identified_physical_sigma_points = []
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("Deployment must not fit")
+
+    monkeypatch.setattr(approach, "_apply_identified_physical_params", apply)
+    monkeypatch.setattr(approach, "_fit_parameters_joint_rollout", forbidden)
+    monkeypatch.setattr(approach, "_fit_parameters_recurrent", forbidden)
+    monkeypatch.setattr(
+        "predicators.approaches.agent_sim_learning_approach"
+        ".fit_rule_parameters", forbidden)
+    triples: Any = [(None, None, None)] if has_data else []
+    approach._fit_params_after_synthesis([], specs, triples, {})
+    assert approach._fitted_params == {"k": 1.5, "bounded": 2., "new": .25}
+    assert applied == [{"mu": .7}]
+    assert approach._cycle_applied_physical == {"mu": .7}
+    assert not approach._identified_physical_sigma_points
+    assert approach._last_fit_result is None
+    assert approach._fit_sse == float("inf")
+    # Preserve historical evidence for an explicit fit or a reverted edit.
+    assert approach._probe_fit_state()["fit_result"] is old_fit

@@ -330,8 +330,7 @@ class AgentContinualApproach(ContinualPlayMixin,
         return self._build_synthesis_session_hooks(targets, paths.base)
 
     def _after_round(self, session: ProtocolSession, state: Any) -> None:
-        """Deploy whatever the round wrote: load the model files, fit and build
-        the option model, install the invented predicates."""
+        """Deploy the round's files and parameter values without fitting."""
         del state
         self._last_round_modelled = False
         if self._round_model is None:
@@ -382,8 +381,10 @@ class AgentContinualApproach(ContinualPlayMixin,
             combined = self._build_combined_simulator(self._learned_simulator)
             self._option_model = self._build_option_model(combined)
         self._last_round_modelled = True
-        self._episodes_at_last_fit = len(self._online_trajectories)
-        session.record_sandbox("fits", 1)
+        fit_version = self._probe_fit_state().get("version")
+        if fit_version is not None and fit_version != self._fit_version_before:
+            self._episodes_at_last_fit = len(self._online_trajectories)
+            session.record_sandbox("fits", 1)
         # The invented predicates the runner abstracts with (Wait
         # targets, divergence checks) follow the model.
         self._sync_tool_context()
@@ -503,10 +504,15 @@ class AgentContinualApproach(ContinualPlayMixin,
         """The last fit as one line for the prompt: the point estimate per
         parameter and the posterior sample count, never the raw result (its
         Jacobian dump is noise to the agent)."""
+        result = getattr(self, "_last_fit_result", None)
+        if result is None and getattr(self, "_param_specs", []):
+            return ("UNFITTED for the current simulator.py; using carried "
+                    "or declared parameter values. Call sim.fit() to fit")
+        if result is None and getattr(self, "_residual_env_cls", None):
+            return "no learnable parameters"
         published = self._probe_fit_state()
         if published:
             return format_fit_status(published)
-        result = getattr(self, "_last_fit_result", None)
         if result is None:
             return "no fit result"
         try:

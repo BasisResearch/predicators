@@ -1968,7 +1968,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         base_pred_triples: List[Tuple[State, Action, State]],
         residual_features: Dict[str, List[str]],
     ) -> None:
-        """Fit/store solver params and, separately, explorer posterior."""
+        """Deploy the agent's parameters; only oracle programs fit here."""
         if getattr(self, "_residual_env_cls", None) is not None and \
                 not specs and not self._physical_param_specs:
             self._fitted_params.clear()
@@ -1995,36 +1995,20 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         elif CFG.agent_sim_learn_declared_params_only:
             self._deploy_declared_params(rules, specs, base_pred_triples,
                                          residual_features)
-        elif not base_pred_triples:
-            # No data to fit against (e.g. every demo failed, or a
-            # zero-shot learn): seed from the declared inits so the
-            # simulator still builds; later cycles refit once
-            # transitions arrive. The declared physical inits go to the
-            # planning env too - the agent's stated belief, not the
-            # registry default, is what its plans were written against.
-            logger.warning("No transitions to fit; seeding params from "
-                           "declared inits.")
-            self._fitted_params.clear()
-            self._fitted_params.update({s.name: s.init_value for s in specs})
-            if self._physical_param_specs:
-                self._apply_identified_physical_params(
-                    {s.name: s.init_value
-                     for s in self._physical_param_specs})
-            self._last_fit_result = None
-            self._fit_sse = float("inf")
         else:
             # The deployed model is the agent's own canonical sim.fit of
             # the final simulator.py: the values its GO/NO-GO check
             # validated, with the Laplace bundle the exploration ensemble
-            # is calibrated from. The harness fits only when no such fit
-            # exists (session ended UNFITTED, ran out of turns, or an
-            # oracle sim program with no session at all), and says so.
+            # is calibrated from. Without a matching fit, deploy the
+            # same carried/declared values as the probe. An edit or an
+            # interrupted session must not trigger optimization.
             expected = [s.name for s in self._physical_param_specs
                         ] + [s.name for s in specs]
             published = None
             if self._probe_fit_state().get("fit_result") is not None:
                 published = self._published_fit_for_file(
                     self._resolve_synthesis_paths().simulator_file, expected)
+            fit_result: Optional[FitResult] = None
             if published is not None:
                 fit_result, self._fit_sse, version = published
                 if self._published_fit_is_pinned() or \
@@ -2062,18 +2046,11 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                     if CFG.agent_sim_learn_param_uncertainty:
                         self._identified_physical_sigma_points = list(
                             self._probe_fit_state().get("sigma_points") or [])
-            else:
-                if CFG.agent_sim_learn_oracle_sim_program:
-                    logger.info("Oracle sim program: fitting its "
-                                "parameters on the harness side.")
-                else:
-                    logger.warning(
-                        "FIT FALLBACK: the learn session ended without a "
-                        "canonical sim.fit() of the final simulator.py "
-                        "(last published fit: %s). Fitting on the "
-                        "harness side - the deployed parameters were "
-                        "never validated by the agent's GO check.",
-                        self._probe_fit_state().get("version") or "none")
+            elif CFG.agent_sim_learn_oracle_sim_program and base_pred_triples:
+                # This baseline supplies a program without an agent
+                # session. Fitting is its explicitly configured protocol.
+                logger.info("Oracle sim program: fitting its "
+                            "parameters on the harness side.")
                 if self._physical_param_specs or has_physics_rules(rules):
                     fit_result, self._fit_sse = (
                         self._fit_parameters_joint_rollout(
@@ -2086,10 +2063,13 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                 else:
                     fit_result, self._fit_sse = fit_rule_parameters(
                         rules, specs, base_pred_triples, residual_features)
-            self._last_fit_result = fit_result
-            self._fitted_params.clear()
-            self._fitted_params.update(fit_result.point_estimate)
-            logger.info("Fitted %d solver params.", len(specs))
+            else:
+                self._deploy_unfitted_params(specs)
+            if fit_result is not None:
+                self._last_fit_result = fit_result
+                self._fitted_params.clear()
+                self._fitted_params.update(fit_result.point_estimate)
+                logger.info("Fitted %d solver params.", len(specs))
 
         # Remember the specs (names + bounds) and rebuild the active-
         # experiment ensemble. Cheap and only consumed when info-seeking
@@ -2098,6 +2078,26 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         self._sync_subclass_parameters()
         self._param_specs = list(self._physical_param_specs) + list(specs)
         self._rebuild_param_ensemble()
+
+    def _deploy_unfitted_params(self, specs: List[ParamSpec]) -> None:
+        """Carry compatible values without attributing an old fit to an
+        edit."""
+        params = carry_over_params(self._fitted_params, specs)
+        self._fitted_params.clear()
+        self._fitted_params.update(params)
+        physical = carry_over_params(self._identified_physical_params,
+                                     self._physical_param_specs)
+        if physical or self._identified_physical_params:
+            self._apply_identified_physical_params(physical)
+        self._identified_physical_sigma_points = []
+        self._cycle_applied_physical = dict(physical)
+        # Retain the historical published fit for provenance and file
+        # reversions, but do not use its SSE or posterior for this model.
+        self._last_fit_result = None
+        self._fit_sse = float("inf")
+        logger.info("UNFITTED for the current simulator.py: deploying "
+                    "carried or declared parameter values; call sim.fit() "
+                    "to estimate them.")
 
     def _physics_margin_points(
         self,

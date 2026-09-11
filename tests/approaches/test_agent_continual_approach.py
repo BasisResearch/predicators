@@ -230,6 +230,62 @@ RESIDUAL_ENV = Counter
 
 
 @pytest.mark.slow
+@pytest.mark.parametrize("fit_then_edit", [False, True])
+def test_round_end_deploys_without_fitting(tmp_path: Any, monkeypatch: Any,
+                                           caplog: Any,
+                                           fit_then_edit: bool) -> None:
+    """A real play round can deploy an unfitted model without optimizing it."""
+    # pylint: disable=protected-access
+    _config(tmp_path)
+    env, approach = _make_approach()
+    source = '''
+class Counter(BaseSimulator):
+    AGENT_PARAM_SPECS = [ParamSpec("rate", .25, lo=0.0, hi=1.0)]
+    MODEL_STATE_INIT = {"charge": 0.0}
+    RESIDUAL_FEATURES = {}
+
+    @classmethod
+    def update_model_state(cls, observation, model_state, params, action):
+        model_state["charge"] += params["rate"]
+
+RESIDUAL_ENV = Counter
+'''
+
+    def fake_query(*_args: Any, **_kwargs: Any) -> List[Dict[str, Any]]:
+        assert "step applied" in _call(approach,
+                                       "env_step",
+                                       action=[0.0] *
+                                       env.action_space.shape[0])
+        path = os.path.join(approach._tool_context.sandbox_dir, "simulator.py")
+        with open(path, "w", encoding="utf-8") as file:
+            file.write(source)
+        output = _call(approach,
+                       "run_python",
+                       code="sim.reset(current=True); print('loaded')")
+        assert "loaded" in output and not output.startswith("ERROR")
+        if fit_then_edit:
+            output = _call(approach, "run_python", code="print(sim.fit())")
+            assert not output.startswith("ERROR")
+            assert approach._probe_fit_state().get("fit_result") is not None
+            with open(path, "a", encoding="utf-8") as file:
+                file.write("\n# An edit after the explicit fit.\n")
+        assert "Give-up recorded" in _call(approach, "give_up", note="done")
+        return _result()
+
+    monkeypatch.setattr(approach, "_query_agent_sync", fake_query)
+    approach.prepare_for_continual(Dataset([]))
+    card = ContinualRun(env, approach, create_level_player(env,
+                                                           approach)).run()
+    assert card.levels[0].steps == 1
+    assert approach._last_round_modelled
+    assert "FIT FALLBACK" not in caplog.text
+    assert approach._last_fit_result is None
+    assert approach._identified_physical_params == {"rate": .25}
+    assert "UNFITTED" in approach._fit_status_text()
+    assert card.levels[0].sandbox.get("fits", 0) == int(fit_then_edit)
+
+
+@pytest.mark.slow
 def test_play_loop_with_a_scripted_agent(tmp_path: Any) -> None:
     """Two rounds of one conversation: act in the first, which also carries the
     model workbench, and stop; give up in the second.

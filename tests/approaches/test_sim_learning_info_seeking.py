@@ -272,6 +272,7 @@ def test_fit_params_no_data_seeds_declared_inits(monkeypatch):
     from predicators.code_sim_learning.fit_space import ParamSpec
 
     approach = object.__new__(AgentSimLearningApproach)
+    approach._identified_physical_params = {}
     approach._fitted_params = {}
     approach._param_specs = []
     approach._physical_param_specs = []

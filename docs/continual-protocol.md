@@ -261,6 +261,11 @@ The SDK's own context compaction manages the conversation's size; the journal an
 Between rounds the CLI is reopened on the same conversation (`resume`); nothing the harness does between rounds changes the env state, and the agent has no tool to end a round or to reset its context.
 Inside a round the data follows the recording.
 After every charged env call the harness rebuilds the trajectory list the tools hold, the model-based arm extends its base-sim predictions to the new transitions, and the sandbox's `data/trajectories.pkl` is rewritten, so `run_python`'s `trajectories`, `sim.fit` and the agent's own scripts read the episode in progress rather than a snapshot from the round's start.
+
+Parameter estimation runs when the agent explicitly calls `sim.fit()` inside `run_python`.
+Ending a conversation round, editing `simulator.py`, or collecting more observations does not trigger a fit.
+Deployment reuses a published fit when its file contents and parameter names match the current model.
+Otherwise it carries compatible parameter values, initializes new or out-of-bounds parameters from their declarations, and reports `UNFITTED` without reusing the old model's fitting error or posterior.
 The first busyboard runs (2026-09-05) had both arms act for thousands of steps on an empty data file because the data was refreshed only between rounds.
 A round's turn cap is effectively unbounded (10000) and there is no per-round clock: the step cap and the run's wall-clock cap are the limits.
 
