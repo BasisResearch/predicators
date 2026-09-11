@@ -80,11 +80,29 @@ Preflight job 22372885 verified the diagnostic successes, frozen source hashes, 
 | Boil, MB with repair | 0, 1 | 22372901 |
 
 All arrays use `mit_preemptable`, the existing account-selection launcher, and requeue/resume support.
-They run in two-seed batches after the original sweep's balloons MF array 22319435, keeping at most two agent runs from this sequence active at once.
-Every array independently requires the successful preflight gate.
+They run in two-seed batches, keeping at most two MB agent runs from this sequence active at once.
+At submission every array independently required the successful preflight gate.
+On 2026-09-09 the user requested MB priority, so the first MB array 22372894 was freed from its dependency on the original sweep's MF balloons array after rechecking the completed preflight and frozen source hashes.
+The MF pair had just started, so it can finish alongside the MB sequence; the remaining queued MF array 22374081 stays after all queued MB arrays.
+The MB repair pair is now eligible for scheduling immediately, followed by its MB control, the four MB domain checks, and the three corrected-task MB arms.
 No new noiseless controls or MF runs were submitted in this original-task phase.
 The resolved configuration and source hashes are in `logs/mb_repair_20260909/experiments/launch-manifest.json` and `frozen-source.json`.
 
 Collection job 22373247 will update [the performance table](model-repair-table.md), snapshot and TSV after all six arrays terminate.
 Missing or unfinished seeds withhold the arm's averages and fail collection rather than changing its denominator.
 This schedules report generation on disk, not a chat notification.
+
+## Regression runs removed from the current schedule
+
+The user removed the bridge, fan, domino and boil repair regressions on 2026-09-09.
+Arrays 22372897, 22372898, 22372900 and 22372901 were held before cancellation; none had started.
+The launch manifest preserves them under `cancelled_runs`, outside active result aggregation and monitoring.
+Corrected balloons MB array 22374077 now depends only on its already completed validation gate, with MF following it.
+The separate noisy hatch prototype proceeds through mechanical validation before agent launch.
+
+## Held runs cancelled
+
+The user subsequently requested cancellation of all held agent runs until the domains and agent are finalized.
+The held balloons control 22372896 and its waiting collector 22373247 were cancelled; their configurations remain archived.
+Historical held boil noise arrays 22284017, 22284018, 22284116, 22284119, the sanitized noiseless control 22284175, and collector 22284265 were also cancelled.
+The active repair report now contains only the completed original-task balloons repair pair; these cancellations are excluded from metrics.

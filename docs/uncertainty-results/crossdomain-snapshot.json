@@ -1,7 +1,7 @@
 {
   "generated_by": "make_crossdomain_table.py; do not edit manually",
-  "observed_at": "2026-09-08T21:18:18.636543+00:00",
-  "manifest": "/home/ycliang/predicators/logs/uncertainty_crossdomain_20260908/launch-manifest.json",
+  "observed_at": "2026-09-09T12:37:46.987640+00:00",
+  "manifest": "/orcd/home/002/ycliang/predicators/logs/uncertainty_crossdomain_20260908/performance-table-manifest.json",
   "base_sha": "92d37ec9723b4c46de37d8ff38c9c98015a010da",
   "source_tree": "/home/ycliang/predicators-noise-crossdomain-r1",
   "rows": [
@@ -22,13 +22,27 @@
       "runs": [
         {
           "seed": 0,
-          "finished_at": null,
-          "status": "Missing"
+          "finished_at": 1788939522.8947127,
+          "status": "Finished",
+          "source": "logs/agent_continual_model_free/bridge-agent_continual_model_free_cross_noise/seed0/run_20260909_030602/scorecard.json",
+          "source_git_sha": "92d37ec9723b",
+          "end_reason": "all_levels_won",
+          "levels_solved": 2,
+          "levels_total": 2,
+          "steps": 2068,
+          "resets": 0
         },
         {
           "seed": 1,
-          "finished_at": null,
-          "status": "Missing"
+          "finished_at": 1788939996.8788037,
+          "status": "Finished",
+          "source": "logs/agent_continual_model_free/bridge-agent_continual_model_free_cross_noise/seed1/run_20260909_030544/scorecard.json",
+          "source_git_sha": "92d37ec9723b",
+          "end_reason": "all_levels_won",
+          "levels_solved": 2,
+          "levels_total": 2,
+          "steps": 2293,
+          "resets": 0
         }
       ]
     },
@@ -49,13 +63,27 @@
       "runs": [
         {
           "seed": 0,
-          "finished_at": null,
-          "status": "Missing"
+          "finished_at": 1788922913.7719257,
+          "status": "Finished",
+          "source": "logs/agent_continual/bridge-agent_continual_cross_noise_off/seed0/run_20260908_214920/scorecard.json",
+          "source_git_sha": "92d37ec9723b",
+          "end_reason": "all_levels_won",
+          "levels_solved": 2,
+          "levels_total": 2,
+          "steps": 2060,
+          "resets": 0
         },
         {
           "seed": 1,
-          "finished_at": null,
-          "status": "Missing"
+          "finished_at": 1788925706.82248,
+          "status": "Finished",
+          "source": "logs/agent_continual/bridge-agent_continual_cross_noise_off/seed1/run_20260908_214930/scorecard.json",
+          "source_git_sha": "92d37ec9723b",
+          "end_reason": "agent_ended",
+          "levels_solved": 1,
+          "levels_total": 2,
+          "steps": 5628,
+          "resets": 2
         }
       ]
     },
@@ -76,26 +104,26 @@
       "runs": [
         {
           "seed": 0,
-          "finished_at": null,
-          "status": "Unfinished",
+          "finished_at": 1788905034.7214677,
+          "status": "Finished",
           "source": "logs/agent_continual/bridge-agent_continual_cross_noise_on/seed0/run_20260908_165814/scorecard.json",
           "source_git_sha": "92d37ec9723b",
-          "end_reason": null,
-          "levels_solved": 0,
+          "end_reason": "all_levels_won",
+          "levels_solved": 2,
           "levels_total": 2,
-          "steps": 99,
+          "steps": 2243,
           "resets": 0
         },
         {
           "seed": 1,
-          "finished_at": null,
-          "status": "Unfinished",
+          "finished_at": 1788906244.385539,
+          "status": "Finished",
           "source": "logs/agent_continual/bridge-agent_continual_cross_noise_on/seed1/run_20260908_165814/scorecard.json",
           "source_git_sha": "92d37ec9723b",
-          "end_reason": null,
-          "levels_solved": 0,
+          "end_reason": "all_levels_won",
+          "levels_solved": 2,
           "levels_total": 2,
-          "steps": 782,
+          "steps": 1889,
           "resets": 0
         }
       ]
@@ -117,13 +145,27 @@
       "runs": [
         {
           "seed": 0,
-          "finished_at": null,
-          "status": "Missing"
+          "finished_at": 1788942286.3847077,
+          "status": "Finished",
+          "source": "logs/agent_continual_model_free/fan-agent_continual_model_free_cross_noise/seed0/run_20260909_040222/scorecard.json",
+          "source_git_sha": "92d37ec9723b",
+          "end_reason": "all_levels_won",
+          "levels_solved": 2,
+          "levels_total": 2,
+          "steps": 654,
+          "resets": 0
         },
         {
           "seed": 1,
-          "finished_at": null,
-          "status": "Missing"
+          "finished_at": 1788951358.0772448,
+          "status": "Finished",
+          "source": "logs/agent_continual_model_free/fan-agent_continual_model_free_cross_noise/seed1/run_20260909_040219/scorecard.json",
+          "source_git_sha": "92d37ec9723b",
+          "end_reason": "agent_ended",
+          "levels_solved": 1,
+          "levels_total": 2,
+          "steps": 8447,
+          "resets": 2
         }
       ]
     },
@@ -144,13 +186,27 @@
       "runs": [
         {
           "seed": 0,
-          "finished_at": null,
-          "status": "Missing"
+          "finished_at": 1788934104.2294214,
+          "status": "Finished",
+          "source": "logs/agent_continual/fan-agent_continual_cross_noise_off/seed0/run_20260909_003027/scorecard.json",
+          "source_git_sha": "92d37ec9723b",
+          "end_reason": "all_levels_won",
+          "levels_solved": 2,
+          "levels_total": 2,
+          "steps": 449,
+          "resets": 0
         },
         {
           "seed": 1,
-          "finished_at": null,
-          "status": "Missing"
+          "finished_at": 1788930814.7317114,
+          "status": "Finished",
+          "source": "logs/agent_continual/fan-agent_continual_cross_noise_off/seed1/run_20260909_003048/scorecard.json",
+          "source_git_sha": "92d37ec9723b",
+          "end_reason": "all_levels_won",
+          "levels_solved": 2,
+          "levels_total": 2,
+          "steps": 393,
+          "resets": 0
         }
       ]
     },
@@ -171,13 +227,27 @@
       "runs": [
         {
           "seed": 0,
-          "finished_at": null,
-          "status": "Missing"
+          "finished_at": 1788911582.8608203,
+          "status": "Finished",
+          "source": "logs/agent_continual/fan-agent_continual_cross_noise_on/seed0/run_20260908_192755/scorecard.json",
+          "source_git_sha": "92d37ec9723b",
+          "end_reason": "all_levels_won",
+          "levels_solved": 2,
+          "levels_total": 2,
+          "steps": 361,
+          "resets": 0
         },
         {
           "seed": 1,
-          "finished_at": null,
-          "status": "Missing"
+          "finished_at": 1788911499.070372,
+          "status": "Finished",
+          "source": "logs/agent_continual/fan-agent_continual_cross_noise_on/seed1/run_20260908_192723/scorecard.json",
+          "source_git_sha": "92d37ec9723b",
+          "end_reason": "all_levels_won",
+          "levels_solved": 2,
+          "levels_total": 2,
+          "steps": 272,
+          "resets": 0
         }
       ]
     },
@@ -198,13 +268,27 @@
       "runs": [
         {
           "seed": 0,
-          "finished_at": null,
-          "status": "Missing"
+          "finished_at": 1788957153.610135,
+          "status": "Finished",
+          "source": "logs/agent_continual_model_free/balloons-agent_continual_model_free_cross_noise/seed0/run_20260909_075624/scorecard.json",
+          "source_git_sha": "92d37ec9723b",
+          "end_reason": "agent_ended",
+          "levels_solved": 2,
+          "levels_total": 3,
+          "steps": 513,
+          "resets": 0
         },
         {
           "seed": 1,
-          "finished_at": null,
-          "status": "Missing"
+          "finished_at": 1788956393.6453412,
+          "status": "Finished",
+          "source": "logs/agent_continual_model_free/balloons-agent_continual_model_free_cross_noise/seed1/run_20260909_075654/scorecard.json",
+          "source_git_sha": "92d37ec9723b",
+          "end_reason": "all_levels_won",
+          "levels_solved": 3,
+          "levels_total": 3,
+          "steps": 461,
+          "resets": 1
         }
       ]
     },
@@ -225,13 +309,27 @@
       "runs": [
         {
           "seed": 0,
-          "finished_at": null,
-          "status": "Missing"
+          "finished_at": 1788937305.5838134,
+          "status": "Finished",
+          "source": "logs/agent_continual/balloons-agent_continual_cross_noise_off/seed0/run_20260909_021331/scorecard.json",
+          "source_git_sha": "92d37ec9723b",
+          "end_reason": "all_levels_won",
+          "levels_solved": 3,
+          "levels_total": 3,
+          "steps": 273,
+          "resets": 0
         },
         {
           "seed": 1,
-          "finished_at": null,
-          "status": "Missing"
+          "finished_at": 1788937317.2427394,
+          "status": "Finished",
+          "source": "logs/agent_continual/balloons-agent_continual_cross_noise_off/seed1/run_20260909_021331/scorecard.json",
+          "source_git_sha": "92d37ec9723b",
+          "end_reason": "all_levels_won",
+          "levels_solved": 3,
+          "levels_total": 3,
+          "steps": 315,
+          "resets": 1
         }
       ]
     },
@@ -252,13 +350,27 @@
       "runs": [
         {
           "seed": 0,
-          "finished_at": null,
-          "status": "Missing"
+          "finished_at": 1788918072.196037,
+          "status": "Finished",
+          "source": "logs/agent_continual/balloons-agent_continual_cross_noise_on/seed0/run_20260908_201805/scorecard.json",
+          "source_git_sha": "92d37ec9723b",
+          "end_reason": "all_levels_won",
+          "levels_solved": 3,
+          "levels_total": 3,
+          "steps": 356,
+          "resets": 1
         },
         {
           "seed": 1,
-          "finished_at": null,
-          "status": "Missing"
+          "finished_at": 1788917093.0540388,
+          "status": "Finished",
+          "source": "logs/agent_continual/balloons-agent_continual_cross_noise_on/seed1/run_20260908_201805/scorecard.json",
+          "source_git_sha": "92d37ec9723b",
+          "end_reason": "agent_ended",
+          "levels_solved": 2,
+          "levels_total": 3,
+          "steps": 340,
+          "resets": 1
         }
       ]
     }

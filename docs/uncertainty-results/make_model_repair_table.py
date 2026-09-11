@@ -53,9 +53,21 @@ def main():
         title = "# MB repair on the original noisy tasks"
         intro = [
             "All rows keep the six uncertainty flags on.",
-            "The paired balloons arms differ only in the advisory repair flag.",
-            "Bridge, fan, domino and boil are regression runs; their controls are historical.",
+            ("The paired balloons arms differ only in the advisory repair flag."
+             if len(summaries) > 1 else
+             "The matched control was cancelled; this is the completed repair arm only."
+             ),
+            ("Bridge, fan, domino and boil are regression runs; their controls are historical."
+             if any(row["domain"] != "Balloons" for row in summaries) else
+             "The other-domain regression runs were cancelled before starting and are excluded."
+             ),
             "These development seeds have already been inspected during debugging.",
+        ]
+    if not summaries:
+        intro = [
+            "This comparison was cancelled by the user.",
+            "Its configurations remain in the launch manifest under `cancelled_runs`.",
+            "Interrupted and unstarted seeds are excluded from performance metrics.",
         ]
     lines = [
         title,
@@ -87,10 +99,15 @@ def main():
     ]
     atomic_write(args.output / f"{prefix}-table.md", "\n".join(lines))
     stream = io.StringIO()
-    writer = csv.DictWriter(stream,
-                            fieldnames=list(summaries[0]),
-                            delimiter="\t",
-                            lineterminator="\n")
+    writer = csv.DictWriter(
+        stream,
+        fieldnames=(list(summaries[0]) if summaries else [
+            "domain", "noise", "arm", "seeds", "finished_seeds",
+            "successful_seeds", "solve_rate_pct", "mean_steps_successful",
+            "mean_resets", "status"
+        ]),
+        delimiter="\t",
+        lineterminator="\n")
     writer.writeheader()
     writer.writerows(summaries)
     atomic_write(args.output / f"{prefix}-summary.tsv", stream.getvalue())

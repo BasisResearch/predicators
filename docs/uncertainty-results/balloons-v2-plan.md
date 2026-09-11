@@ -90,3 +90,11 @@ No corrected-task agent outcomes were available at submission.
 Collector 22374089 will update [the corrected-task table](balloons-v2-table.md), snapshot and TSV after the four arrays terminate.
 Steps average only whole-run successful seeds; solve rate and resets use all seeds, and incomplete arms withhold averages.
 The original-task results retain their [separate table](model-repair-table.md).
+
+## Cancelled comparison
+
+The user cancelled this comparison on 2026-09-09 because correcting task generation does not address the repaired seed-0 agent retaining a no-op simulator.
+Arrays 22374077, 22374078, 22374080 and 22374081 and collector 22374089 were cancelled.
+The launch manifest preserves their configurations under `cancelled_runs`, outside active monitoring and aggregation.
+Interrupted agent runs are not counted as agent failures or successes.
+The separately authorized noisy hatch prototype remains in mechanical validation.
