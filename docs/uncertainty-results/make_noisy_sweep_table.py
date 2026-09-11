@@ -17,6 +17,22 @@ TERMINAL_REASONS = {
 DOMAINS = ("Bridge", "Fan", "Domino", "Boil", "Balloons")
 
 
+def select_scorecard(directory, selection):
+    """Require an explicit, exhaustive audit for duplicate executions."""
+    paths = list(directory.glob("run_*/scorecard.json"))
+    if selection:
+        selected = Path(selection["scorecard"])
+        excluded = [Path(p) for p in selection["excluded_scorecards"]]
+        reviewed = [selected, *excluded]
+        if (not selection.get("reason") or len(set(reviewed)) != len(reviewed)
+                or set(reviewed) != set(paths)):
+            raise ValueError(f"Scorecard selection does not cover {directory}")
+        return selected
+    if len(paths) > 1:
+        raise ValueError(f"Ambiguous scorecards: {directory}")
+    return paths[0] if paths else None
+
+
 def capture(manifest):
     """Validate scorecard identity and keep every expected seed visible."""
     rows = []
@@ -24,13 +40,14 @@ def capture(manifest):
         for seed in run["seeds"]:
             directory = (ROOT / "logs" / run["approach"] /
                          run["experiment_id"] / f"seed{seed}")
-            paths = list(directory.glob("run_*/scorecard.json"))
-            if len(paths) > 1:
-                raise ValueError(f"Ambiguous scorecards: {directory}")
-            rows.append(
-                read_card(run["env"], run["arm"], seed,
-                          paths[0] if paths else None, run["source_commit"],
-                          run["flags"], f"{run['job_id']}_{seed}"))
+            selection = run.get("scorecard_selections", {}).get(str(seed))
+            path = select_scorecard(directory, selection)
+            row = read_card(run["env"], run["arm"], seed, path,
+                            run["source_commit"], run["flags"],
+                            f"{run['job_id']}_{seed}")
+            if selection:
+                row["scorecard_selection"] = selection
+            rows.append(row)
     balloons = next(r for r in manifest["runs"]
                     if r["env"] == "pybullet_balloons" and r["arm"] == "MB")
     for reused in manifest["reused"]:
@@ -209,7 +226,23 @@ def refresh(manifest_path=MANIFEST):
             f"{win} | {row['steps'] if row['steps'] is not None else '-'} | "
             f"{row['resets'] if row['resets'] is not None else '-'} | {source} |"
         )
-    (output / "noisy-sweep-table.md").write_text("\n".join(lines) + "\n")
+    selections = [r for r in rows if "scorecard_selection" in r]
+    if selections:
+        lines += ["", "## Duplicate execution audit", ""]
+        for row in selections:
+            selection = row["scorecard_selection"]
+            lines.append(f"{row['domain']} {row['arm']} seed {row['seed']}: "
+                         f"{selection['reason']}")
+            lines.append(
+                f"The counted [scorecard]({row['scorecard']}) represents one seed."
+            )
+            for path in selection["excluded_scorecards"]:
+                lines.append(
+                    f"The [duplicate execution]({path}) is preserved and excluded from all aggregates."
+                )
+            lines.append("")
+    (output / "noisy-sweep-table.md").write_text("\n".join(lines).rstrip() +
+                                                 "\n")
     return snapshot
 
 

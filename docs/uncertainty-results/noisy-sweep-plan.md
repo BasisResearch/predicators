@@ -80,7 +80,8 @@ No full repository suite or PR validation was required for this config-only expe
 The [launch manifest](../../logs/noisy_sweep_20260910/launch-manifest.json) records exact flags, job IDs, dependencies, resources, source commits, and reused scorecard paths.
 Operational scripts and preflight evidence are in `logs/noisy_sweep_20260910/`.
 New scorecards use the standard continual viewer directories, with experiment suffix `noise_sweep_r1`.
-The reused balloons MB seeds remain in their original experiment group, `balloons-agent_continual_original_subclass_r1`.
+The reused balloons MB seeds appear together with seed 2 in the viewer group `balloons-agent_continual_noise_sweep_r1`.
+Each reused run has a `.viewer-experiment` display label; its original experiment ID, directory, scorecard, and source provenance remain unchanged.
 
 The [live results table](noisy-sweep-table.md) combines these explicitly identified sources.
 Regenerate it with `python docs/uncertainty-results/make_noisy_sweep_table.py`.
@@ -95,3 +96,13 @@ Step averages include only whole-run successful seeds and always show the qualif
 Reset averages and solve rates use finished agent seeds, with their count shown; partial tables remain provisional.
 Missing or unfinished scorecards and infrastructure failures are excluded from agent performance averages.
 The two reused balloons MB seeds were used during development, so this three-seed sweep is a small replication study rather than an untouched statistical evaluation.
+
+### Bridge MF seed 1 duplicate execution
+
+Job `22456627_1` restarted after its first execution had finished and entered video generation.
+The restart created `run_20260910_153125` after `run_20260910_144727` was already final.
+The first completed execution remains the counted seed: 2/2 levels, 2,413 steps, and zero resets.
+The later execution is preserved for audit and excluded from aggregates; it is not a fourth seed or a replacement chosen by performance.
+The manifest records the selected scorecard, the excluded duplicate, and the reason.
+The table generator still refuses ambiguous scorecards unless an explicit selection accounts for every discovered execution.
+This reporting correction does not change the frozen runtime or prevent future scheduler restarts from creating duplicate executions.
