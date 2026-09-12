@@ -154,15 +154,39 @@ def test_ablation_play_tools(tmp_path: Any, monkeypatch: Any, arm: str,
     assert card.total_resets == 0
 
 
+def _configure_domain_comparison(tmp_path: Any, domain: str,
+                                 approach: str) -> str:
+    """Use the cohort's real domain settings with local test outputs."""
+    config = ("predicatorv3/protocol_continual_bridge_span_comparisons_r1.yaml"
+              if domain == "bridge" else CONFIG)
+    cfg = next(c for c in generate_run_configs(config, False)
+               if c.env == f"pybullet_{domain}" and c.approach == approach)
+    _config(
+        tmp_path, **{
+            **{k: v
+               for k, v in cfg.flags.items() if k != "log"}, "continual_render":
+            False,
+            "continual_make_video": False,
+            "continual_runs_dir": str(tmp_path / "runs"),
+            "env": cfg.env,
+            "approach": cfg.approach
+        })
+    return cfg.env
+
+
+@pytest.mark.parametrize("domain",
+                         ["boil", "bridge", "fan", "domino", "balloons"])
 def test_standalone_model_is_live_without_engine(tmp_path: Any,
-                                                 monkeypatch: Any) -> None:
+                                                 monkeypatch: Any,
+                                                 domain: str) -> None:
     """A program edit changes predictions inside the acting conversation."""
     from pathlib import Path  # pylint: disable=import-outside-toplevel
 
     from predicators.code_sim_learning.program_world_model import \
         ProgramOptionModel  # pylint: disable=import-outside-toplevel
-    _config(tmp_path, approach="agent_continual_program_world_model")
-    env = create_new_env("pybullet_boil", do_cache=False, use_gui=False)
+    env_name = _configure_domain_comparison(
+        tmp_path, domain, "agent_continual_program_world_model")
+    env = create_new_env(env_name, do_cache=False, use_gui=False)
     options = get_gt_options(env.get_name())
     agent: Any = create_approach("agent_continual_program_world_model",
                                  env.predicates, options, env.types,
@@ -231,12 +255,15 @@ def test_standalone_model_is_live_without_engine(tmp_path: Any,
     assert isinstance(agent._option_model, ProgramOptionModel)  # pylint: disable=protected-access
 
 
-def test_zero_shot_seals_before_first_charge(tmp_path: Any,
-                                             monkeypatch: Any) -> None:
+@pytest.mark.parametrize("domain",
+                         ["boil", "bridge", "fan", "domino", "balloons"])
+def test_zero_shot_seals_before_first_charge(tmp_path: Any, monkeypatch: Any,
+                                             domain: str) -> None:
     """Missing models and later edits cannot take steps, even after resume."""
     from pathlib import Path  # pylint: disable=import-outside-toplevel
-    _config(tmp_path, approach="agent_continual_zero_shot")
-    env = create_new_env("pybullet_boil", do_cache=False, use_gui=False)
+    env_name = _configure_domain_comparison(tmp_path, domain,
+                                            "agent_continual_zero_shot")
+    env = create_new_env(env_name, do_cache=False, use_gui=False)
     agent: Any = create_approach("agent_continual_zero_shot", env.predicates,
                                  get_gt_options(env.get_name()), env.types,
                                  env.action_space,
