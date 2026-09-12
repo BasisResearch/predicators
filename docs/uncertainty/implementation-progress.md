@@ -4,6 +4,10 @@ Updated September 12, 2026.
 This tracks implementation of the [simplification proposal](simplification-proposal.md).
 The incumbent estimator remains the production default.
 
+The latest [likelihood cost reduction](likelihood-cost.md) preserves all 2,560 archived orientation densities and five complete Fan likelihoods exactly on the checked runtimes.
+It removes array reductions from two-term quadrature sums, making the measured density evaluations about four times faster while retaining the statistical model and numerical acceptance checks.
+Twenty-three functional tests and focused type/lint/format checks pass; running fits retain their existing frozen source.
+
 ## Implemented boundary
 
 The rollout fitter exposes `SysIdOutcome.inference`, a version 1 `LegacyInferenceResult`.

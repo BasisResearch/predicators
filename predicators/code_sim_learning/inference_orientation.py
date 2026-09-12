@@ -107,19 +107,20 @@ class QuaternionOutputError:
         center = math.hypot(*mean)
         constant = -2 * math.log(2 * math.pi) - 4 * math.log(self.sigma)
         log_jacobian = math.log(math.cos(pitch) / 8)
+        cr, sr = math.cos(roll / 2), math.sin(roll / 2)
+        cy, sy = math.cos(yaw / 2), math.sin(yaw / 2)
+        radial_lower = math.sqrt(abs(sine))
 
         def integrand(transverse: float) -> float:
             if transverse <= 0:
                 return -math.inf
             # r^2=abs(sin(pitch))+u^2 makes r dr=u du. Retaining u
             # avoids subtracting nearly equal rounded squared radii.
-            radius = math.hypot(math.sqrt(abs(sine)), transverse)
+            radius = math.hypot(radial_lower, transverse)
             cosine_part = transverse * math.sqrt(transverse * transverse +
                                                  2 * abs(sine))
             beta = math.atan2(sine, cosine_part)
-            cr, sr = math.cos(roll / 2), math.sin(roll / 2)
             cp, sp = math.cos(beta / 2), math.sin(beta / 2)
-            cy, sy = math.cos(yaw / 2), math.sin(yaw / 2)
             unit = (sr * cp * cy - cr * sp * sy, cr * sp * cy + sr * cp * sy,
                     cr * cp * sy - sr * sp * cy, cr * cp * cy + sr * sp * sy)
             exponents = [
@@ -129,7 +130,7 @@ class QuaternionOutputError:
             ]
             # Sum the two lifts of the antipodal mixture: no extra .5.
             return (math.log(transverse) + log_jacobian + constant +
-                    float(logsumexp(exponents)))
+                    _log_sum_pair(*exponents))
 
         tail_constant = log_jacobian + constant + math.log(2)
         return _log_radial_integral(integrand, center, self.sigma,
@@ -158,10 +159,18 @@ class QuaternionOutputError:
             ]
             # Half for theta=yaw/2, and half for the antipodal mixture.
             return (math.log(radius) + constant - math.log(4) +
-                    float(logsumexp(exponents)))
+                    _log_sum_pair(*exponents))
 
         return _log_radial_integral(integrand, center, self.sigma,
                                     constant - math.log(2), tolerance)
+
+
+def _log_sum_pair(first: float, second: float) -> float:
+    """Sum two log densities without allocating arrays inside quadrature."""
+    larger, smaller = max(first, second), min(first, second)
+    if smaller == -math.inf:
+        return larger
+    return larger + math.log1p(math.exp(smaller - larger))
 
 
 def _log_radial_integral(evaluate: Callable[[float], float],
