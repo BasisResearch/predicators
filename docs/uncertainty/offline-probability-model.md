@@ -17,7 +17,10 @@ The likelihood requires a prediction for every primitive state index, including 
 A level boundary does not by itself define a reset episode.
 The recording adapter identifies actual reset markers and must preserve continuous history across any level changes without a reset.
 It must also record a unique run identity as part of each reset episode ID.
-The separate read-only recording adapter now loads explicitly selected flushed continual levels and checks every action against the reset/action log.
+The separate read-only recording adapter loads explicitly selected flushed continual levels and checks every action against the reset/action log.
+Those files store sanitized simulator truth, so the reader requires the run seed and level index and regenerates the agent's step-keyed noise before constructing observations.
+The channel coordinates and source implementation join the immutable artifact bundle.
+The initial reader incorrectly skipped this transformation; the actual-session regression exposed and corrected it.
 Its writer-to-reader tests passed, as did the audit of 1,978 primitive actions from five frozen training levels.
 
 The statistical identity separates hashes of data, sensor semantics, program and parameter definitions, prior, and runtime configuration.
@@ -127,7 +130,17 @@ All 24 comparisons at 1,024 particles passed the predeclared development toleran
 One of 24 at 256 particles failed the uninformed-parameter mean tolerance.
 These repetitions assess the fixed reference distributions; they are not repeated-dataset calibration experiments.
 
-Five-domain recording audit `22625681` passed reset/action consistency and exact-constraint checks on frozen historical training levels.
+Corrected five-domain recording audit `22625932` passed reset/action consistency and exact-constraint checks on reconstructed noisy training observations.
+The original audit `22625681` is superseded for statistical use because it projected stored truth directly.
 The next physical-prediction preflight explicitly distinguishes replay/setup failures, nominal model mismatch, and statistical inference.
 No inference failure is automatically converted into extra sensor noise, dropped observations, or live agent actions.
 See [the experiment record](experiments-20260912.md).
+
+Corrected nominal prediction job `22625933` found exact-output contradictions in all 14 executable fixed-program cases.
+Repeated fresh replay was identical, so the failures cannot be dismissed as randomness between those repeated evaluations.
+They do not prove that the full latent-state and parameter target lacks support.
+Physical-state priors and explicit reconstruction/model-discrepancy diagnostics remain a gate before posterior deployment.
+
+The final reader correction passed compute validation `22626126`, including the real-session observation roundtrip.
+Contact-rich replay audit `22626183` additionally shows that explicit motion restoration is still incomplete: the moving-start balloons case differs by 106.17 mm and changes attachments.
+A discrepancy model must not conceal a fixable restoration error; resolve that distinction before fitting or publishing physical posteriors.
