@@ -1,6 +1,6 @@
 """Mechanical oracle audits, separate from continual agent outcomes."""
 # pylint: disable=protected-access
-from typing import Any, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import pytest
@@ -19,7 +19,7 @@ from tests.code_sim_learning.test_fan_gt_simulator import _make_noop
 
 
 def _load() -> Any:
-    namespace = {
+    namespace: Dict[str, Any] = {
         "BaseSimulator": base_simulator_class(CFG.env),
         "ParamSpec": ParamSpec
     }
@@ -27,9 +27,10 @@ def _load() -> Any:
     return namespace["RESIDUAL_ENV"]
 
 
-@pytest.mark.parametrize(
-    "env_name",
-    ["pybullet_domino", "pybullet_fan", "pybullet_balloons", "pybullet_boil"])
+@pytest.mark.parametrize("env_name", [
+    "pybullet_domino", "pybullet_fan", "pybullet_balloons", "pybullet_boil",
+    "pybullet_bridge"
+])
 def test_oracle_source_loads_fixed_values(env_name: str) -> None:
     """Every supplied parameter is pinned, including material calibration."""
     utils.reset_config({
@@ -236,3 +237,169 @@ def test_boil_oracle_mechanisms_and_observed_memory(mode: str) -> None:
                 if feature in obj.type.feature_names:
                     assert np.isclose(actual.get(obj, feature),
                                       predicted.get(obj, feature))
+
+
+@pytest.mark.parametrize("mode", ["flush", "out_of_range", "wetting"])
+def test_bridge_oracle_process_and_observed_memory(mode: str,
+                                                   monkeypatch: Any) -> None:
+    """Wetting, cure, tacks, and reciprocal latches match native dynamics."""
+    import pybullet as p  # pylint: disable=import-outside-toplevel
+
+    from tests.envs.test_pybullet_bridge import \
+        _stage_flush_pair  # pylint: disable=import-outside-toplevel
+    utils.reset_config({
+        "env": "pybullet_bridge",
+        "seed": 0,
+        "partially_observable": True,
+        "num_train_tasks": 1,
+        "num_test_tasks": 0
+    })
+    real: Any = create_new_env(CFG.env, do_cache=False, use_gui=False)
+    task = real.get_train_tasks()[0]
+    if mode == "wetting":
+        real._set_state(task.init)
+        initial = real._get_state()
+        block = next(o for o in initial if o.name == "leg0")
+        dab = real._face_dab_point(initial, block, "end_b")
+        for feature, value in zip(("x", "y", "z"), dab):
+            initial.set(real._bottle, feature, value)
+        initial.set(real._bottle, "z", dab[2] + real.bottle_half_extents[2])
+        initial.set(real._bottle, "is_held", 1.0)
+        initial.set(real._robot, "x", dab[0])
+        initial.set(real._robot, "y", dab[1])
+        initial.set(real._robot, "z",
+                    dab[2] + 2 * real.bottle_half_extents[2] + 0.005)
+        initial.set(real._robot, "fingers", real.closed_fingers)
+        real._set_state(initial)
+    else:
+        block, mate = _stage_flush_pair(real,
+                                        task)  # type: ignore[no-untyped-call]
+        if mode == "out_of_range":
+            initial = real._get_state()
+            initial.set(mate, "x", initial.get(mate, "x") + 0.08)
+            real._set_state(initial)
+    clean = sanitize_state(real._get_state())
+    cls = _load()
+    model = cls(use_gui=False, skip_residual_dynamics=False)
+    model._set_state(clean)
+    tracker = make_subclass_latent_tracker(cls, lambda: {})
+    assert tracker is not None
+    tracker.attach(clean, None)
+
+    def forbidden(*_args: Any, **_kwargs: Any) -> None:
+        raise AssertionError("The observation callback accessed an engine")
+
+    max_error = 0.0
+    for _ in range(35):
+        action = _make_noop(real._get_state(),
+                            real)  # type: ignore[no-untyped-call]
+        real._step_once(action)
+        model._step_once(action)
+        actual, predicted = real._get_state(), model._get_state()
+        with monkeypatch.context() as context:
+            for method in ("connect", "getBasePositionAndOrientation",
+                           "createConstraint", "stepSimulation"):
+                context.setattr(p, method, forbidden)
+            inferred = tracker.attach(sanitize_state(actual), action)
+        assert not tracker.failed
+        assert inferred.latent is not None
+        for obj in actual.get_objects(real._block_type):
+            native = real._hidden_block_features(obj)
+            estimate = inferred.latent["blocks"][obj.name]
+            for key, value in native.items():
+                expected = value
+                if key.startswith("attached_"):
+                    expected = real._blocks[int(
+                        value)].name if value >= 0 else None
+                assert estimate[key] == expected, (mode, obj.name, key,
+                                                   estimate[key], expected)
+            max_error = max(max_error,
+                            float(np.max(abs(actual[obj] - predicted[obj]))))
+        assert len(model._weld_constraints) == len(real._weld_constraints)
+        assert len(model._tack_constraints) == len(real._tack_constraints)
+    assert max_error < 0.005, max_error
+    if mode == "flush":
+        assert len(real._weld_constraints) == 1
+        assert actual.get(block, "glue_end_b") == 0.0
+        model._set_state(inferred)
+        assert len(model._weld_constraints) == 1
+        model._set_state(sanitize_state(task.init))
+        assert not model._weld_constraints
+        assert not model._tack_constraints
+    elif mode == "wetting":
+        assert actual.get(block, "glue_end_b") == 1.0
+    else:
+        assert not real._weld_constraints
+
+
+@pytest.mark.parametrize("domain",
+                         ["bridge", "fan", "domino", "boil", "balloons"])
+def test_oracle_scene_physical_calibration(domain: str) -> None:
+    """Match native body and articulation calibration without hidden
+    effects."""
+    import copy  # pylint: disable=import-outside-toplevel
+
+    import pybullet as p  # pylint: disable=import-outside-toplevel
+
+    from predicators.approaches.agent_continual_frozen_approach import \
+        AgentContinualOracleSceneApproach  # pylint: disable=import-outside-toplevel
+    from scripts.cluster_utils import \
+        generate_run_configs  # pylint: disable=import-outside-toplevel
+    config = next(c for c in generate_run_configs(
+        "predicatorv3/protocol_continual_comparisons_noisy_r1.yaml", False)
+                  if c.env == f"pybullet_{domain}"
+                  and c.approach == "agent_continual_oracle_scene")
+    utils.reset_config({
+        **{k: v
+           for k, v in config.flags.items() if k != "log"}, "env": config.env,
+        "seed": 0
+    })
+    real: Any = create_new_env(CFG.env, do_cache=False, use_gui=False)
+    namespace: Dict[str, Any] = {
+        "BaseSimulator": base_simulator_class(CFG.env),
+        "ParamSpec": ParamSpec
+    }
+    exec(AgentContinualOracleSceneApproach._scene_source(), namespace)  # pylint: disable=exec-used
+    model = namespace["RESIDUAL_ENV"](use_gui=False)
+    initial = real.get_train_tasks()[0].init
+    real._set_state(copy.deepcopy(initial))
+    public = sanitize_state(copy.deepcopy(initial))
+    assert public.privileged is None
+    model._set_state(public)
+    native = real._get_state()
+    predicted = model._get_state()
+    checked = 0
+    articulated = 0
+    for obj in native:
+        peer = next(o for o in predicted if o.name == obj.name)
+        if obj.id is None or peer.id is None:
+            continue
+        rc, mc = real._physics_client_id, model._physics_client_id
+        joints = p.getNumJoints(obj.id, physicsClientId=rc)
+        assert joints == p.getNumJoints(peer.id, physicsClientId=mc)
+        articulated += joints
+        for link in range(-1, joints):
+            actual = p.getDynamicsInfo(obj.id, link, physicsClientId=rc)
+            expected = p.getDynamicsInfo(peer.id, link, physicsClientId=mc)
+            # Mass, friction, inertia, restitution and contact calibration.
+            for index in (0, 1, 2, 3, 4, 5, 6, 7, 8, 9):
+                assert np.allclose(actual[index],
+                                   expected[index]), (domain, obj.name, link,
+                                                      index, actual, expected)
+            if link >= 0:
+                a = p.getJointInfo(obj.id, link, physicsClientId=rc)
+                b = p.getJointInfo(peer.id, link, physicsClientId=mc)
+                for index in range(1, len(a)):
+                    if isinstance(a[index], bytes):
+                        assert a[index] == b[index]
+                    else:
+                        assert np.allclose(a[index], b[index])
+            checked += 1
+    assert checked > 0 and articulated > 0
+    if domain == "balloons":
+        assert model._drag() == real._drag()
+        for index in range(len(real.BOX_PALETTE)):
+            assert model._box_mass_for(index) == real._box_mass_for(index)
+    before = model._get_state().copy()
+    model._domain_specific_step()
+    assert before.allclose(model._get_state())

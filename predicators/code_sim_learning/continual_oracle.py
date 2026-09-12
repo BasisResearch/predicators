@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import ast
 import inspect
+import textwrap
 from pathlib import Path
 from typing import Dict
 
@@ -24,7 +25,39 @@ def oracle_source() -> str:
     """Return a self-contained artifact with frozen parameter values."""
     # Imports here avoid loading all PyBullet environments before registry
     # discovery has completed.
-    # pylint: disable=import-outside-toplevel
+    # pylint: disable=import-outside-toplevel,protected-access
+    if CFG.env == "pybullet_bridge":
+        from predicators.envs.pybullet_bridge import ATTACH_SLOTS, \
+            GLUE_FACES, PyBulletBridgeEnv
+        bridge_path = Path(__file__).with_name("bridge_oracle.py")
+        tree = ast.parse(bridge_path.read_text(encoding="utf-8"))
+        tree.body = [
+            node for node in tree.body
+            if not (isinstance(node, ast.ImportFrom)
+                    and node.module == "predicators.envs.pybullet_bridge")
+        ]
+        native = ast.parse(
+            textwrap.dedent(
+                inspect.getsource(
+                    PyBulletBridgeEnv._domain_specific_step))).body[0]
+        assert isinstance(native, ast.FunctionDef)
+        native.name = "_native_step"
+        for index, node in enumerate(tree.body):
+            if (isinstance(node, ast.Assign) and any(
+                    isinstance(t, ast.Name) and t.id == "_native_step"
+                    for t in node.targets)):
+                tree.body[index:index + 1] = [
+                    *ast.parse("from typing import Tuple\n"
+                               "import numpy as np\n"
+                               f"GLUE_FACES = {GLUE_FACES!r}\n"
+                               f"ATTACH_SLOTS = {ATTACH_SLOTS!r}").body, native
+                ]
+                break
+        for node in tree.body:
+            if isinstance(node, ast.ClassDef) and node.name == "BridgeOracle":
+                node.bases = [ast.Name(id="BaseSimulator", ctx=ast.Load())]
+        tree.body.extend(ast.parse("RESIDUAL_ENV = BridgeOracle").body)
+        return ast.unparse(ast.fix_missing_locations(tree)) + "\n"
     if CFG.env == "pybullet_boil":
         boil_path = Path(__file__).with_name("boil_oracle.py")
         tree = ast.parse(boil_path.read_text(encoding="utf-8"))
