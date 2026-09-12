@@ -26,6 +26,12 @@ These are observation counts, not independent physical coordinates or posterior 
 For example, robot Cartesian pose and joint positions describe the same mechanism, and a balloon's tied flag does not independently specify its weld frame.
 All five recordings include nine exact controlled joint positions and seven exact robot features per frame.
 The runtime defaults to fixed-base Fetch; nine observed joints must not be mistaken for the whole URDF joint state.
+The later recorded-action cache audit `22633028` establishes an additional timing distinction: the Cartesian robot pose comes from PyBullet's cached link transform, while joint positions are read from the current joint state.
+After a physics step, an explicit forward-kinematics query or an identical joint reset can change the reported Cartesian pose while leaving joint positions and velocities unchanged.
+On eight recorded Balloons actions, the native cached poses match the historical observations exactly; refreshed poses differ by up to 1.094 mm in a coordinate and 0.00634 radians in an angle.
+The Cartesian readings therefore cannot be eliminated as instantaneous functions of the observed joint vector without preserving this historical observation phase.
+This is engine observation timing, not evidence for increasing sensor noise.
+See the [cache audit](../../logs/uncertainty_robot_cache_20260912/assessment.json) and [transition reference](transition-discrepancy.md).
 The compute audit in `logs/uncertainty_state_inventory_v2_20260912` enumerates the actual visible-model joints without generating evaluator tasks.
 Job `22627492` confirms the same layout in all five domains: 24 URDF joints, comprising nine observed movable joints, four unobserved movable joints, and eleven fixed joints.
 The unobserved movable joints are the two wheels and head pan/tilt.

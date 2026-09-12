@@ -45,7 +45,7 @@ It does not accept an arbitrary band around an exact speed observation.
 
 ## Recorded Balloons diagnostic
 
-The frozen diagnostic bundle is `logs/uncertainty_balloons_transition_v2_20260912`.
+The current frozen diagnostic bundle is `logs/uncertainty_balloons_transition_v3_20260912`.
 Its program, noisy public observations, and initial-scene law come from the earlier [original non-hatch Balloons reference](balloons-initial-scene.md).
 No evaluator-only state supplies an initial candidate.
 Two complete candidate roots are drawn using the same first-observation conditional law and geometric rejection policy.
@@ -97,3 +97,35 @@ The first component check attempt passed functional tests and mypy but found a l
 The first physical diagnostic attempt failed while serializing a NumPy boolean to JSON.
 That report-writing error was corrected in v2 without changing the transition model, and job `22632884` is the replacement diagnostic.
 These are setup failures, not failed agent seeds or evidence against a stochastic model.
+
+The completed v2 diagnostic contains twelve exactly repeatable paths, with all 384 conditioned speeds reconstructed within the reported floating-point bound.
+Every path nevertheless disagrees with the remaining Cartesian robot outputs, so it supplies no fully observation-compatible path under that observation map.
+Six paths also disagree with one tie/clip transition; those event failures remain separate.
+
+### Preserve the native robot observation phase
+
+Follow-up audit `22633028` reproduces the Cartesian mismatch directly on eight recorded actions.
+The unmodified cached robot reads match the recording exactly.
+Both requesting `computeForwardKinematics=1` and resetting joints to their identical positions refresh the link cache and change the reported pose, while current joint positions and velocities remain unchanged.
+The maximum coordinate change in this audit is 1.094 mm, and the maximum angle change is 0.00634 radians.
+This is an observation-phase mismatch introduced by the diagnostic's resetting operation, not a physical correction demanded by the recorded data.
+
+The v3 transition model explicitly retains the native predicted cached-link readings for robot `x`, `y`, `z`, `roll`, `tilt` and `wrist`, measured before its post-step correction.
+It reads the corrected joints, fingers and box speed afterward, and skips resetting joints whose correction is exactly zero.
+The retained Cartesian values come from the candidate's native prediction, never from the observed Cartesian pose.
+They remain exact-output checks and can still disagree with the recording.
+This models the historical distinction between current joints and cached links instead of silently replacing the observation channel with fresh forward kinematics.
+The production helper keeps its original default; its documentation now describes this measured behavior.
+
+The [v2 assessment](../../logs/uncertainty_balloons_transition_v2_20260912/assessment.json) retains its failed full-output checks, and the [cache audit](../../logs/uncertainty_robot_cache_20260912/assessment.json) identifies the causal reproduction.
+Completed job `22633071` tests the corrected observation phase on the same twelve conditional paths and future continuations.
+All twelve paths repeat exactly, and all 384 conditioned speeds satisfy the stated reconstruction bound.
+Preserving the native link phase removes the artificial early Cartesian discrepancies: the first remaining exact-output failures are at action 18 for one root and action 22 for the other.
+Those later failures include robot/contact disagreements and, for the second root, the tie/clip event.
+Consequently, none of these twelve paths satisfies the complete 32-action observation set.
+They cannot be normalized into a posterior for that full prefix, and the conflicting observations are not discarded or softened.
+
+During the sixteen unconditioned future actions, pathwise box-speed RMSE ranges from 0.0328 to 0.0657 m/s.
+These are descriptive errors for a few unweighted paths, not calibrated posterior predictions or an improvement comparison.
+The [v3 assessment](../../logs/uncertainty_balloons_transition_v3_20260912/assessment.json) records the failures, repeatability and all 1,152 modeled actions including repeats.
+The extension now has verified conditional arithmetic and a correctly specified cached-link observation phase, but still needs a joint construction for the later contact constraints before full-recording parameter inference.

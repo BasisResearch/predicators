@@ -356,6 +356,10 @@ The [explicit transition-discrepancy reference](transition-discrepancy.md) now i
 It retains the noncentral radial density and directional uncertainty instead of inflating sensor variance or projecting without a likelihood factor.
 This is a separately declared stochastic model extension, motivated by the unresolved deterministic contact constraints.
 The recorded Balloons diagnostic tests conditional prefixes and unconditioned future continuations; it is not a posterior comparison or agent result.
+Seventeen functional tests, focused type/lint checks and pinned formatting pass for the transition component.
+The accompanying native-link cache audit explains why resetting unchanged joints introduced artificial Cartesian residuals into the first diagnostic.
+Preserving the native predicted link-observation phase removes those early residuals without using observed Cartesian values.
+All twelve corrected diagnostic paths repeat exactly, but later robot/contact constraints still fail at actions 18 or 22, so they do not supply a complete 32-action posterior.
 
 ## Next gate
 
