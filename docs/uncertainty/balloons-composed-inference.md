@@ -92,3 +92,16 @@ Conditioned joint-position corrections contribute transition densities but no re
 The Gaussian and quaternion output discrepancies are integrated in their observation factors rather than added as sampled coordinates.
 The fixed-parameter paths from root seed 0 have a resting robot and three moving balloons; that root component contributes 60 initial coordinates, or 540 total when parameters and all directions are inferred.
 This high-dimensional construction needs an explicit proposal and numerical validation; the few support paths do not justify choosing a particle budget by themselves.
+
+## Initial balloon-orientation check
+
+Job `22646175_0` holds the saved root, world-frame velocities, parameters, actions and conditional direction draws fixed while changing initial balloon orientations.
+It tests the original orientations, an independent rotation of each of the three balloons, and independent rotations of all three together.
+All five 235-action paths repeat exactly in fresh worlds.
+Each rotated case also has exactly the same complete path, public readings and composed likelihood factor as the baseline.
+The [report](../../logs/uncertainty_balloons_orientation_gauge_20260912/pilot-22646175_0.json) retains the actual intervened physical roots.
+
+This supports investigating whether the nine initial balloon-orientation coordinates can be integrated out as rotational gauges under this fixed program.
+The program resets a released balloon's orientation and motion before attaching it, but any reduction must also account for the pre-release contact dynamics and native inertia.
+The test is specific to the sampled root and declared transition model; it does not establish invariance for arbitrary future simulator programs.
+No initial-state dimensions or prior factors have been removed by this diagnostic.
