@@ -67,7 +67,8 @@ A compute-node audit confirmed that its parameter override accepts 0, 0.5 and 1 
 The method-syntax check confirmed the same dynamics across all three saved versions.
 The legacy arm retains its current declarations and fitting bounds; its prior and deployment policy are part of the incumbent algorithm being compared.
 A future ablation must separate the effect of the fixed original prior from uncertain-state inference.
-Fan's full initial-state prior, including static layout and articulated switch state, still requires completion before a physical joint-posterior comparison.
+Fan's [full initial-state prior](fan-initial-scene.md), including static layout and articulated switch state, now has a complete-recording support witness.
+A numerically adequate joint-posterior approximation remains required before comparing estimators.
 
 ## Submitted comparison jobs
 
@@ -81,7 +82,7 @@ Array `22638308` is submitted to `mit_preemptable`, pinned to the same `node1412
 | 3 | Fan | All 132 training actions | Reconstruction; no unused suffix in this recording |
 
 The suffixes are not established as unseen during historical program synthesis.
-Completion will supply incumbent prediction baselines; it cannot by itself establish posterior numerical adequacy or an agent advantage.
+All four tasks have now completed and supply incumbent prediction baselines; this does not establish posterior numerical adequacy or an agent advantage.
 The frozen worker uses historical runtime `b09217bb3` plus the identified offline modules, the same physics source as the current Domino posterior pilots.
 The eight-hour job limit is an external compute cap, not a statistical stopping criterion or evidence that an interrupted fit completed.
 
@@ -93,3 +94,39 @@ Corrected preflight jobs `22637747_0` and `_1` both completed successfully.
 Infrastructure/setup outcomes are not agent seeds.
 
 Artifacts are in `logs/uncertainty_legacy_preflight_v2_20260912`, `logs/uncertainty_observation_state_v3_20260912`, `logs/uncertainty_legacy_telemetry_20260912` and `logs/uncertainty_legacy_comparison_v3_20260912`.
+
+## Completed incumbent comparisons
+
+All four tasks completed successfully on their declared node1412 with their original frozen configuration.
+The retained segments are the incumbent's prepared fitting units; segmentation can overlap, so their action counts must not be interpreted as distinct observations.
+
+| Task | Domain | Supplied actions | Retained segments | Worker seconds | Native steps | Worlds |
+| --- | --- | --- | --- | --- | --- | --- |
+| 22638308_0 | Domino | 64 | 3 | 214.39 | 13,625 | 563 |
+| 22638308_1 | Fan | 64 | 1 | 30.88 | 1,777 | 37 |
+| 22638308_2 | Domino | 161 | 6 | 279.03 | 20,753 | 704 |
+| 22638308_3 | Fan | 132 | 3 | 52.38 | 4,461 | 119 |
+
+Both Domino fits predict using the original anchor values: lateral friction 0.674, restitution 0.02, rolling friction 0.006, spinning friction 0.5 and mass 0.1.
+The 64-action fit reports four parameters as anchored and restitution as insensitive.
+The full-recording fit reports four as anchored and mass as not identified, retaining its anchor for prediction.
+Both Fan fits predict with speed 0.0846 and report it as anchored, with legacy belief interval [0.077, 0.092].
+These values describe the incumbent publication policy, not a posterior inference result or proof that the recordings contain no parameter information.
+
+Each Domino report stores 161 predicted frames and each Fan report stores 132.
+The 64-action arms leave suffixes of 97 and 68 actions unused by those fits respectively; the full-recording arms leave none.
+These outputs are ready for a matched prediction comparison when replacement inference passes its numerical checks.
+
+Fan's 64-action cold legacy fit, task `22638308_1`, completed on the originally declared node1412.
+Its preprocessing produces one 47-action segment and retains that segment through fitting.
+The internal fitted move to approximately 0.085223 is rejected by the incumbent anchor test as data-equivalent; the final applied `fan_speed` remains 0.0846.
+The legacy belief interval remains [0.077, 0.092], with its original `anchored` verdict.
+Those are legacy quantities, not posterior credible intervals.
+
+The [completed report](../../logs/uncertainty_legacy_comparison_v3_20260912/pilot-22638308_1.json) includes predictions for all 132 training actions, including the 68-action suffix unused by this particular fit.
+That suffix is not certified as unseen during historical program synthesis.
+The worker records 30.88 seconds, 1,777 native steps and 37 worlds across parent and child processes.
+No adequate replacement posterior is yet available for a matched estimator conclusion.
+
+An [eligibility review](../../logs/uncertainty_legacy_comparison_v3_20260912/eligibility-review.json) verified a second matching CPU node, but jobs began on their original node before eligibility was changed.
+No source, prior or resource changes were applied, and all temporary scheduling holds were released and checked.

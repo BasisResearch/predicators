@@ -405,11 +405,21 @@ These are comparison inputs and submitted experiments, not completed Stage B evi
 
 ## Next gate
 
+The [parameter consumer boundary](parameter-consumers.md) now derives parameter quantiles and weighted or resampled ensembles from the same assessed joint approximation.
+It preserves parameter dependence and predictive diagnostics, requires explicit coordinate/name mapping, and refuses numerical results that are unavailable or unevaluated.
+This prepares an offline interface for later saved-decision comparisons; it does not make the current physical posterior pilots adequate or route the acting agent through a new estimator.
+Nineteen functional tests, focused type/lint checks and pinned formatters pass for this consumer boundary.
+The four full legacy comparison tasks have also completed, providing saved predictions for both 64-action fits and complete Domino/Fan recordings.
+Both domains retain their anchor parameters for prediction under the incumbent policy; a matched replacement posterior is still unavailable.
+
 The [full Fan initial-scene experiment](fan-initial-scene.md) now declares the remaining placement and geometry components, retaining all articulated and robot uncertainty under a normalized original law and explicit whole-scene support policy.
 The corrected proposal preserves support for every quarter-turn case and records actual worker hardware instead of inherited CPU labels.
 Eight scenes pass geometry and repeated 32-action replay; seven have finite complete-output likelihood on that prefix.
 All eight earlier saved scenes still fail later exact events over the complete 132-action recording, despite exact repeatability.
 Directed parameter and fixture-placement probes are investigating that conditional support; they are not posterior estimates or evidence of an improvement over legacy fitting.
+Those probes have now found a complete-recording Fan support witness by adjusting a sampled switch placement within the original prior at speed 0.09.
+Independent full replays verify that point and three nearby positive perturbations; a fourth perturbation fails, preserving the sensitivity evidence.
+This opens a supported full-recording inference experiment while leaving numerical adequacy and comparison gates unresolved.
 
 The [articulated replay correction](articulated-replay.md) closes an omission exposed by the Fan prior work: snapshots previously lost all four slider and twenty rotor joint states.
 The corrected offline snapshot restores those states exactly and repeats a 64-action native Fan trajectory at every recorded boundary.

@@ -106,7 +106,8 @@ The articulated portion has 40 to 48 continuous dimensions across sixteen switch
 The subsequent [full Fan root law](fan-initial-scene.md) combines those variables with fixture placement, box orientation cases, ball pose/motion and conditioned robot state under an explicit fixed-mounting and contact policy.
 That development representation has 82 to 112 continuous state coordinates, or 83 to 113 with its airflow parameter, across 65,536 case combinations before support and remaining observations.
 Eight sampled whole scenes pass the declared support gate and repeat exactly, but none of the earlier eight saved candidates satisfies the entire 132-action event sequence.
-The complete-recording conditional support and numerical/predictive adequacy remain open; this is not a calibrated task prior or a production posterior.
+The subsequent placement/contact audit finds a full-recording positive witness and three nearby positive perturbations, all reproduced exactly in fresh worlds.
+Numerical posterior exploration and predictive adequacy remain open; these selected support witnesses are not a calibrated task prior or a production posterior.
 
 ## Domino
 

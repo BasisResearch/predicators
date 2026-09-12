@@ -96,6 +96,30 @@ Its [scope addendum](../../logs/uncertainty_fan_switch_support_20260912/scope-au
 It checks the complete 132-action history for each point and does not reuse the source proposal weight after modifying the scene.
 These directed probes use the full training data and remain separate from held-out predictive evaluation and posterior sampling.
 
+Both scans finished without a finite full-recording likelihood: 104 speed probes and 121 xy probes over the original small placement window.
+Every point in that placement grid retained the same two final switch/fan flag disagreements.
+The subsequent [contact-margin diagnostic](../../logs/uncertainty_fan_switch_contact_20260912/pilot-22641898_0.json) varied individual pose coordinates more widely and inspected simulated slider positions as well as public event predictions.
+At speed 0.09, the original candidate finishes with the slider at 23.3343 mm, above the 14.8 mm off/on threshold.
+Moving its sampled switch base by +0.01 m in y places the final slider at 14.4729 mm and gives finite likelihood for all 133 observations.
+The modified position remains inside the original placement support; neither readings, event likelihoods nor prior bounds were changed.
+One of the seventeen contact probes supplies this positive witness.
+
+The [independent full-replay audit](../../logs/uncertainty_fan_full_support_witness_20260912/pilot-22642017_0.json) repeats the saved positive candidate and four small perturbations in fresh worlds.
+Every pair of 132-action trajectories and likelihood values repeats exactly.
+
+| Perturbation from the positive witness | Full-recording log likelihood | Outcome |
+| --- | ---: | --- |
+| None; speed 0.09 | 34241.556154 | Finite |
+| Switch y minus 0.0001 m | 34241.349688 | Finite |
+| Switch y plus 0.0001 m | 34241.676276 | Finite |
+| Speed minus 0.0001 | 34241.565911 | Finite |
+| Speed plus 0.0001 | No finite likelihood | Exact-output disagreement |
+
+This establishes sampled full-recording support under the declared model and shows local sensitivity to both the physical parameter and initial placement.
+It does not establish posterior weights, a credible interval, sufficient exploration of other cases or predictive adequacy on unused data.
+These selected points must not be passed off as a posterior ensemble.
+The next inference experiment must preserve the original law and account for any proposal informed by these support searches.
+
 ## Runtime provenance
 
 The first scene preflight ran on node3504, not node1412 as incorrectly stated by inherited launcher metadata.
