@@ -129,7 +129,7 @@ class _BridgeObserver(BridgeOracle):
                             if o.type.name == "bottle")
         self._records = {}
         for index, block in enumerate(self._blocks):
-            block.id = index
+            block.sim_data["id"] = index
             record = memory.get(block.name, {})
             values = {
                 f"cure_{f}": float(record.get(f"cure_{f}", 0.0))

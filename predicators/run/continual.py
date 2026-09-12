@@ -32,7 +32,7 @@ from predicators.observation_noise import ObservationNoise, noise_or_none, \
     step_rng
 from predicators.run import paths
 from predicators.run.episode import EpisodeOver, EpisodeRunner, EpisodeState, \
-    InvocationOutcome, StepOutcome
+    InvocationOutcome, StepOutcome, public_skill_failure
 from predicators.run.interaction import InteractionExecutor
 from predicators.run.recording import LevelRecording, restore_actions, \
     sanitize_state, states_close
@@ -931,7 +931,7 @@ class ContinualRun:
                     exhausted = bool(info.get("plan_exhausted")) or \
                         "exhausted" in str(e).lower()
                     status = "succeeded" if exhausted else "failed"
-                    reason = str(e.args[0]) if e.args else ""
+                    reason = "" if exhausted else public_skill_failure(e)
                     break
                 option = act.get_option() if act.has_option() else None
                 if option is not current:

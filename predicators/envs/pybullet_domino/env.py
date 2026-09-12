@@ -280,6 +280,10 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
         # (done after PyBullet init in _store_pybullet_bodies)
 
         super().__init__(use_gui, **kwargs)
+        for component in self._components:
+            self._body_objects.update(
+                {obj.name: obj
+                 for obj in component.get_objects()})
 
         # Apply the configured domino friction to the live bodies. Two roles,
         # distinguished by how this instance was constructed:

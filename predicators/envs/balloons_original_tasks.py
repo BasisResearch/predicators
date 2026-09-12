@@ -251,7 +251,9 @@ def make_tasks(env: PyBulletBalloonsEnv, num_tasks: int,
             f"{state.get(env._band, 'hi'):.2f} m). Each balloon is "
             f"held by the clip in front of it: {names}. A balloon that "
             f"reaches the ceiling bursts and the level is lost; a freed "
-            f"balloon cannot be clipped back.")
+            f"balloon cannot be clipped back. Success requires remaining "
+            f"inside the band below {CFG.balloons_settle_speed:g} m/s for "
+            f"{CFG.balloons_goal_dwell_steps} consecutive environment steps.")
         metrics = {
             f"solution_{b.name}": float(i in subset)
             for i, b in enumerate(balloons)

@@ -1348,6 +1348,7 @@ class GlobalSettings:
     balloons_hatch_half_depth = 0.16
     balloons_band_half = 0.025
     # The box is at rest below this speed (m/s).
+    balloons_goal_dwell_steps = 25
     balloons_settle_speed = 0.01
     # The push skill's approach and contact-height parameters that open
     # a clip, for the oracle's and the generator's probes.
@@ -1800,6 +1801,10 @@ class GlobalSettings:
     cnn_refinement_estimator_crop = False  # True
     cnn_refinement_estimator_crop_bounds = (320, 400, 100, 650)
     cnn_refinement_estimator_downsample = 2
+
+    # Span counts for train/test task distributions; the body pool is their max.
+    bridge_train_span_blocks = 3
+    bridge_test_span_blocks = 3
 
     # bridge policy parameters
     bridge_policy = "learned_ldl"  # default bridge policy

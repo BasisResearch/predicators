@@ -26,12 +26,15 @@ import json
 import os
 import pickle
 import time
+from dataclasses import replace
+from functools import lru_cache
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import imageio
 import numpy as np
 
-from predicators.structs import Action, ParameterizedOption, State, _Option
+from predicators.structs import Action, Object, ParameterizedOption, State, \
+    Type, _Option
 from predicators.utils import PyBulletState
 
 ACTIONS_FILENAME = "actions.jsonl"
@@ -76,6 +79,15 @@ def portable_simulator_state(sim_state: Any) -> Any:
         return None
 
 
+@lru_cache(maxsize=128)
+def _public_type(typ: Type) -> Type:
+    """Retain observable schema and inheritance without simulator
+    attributes."""
+    return replace(typ,
+                   sim_features=(),
+                   parent=_public_type(typ.parent) if typ.parent else None)
+
+
 def sanitize_state(state: State) -> State:
     """A copy carrying the observable ``data`` and, for a PyBullet state, the
     robot's joint data; no live handles, no privileged values.
@@ -86,7 +98,10 @@ def sanitize_state(state: State) -> State:
     env fall back to IK for the arm and fail on the fingers, which is
     what the model arm's base-sim predictions hit after a resume.
     """
-    data = {o: np.array(v, copy=True) for o, v in state.data.items()}
+    data = {
+        Object(o.name, _public_type(o.type)): np.array(v, copy=True)
+        for o, v in state.data.items()
+    }
     sim_state = portable_simulator_state(
         getattr(state, "simulator_state", None))
     if sim_state is None:

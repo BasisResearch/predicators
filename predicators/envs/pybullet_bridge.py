@@ -389,6 +389,16 @@ class PyBulletBridgeEnv(PyBulletEnv):
                         angular_features=["rot"])
     _site_type = Type("site", ["x", "y", "z"], sim_features=["id"])
 
+    @classmethod
+    def _span_pool_size(cls) -> int:
+        """Allocate bodies for either split without changing live class
+        state."""
+        counts = (CFG.bridge_train_span_blocks, CFG.bridge_test_span_blocks)
+        if any(not isinstance(n, int) or n < 3 or n > 4 for n in counts):
+            raise ValueError(
+                "Bridge supports three or four span blocks per task")
+        return max(counts)
+
     def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
         # In partial-observability mode, swap the block type to the
         # variant without `cure_*` *before* any blocks/predicates are
@@ -404,7 +414,8 @@ class PyBulletBridgeEnv(PyBulletEnv):
             Object(f"leg{i}", self._block_type) for i in range(self.n_legs)
         ]
         self._spans = [
-            Object(f"span{i}", self._block_type) for i in range(self.n_spans)
+            Object(f"span{i}", self._block_type)
+            for i in range(self._span_pool_size())
         ]
         self._blocks: List[Object] = self._legs + self._spans
         self._block_index: Dict[str, int] = {
@@ -603,7 +614,7 @@ class PyBulletBridgeEnv(PyBulletEnv):
         # are zipped with the objects positionally. Every block is the
         # SAME box; legs are just blocks stood on end (orientation).
         block_ids = []
-        for _ in range(cls.n_legs + cls.n_spans):
+        for _ in range(cls.n_legs + cls._span_pool_size()):
             block_id = create_pybullet_block(
                 color=(0.5, 0.5, 0.9, 1.0),
                 half_extents=cls.block_half_extents,
@@ -646,7 +657,7 @@ class PyBulletBridgeEnv(PyBulletEnv):
         patch_ids: List[List[int]] = []
         oov_x, oov_y = cls._out_of_view_xy
         hx, hy, hz = cls.block_half_extents
-        for i in range(cls.n_legs + cls.n_spans):
+        for i in range(cls.n_legs + cls._span_pool_size()):
             per_face = []
             for face in GLUE_FACES:
                 if face == "top":
@@ -1678,7 +1689,7 @@ class PyBulletBridgeEnv(PyBulletEnv):
         if not legs_a or not legs_b:
             return False
         lying = [b for b in blocks if not self._stands(state, b)]
-        for chain in itertools.permutations(lying, self.n_spans):
+        for chain in itertools.permutations(lying, len(blocks) - self.n_legs):
             if not all(
                     self._NextToEnd_holds(state, [right, left])
                     or self._NextToEnd_holds(state, [left, right])
@@ -1755,19 +1766,24 @@ class PyBulletBridgeEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     def _generate_train_tasks(self) -> List[EnvironmentTask]:
         return self._make_tasks(num_tasks=CFG.num_train_tasks,
-                                rng=self._train_rng)
+                                rng=self._train_rng,
+                                n_spans=CFG.bridge_train_span_blocks)
 
     def _generate_test_tasks(self) -> List[EnvironmentTask]:
         return self._make_tasks(num_tasks=CFG.num_test_tasks,
-                                rng=self._test_rng)
+                                rng=self._test_rng,
+                                n_spans=CFG.bridge_test_span_blocks)
 
-    def _make_tasks(self, num_tasks: int,
-                    rng: np.random.Generator) -> List[EnvironmentTask]:
+    def _make_tasks(self,
+                    num_tasks: int,
+                    rng: np.random.Generator,
+                    n_spans: int = 3) -> List[EnvironmentTask]:
         tasks = []
         for _ in range(num_tasks):
             legs = self._legs
-            spans = self._spans
-            site_sep = self.site_sep
+            spans = self._spans[:n_spans]
+            site_sep = 2 * self.span_half_extents[0] * n_spans - \
+                2 * self.leg_half_extents[0]
 
             init_dict: Dict[Object, Dict[str, float]] = {}
             init_dict[self._robot] = {
@@ -1897,15 +1913,89 @@ class PyBulletBridgeEnv(PyBulletEnv):
             # end, never how (no glue recipe) -- discovering that the
             # row must be glued and cured before it can be seated is
             # the agent's job.
-            goal_nl = ("Build an n-shaped bridge standing at the two marked "
-                       "sites: stand a leg on each site pad, join the three "
-                       "span blocks end-to-end into one rigid span, and seat "
-                       "it resting across the two leg tops.")
+            goal_nl = (
+                "Build an n-shaped bridge standing at the two marked "
+                f"sites: stand a leg on each site pad, join the {n_spans} "
+                "span blocks end-to-end into one rigid span, and seat "
+                "it resting across the two leg tops.")
 
             tasks.append(
                 EnvironmentTask(init_state, goal_atoms, goal_nl=goal_nl))
 
         return self._add_pybullet_state_to_tasks(tasks)
+
+    def _stage_transfer_objects(
+            self, rng: np.random.Generator, legs: List[Object],
+            spans: List[Object],
+            site_xs: Tuple[float, float]) -> Dict[Object, Tuple[float, float]]:
+        """Pack the larger roster by finite search over grasp-clear grid slots.
+
+        Random rejection becomes unreliable when the extra block and
+        longer assembly strip nearly fill the reachable area. Search a
+        shuffled grid with the same spacing and keepouts instead of
+        accepting overlap.
+        """
+        base_x, base_y = self.robot_base_pos[:2]
+        front, middle, back = 1.12, 1.26, 1.40
+        row_len = (len(spans) - 1) * (2 * self.span_half_extents[0] +
+                                      self.lateral_place_gap)
+
+        def reachable(x: float, y: float) -> bool:
+            return bool(
+                np.hypot(x - base_x, y - base_y) <= self.reach_radius -
+                1.5 * self.stage_jitter)
+
+        slots = [(x, y) for x in self.stage_cols for y in (front, middle, back)
+                 if reachable(x, y) and (y == front or all(
+                     abs(x - sx) >= .07 for sx in site_xs))]
+        starts = [
+            x for x in self.stage_cols
+            if (x, front) in slots and reachable(x + row_len, front) and x +
+            row_len + self.strip_x_slack <= self.workspace_x_hi
+        ]
+        rest = spans[1:] + legs + [self._bottle]
+        span_set = set(spans)
+
+        def assign(index: int, remaining: List[Tuple[float, float]],
+                   placed: Dict[Object, Tuple[float, float]]) -> bool:
+            if index == len(rest):
+                return True
+            obj = rest[index]
+            for x, y in remaining:
+                if any(
+                        abs(x - px) <= .08 and .02 < abs(y - py) < .12 or (
+                            x, y) == (px, py) or (
+                                obj in span_set and other in span_set
+                                and abs(y - py) <= .01 and abs(x - px) <= .115)
+                        for other, (px, py) in placed.items()):
+                    continue
+                placed[obj] = (x, y)
+                if assign(index + 1, remaining, placed):
+                    return True
+                del placed[obj]
+            return False
+
+        for start_index in rng.permutation(len(starts)):
+            start = starts[int(start_index)]
+            remaining = [(x, y) for x, y in slots if not (
+                y == front and start - self.site_keepout <= x <= start +
+                row_len + self.site_keepout)]
+            remaining = [
+                remaining[int(i)] for i in rng.permutation(len(remaining))
+            ]
+            placed = {spans[0]: (start, front)}
+
+            if assign(0, remaining, placed):
+                return {
+                    obj:
+                    (x +
+                     float(rng.uniform(-self.stage_jitter, self.stage_jitter)),
+                     y +
+                     float(rng.uniform(-self.stage_jitter, self.stage_jitter)))
+                    for obj, (x, y) in placed.items()
+                }
+        raise RuntimeError(
+            "No grasp-clear staging layout for the Bridge roster")
 
     def _stage_objects(
             self, rng: np.random.Generator, legs: List[Object],
@@ -1918,6 +2008,8 @@ class PyBulletBridgeEnv(PyBulletEnv):
         assembling the span row; everything else fills the remaining
         slots in random order.
         """
+        if len(spans) == 4:
+            return self._stage_transfer_objects(rng, legs, spans, site_xs)
         base_x, base_y = self.robot_base_pos[0], self.robot_base_pos[1]
         row_len = (len(spans) - 1) * (2 * self.span_half_extents[0] +
                                       self.lateral_place_gap)
