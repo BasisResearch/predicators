@@ -133,6 +133,9 @@ The [environment source](../../predicators/envs/pybullet_boil.py) stores partial
 
 The no-op artifact also contains an optional geometry-dump side effect guarded by `BOIL_DUMP_GEOM`.
 A replay identity must record its setting and external-file policy even if disabled in the comparison.
+The [scalar inadequacy control](boil-incomplete-control.md) now quantifies the frozen program's constant-output limitation using all 265 noisy public frames.
+Even the best unrestricted constants leave bubbling and water-volume RMSE at 5.51 and 5.93 times the declared sensor sigma, while spill remains near the noise scale.
+This is a noisy predictive failure, not an exact contradiction or a reason to invent hidden heat initialization from evaluator metadata.
 
 ## Original non-hatch balloons
 

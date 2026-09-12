@@ -105,3 +105,39 @@ Initialization took approximately 0.60 seconds, while cold likelihood evaluation
 Removing full snapshots therefore addresses only a small part of this measured cost; likelihood evaluation is the larger target for profiling.
 These are cold-cache diagnostic measurements, not the amortized cost of the active samplers, which reuse their observation-factor cache.
 The running frozen experiments were not modified by this audit.
+
+## Checkpoint recovery preparation
+
+After roughly two hours, each original worker had completed approximately 3,500 target evaluations.
+That measured throughput projects beyond the eight-hour allocation for its fixed 16,448-evaluation budget.
+An attempt to extend each running allocation to twelve hours was denied by Slurm, and both original jobs remain running with their original limits.
+The request, denial and verified unchanged job state are recorded in `logs/uncertainty_fan_joint_pilot_20260912/scheduler-budget-extension.json`.
+No sampler result or failure is inferred from that projection.
+
+A recovery worker is prepared in `logs/uncertainty_fan_checkpoint_recovery_20260912` with the existing checked stage-checkpoint implementation and the exact-density optimization.
+It retains the original prior, data, numerical seeds, proposal, temperature schedule and evaluation budget.
+Its future scheduler allocation is twelve hours; that larger external allowance must be reported separately from the original eight-hour attempts.
+The frozen old workers cannot acquire checkpoints retroactively, so a recovery starts from the original prior unless a compatible new-worker checkpoint exists.
+It never substitutes an old best candidate for the initial particle population.
+
+Array `22650616` checks the new worker's complete 64-particle initialization against each original run, including proposal component, geometry, full likelihood and conditional-base factor.
+It also requires the full mapped-witness likelihood to match the original exactly and to repeat on the worker.
+The checks save the complete initialized sampler state with its RNG, weights, counters and identity, then stop before tempering.
+The worker identity includes the frozen source plus actual Python, NumPy, SciPy, PyBullet binary, CPU features, hash seed and node, so an incompatible checkpoint is rejected.
+Both check tasks completed successfully.
+Each matched all 64 original initial-particle records exactly, reproduced the original full witness likelihood `34241.55615373634`, and saved a stage-zero checkpoint after 64 evaluations.
+The measured worker times were 158.62 and 158.50 seconds.
+This establishes initialization parity; it does not establish posterior adequacy.
+
+Conditional recovery jobs `22650786_0` and `22650787_1` are queued behind failure dependencies on original tasks `22643258_0` and `22643258_1` respectively.
+They resume the corresponding verified new-worker initialization checkpoints and retain numerical seeds 200 and 201.
+A separate startup gate requires a successful current queue query showing the original absent and scheduler accounting affirmatively showing terminal failure.
+It refuses an active or requeued original, successful completion, missing evidence or a failed query.
+Nine controlled gate cases passed, and an end-to-end check against the actually running original correctly refused recovery.
+Thus a scheduler dependency alone is not used as proof that replacement is safe to start.
+Unused dependency jobs must be cancelled if their originals complete successfully.
+The initially queued unguarded recovery submissions `22650769` and `22650770` were cancelled while pending and superseded by the guarded jobs before any sampler started.
+
+The recovery manifest, gate checks and authoritative scheduler evidence are in the same bundle.
+Original jobs remain live and unchanged; no full replacement is running concurrently.
+Original attempts, initialization checks and any eventual recovery all belong to the same two numerical seeds, not additional agent outcomes or independent posterior replications.

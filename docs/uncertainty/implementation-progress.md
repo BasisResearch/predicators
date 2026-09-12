@@ -424,6 +424,9 @@ This extension passed 61 functional tests and focused static/format checks on a 
 The physical inference and saved-decision comparison gates remain open.
 The four full legacy comparison tasks have also completed, providing saved predictions for both 64-action fits and complete Domino/Fan recordings.
 Both domains retain their anchor parameters for prediction under the incumbent policy; a matched replacement posterior is still unavailable.
+The [Boil incomplete-model control](boil-incomplete-control.md) now separates missing filling/heating dynamics from sensor noise using a scalar likelihood bound and a causal suffix calculation.
+Compute job `22650461` completed the source/data audit and independent numerical references.
+Four matched cold legacy controls for the frozen Boil and Bridge programs are queued as array `22650411`; these are offline fits, not agent seeds.
 
 The [full Fan initial-scene experiment](fan-initial-scene.md) now declares the remaining placement and geometry components, retaining all articulated and robot uncertainty under a normalized original law and explicit whole-scene support policy.
 The corrected proposal preserves support for every quarter-turn case and records actual worker hardware instead of inherited CPU labels.
