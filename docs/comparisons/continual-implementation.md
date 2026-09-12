@@ -100,3 +100,20 @@ The recording, continual core, inference-reader, and existing MB/MF regression c
 The expanded five-domain play checks are still running in job 22641846.
 The final 15-module mypy and pytest-pylint check passed in job 22642016 after formatting fixes.
 No comparison experiments have been launched yet.
+
+## Frozen sweep launch
+
+All twenty expanded domain play checks passed in job 22641846.
+Launch job 22642475 then froze runtime `59336397069afd098f132aac1deaca5c9cba73e9` in `/home/ycliang/predicators-continual-comparisons-frozen-20260912`.
+Thirty arrays, jobs 22642703 through 22642732, cover all ninety requested seeds with no reused comparison outcomes.
+Two dependency chains permit at most six comparison seeds to run concurrently on `mit_preemptable`.
+The jobs use account b, eight CPUs, 16 GB, explicit source/Python paths, and resume support.
+A content hash guard rejects source changes before a job starts or resumes.
+The first arrays are Boil and original Balloons oracle dynamics, followed by the remaining oracle dynamics, scene, zero-shot, no-fitting, no-uncertainty, and standalone arms.
+All jobs were released after the complete submission manifest was written.
+
+The authoritative manifest and submission journal are under `/home/ycliang/predicators/logs/continual_comparisons_20260912/`.
+`report.py` in that directory refreshes `/home/ycliang/predicators/docs/comparisons/continual-results.md` and its JSON snapshot from current scorecards and scheduler accounting.
+Each exiting experiment triggers a refresh; the former MB/MF heartbeat remains disabled.
+Aggregation has a separate check showing that unfinished runs never enter statistics, unsuccessful finished runs enter solve/reset averages, and only whole-run successes enter average steps.
+The launch establishes experiment activity, not agent outcomes; the objective remains incomplete until results are verified and reported.
