@@ -105,3 +105,101 @@ This supports investigating whether the nine initial balloon-orientation coordin
 The program resets a released balloon's orientation and motion before attaching it, but any reduction must also account for the pre-release contact dynamics and native inertia.
 The test is specific to the sampled root and declared transition model; it does not establish invariance for arbitrary future simulator programs.
 No initial-state dimensions or prior factors have been removed by this diagnostic.
+
+### Native justification and quotient representation
+
+The follow-up `22647466` checks both saved roots, with the original world-frame angular velocities and a separate larger-angular-velocity control.
+For each combination it compares original, identity and random initial balloon rotations over all 235 actions, repeating every trajectory in a fresh world.
+All twelve trajectories repeat exactly, and all eight orientation comparisons have exactly equal public paths and composed likelihood factors.
+Changing angular velocity changes root 0's trajectory and score, with a maximum public-coordinate difference of approximately `4.03e-5`; root 1's tested spin change has no effect.
+Angular velocity therefore remains in the initial-state model.
+
+The native readbacks establish that each balloon has a centered sphere collision shape of radius 0.03 m, mass 0.005 kg and isotropic inertia `diag(1.8e-6, 1.8e-6, 1.8e-6)`.
+The collision and inertial origins coincide, and there are no articulated joints.
+The frozen constructor sets scalar lateral, rolling and spinning friction and no anisotropic friction.
+The learned program does not observe the initial balloon rotations and resets each rotation to identity, with zero motion, before creating an attachment.
+Thus rotating an unattached sphere's body frame changes neither its geometry nor its world inertia or scalar contact law, and the rotation is discarded before it could define an attachment frame.
+Initial collision-feasibility tests and public readings are also independent of this rotation.
+
+Under this fixed program and prior, write the initial balloon rotation as `R` and all retained variables as `z`.
+The original law factorizes as `p(z) dHaar(R)`, independently for each balloon, and the likelihood and feasibility indicator depend only on `z`.
+Integrating each normalized Haar measure contributes exactly one.
+The new coordinate map therefore uses identity rotations as representatives of these equivalence classes, without treating the initial rotations as known or narrowing their original priors.
+Their posterior marginals remain the independent original Haar laws if full states need to be reconstructed later.
+This reduction is tied to the audited program and runtime; it is not applied to arbitrary future simulator programs.
+The quotient uses the physical rotational symmetry; the reported native tests do not establish bitwise equivalence for every possible floating-point state.
+
+The resulting initial-state target has 33-64 active continuous coordinates across the same sixteen motion cases.
+Including ten parameters and 470 conditional velocity directions gives 513-544 active coordinates; the previously studied root 0 component has 531.
+The original unreduced counts above remain the provenance of the earlier experiments.
+
+The [root 0 native report](../../logs/uncertainty_balloons_gauge_native_v2_20260912/pilot-22647466_0.json) and [root 1 native report](../../logs/uncertainty_balloons_gauge_native_v2_20260912/pilot-22647466_1.json) preserve the body properties, source definitions, physical roots and complete paths.
+The first audit attempt, `22647401`, failed while reporting source for a dynamically defined class, before evaluating any trajectory.
+The corrected audit extracts the definitions from the frozen source files; the earlier setup failure remains archived and is not a model failure.
+
+### Joint coordinate preflight
+
+The next [coordinate-map manifest](../../logs/uncertainty_balloons_joint_map_20260912/plan.json) combines the fixed parameter priors, reduced scene law and every conditional transition direction in one deterministic unit chart.
+It retains all sixteen robot/balloon rest-motion alternatives, all world-frame velocities, full box rotation, uncertain fixture placements and the unobserved robot joints.
+The chart uses 548 unit coordinates: ten parameter coordinates, 68 scene slots and 470 direction coordinates.
+The scene slots include four mixture selectors and auxiliary coordinates unused in rest components; integrating those unused uniform coordinates contributes one.
+Uniform and log-uniform parameter quantiles preserve the declared original laws, and the initial Gaussian/truncated-Gaussian scene transforms preserve their first-observation conditioning factors.
+
+Array `22647822` checks the mapped saved roots, all sixteen motion cases and parameter perturbations on the negative-support root.
+It verifies initial exact observations, geometric feasibility and repeated complete trajectories, while retaining subsequent event contradictions.
+The coordinate inverse is a numerical proposal initializer: a tiny floating-point change in the reconstructed root is not claimed to reproduce the earlier saved path exactly.
+Each mapped point must instead pass its own repeated native replay.
+This preflight is not a posterior sampler or a numerical-adequacy certificate.
+
+Both tasks completed successfully.
+All 24 mapped cases pass initial geometry, preserve every exact initial observation and repeat their complete trajectories exactly.
+The mapped positive root and all sixteen motion alternatives have finite complete path factors.
+The mapped negative root and its six parameter perturbations retain later event contradictions.
+Reconstructing the positive root through quantile coordinates changes its public features by at most `1.05e-17` and joint coordinates by at most `6.67e-16`.
+Its path factor changes slightly from the earlier physical-root experiment, as expected for a numerically reconstructed proposal point; its own repeated runs match exactly.
+
+### A proposal that accounts for table clearance
+
+The first broad/local mixture preflight, `22648086`, found only two geometrically valid and finite points among 24 draws.
+The diagnostic `22648389` reproduces the saved points on another checked runtime and identifies the rejected contacts.
+Most local rejections are box/table penetration: independently perturbing height and full box orientation can lower a corner through the table.
+Other rejected points put a balloon below the table surface.
+These failures are retained as geometry rejections, rather than being repaired after sampling.
+
+The revised proposal conditions the local height distribution on the proposed body's vertical support clearing the visible table surface.
+For the box, the lower height bound uses its half-width times the sum of absolute entries in the world-vertical row of its proposed rotation matrix.
+For a balloon, it uses the sphere radius.
+The additional `1e-6 m` clearance belongs only to this proposal component, not to the prior support, collision criterion or observation likelihood.
+Each height is drawn from a normalized truncated Gaussian in the original root's unit coordinate; its normalizer depends on the proposed box orientation and remains in the proposal density.
+The entire candidate still passes the native full-scene collision check.
+
+The mixture retains weights `0.1 / 0.45 / 0.45` for broad, local and wider-local components.
+The broad component retains the complete original unit support, including feasible configurations omitted by the local clearance restriction.
+The importance correction uses the full mixture density, not just the selected component's density.
+All motion selectors, conditional direction coordinates and unused rest-case auxiliary coordinates remain uniform in every component.
+Thus this is a change in how candidates are proposed, not a new parameter or physical-state prior.
+
+The revised preflight `22648872` completed all 24 draws.
+The broad component retains eight geometry rejections; all sixteen local draws now pass geometry and repeat their full trajectories exactly.
+Four of eight local and all eight wider-local points have finite full-recording likelihoods, while four local points retain exact-event contradictions.
+An independent coupled-height quadrature reference, `22648893`, verifies normalization of each of the three proposal densities to `1e-7` and checks 300 transported points.
+These checks establish proposal accounting and supported candidates, not posterior coverage or an agent advantage.
+
+### Full joint sampler pilots
+
+Array `22649168` submits two full-recording inference pilots with numerical seeds 300 and 301.
+Each uses 128 particles, 32 cubic-spaced temperatures and eight Metropolis moves per stage, with a maximum of 32,896 target evaluations.
+Proposal blocks cover the mixture selector, individual parameters, coupled scene groups and sixteen-action direction windows.
+The base factor retains the initial conditioning terms, inverse mixture density, exact joint/speed transition densities and full geometry/event support.
+The remaining sensor and marginalized output-discrepancy likelihood is tempered to its complete value.
+The original parameter priors remain fixed.
+
+Each worker checks the mapped support witness twice before fitting, freezes its actual runtime identity, and saves complete [sampler continuation records](sampler-checkpoints.md) on shared storage.
+Both are restricted to node1391's Intel Xeon Gold 6230 runtime so resumed fits and replica comparisons do not silently change CPU-dependent numerical paths.
+The eight-hour jobs use `mit_preemptable`; unfinished stages can be repeated from the last completed checkpoint.
+Attempt telemetry separately counts reconstructed primitive actions, including the startup replay checks.
+
+The [pilot manifest](../../logs/uncertainty_balloons_joint_pilot_20260912/plan.json) identifies the full target, proposal, source, runtime controls and validation inputs.
+The original geometry normalizer and fixed initial robot-output factors cancel from these posterior comparisons; the pilots do not estimate model evidence.
+Their numerical availability remains unevaluated until the separate assessment is complete.
+No resulting parameter distribution is routed to the acting agent by this experiment.

@@ -162,6 +162,7 @@ Record parameter meanings, units, prior provenance, and sidecar precedence for e
 The later [composed target and prior audit](balloons-composed-inference.md) records those five-version changes, declares a fixed ten-parameter development prior, and verifies every lower/middle/upper program override.
 It also gives finite complete-recording conditional path factors under an explicit stochastic extension for one sampled root, while retaining another root's exact event failures.
 The resulting joint target has 522-553 active continuous coordinates, including two conditional velocity directions at each of 235 actions, across the existing sixteen initial motion cases.
+The later [native sphere audit](balloons-composed-inference.md#native-justification-and-quotient-representation) justifies a fixed-program quotient over the nine initial balloon-orientation coordinates, reducing that target to 513-544 active coordinates while retaining every motion case and all world-frame angular velocities.
 This is a defined candidate inference problem, not a numerically adequate posterior or support for the deterministic sensor-only model.
 
 ## What this permits next
