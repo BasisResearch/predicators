@@ -92,3 +92,16 @@ The [frozen manifest](../../logs/uncertainty_fan_joint_pilot_20260912/plan.json)
 Each worker first verifies a finite, exactly repeated mapped witness on its own runtime.
 Sampler completion leaves numerical availability unevaluated.
 Independent agreement, weight and ancestor concentration, parameter movement, budget/proposal sensitivity and predictive investigations remain necessary before returning a usable physical-domain posterior to an acting agent.
+
+## Rollout cost audit
+
+Both sampler tasks subsequently started on the declared node1412 and passed their own finite, exactly repeated witness checks.
+Compute audit `22644679_0` compared full replay snapshots against direct public-observation collection on five saved physical candidates, including both finite and event-incompatible histories.
+Every public prediction and complete likelihood matched exactly.
+The [timing report](../../logs/uncertainty_fan_rollout_cost_20260912/pilot-22644679_0.json) alternates method order and clears the quaternion cache before each measurement.
+
+Snapshot collection took 1.13-1.70 seconds per 132-action history, versus 0.95-1.14 seconds for direct public observations.
+Initialization took approximately 0.60 seconds, while cold likelihood evaluation took 3.62-3.71 seconds in either method.
+Removing full snapshots therefore addresses only a small part of this measured cost; likelihood evaluation is the larger target for profiling.
+These are cold-cache diagnostic measurements, not the amortized cost of the active samplers, which reuse their observation-factor cache.
+The running frozen experiments were not modified by this audit.
