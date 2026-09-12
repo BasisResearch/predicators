@@ -1,8 +1,9 @@
 """Continual comparison contracts exercised through real play tools."""
 import shlex
 import sys
-from typing import Any
+from typing import Any, Iterator, Set
 
+import pybullet as p
 import pytest
 
 from predicators import utils
@@ -18,6 +19,36 @@ from tests.approaches.test_agent_continual_approach import _call, _config, \
     _result
 
 CONFIG = "predicatorv3/protocol_continual_comparisons_noisy_r1.yaml"
+
+
+@pytest.fixture(autouse=True)
+def _dispose_test_physics_clients(monkeypatch: Any) -> Iterator[None]:
+    """Release worlds created by a case, including evicted skill simulators."""
+    # pylint: disable=import-outside-toplevel,protected-access
+    from predicators import envs
+    from predicators.ground_truth_models.skill_factories.base import \
+        clear_shared_simulator_cache
+    owned: Set[int] = set()
+    original = p.connect
+
+    def connect(*args: Any, **kwargs: Any) -> int:
+        client = original(*args, **kwargs)
+        if client >= 0:
+            owned.add(client)
+        return client
+
+    monkeypatch.setattr(p, "connect", connect)
+    try:
+        yield
+    finally:
+        clear_shared_simulator_cache()
+        for name, env in list(envs._MOST_RECENT_ENV_INSTANCE.items()):
+            if getattr(env, "_physics_client_id", None) in owned:
+                del envs._MOST_RECENT_ENV_INSTANCE[name]
+        for client in owned:
+            if p.isConnected(client):
+                p.disconnect(client)
+        assert all(not p.isConnected(client) for client in owned)
 
 
 def test_comparison_config_matches_existing_domains(monkeypatch: Any) -> None:
