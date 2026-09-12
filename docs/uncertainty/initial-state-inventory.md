@@ -97,6 +97,11 @@ The later [prior-provenance audit](offline-fitter-comparison.md#fan-prior-proven
 The planned posterior comparison uses an explicitly declared uniform prior on the earliest [0, 1] support with the latest executable program; the invalid earliest artifact remains unchanged.
 This resolves that parameter-prior choice for the development experiment, but not the static-layout, contact or articulated-state rows above.
 
+The [articulated-state follow-up](fan-articulated-prior.md) implements exact Boolean conditioning of a declared switch rest/motion prior and verifies 2,048 native state readbacks.
+The four prismatic switches have 29.6 mm enforced travel and a 14.8 mm on threshold; unchanged URDF metadata reports a larger nominal interval.
+Four public fan objects represent twenty physical fan bodies with continuous, collision-bearing rotor joints.
+Switch conditioning is validated as a component; rotor support, coherent layout and the complete scene dimension remain unresolved.
+
 ## Domino
 
 The recording contains six dominoes and the robot.

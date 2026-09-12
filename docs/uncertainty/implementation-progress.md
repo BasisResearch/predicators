@@ -405,6 +405,11 @@ These are comparison inputs and submitted experiments, not completed Stage B evi
 
 ## Next gate
 
+The [Fan articulated-state component](fan-articulated-prior.md) now conditions a normalized rest/motion law on exact switch flags while retaining the event probability in parameter inference.
+Fifteen functional tests and focused static/format checks pass, and the corrected compute audit verifies all 2,048 native state readbacks plus the actual enforced slider cap.
+The inventory also identifies twenty collision-bearing rotor joints whose initial state still needs a prior or a justified reduction.
+This closes a switch component, not Stage A or the full Fan scene model.
+
 Finish Stage A by defining candidate initialization and priors with valid geometric and attachment support, completing runtime artifact capture, and resolving exact-output feasibility.
 Retain the explicit Bridge inconsistency control while constructing supported positive cases.
 Explaining that full recording requires model revision or a separately declared discrepancy model; additional state uncertainty alone cannot resolve the invariant contradiction.

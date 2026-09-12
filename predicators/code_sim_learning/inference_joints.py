@@ -28,7 +28,7 @@ class IncompatibleJointObservation(ValueError):
 
 
 class JointCoordinateBoundary(ValueError):
-    """A Gaussian quantile endpoint has zero measure and no finite lift."""
+    """A zero-measure coordinate boundary has no supported conditional lift."""
 
 
 @dataclass(frozen=True)
@@ -244,3 +244,134 @@ class ConditionedJointPrior:
             joints.append((float(position) if bound is not None else 0.,
                            float(velocity)))
         return tuple(joints)
+
+
+@dataclass(frozen=True)
+class RestingJointPrior:
+    """A declared rest/motion law for an articulated joint.
+
+    Rest mass is divided equally between two declared controller poses,
+    with zero velocity. The remaining mass has independent uniform
+    position and velocity. This engineering prior is not implied by a
+    Boolean reading or by the absence of recorded joint motion.
+    """
+    name: str
+    lower: float
+    upper: float
+    rest_positions: Tuple[float, float]
+    rest_probability: float
+    velocity_half_width: float
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.name, str) or not self.name or any(
+                not math.isfinite(value) for value in (
+                self.lower, self.upper, self.rest_probability,
+                self.velocity_half_width)) or self.lower >= self.upper or \
+                not math.isfinite(self.upper - self.lower) or \
+                not 0 <= self.rest_probability <= 1 or \
+                self.velocity_half_width <= 0:
+            raise ValueError("Invalid resting joint prior")
+        poses = tuple(float(value) for value in self.rest_positions)
+        if len(poses) != 2 or not self.lower <= poses[0] < poses[1] <= \
+                self.upper:
+            raise ValueError("Rest poses must lie inside the joint support")
+        object.__setattr__(self, "rest_positions", poses)
+
+    @property
+    def digest(self) -> str:
+        """Identify controller-pose atoms and the normalized continuous
+        component."""
+        return content_digest(
+            json.dumps(
+                {
+                    "family": "controller_rest_uniform_motion",
+                    "schema": 1,
+                    "prior": asdict(self)
+                },
+                sort_keys=True).encode("utf-8"))
+
+    def condition_above(self, threshold: float,
+                        observed: bool) -> ThresholdJointPrior:
+        """Condition on position > threshold without selecting one angle."""
+        return ThresholdJointPrior(self, threshold, observed)
+
+
+@dataclass(frozen=True)
+class ThresholdJointPrior:
+    """Conditional position/motion with the Boolean observation mass retained.
+
+    The two unit coordinates encode the rest/moving mixture and
+    velocity. They are auxiliary uniforms in each rest case, which has
+    no continuous physical dimensions; the moving case has two.
+    """
+    prior: RestingJointPrior
+    threshold: float
+    observed: bool
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.observed, bool) or not \
+                self.prior.lower < self.threshold < self.prior.upper:
+            raise ValueError("Threshold must be interior and reading Boolean")
+        if self.prior.rest_probability == 1 and not self._rest_positions:
+            raise IncompatibleJointObservation("No rest pose matches reading")
+
+    @property
+    def _rest_positions(self) -> Tuple[float, ...]:
+        return tuple(q for q in self.prior.rest_positions
+                     if (q > self.threshold) == self.observed)
+
+    @property
+    def _interval(self) -> Tuple[float, float]:
+        if self.observed:
+            return self.threshold, self.prior.upper
+        return self.prior.lower, self.threshold
+
+    @property
+    def log_observation_factor(self) -> float:
+        """Probability mass, including any parameter-dependent event cut."""
+        lower, upper = self._interval
+        rest = self.prior.rest_probability
+        atom = math.log(rest) + math.log(len(self._rest_positions)) - \
+            math.log(2) if rest and self._rest_positions else -math.inf
+        motion = math.log1p(-rest) + math.log(upper - lower) - \
+            math.log(self.prior.upper - self.prior.lower) if rest < 1 else \
+            -math.inf
+        larger, smaller = max(atom, motion), min(atom, motion)
+        return larger + math.log1p(math.exp(smaller - larger))
+
+    @property
+    def rest_probability(self) -> float:
+        """Posterior mass on the compatible resting controller poses."""
+        rest = self.prior.rest_probability
+        return math.exp(
+            math.log(rest) + math.log(len(self._rest_positions)) - math.log(2)
+            - self.log_observation_factor) if rest and \
+            self._rest_positions else 0.
+
+    @property
+    def coordinates(self) -> BoxPrior:
+        """Normalized proposal coordinates with unused rest-case
+        auxiliaries."""
+        return BoxPrior((self.prior.name + ".position_mixture",
+                         self.prior.name + ".velocity"), ((0., 1.), ) * 2)
+
+    def lift(self, point: np.ndarray) -> Tuple[float, float]:
+        """Draw from the conditional measure; never project an invalid draw."""
+        values = np.asarray(point, dtype=float)
+        if values.shape != (2, ) or not np.isfinite(values).all():
+            raise ValueError("Invalid conditional joint coordinates")
+        if np.any(values <= 0) or np.any(values >= 1):
+            raise JointCoordinateBoundary(
+                "Threshold joint coordinates must be interior")
+        endpoint = self.rest_probability
+        for index, position in enumerate(self._rest_positions):
+            if values[0] < endpoint * (index + 1) / len(self._rest_positions):
+                return position, 0.
+        lower, upper = self._interval
+        position = lower + (upper - lower) * \
+            (float(values[0]) - endpoint) / (1 - endpoint)
+        if not lower < position < upper:
+            raise JointCoordinateBoundary(
+                "Interior position rounded to a conditional boundary")
+        velocity = self.prior.velocity_half_width * (2 * float(values[1]) - 1)
+        return position, velocity
