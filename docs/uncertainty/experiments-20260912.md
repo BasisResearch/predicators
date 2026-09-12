@@ -146,6 +146,17 @@ The previously documented missing constraint frames, engine state, and domain-pr
 An equality check on captured model memory does not establish that unrepresented evaluator-private memory was restored.
 These results prevent treating the current portable state as a validated complete latent-state representation for contact-rich inference.
 
+## In-process checkpoint diagnostic
+
+Job `22626292` tested the balloons midpoint continuation with PyBullet `saveState` plus a deep copy of the environment's Python-side state.
+It completed without a setup exception but did not reproduce the source trajectory.
+The two restore attempts had maximum non-robot position differences of 703.07 mm and 406.31 mm, compared with 106.17 mm for portable replay.
+The recorded attachment names matched in these in-process attempts, but that does not certify that engine constraint frames or identifiers were restored correctly.
+This is a failed checkpoint method, not evidence that an arbitrarily large discrepancy variance should enter the likelihood.
+The next restoration diagnosis should compare actual engine constraint frames and lifecycle state, not only the portable attachment-name list.
+
+Report: [checkpoint diagnostic](../../logs/uncertainty_checkpoint_diagnostic_20260912/job-22626292/report.json).
+
 ## Remaining acceptance gates
 
 The full Stage A gate still requires physical initial-state priors with feasible geometry and attachments, exact-output support handling, and complete runtime identity.
