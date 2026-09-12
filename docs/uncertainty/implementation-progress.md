@@ -376,6 +376,14 @@ Of 1,983 recorded robot orientations, 1,310 have pitch exactly positive pi/2 and
 Direct conversion probes reproduce collapse to the pole across a nonzero range of requested pitch values.
 The audit preserves those readings as valid evidence and leaves their coupled likelihood unresolved; independent continuous angle densities or silent wrapping are not a validated replacement.
 
+The next [coupled quaternion-output model](orientation-discrepancy.md) integrates an explicit Gaussian-mixture readout discrepancy through the native Euler map.
+Independent analytic and sampled references check ordinary densities, pole masses and the native yaw branches.
+The corrected implementation completes all 2,560 recorded density evaluations across five domains, four scales and two numerical tolerances; the largest tolerance change is below 8e-13 per reading.
+The full observation composition then accounts for every output field in the existing 64-action conditional forecasts.
+Fan and Domino have finite complete-output likelihoods under the declared extension, while Bridge glue, Boil switch/faucet and Balloons speed discrepancies still force zero likelihood for their supplied forecasts.
+These positive cases enable the next joint inference experiment; they do not establish an uncertain physical initial-state posterior, legacy-fit comparison or production readiness.
+Final compute checks passed 27 functional tests, four-file mypy and lint, and pinned formatting; the complete-output integration accounts for 24,896 measured fields across its five conditional forecast windows.
+
 ## Next gate
 
 Finish Stage A by defining candidate initialization and priors with valid geometric and attachment support, completing runtime artifact capture, and resolving exact-output feasibility.
