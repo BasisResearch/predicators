@@ -104,6 +104,7 @@ Each inventory must use the following columns and cover object pose and motion, 
 | One row per state quantity or coupled group | Exact value, noisy reading, reset guarantee, or no observation, with a source reference | Unknown values and dependencies across quantities or episodes | Density or mass function, bounds, geometric and attachment constraints, and memory initialization | Fixed input, conditioned coordinate, derived quantity, analytic integration, or sampled variable | Size after these reductions, for the actual recording set |
 
 This is a required design artifact, not a claim that physical priors have already been established.
+The [September 12 inventory](initial-state-inventory.md) records the five development schemas and visible-model joint audit, with unresolved priors and dimensions explicitly marked.
 A value present in engine metadata is not thereby known to the agent; in particular, do not infer passive-joint values, zero velocity, or absent attachments from recording omissions.
 Distinguish actual resets from continued trajectories, and document which hidden quantities persist across task changes.
 Start with the smallest valid uncertain representation and expand it only for quantities that cannot be conditioned on, derived, or integrated out under the declared model.

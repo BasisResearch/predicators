@@ -50,8 +50,9 @@ Historical recordings do not supply all passive-joint positions or joint velocit
 
 This representation is not an exact engine checkpoint.
 Replay must use the same domain layout, robot/URDF, and environment configuration as the candidate state; it does not support arbitrary changes to body allocation or morphology.
-The state interface omits solver caches, and portable command attachments are re-frozen at the supplied poses rather than restoring their original constraint frames.
-Pending commands and arbitrary subclass instance variables are not implicitly captured.
+The state interface omits solver caches.
+The later replay correction explicitly captures full body orientations, original command-attachment frames, and pending next-step commands.
+Arbitrary subclass instance variables and arbitrary native engine constraints are not implicitly captured.
 Model authors must put persistent inferred quantities in declared model memory, and further audits must determine whether omitted engine state materially affects predictions.
 Geometrically valid initial-state sampling and the observation likelihood remain separate work.
 Passing the structural checks does not certify that an arbitrary candidate pose is feasible or explains the data.
@@ -241,6 +242,19 @@ Physical-prior design, exact-output feasibility, and learned-program prediction 
 Detailed results and limitations are in [the experiment record](experiments-20260912.md).
 
 ### Remaining full-plan execution
+
+The [initial-state inventory](initial-state-inventory.md) now records the observed quantities, missing state, and unresolved support choices for all five frozen development recordings.
+Visible-model audit `22627492` confirms Fetch has four unobserved movable joints in addition to its nine observed arm/gripper joints.
+It also verifies that the first balloon box-speed observation is exactly zero.
+These findings prevent incorrectly treating robot motion as fully observed or using only a positive-speed velocity chart.
+The inventory is a gap audit; normalized physical priors and final joint dimensions remain unresolved.
+
+The new offline `AffineConditioning` primitive eliminates a square nonsingular affine observation while retaining the induced density correction.
+It separates unsupported singular charts, individual points outside prior support, and numerical solve failures.
+This construction handles exact initial coordinate observations and parameter-dependent affine elimination; it is not a nonlinear contact-constraint solver.
+Compute job `22627437` passed 15 functional tests, mypy, configured lint, and pinned formatting.
+An eight-seed importance-sampling reference passed its predeclared checks in 8/8 runs at 8,192 particles and 5/8 at 512 particles; the smaller-budget failures remain recorded.
+The existing SMC and production fitting paths are unchanged, and these references are not agent solve-rate seeds.
 
 | Stage | Required work before advancement |
 | --- | --- |

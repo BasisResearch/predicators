@@ -286,3 +286,55 @@ Validation `22627228` then passed both cases and type checking but flagged an ov
 Final validation `22627254` passed both end-to-end cases, mypy, both lint checks, and pinned formatting after that import was shortened.
 The two cases cover exact joint preservation through fresh-world actions and compatibility with older feature-only cache files.
 Together with the 26 focused replay/legacy tests, these are 28 distinct passing functional tests across the two implementation chunks.
+
+## Exact affine conditioning reference
+
+Job `22627437` tested a conditional-coordinate construction before any physical posterior proposal was introduced.
+For the declared equation `y = A(u) z + b(u)`, a square nonsingular `A(u)` determines the eliminated coordinates `z`.
+The implementation retains the original joint box prior and the density factor `1 / abs(det(A(u)))` relative to the free-coordinate proposal.
+It distinguishes a singular unsupported chart, a particular solution outside the original prior, and a numerical linear-algebra failure.
+The returned residual and backward-error bound describe floating-point solution accuracy; they are not an observation-noise floor or an epsilon-band likelihood.
+The bound is not a guarantee of small forward error in an ill-conditioned system or adequate posterior approximation.
+
+The reference equation is `observed = theta * start`, with independent original uniforms `theta ~ U(1,2)`, `start ~ U(0,1)`, and an unused coordinate `U(-1,1)`.
+The exact observation is `0.5`.
+Independent continuous draws miss this equality, while simply setting `start = 0.5 / theta` leaves an incorrectly uniform parameter marginal.
+The correct conditional parameter density is proportional to `1 / theta`, giving mean `1 / log(2)`, approximately 1.442695, rather than 1.5.
+This explicit change of variables is a restricted reference; the [smooth constrained-inference literature](https://proceedings.mlr.press/v54/graham17a.html) does not establish a solver for this repository's contact dynamics.
+
+An importance-sampling audit used eight independent seeds at each of two predeclared budgets.
+Acceptance required absolute parameter-mean error at most 0.04, unused-coordinate mean error at most 0.08, and maximum error at 41 predeclared parameter-CDF checkpoints at most 0.04.
+
+| Particles | Passing seeds | Largest mean error | Largest unused-coordinate mean error | Largest checked CDF error |
+| ---: | ---: | ---: | ---: | ---: |
+| 512 | 5/8 | 0.031334 | 0.042561 | 0.072825 |
+| 8,192 | 8/8 | 0.002930 | 0.009718 | 0.009938 |
+
+The largest affine residual was 5.55e-17 at either budget.
+The three smaller-budget failures remain in the report; no seeds were rerun or excluded to obtain a passing aggregate.
+This is a numerical importance-sampling reference, not SMC deployment, a physical-domain fit, or an agent solve-rate experiment.
+The existing offline SMC tests also ran unchanged.
+All 15 functional tests, two-file mypy and lint checks, and pinned formatting checks passed.
+The new cases cover initial-coordinate conditioning, parameter-dependent density corrections, coordinate ordering, complete elimination, output-unit changes, offsets, and support/error distinctions.
+
+Artifacts: [plan](../../logs/uncertainty_conditioning_20260912/plan.json), [reference report](../../logs/uncertainty_conditioning_20260912/reference-22627437.json), [test report](../../logs/uncertainty_conditioning_20260912/checks-22627437.xml).
+
+## Five-domain initial-state inventory
+
+The [inventory](initial-state-inventory.md) identifies the public measurements, missing quantities, proposed representation requirements, and unresolved priors separately for all five frozen first training levels.
+Job `22627492` reconstructs their seeded public observation ledgers and inspects each visible model without generating evaluator tasks.
+All five cases use fixed-base Fetch with 24 URDF joints: nine observed movable joints, four unobserved movable joints, and eleven fixed joints.
+The two wheel joints and head pan/tilt are movable but absent from the controlled-joint observation.
+Before justified reductions, their positions/velocities plus nine controlled velocities give 17 possible continuous robot-state coordinates per episode root.
+Known URDF fixed joints add no physical degrees of freedom.
+
+The first public balloon-box speed is exactly zero.
+An inference construction supporting only positive-speed spheres would therefore miss this development root.
+A candidate rest component must have declared prior mass and conditioning semantics; a missing velocity field is not a reset guarantee.
+The inventory also distinguishes the frozen Bridge and Boil no-op programs from later learned artifacts and identifies optional parameter sidecars and data-narrowed bounds that require prior/runtime provenance.
+Final physical dimensions and normalized support remain unresolved rather than being reported as an independent box over noisy feature values.
+
+The first inventory attempt, `22627481`, used a nonexistent public physics-client attribute in the audit script and produced setup errors.
+The corrected audit uses the visible model's actual client handle; the failed attempt is preserved and is not an agent outcome.
+
+Artifacts: [inventory plan](../../logs/uncertainty_state_inventory_v2_20260912/plan.json), [verified inventory report](../../logs/uncertainty_state_inventory_v2_20260912/job-22627492.json).
