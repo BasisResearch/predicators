@@ -133,6 +133,44 @@ class OutputObservationModel:
         separately; this routine never removes the first frame to hide
         double counting.
         """
+        return self._log_likelihood_from(predictions, observations, 0)
+
+    def log_future_likelihood(
+            self, predictions: Tuple[Observation, ...],
+            observed_prefix: Tuple[Observation,
+                                   ...], observed_future: Tuple[Observation,
+                                                                ...]) -> float:
+        """Score a future history conditional on its supported observed prefix.
+
+        Predictions cover the entire history and must be generated
+        without future readings. Future observations enter only this
+        evaluation, never the physical replay or prefix fit. Temporal
+        error factors condition on earlier readings through the chain
+        rule, retaining the joint future density. Summing future factors
+        directly avoids subtracting two large full-history log scores.
+
+        An impossible prefix has no conditional distribution and raises;
+        an impossible future has zero density and returns negative
+        infinity. An empty future has log density zero, provided that
+        the prefix is supported. No parameter or particle weight changes.
+        """
+        if observed_prefix:
+            prefix_score = self.log_likelihood(
+                predictions[:len(observed_prefix)], observed_prefix)
+            if prefix_score == -math.inf:
+                raise UnsupportedConditioning(
+                    "Cannot score a future from a zero-likelihood prefix")
+            if not math.isfinite(prefix_score):
+                raise ConditioningNumericalError("Nonfinite prefix likelihood")
+        return self._log_likelihood_from(predictions,
+                                         observed_prefix + observed_future,
+                                         len(observed_prefix))
+
+    def _log_likelihood_from(self, predictions: Tuple[Observation, ...],
+                             observations: Tuple[Observation, ...],
+                             first_step: int) -> float:
+        """Condition on a prefix, accumulating only factors at or after
+        start."""
         if not predictions or len(predictions) != len(observations):
             raise ValueError("Matching nonempty histories required")
         expected = list(range(len(predictions)))
@@ -161,7 +199,8 @@ class OutputObservationModel:
         terms = []
         # All other readings retain their original likelihood, including
         # exact events, and unknown measurement keys still cause an error.
-        for step, values in enumerate(observed_values):
+        for step in range(first_step, len(observed_values)):
+            values = observed_values[step]
             residual = Observation(
                 step,
                 tuple((k, v) for k, v in values.items() if k not in claimed))
@@ -175,9 +214,18 @@ class OutputObservationModel:
                 tuple(values[scalar.key] for values in predicted_values),
                 tuple(values.get(scalar.key) for values in observed_values),
                 sensor[scalar.key].sigma)
-            terms.append(result.log_likelihood)
+            if first_step == 0:
+                terms.append(result.log_likelihood)
+            elif result.status == "exact_contradiction":
+                return -math.inf
+            else:
+                terms.append(
+                    math.fsum(step.log_observation_factor
+                              for step in result.steps[first_step:]
+                              if step.log_observation_factor is not None))
         for euler in self.eulers:
-            for observed, predicted in zip(observed_values, predicted_values):
+            for observed, predicted in zip(observed_values[first_step:],
+                                           predicted_values[first_step:]):
                 present = sum(k in observed for k in euler.keys)
                 if not present:
                     continue

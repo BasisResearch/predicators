@@ -44,6 +44,32 @@ They must not be fed back into physical replay as if they were true states.
 A zero-likelihood fitting prefix is rejected because it supplies no conditional forecast for that physical history.
 Numerical failures remain separate from such an exact contradiction.
 
+## Causal future likelihood
+
+`OutputObservationModel.log_future_likelihood` scores a complete future observation history conditional on the supplied fitting prefix and fixed native predictions.
+The caller supplies prefix and future readings separately, preserving their original step indices.
+Future readings enter only the score calculation; they must not influence the physical prediction history or the fitted particle weights.
+
+The score is the log of the joint conditional density of the future readings, including temporal dependence in scalar output errors.
+Scalar factors filter the prefix, then accumulate only future conditional observation factors.
+Later future factors condition on preceding future readings through the probability chain rule; this evaluates the joint forecast and does not revise the forecast supplied for evaluation.
+Independent sensor and coupled Euler factors contribute only their future terms, and checked readouts preserve their source relationship.
+The implementation sums future factors directly instead of subtracting two large full-history log likelihoods.
+
+An impossible fitting prefix raises an unsupported-conditioning error because it defines no conditional forecast for that physical candidate.
+An impossible future returns negative infinity, retaining the prediction failure.
+An empty future has log likelihood zero when the prefix is supported; an empty prefix scores the original unconditional history.
+Missing scalar readings still advance the error process by their recorded primitive steps.
+
+For a weighted posterior forecast, the complete-history densities must be mixed using the prefix-fitted joint particle weights.
+Averaging log densities or independently mixing each time step would evaluate a different distribution.
+This component scorer does not construct or assess that posterior mixture.
+For a stochastic physical extension, it also does not replace integration over future physical transitions under the declared transition law.
+
+These density scores are diagnostics under the declared output model, not replacements for the common feature, event and action metrics in the legacy comparison.
+The incumbent robust fitting objective is not a normalized predictive likelihood and must not be compared numerically with this log density.
+Density comparisons across changed observation laws additionally require a common observation representation and reference measure.
+
 ## Numerical and native checks
 
 The component tests compare empirical forecast means and full cross-time covariance with a dense Gaussian conditional reference, including exact and noisy sensor channels.
@@ -71,3 +97,22 @@ The report and frozen runtime are in `logs/uncertainty_domino_forecast_preflight
 
 This establishes a tested route from a fixed supported physical history to complete conditional observation forecasts.
 Numerically adequate joint posterior rows, matched legacy comparisons and the live-agent gates remain required.
+
+The future-density reference tests additionally compare the scored joint suffix with a dense Gaussian conditional distribution across four persistence values and exact/noisy sensor channels.
+They include missing prefix readings, deterministic contradictions, exact event/readout failures, coupled Euler poles, empty prefixes and futures, and a large-prefix cancellation case.
+All 43 functional tests, including the existing output-model tests, pass on a compute node.
+Job `22651367` also passed focused type checking; its sole lint failure was an overlong docstring.
+After pinned formatting, job `22651945` passed two-file pylint, isort, yapf and docformatter checks.
+The formatted source has an identical executable syntax tree to the functionally tested source, with documentation strings excluded from that comparison.
+Source hashes and the parity record are retained in `logs/uncertainty_future_score_format_checks_20260912`.
+
+Compute job `22651837` evaluates the archived native Domino history and all 32 archived forecast draws with both the previous and new likelihood implementations.
+All 33 complete-history scores match exactly, and the original prefix log likelihood remains exactly `8141.576094195281`.
+Every generated future has a finite conditional score, extending the earlier check of only four generated histories to all 32.
+The recorded 97-action future also has finite conditional log likelihood `10459.790527256999` for this candidate.
+These values use the model's declared mixed observation representation and are not success probabilities or a calibrated model-selection threshold.
+
+This check reuses the hashed native predictions generated on `node1412`; it performs zero physical steps and no initial-state transforms.
+Likelihood scoring ran on an Intel Xeon Gold 6230 host (`node1376`), with exact compatibility checked there against the old implementation and archived prefix score.
+The originally submitted node-specific scoring job `22651798` was cancelled while pending because that node was fully allocated.
+Reports and frozen sources are in `logs/uncertainty_domino_future_scores_v2_20260912`.
