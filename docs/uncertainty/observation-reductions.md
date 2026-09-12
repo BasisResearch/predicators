@@ -93,3 +93,7 @@ Three independent continuous angle densities would assign the wrong measure to t
 Wrapping yaw and discarding its original branch would also change the exact observation target unless that reduction is separately justified.
 No such likelihood or reduction is deployed here.
 The next construction must retain these observations and validate its induced mass and density factors before using orientation evidence in a full-recording posterior.
+
+The subsequent [quaternion-output discrepancy construction](orientation-discrepancy.md) now supplies and checks such a coupled likelihood under an explicitly different statistical output model.
+It retains both pole branches and integrates their latent input coordinates.
+The complete-output composition preserves the remaining exact event and speed failures rather than treating orientation support as sufficient for a physical posterior.
