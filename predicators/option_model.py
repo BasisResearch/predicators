@@ -32,7 +32,7 @@ def _check_wait_termination(option: _Option, state: State, last_state: State,
     if result is True:
         logging.info("Wait terminating: target atoms satisfied")
         return True
-    if result is None:
+    if result is None and not option.memory.get("wait_num_steps", 0):
         cur_atoms = abstract_fn(state)
         prev_atoms = abstract_fn(last_state)
         if cur_atoms != prev_atoms:
@@ -175,6 +175,7 @@ class _OracleOptionModel(_OptionModelBase):
                 logging.debug("Option reached terminal state.")
                 return True
             if (CFG.option_model_terminate_on_repeat
+                    and not option_copy.memory.get("wait_num_steps", 0)
                     and last_state is not DefaultState
                     and last_state.allclose(s)):
                 logging.debug("Option got stuck.")

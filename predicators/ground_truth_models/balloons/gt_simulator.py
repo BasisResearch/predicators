@@ -81,7 +81,7 @@ def _release_and_pull(state: State, updates: ResidualUpdate, params: Params,
     clips = sorted(objs.get("clip", []), key=lambda o: o.name)
     box_x, box_y = state.get(box, "x"), state.get(box, "y")
     box_z = float(state.get(box, "z"))
-    box_top_z = box_z + _GEOM.box_half
+    box_top_z = box_z + _GEOM.box_half_extents()[2]
     fade = float(params["fade_height"])
     frac = (box_z - _GEOM.table_height) / fade if fade > 0 else 1.0
     fade_factor = max(0.0, 1.0 - frac)

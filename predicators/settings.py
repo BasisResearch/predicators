@@ -1335,6 +1335,17 @@ class GlobalSettings:
     # with the lifts and box masses.
     balloons_drag = 2.2
     # Half the band's height.
+    # Match the scene and sampling controls used in the frozen MB/MF sweep.
+    balloons_scene = "chute"
+    balloons_task_generation = "validated"
+    balloons_hatch_box_half_extents = [0.10, 0.035, 0.018]
+    balloons_hatch_attach_span = 0.09
+    balloons_hatch_half_gap = 0.085
+    balloons_hatch_offset_x = 0.012
+    balloons_hatch_z = 0.57
+    balloons_hatch_half_thickness = 0.008
+    balloons_hatch_panel_half_width = 0.16
+    balloons_hatch_half_depth = 0.16
     balloons_band_half = 0.025
     # The box is at rest below this speed (m/s).
     balloons_settle_speed = 0.01

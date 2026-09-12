@@ -81,36 +81,41 @@ class PyBulletBalloonsGroundTruthOptionFactory(GroundTruthOptionFactory):
         )
 
     @classmethod
+    def configured_release_option(
+            cls, types: Dict[str, Type]) -> ParameterizedOption:
+        """The public Release controller, also used for task certification."""
+        simulator = shared_skill_simulator(cls.env_cls) \
+            if CFG.skill_phase_use_motion_planning else None
+        config = cls.skill_config(simulator)
+        return cls.release_option(types, config, plan_transit=None)
+
+    @classmethod
     def get_options(cls, env_name: str, types: Dict[str, Type],
                     predicates: Dict[str, Predicate],
                     action_space: Box) -> Set[ParameterizedOption]:
         del env_name, predicates, action_space  # unused
-        simulator = shared_skill_simulator(cls.env_cls) \
-            if CFG.skill_phase_use_motion_planning else None
-        config = cls.skill_config(simulator)
-        release = cls.release_option(types, config, plan_transit=None)
-        wait = create_wait_option("Wait", config, types["robot"])
+        release = cls.configured_release_option(types)
+        wait = create_wait_option("Wait", cls.skill_config(None),
+                                  types["robot"])
         return {release, wait}
 
 
-_PROBE_RELEASE: Optional[ParameterizedOption] = None
-
-
 def probe_release_option() -> ParameterizedOption:
-    """The Release skill for probe rollouts: no motion planning."""
-    global _PROBE_RELEASE  # pylint: disable=global-statement
-    if _PROBE_RELEASE is None:
-        # pylint: disable=protected-access
-        types = {
-            "robot": PyBulletBalloonsEnv._robot_type,
-            "clip": PyBulletBalloonsEnv._clip_type,
-        }
-        # pylint: enable=protected-access
-        factory = PyBulletBalloonsGroundTruthOptionFactory
-        _PROBE_RELEASE = factory.release_option(types,
-                                                factory.skill_config(None),
-                                                plan_transit=False)
-    return _PROBE_RELEASE
+    """Certify with the public Release controller and its configured timing.
+
+    Motion-planned transit can change which release sequences pass the
+    hatch. A faster controller cannot certify the public controller.
+    Construct a fresh option so config changes cannot retain an old
+    robot or transit mode; the underlying physics clients are shared.
+    """
+    # pylint: disable=protected-access
+    types = {
+        "robot": PyBulletBalloonsEnv._robot_type,
+        "clip": PyBulletBalloonsEnv._clip_type,
+    }
+    # pylint: enable=protected-access
+    return PyBulletBalloonsGroundTruthOptionFactory.configured_release_option(
+        types)
 
 
 def release_params() -> Array:

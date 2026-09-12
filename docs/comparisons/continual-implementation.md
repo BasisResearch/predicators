@@ -52,12 +52,18 @@ The 13-module type/lint check passed in job 22640592.
 The final 12-module type/lint check, including the new oracle files and recording-isolation assertion, passed in job 22639507 after fixing one overlong source string.
 No comparison experiments have been submitted.
 
-## Runtime compatibility still required
+## Runtime compatibility restoration
 
 The isolated checkout inherited a version without the original Balloons distribution selector and bounded-Wait/current-joint interface present in the frozen MB/MF runtime `b09217bb3` / `41e433427`.
 The missing pieces are documented by source comparison and the original commits `2db66d5a2` and `41e433427`.
-Restore those behaviors before launch rather than dropping the configuration keys or comparing changed action interfaces.
-An audit of the actual CLI parser for all ninety comparison configurations is submitted as job 22640624.
+The actual CLI parser rejected all eighteen Balloons configurations before restoration (job 22640624).
+The historical original-task generator, Balloons scene and release behavior, bounded Wait, and current-joint observation interface have now been restored in this checkout.
+All ninety configurations parse after restoration (job 22640763); this verifies configuration acceptance, not all approach constructors or experimental outcomes.
+The permanent config regression now also invokes the real parser for every generated command.
+The combined continual, timed-Wait, Balloons distribution, and oracle checks passed (40 tests, job 22640762), as did the fourteen Wait factory tests (job 22640831).
+Mypy over 25 modules and their pytest-pylint checks passed in job 22640830.
+The permanent parser regression passed in job 22640907.
+This restoration matches task selection and action capabilities; it does not claim that the complete comparison runtime is byte-identical to the historical MB/MF agent.
 The concurrent uncertainty checkout and the running frozen MF source must remain untouched.
 
 ## Reporting and launch requirements

@@ -1,8 +1,11 @@
 """Continual comparison contracts exercised through real play tools."""
+import shlex
+import sys
 from typing import Any
 
 import pytest
 
+from predicators import utils
 from predicators.agent_sdk.belief_probe import BeliefProbe
 from predicators.approaches import create_approach
 from predicators.envs import create_new_env
@@ -10,14 +13,14 @@ from predicators.ground_truth_models import get_gt_options
 from predicators.run.continual import ContinualRun
 from predicators.run.level_players import create_level_player
 from predicators.structs import Dataset
-from scripts.cluster_utils import generate_run_configs
+from scripts.cluster_utils import config_to_cmd_flags, generate_run_configs
 from tests.approaches.test_agent_continual_approach import _call, _config, \
     _result
 
 CONFIG = "predicatorv3/protocol_continual_comparisons_noisy_r1.yaml"
 
 
-def test_comparison_config_matches_existing_domains() -> None:
+def test_comparison_config_matches_existing_domains(monkeypatch: Any) -> None:
     """Only six requested arms, same domain settings and paired seeds."""
     old = list(
         generate_run_configs(
@@ -26,6 +29,12 @@ def test_comparison_config_matches_existing_domains() -> None:
     assert len(new) == 90
     assert len({c.approach for c in new}) == 6
     for cfg in new:
+        monkeypatch.setattr(
+            sys, "argv",
+            ["predicators/main.py", *shlex.split(config_to_cmd_flags(cfg))])
+        parsed = utils.parse_args()
+        assert parsed["env"] == cfg.env
+        assert parsed["approach"] == cfg.approach
         assert cfg.approach not in ("agent_continual",
                                     "agent_continual_model_free")
         reference = next(c for c in old if c.env == cfg.env)
