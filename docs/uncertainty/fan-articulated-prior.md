@@ -52,13 +52,27 @@ Compute job `22638962` passed 15 functional tests, focused mypy and pylint, and 
 The tests compare conditional moments and a parameter-dependent threshold posterior against analytic answers, including pure-rest, pure-motion, incompatible and interior-rest cases.
 The checked source hashes match the native audit overlays.
 
-## Remaining articulated state
+## Rotor component and remaining scene state
 
 The [native inventory](../../logs/uncertainty_fan_articulation_20260912/pilot-22638602_1.json) distinguishes four public fan-bank objects from twenty physical fan bodies, five per bank.
 Each physical fan has a continuous rotor joint.
 The visible placement routine resets fan bases but does not reset those rotor joints.
 The rotor link in the supplied URDF has ten collision elements, so it cannot be eliminated merely by calling it decorative.
 
-A complete Fan candidate still needs a justified rotor position/motion law or a verified irrelevance reduction, a coherent static-layout prior, and geometric/contact support for the whole scene.
-The switch component does not close those requirements.
+The [replay follow-up](articulated-replay.md) found that the offline snapshot omitted all nonrobot joints, losing the supplied states of all twenty rotors and four switches even in repeatable fresh-world replays.
+The corrected snapshot includes these articulated states and verifies their native layout before restoring them.
+
+The [rotor component audit](../../logs/uncertainty_fan_rotor_prior_20260912/pilot-22639509_1.json) declares independent uniform initial rotor positions on [-pi, pi] radians and velocities on [-2pi, 2pi] radians per second using the existing `JointStatePrior` implementation.
+This is a finite-winding engineering initialization law, not a mechanical limit, an angle-wrapping equivalence or a calibrated distribution.
+The twenty movable joints contribute forty continuous coordinates; fixed joints contribute none.
+Together with the four conditional switches, the articulated portion has 40 to 48 continuous coordinates across sixteen rest/moving switch combinations.
+
+Eight sampled articulated candidates preserve every supplied joint state and the original public initial switch flags after restoration.
+Each repeats sixteen recorded actions in two fresh worlds with exact equality of the native joint states and projected public observations at all boundaries.
+The sampled cases have 40, 42 or 44 continuous articulated coordinates; the experiment does not claim to enumerate all sixteen combinations.
+The four symmetric switch readings contribute a retained log probability of -2.7725887222397807 in each trial, rather than being silently treated as exogenous inputs.
+
+These tests hold the remaining scene and robot root at controlled public-frame inputs; they do not turn those noisy inputs into a valid full-scene prior.
+A complete Fan candidate still needs a coherent static-layout prior, geometric/contact support for the whole scene, and sensitivity assessment of the declared motion laws.
+The articulated components do not close those requirements.
 The full scene dimension and the recorded-trajectory posterior remain unresolved.

@@ -17,6 +17,7 @@ from predicators.envs.pybullet_balloons import PyBulletBalloonsEnv
 from predicators.envs.pybullet_bridge import PyBulletBridgeEnv
 from predicators.ground_truth_models.balloons.gt_simulator_env import \
     BalloonsResidualEnv
+from predicators.pybullet_helpers.objects import create_object
 from predicators.structs import Action
 
 
@@ -42,6 +43,19 @@ class _MetadataModel(_MovingModel):
         super()._set_state(state)
         for obj in state:
             obj.sim_data["replay_marker"] = "candidate"
+
+
+class _GroupedModel(_MovingModel):
+    """A supplementary physical fan has no public object of its own."""
+
+    def __init__(self):
+        super().__init__()
+        self.rotor_body = create_object(
+            "urdf/partnet_mobility/fan/101450/mobility.urdf",
+            position=(5., 5., 5.),
+            scale=.08,
+            use_fixed_base=True,
+            physics_client_id=self._physics_client_id)
 
 
 @pytest.fixture(name="moving_env")
@@ -113,6 +127,77 @@ def test_moving_candidate_replay_and_branching(moving_env):
     assert max(
         abs(a.state.get(env._box, "z") - b.get(env._box, "z"))
         for a, b in zip(first[1:], legacy)) > .005
+
+
+@pytest.fixture(name="grouped_candidate")
+def _grouped_candidate(moving_env):
+    env = _GroupedModel()
+    try:
+        env._set_state(moving_env._get_state())
+        pcid = env._physics_client_id
+        clip = env._clips[0]
+        limit = p.getJointInfo(clip.id, clip.joint_id, physicsClientId=pcid)[9]
+        p.resetJointState(clip.id,
+                          clip.joint_id,
+                          .025 * limit,
+                          targetVelocity=.02,
+                          physicsClientId=pcid)
+        for joint in range(p.getNumJoints(env.rotor_body,
+                                          physicsClientId=pcid)):
+            if p.getJointInfo(env.rotor_body, joint,
+                              physicsClientId=pcid)[2] != p.JOINT_FIXED:
+                p.resetJointState(env.rotor_body,
+                                  joint,
+                                  .7,
+                                  targetVelocity=.3,
+                                  physicsClientId=pcid)
+        initial = capture_replay_state(env)
+        assert env.rotor_body not in [obj.id for obj in env._objects]
+        assert env.rotor_body in [
+            b.body_id for b in initial.articulated_bodies
+        ]
+        yield initial
+    finally:
+        env.dispose()
+
+
+def test_nonrobot_joint_replay_including_unobserved_body(grouped_candidate):
+    """A moving lever and a grouped rotor survive a fresh candidate replay."""
+    initial = grouped_candidate
+    action = Action(
+        np.asarray(initial.state.simulator_state["joint_positions"],
+                   dtype=np.float32))
+    first = replay_candidate(_GroupedModel, initial, [action] * 3, {})
+    second = replay_candidate(_GroupedModel, initial, [action] * 3, {})
+    assert first[0].articulated_bodies == initial.articulated_bodies
+    assert any(velocity != 0 for body in initial.articulated_bodies
+               for _, velocity in body.joints)
+    for left, right in zip(first, second):
+        assert left.articulated_bodies == right.articulated_bodies
+        assert left.state.allclose(right.state)
+
+
+@pytest.mark.parametrize(
+    "problem", ["missing", "duplicate", "layout", "count", "nonfinite"])
+def test_nonrobot_joint_replay_rejects_incomplete_state(
+        grouped_candidate, problem):
+    """Malformed topology or motion cannot silently become a reset default."""
+    initial = grouped_candidate
+    records = initial.articulated_bodies
+    if problem == "missing":
+        records = records[:-1]
+    elif problem == "duplicate":
+        records = records + (records[-1], )
+    elif problem == "layout":
+        records = (replace(records[0], body_names=("other", "asset")),) + \
+            records[1:]
+    else:
+        joints = records[0].joints[:-1] if problem == "count" else \
+            ((float("nan"), 0.),) + records[0].joints[1:]
+        records = (replace(records[0], joints=joints), ) + records[1:]
+    with pytest.raises(ValueError, match="articulated body"):
+        replay_candidate(_GroupedModel,
+                         replace(initial, articulated_bodies=records), [], {})
 
 
 @pytest.mark.parametrize("missing", ["velocity", "memory", "joints"])

@@ -42,6 +42,44 @@ class CommandWeld:
 
 
 @dataclass(frozen=True)
+class ArticulatedBody:
+    """Nonrobot joint state tied to an identical native world layout.
+
+    Native identifiers are not portable semantic names. Restoration
+    checks body and joint topology and requires the same allocation
+    protocol; this record does not remap bodies across different worlds.
+    """
+
+    body_id: int
+    body_names: Tuple[str, str]
+    joint_layout: Tuple[Tuple[str, int, str], ...]
+    joints: Tuple[Tuple[float, float], ...]
+
+
+def _capture_articulated_bodies(
+        env: PyBulletEnv) -> Tuple[ArticulatedBody, ...]:
+    """Include grouped bodies and fixtures absent from public object keys."""
+    pcid = env._physics_client_id
+    records = []
+    for index in range(p.getNumBodies(physicsClientId=pcid)):
+        body_id = p.getBodyUniqueId(index, physicsClientId=pcid)
+        count = p.getNumJoints(body_id, physicsClientId=pcid)
+        if body_id == env._pybullet_robot.robot_id or count == 0:
+            continue
+        names = p.getBodyInfo(body_id, physicsClientId=pcid)
+        layout, joints = [], []
+        for joint in range(count):
+            info = p.getJointInfo(body_id, joint, physicsClientId=pcid)
+            layout.append((info[1].decode(), int(info[2]), info[12].decode()))
+            value = p.getJointState(body_id, joint, physicsClientId=pcid)
+            joints.append((float(value[0]), float(value[1])))
+        records.append(
+            ArticulatedBody(body_id, (names[0].decode(), names[1].decode()),
+                            tuple(layout), tuple(joints)))
+    return tuple(sorted(records, key=lambda record: record.body_id))
+
+
+@dataclass(frozen=True)
 class ReplayState:
     """A physical/model state and explicit robot motion at an action boundary.
 
@@ -61,6 +99,7 @@ class ReplayState:
     body_poses: Mapping[str, Pose]
     pending_commands: Tuple[PhysicsCommand, ...]
     command_welds: Tuple[CommandWeld, ...]
+    articulated_bodies: Tuple[ArticulatedBody, ...]
 
 
 def capture_replay_state(env: PyBulletEnv) -> ReplayState:
@@ -106,7 +145,7 @@ def capture_replay_state(env: PyBulletEnv) -> ReplayState:
     return ReplayState(state, tuple(joints), (tuple(linear), tuple(angular)),
                        poses,
                        tuple(copy.deepcopy(env._pending_residual_commands)),
-                       tuple(welds))
+                       tuple(welds), _capture_articulated_bodies(env))
 
 
 def _validate_pose(pose: Pose) -> None:
@@ -216,6 +255,21 @@ def _restore_candidate(env: PyBulletEnv, candidate: ReplayState) -> None:
                 or weld.max_force < 0 or not 0 <= weld.erp <= 1):
             raise ValueError("Replay requires valid weld force and ERP")
     env._set_state(state)
+    actual_bodies = _capture_articulated_bodies(env)
+    expected_bodies = candidate.articulated_bodies
+    actual_layout = tuple(
+        (b.body_id, b.body_names, b.joint_layout) for b in actual_bodies)
+    expected_layout = tuple(
+        (b.body_id, b.body_names, b.joint_layout) for b in expected_bodies)
+    if actual_layout != expected_layout:
+        raise ValueError("Replay requires the same complete articulated body "
+                         "layout and native allocation order")
+    for body in expected_bodies:
+        values = np.asarray(body.joints, dtype=float)
+        if values.shape != (len(body.joint_layout), 2) or not \
+                np.isfinite(values).all():
+            raise ValueError("Replay requires finite position/velocity for "
+                             "every articulated body joint")
     # _set_state can skip a body whose pose already matches. Restore its
     # supplied motion unconditionally, including passive robot joints.
     for obj in env._objects:
@@ -234,6 +288,13 @@ def _restore_candidate(env: PyBulletEnv, candidate: ReplayState) -> None:
     p.resetBaseVelocity(robot_id,
                         *candidate.robot_base_velocity,
                         physicsClientId=pcid)
+    for body in expected_bodies:
+        for joint, (position, velocity) in enumerate(body.joints):
+            p.resetJointState(body.body_id,
+                              joint,
+                              position,
+                              targetVelocity=velocity,
+                              physicsClientId=pcid)
     # Restoring current poses cannot reconstruct the frame at attachment
     # creation. Preserve that frame, including any constraint deflection.
     env._clear_commanded_attachments()

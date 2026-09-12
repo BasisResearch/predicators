@@ -100,7 +100,9 @@ This resolves that parameter-prior choice for the development experiment, but no
 The [articulated-state follow-up](fan-articulated-prior.md) implements exact Boolean conditioning of a declared switch rest/motion prior and verifies 2,048 native state readbacks.
 The four prismatic switches have 29.6 mm enforced travel and a 14.8 mm on threshold; unchanged URDF metadata reports a larger nominal interval.
 Four public fan objects represent twenty physical fan bodies with continuous, collision-bearing rotor joints.
-Switch conditioning is validated as a component; rotor support, coherent layout and the complete scene dimension remain unresolved.
+The later articulated replay correction preserves all these nonrobot joint states, which earlier snapshots omitted.
+A declared uniform rotor position/velocity component adds forty continuous coordinates; eight joint slider/rotor samples restore exactly and repeat sixteen recorded actions in fresh worlds.
+The articulated portion has 40 to 48 continuous dimensions across sixteen switch rest/moving combinations; coherent layout, full-scene support and the total posterior dimension remain unresolved.
 
 ## Domino
 

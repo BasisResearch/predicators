@@ -405,9 +405,15 @@ These are comparison inputs and submitted experiments, not completed Stage B evi
 
 ## Next gate
 
+The [articulated replay correction](articulated-replay.md) closes an omission exposed by the Fan prior work: snapshots previously lost all four slider and twenty rotor joint states.
+The corrected offline snapshot restores those states exactly and repeats a 64-action native Fan trajectory at every recorded boundary.
+Twenty-two functional replay tests and focused static/format checks pass.
+This does not establish arbitrary engine checkpoint portability or complete the Fan scene prior.
+
 The [Fan articulated-state component](fan-articulated-prior.md) now conditions a normalized rest/motion law on exact switch flags while retaining the event probability in parameter inference.
 Fifteen functional tests and focused static/format checks pass, and the corrected compute audit verifies all 2,048 native state readbacks plus the actual enforced slider cap.
-The inventory also identifies twenty collision-bearing rotor joints whose initial state still needs a prior or a justified reduction.
+The inventory also identifies twenty collision-bearing rotor joints and now declares a uniform position/velocity component for their initial state.
+Eight sampled rotor/switch candidates restore exactly and repeat sixteen recorded actions, adding an explicit forty-dimensional rotor component while leaving scene layout and contact support open.
 This closes a switch component, not Stage A or the full Fan scene model.
 
 Finish Stage A by defining candidate initialization and priors with valid geometric and attachment support, completing runtime artifact capture, and resolving exact-output feasibility.
