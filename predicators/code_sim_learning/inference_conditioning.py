@@ -34,6 +34,67 @@ class ConditioningNumericalError(ValueError):
 
 
 @dataclass(frozen=True)
+class ConditionedGaussianCoordinate:
+    """A scalar conditional law and the density of its observed reading.
+
+    sigma zero is an eliminated exactly observed coordinate. Otherwise
+    the remaining law is Gaussian. log_observation_factor retains the
+    marginal observation density under the original prior; it is needed
+    when prior parameters or alternative cases are also inferred.
+    """
+    mean: float
+    sigma: float
+    log_observation_factor: float
+
+
+def condition_gaussian_coordinate(
+        prior_mean: float, prior_sigma: float, observed: float,
+        sensor_sigma: float) -> ConditionedGaussianCoordinate:
+    """Condition a Gaussian coordinate on one additive Gaussian reading.
+
+    The prior is fixed before observing the recording. Using the returned
+    distribution as a proposal absorbs this reading exactly once, with
+    its marginal density retained as the base weight. Do not score the
+    same reading again or use the result as the prior in a repeated fit
+    of identical data. A genuinely new independent reading can be added
+    sequentially under this same Gaussian model.
+
+    This is a scalar real-valued coordinate, not a wrapped angle law,
+    collision-conditioned scene or posterior over dynamics. It can
+    propose noisy initial positions without treating them as truth.
+    Exact sensor sigma zero eliminates the coordinate and returns its
+    original prior density at the observation. No artificial noise floor
+    or empirical sampling-based normalizer is introduced.
+    """
+    if not all(
+            math.isfinite(v)
+            for v in (prior_mean, prior_sigma, observed, sensor_sigma)):
+        raise ValueError("Gaussian conditioning requires finite inputs")
+    if prior_sigma <= 0 or sensor_sigma < 0:
+        raise ValueError("Prior sigma must be positive and sensor sigma "
+                         "nonnegative")
+    total_sigma = math.hypot(prior_sigma, sensor_sigma)
+    if not math.isfinite(total_sigma):
+        raise ConditioningNumericalError("Gaussian marginal scale overflow")
+    prior_fraction = prior_sigma / total_sigma
+    sensor_fraction = sensor_sigma / total_sigma
+    mean = prior_mean * sensor_fraction**2 + observed * prior_fraction**2
+    sigma = prior_sigma * sensor_fraction
+    # Divide before subtracting when the raw difference overflows, but
+    # retain the more accurate direct difference at ordinary scales.
+    difference = observed - prior_mean
+    residual = (difference / total_sigma if math.isfinite(difference) else
+                observed / total_sigma - prior_mean / total_sigma)
+    squared = residual * residual
+    factor = -.5 * squared - math.log(total_sigma) - .5 * math.log(2 * math.pi)
+    if not all(math.isfinite(v) for v in (mean, sigma, factor)) or \
+            (sensor_sigma > 0 and sigma == 0):
+        raise ConditioningNumericalError(
+            "Gaussian conditional law exceeds floating-point range")
+    return ConditionedGaussianCoordinate(mean, sigma, factor)
+
+
+@dataclass(frozen=True)
 class ConditionedVelocity:
     """A velocity consistent with an exact speed under a declared prior.
 

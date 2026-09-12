@@ -35,6 +35,12 @@ See [scene-prior composition](scene-prior-composition.md#connecting-feasible-sce
 Compute validation passed 22 functional tests plus focused static and formatting checks.
 Both support-normalization references passed 8/8 trials at 2,048 particles; the smaller 512-particle budget passed 15/16, with the failed trial retained.
 
+The [Balloons initial-scene reference](balloons-initial-scene.md) now combines a declared scene law, exact initial conditioning, noisy-position conditioning, full-candidate collision checks, and fresh-world replay of an actual frozen learned program.
+All sixteen accepted root samples satisfy the declared support and exact initial observations, and each has identical repeated 16-action predictions.
+All sixteen still contradict a later exact output at the first action; a separately tested supported-rest configuration substantially reduces the box-speed discrepancy.
+This advances the physical initial-state gate and identifies a concrete trajectory constraint; it is not a complete recording posterior or deployment acceptance.
+The Gaussian-coordinate conditioning implementation used by the reference passed seventeen functional tests, focused type/lint checks, and pinned formatters on compute nodes.
+
 ## Candidate replay contract
 
 The separate offline `replay_candidate` API accepts a fresh environment factory, an explicit `ReplayState`, executed actions, and fixed candidate parameters.
