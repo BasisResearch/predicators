@@ -26,7 +26,8 @@ Configurations:
 
 The eighteen previously held Bridge comparison seeds are superseded by the eighteen comparison seeds in this cohort once submission succeeds.
 The seventy-two non-Bridge comparison seeds continue on their original frozen runtime.
-The new comparison arrays extend the two existing dependency chains, preserving their concurrency limit of six comparison seeds.
+The new comparison arrays extend the existing experiment order, preserving the concurrency limit of six comparison seeds.
+Each queued seed follows the corresponding seed in the preceding array, making six independent comparison chains.
 The three new MF runs can start independently.
 All runs use account b and `mit_preemptable` compute nodes.
 
@@ -50,6 +51,7 @@ Controller `22650115` submitted and released all twenty-one seeds from immutable
 The frozen checkout is `/home/ycliang/predicators-bridge-transfer-frozen-20260912`.
 The three MF seeds were verified running; the comparison seeds were pending on their declared dependencies at submission.
 Each array below contains seeds 0, 1, and 2.
+The predecessor column names the preceding array; seed `s` now depends on its predecessor's seed `s`.
 
 | Arm | Array | Predecessor |
 |---|---|---|
@@ -64,6 +66,12 @@ Each array below contains seeds 0, 1, and 2.
 The eighteen old Bridge jobs in arrays `22642706`, `22642711`, `22642716`, `22642721`, `22642726`, and `22642731` were cancelled only after the replacement arrays were successfully submitted.
 They have no agent outcomes and are marked superseded in the historical table.
 The non-Bridge comparison arrays were not changed.
+
+After submission, the dependencies of all sixty-nine pending comparison seeds were updated to operate independently per seed.
+This lets a completed predecessor release the next seed while the other two predecessor seeds continue.
+The update preserves method order within each chain and permits at most six comparison jobs at once.
+The separate MF arrays retain their original scheduling.
+The original submission dependencies and every verified update are recorded in `/home/ycliang/predicators/logs/continual_comparisons_20260912/seed-chain-update-20260912.json`.
 
 ## Reporting
 
