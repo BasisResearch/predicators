@@ -361,6 +361,11 @@ The accompanying native-link cache audit explains why resetting unchanged joints
 Preserving the native predicted link-observation phase removes those early residuals without using observed Cartesian values.
 All twelve corrected diagnostic paths repeat exactly, but later robot/contact constraints still fail at actions 18 or 22, so they do not supply a complete 32-action posterior.
 
+A separate [marginalized output-discrepancy extension](output-discrepancy.md) integrates a declared Gaussian error history without modifying physical simulator states or sensor variance.
+Joint inference of velocity, uncertain initial position and error scale agrees with an independent dense grid in four of four larger-budget numerical trials; a smaller-budget prior-marginal failure remains recorded.
+The five-domain diagnostic compares persistent and independent error on selected real-valued channels with fixed native predictions and a suffix held out from discrepancy fitting.
+It does not yet supply a full-recording posterior, an uncertain-scene comparison or a replacement for the legacy fitter.
+
 ## Next gate
 
 Finish Stage A by defining candidate initialization and priors with valid geometric and attachment support, completing runtime artifact capture, and resolving exact-output feasibility.
