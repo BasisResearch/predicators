@@ -109,6 +109,8 @@ Each inventory must use the following columns and cover object pose and motion, 
 This is a required design artifact, not a claim that physical priors have already been established.
 The [September 12 inventory](initial-state-inventory.md) records the five development schemas and visible-model joint audit, with unresolved priors and dimensions explicitly marked.
 A value present in engine metadata is not thereby known to the agent; in particular, do not infer passive-joint values, zero velocity, or absent attachments from recording omissions.
+Do not assume URDF joint-limit intervals are hard support for every simulator initialization: the [joint audit](robot-state-prior.md) found a recorded balloons initial angle outside its URDF interval.
+Retain that prior-support contradiction and specify a justified initialization law before fitting; clipping the exact reading or silently changing bounds would change the inference problem.
 Distinguish actual resets from continued trajectories, and document which hidden quantities persist across task changes.
 Start with the smallest valid uncertain representation and expand it only for quantities that cannot be conditioned on, derived, or integrated out under the declared model.
 Report the resulting joint dimension and discrete alternatives across all episodes before selecting proposal blocks and compute budgets.

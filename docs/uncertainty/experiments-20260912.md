@@ -541,3 +541,55 @@ The earlier eight free-assembly reference trials in `22628914` also passed and r
 All validation and simulation ran on `mit_preemptable` compute nodes.
 
 Artifacts: [final source plan](../../logs/uncertainty_assembly_v3_20260912/plan.json), [predeclared mechanical checks](../../logs/uncertainty_assembly_v3_20260912/reference-plan.json), [per-trial physical results](../../logs/uncertainty_assembly_v3_20260912/reference-22628947.json), [functional checks](../../logs/uncertainty_assembly_v3_20260912/checks-22628938.xml).
+
+## Robot-prior conditioning and hidden-joint geometry
+
+`JointStatePrior` requires explicit position support and velocity distributions for every movable joint, plus a mechanically fixed designation for joints with no freedom.
+Exact initial-position conditioning retains the original uniform density of each eliminated coordinate and does not condition away unobserved velocities.
+A fully determined conditional has no artificial free interval and still exposes its observation factor.
+Out-of-support exact readings raise a distinct prior-support contradiction instead of being clipped, wrapped, or softened.
+See [the robot-state contract](robot-state-prior.md).
+
+The reference uses the five previously verified public initial joint readings and checks the matching Fetch URDF hash in each current visible simulator.
+The declared trial position priors use URDF intervals for limited joints and `[-4*pi, 4*pi]` for continuous joints.
+The latter is an explicit finite winding prior, not a mechanical limit.
+The rest component fixes all initial velocities to zero; the moving component uses independent uniform velocities with half-width 0.25 in each joint's coordinate units per second.
+These are modeling assumptions for this component audit, not calibrated task priors or measured reset velocities.
+The two components have no implicit mixture probabilities.
+
+Final reference job `22629290` reports:
+
+| Domain | Initial-position support | Rest / moving free dimensions | Sampled joint states restored | Largest joint restoration difference |
+| --- | --- | --- | ---: | ---: |
+| Bridge | Compatible | 4 / 17 | 64 | 0 |
+| Fan | Compatible | 4 / 17 | 64 | 0 |
+| Domino | Compatible | 4 / 17 | 64 | 0 |
+| Boil | Compatible | 4 / 17 | 64 | 0 |
+| Original balloons | Incompatible with this bounded prior | No conditional samples | 0 | Not evaluated |
+
+Each compatible component used 32 generated joint states, totaling 256 across the four domains.
+Every exact controlled initial position and every generated position/velocity was restored exactly by the engine.
+Changing the unobserved initial joint positions and velocities left the instantaneous public robot features unchanged in these checks.
+That statement concerns initial kinematics only, not subsequent dynamics or likelihood invariance.
+
+The balloons shoulder-lift reading is `-1.5119263197144368` rad while its URDF interval is `[-1.221, 1.518]` rad.
+Both trial components therefore assign zero support to that initial reading, independently of sampling budget.
+The initial reference `22629166` stopped on this exception after capturing the four compatible domains.
+The final report catches this specific outcome and continues the geometry audit with the original bounds unchanged.
+It does not convert arbitrary setup exceptions into statistical failures or manufacture a balloons conditional.
+A justified initialization law still needs to address this recorded reset state.
+
+The separate geometry check keeps observed arm/gripper positions fixed and compares head pan/tilt settings `(-1.2, -0.5)` and `(1.2, 1.0)` rad.
+It searches a predeclared 9-by-9-by-9 grid over the union of their head bounding boxes using a 1 cm-radius sphere.
+All five visible models produce identical public robot features but a collision witness: the probe is about 5.62 mm inside the first head collision geometry and 210.05 mm separated from the second.
+The probe is intentionally a signed-distance query, not an admissible penetrating scene used for inference or evidence of contact in the historical recordings.
+This rules out using arm forward kinematics alone to justify discarding unobserved head state.
+A complete reduction would also have to establish that the entire declared scene/action support and the learned program cannot depend on those joints.
+
+Validation `22629135` passed 25 functional tests and two-file mypy, then reported four missing test docstrings in lint.
+Final static job `22629186` passed mypy, both configured lint checks, and pinned formatting after adding those docstrings without changing logic.
+The functional suite includes four new joint-prior tests and the existing exact-conditioning and physical-replay suites.
+All validation and visible-engine audits ran on `mit_preemptable` compute nodes.
+These are initial-state component checks, not agent seeds, posterior fits, or full-scene feasibility certificates.
+
+Artifacts: [source and validation plan](../../logs/uncertainty_joints_v2_20260912/plan.json), [reference assumptions](../../logs/uncertainty_joints_v2_20260912/reference-plan.json), [per-domain component and geometry report](../../logs/uncertainty_joints_v2_20260912/reference-22629290.json), [functional checks](../../logs/uncertainty_joints_20260912/checks-22629135.xml).
