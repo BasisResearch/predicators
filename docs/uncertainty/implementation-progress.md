@@ -384,6 +384,13 @@ Fan and Domino have finite complete-output likelihoods under the declared extens
 These positive cases enable the next joint inference experiment; they do not establish an uncertain physical initial-state posterior, legacy-fit comparison or production readiness.
 Final compute checks passed 27 functional tests, four-file mypy and lint, and pinned formatting; the complete-output integration accounts for 24,896 measured fields across its five conditional forecast windows.
 
+The next [Domino joint-inference pilot](domino-joint-inference.md) specifies an uncertain physical scene under an explicit unheld-case prior and includes the initial observation in the complete likelihood.
+Eight generated candidates passed geometric support and exact repeated 64-action replay; two had finite complete-output likelihood.
+The sampler now supports optional disjoint proposal blocks while preserving the existing full-vector default.
+These developments enable a physical integration experiment, but numerical adequacy, complete runtime capture, all-domain prior closure and the legacy-fit comparison remain open.
+Both small-budget Domino pilots completed but collapsed to one initial ancestor, retaining only one and three distinct physical parameter vectors and disagreeing across independent runs.
+They do not provide usable parameter uncertainty; the next numerical experiment must address first-temperature concentration and parameter movement before comparison with the incumbent.
+
 ## Next gate
 
 Finish Stage A by defining candidate initialization and priors with valid geometric and attachment support, completing runtime artifact capture, and resolving exact-output feasibility.
