@@ -166,6 +166,13 @@ This is an incompatible prior assumption, not an agent failure or grounds to cli
 The same visible-geometry audit finds identical public robot features but different head collision envelopes in all five domains, ruling out kinematics alone as a justification for eliminating head state.
 Scene-specific irrelevance, initialization-law support, and joint/body collision compatibility still require resolution.
 
+The subsequent [composed reference](scene-prior-composition.md) adds an explicit Gaussian joint initialization law, preserving the bounded-prior rejection as a control.
+The robot wrapper reproduces the exact recorded joint vector, including the balloons angle outside the URDF interval.
+Global rejection then combines conditioned joints with generated rigid assemblies, retaining the declared base measure rather than resampling only a colliding body.
+The support predicate explicitly permits the supplied fixed wheel/plane fixture contacts, whose -9.675 mm signed distance follows from the checked wheel radii and fixed centers; all other tested intersections are rejected.
+It produced 80 accepted generated scenes in 82 draws across all five visible environments.
+This closes those component-support obstructions under a declared model, not the historical scene-layout, case-mass, full-runtime, or exact-trajectory requirements.
+
 Before the physical comparison, close the unresolved rows with an explicit generative initial-state model and its normalizing/case factors.
 Then validate its support on known-model recordings and measure exact-output feasibility on frozen learned programs.
 Use the existing complete-prefix replay; do not promote arbitrary mid-run snapshots to exact engine state.

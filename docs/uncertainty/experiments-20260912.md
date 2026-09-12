@@ -593,3 +593,63 @@ All validation and visible-engine audits ran on `mit_preemptable` compute nodes.
 These are initial-state component checks, not agent seeds, posterior fits, or full-scene feasibility certificates.
 
 Artifacts: [source and validation plan](../../logs/uncertainty_joints_v2_20260912/plan.json), [reference assumptions](../../logs/uncertainty_joints_v2_20260912/reference-plan.json), [per-domain component and geometry report](../../logs/uncertainty_joints_v2_20260912/reference-22629290.json), [functional checks](../../logs/uncertainty_joints_20260912/checks-22629135.xml).
+
+## Reset law and composed scene support
+
+This increment adds `GaussianJointPosition` and generalizes the offline joint prior's field to `position_priors` with a new schema identity.
+Finite uniform bounds remain supported, and their prior-specific rejection of the original balloons start remains visible.
+The Gaussian alternative declares zero mean and standard deviation pi radians for revolute coordinates or 0.1 m for prismatic coordinates.
+Those settings are engineering assumptions for this development reference, not estimates fitted to individual readings or independent evidence of calibration.
+Exact joint measurements retain their original Gaussian density; neither angles nor observations are clipped or wrapped.
+The actual robot wrapper reproduces the public initial joint vector exactly in all five domains, including the balloons shoulder outside its URDF interval.
+The wrapper and vanilla IK source show why ideal joint-limit support is not a guarantee of every simulator reset.
+
+`draw_feasible` samples a complete normalized base candidate, including its mixture case, and rejects the whole draw when its support predicate fails.
+The resulting prior is proportional to the base prior times the constraint indicator.
+It returns an explicit exhausted-budget outcome rather than a partial batch presented as complete or a claim of impossible support.
+It does not supply an exact normalizer or model evidence; parameter-dependent normalization remains the caller's responsibility.
+The numerical references check a triangular joint constraint and feasibility-induced changes in mixture case probabilities.
+
+The physical reference combines the five recorded initial robot joint vectors with generated rigid cube/sphere assemblies in a declared cell, using equally weighted rest and moving joint/assembly cases.
+It does not load the historical object layout or fit any dynamics.
+The first geometry audit, `22629679`, checked sampled bodies against the robot and all existing geometry, and completed all ten requested batches.
+That policy did not check robot/background intersections and is retained as a narrower reference.
+
+The stricter audit `22629703` added robot/background checks and accepted zero candidates in all ten trials, each exhausting its 128-draw budget.
+Finite rejection alone would not establish empty support.
+Contact diagnostic `22629779` identified the same two wheel/plane intersections in all five visible models.
+Source inspection supplies the geometric explanation: each spherical wheel collision shape has radius 0.065 m and center height 0.055325 m under the fixed base.
+Its floor signed distance is therefore -0.009675 m for every wheel angle.
+This makes the strict no-overlap predicate incompatible with the supplied anchored fixture geometry.
+The failure was not addressed by increasing the sample count, changing geometry, or softening sensor observations.
+
+The final declared predicate permits only those two named wheel/plane fixture contacts at their source-established signed distance, checked within the 1e-9 m geometric roundoff policy.
+Any changed fixture distance raises an error; every other queried robot/background or sampled-body intersection remains a rejection.
+The support identity includes that explicit contact rule and the reviewed source hashes.
+The policy is conservative about queried collision geometry and does not add robot self-collision to the existing model.
+
+Final reference `22629815` uses the standard-library Gaussian inverse CDF and runs two fixed seeds per domain, each requesting eight accepted generated scenes with a maximum of 128 complete draws.
+
+| Domain | Exact wrapper-reset error | Complete draws | Accepted generated scenes | Collision rejections |
+| --- | ---: | ---: | ---: | ---: |
+| Bridge | 0 | 16 | 16 | 0 |
+| Fan | 0 | 17 | 16 | 1 |
+| Domino | 0 | 16 | 16 | 0 |
+| Boil | 0 | 16 | 16 | 0 |
+| Original balloons | 0 | 17 | 16 | 1 |
+| Total | 0 | 82 | 80 | 2 |
+
+Every accepted sample passed the same geometry predicate when checked again in reverse batch order.
+This is same-world geometry rechecking, not a new claim of complete runtime closure or long-trajectory replay.
+The joint components retain 4 free position coordinates at declared rest or 17 position/velocity coordinates in the moving case; the associated assembly contributes 6 or 12 coordinates respectively.
+These counts describe the generated reference and its stated shared motion case, not a finalized historical task prior.
+No posterior fit, agent solve-rate seed, or historical full-scene comparison was produced by this audit.
+
+Final validation `22629786` passed 35 functional tests, four-file mypy and configured lint, and pinned isort, yapf, and docformatter checks.
+The functional set covers six joint-prior tests, three global-rejection tests, five assembly tests, five affine-conditioning tests, and sixteen physical-replay tests.
+Initial validation `22629663` passed the same functional set but found a missing generic list annotation.
+Static follow-up `22629702` passed mypy but its lint could not resolve SciPy's dynamically exposed inverse CDF.
+The final implementation uses the standard-library equivalent and reruns the functional checks with that implementation.
+All tests and engine audits ran on `mit_preemptable` compute nodes.
+
+Artifacts: [final source plan](../../logs/uncertainty_scene_prior_v3_20260912/plan.json), [declared reference and fixture policy](../../logs/uncertainty_scene_prior_v3_20260912/reference-plan.json), [final per-domain results](../../logs/uncertainty_scene_prior_v3_20260912/reference-22629815.json), [strict-policy rejection report](../../logs/uncertainty_scene_prior_v2_20260912/reference-22629703.json), [contact witnesses](../../logs/uncertainty_scene_prior_v2_20260912/contacts-22629779.json), [functional checks](../../logs/uncertainty_scene_prior_v3_20260912/checks-22629786.xml).
