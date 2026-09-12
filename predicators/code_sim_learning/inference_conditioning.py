@@ -34,6 +34,107 @@ class ConditioningNumericalError(ValueError):
 
 
 @dataclass(frozen=True)
+class ConditionedVelocity:
+    """A velocity consistent with an exact speed under a declared prior.
+
+    The log factor is an observation mass at zero and a radial density
+    at positive speeds, with respect to delta-zero plus Lebesgue measure
+    on the nonnegative speed axis. It is not a density in Cartesian
+    velocity coordinates. Directions use uniform coordinates on a unit
+    square; their Jacobian is already included in the radial factor.
+    """
+    velocity: Tuple[float, float, float]
+    free_dimensions: int
+    log_observation_factor: float
+    speed_residual: float
+
+
+@dataclass(frozen=True)
+class RestOrGaussianVelocityPrior:
+    """Explicit prior atom at rest plus isotropic Gaussian moving velocity.
+
+    This is a candidate modeling assumption, not a reset guarantee or a
+    prior learned from missing recording metadata. The moving component
+    has zero mean and the same standard deviation on three Cartesian
+    axes. Geometry, joints, angular velocity and attachment consistency
+    require separate priors. A complete physical prior must define their
+    dependencies rather than multiply this component in by convenience.
+    """
+    rest_probability: float
+    moving_sigma: float
+
+    def __post_init__(self) -> None:
+        if not math.isfinite(self.rest_probability) or \
+                not 0 <= self.rest_probability <= 1:
+            raise ValueError("Rest probability must lie in [0, 1]")
+        if not math.isfinite(self.moving_sigma) or self.moving_sigma <= 0:
+            raise ValueError(
+                "Moving velocity sigma must be finite and positive")
+
+    @property
+    def digest(self) -> str:
+        """Identify normalized prior components and conditioning semantics."""
+        return content_digest(
+            json.dumps(
+                {
+                    "schema": 1,
+                    "family": "rest_atom_isotropic_gaussian_velocity",
+                    "rest_probability": float(self.rest_probability),
+                    "moving_sigma": float(self.moving_sigma),
+                    "speed_measure": "delta_zero_plus_positive_lebesgue",
+                    "direction_map": "uniform_cos_polar_and_azimuth"
+                },
+                sort_keys=True).encode("utf-8"))
+
+    def condition_on_speed(
+        self, speed: float, direction: Tuple[float,
+                                             ...] = ()) -> ConditionedVelocity:
+        """Lift uniform direction coordinates and retain speed evidence.
+
+        Zero speed selects the declared atom and has no free direction.
+        A zero observation with no atom needs a separately specified
+        conditional extension at this zero-density boundary; it is not
+        silently assigned a posterior here. At positive speed, the
+        radial Gaussian density is Maxwell, including the speed-squared
+        factor. No tolerance turns a small positive speed into the rest
+        event.
+        """
+        if not math.isfinite(speed) or speed < 0:
+            raise ValueError("Speed must be finite and nonnegative")
+        if speed == 0:
+            if direction:
+                raise ValueError("Rest has no free direction coordinates")
+            if self.rest_probability == 0:
+                raise UnsupportedConditioning(
+                    "Zero speed without a rest atom requires a conditional "
+                    "extension")
+            return ConditionedVelocity((0., 0., 0.), 0,
+                                       math.log(self.rest_probability), 0.)
+        if len(direction) != 2 or any(not math.isfinite(v) or not 0 <= v <= 1
+                                      for v in direction):
+            raise ValueError(
+                "Positive speed requires two unit-square coordinates")
+        cosine = 2 * direction[0] - 1
+        azimuth = 2 * math.pi * direction[1]
+        radial = math.sqrt(max(0., 1 - cosine * cosine))
+        velocity = (speed * radial * math.cos(azimuth),
+                    speed * radial * math.sin(azimuth), speed * cosine)
+        if self.rest_probability == 1:
+            log_factor = -math.inf
+        else:
+            ratio = speed / self.moving_sigma
+            log_factor = (math.log1p(-self.rest_probability) +
+                          .5 * math.log(2 / math.pi) + 2 * math.log(speed) -
+                          3 * math.log(self.moving_sigma) - .5 * ratio * ratio)
+            if not math.isfinite(log_factor):
+                raise ConditioningNumericalError(
+                    "Speed log density exceeds floating-point range")
+        # hypot avoids squaring extreme Cartesian components unnecessarily.
+        residual = abs(math.hypot(*velocity) - speed)
+        return ConditionedVelocity(velocity, 2, log_factor, residual)
+
+
+@dataclass(frozen=True)
 class ConditionalPoint:
     """Lifted coordinates and a base importance factor, without noisy data.
 
