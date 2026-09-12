@@ -234,7 +234,10 @@ The offline replay now supports reconstructing the full action prefix in one fre
 Corrected audit `22627021` produced bit-identical prefix continuations versus uninterrupted candidate trajectories across all five domains, at both tested boundaries.
 The explicit initializer API makes the candidate root protocol part of the model and artifact contract.
 It never selects evaluator tasks implicitly; inference initialization must use the declared prior and allowed conditioned inputs.
-Root reconstruction, exact-output feasibility, and learned-program prediction quality remain separate gates.
+The task-cache investigation additionally reproduced and fixed lost initial robot joints in Domino's cache.
+Matching the existing continual fresh-world lifecycle then gave zero measured replay error in all five domains at both tested boundaries in audit `22627245`.
+This validates explicit initialization plus full-prefix reconstruction for the tested development trajectories; arbitrary portable checkpoints remain approximate.
+Physical-prior design, exact-output feasibility, and learned-program prediction quality remain separate gates.
 Detailed results and limitations are in [the experiment record](experiments-20260912.md).
 
 ### Remaining full-plan execution
