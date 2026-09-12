@@ -8,6 +8,12 @@ The latest [likelihood cost reduction](likelihood-cost.md) preserves all 2,560 a
 It removes array reductions from two-term quadrature sums, making the measured density evaluations about four times faster while retaining the statistical model and numerical acceptance checks.
 Twenty-three functional tests and focused type/lint/format checks pass; running fits retain their existing frozen source.
 
+The offline sampler now has optional [continuation checkpoints](sampler-checkpoints.md) for long fits on preemptable nodes.
+They preserve the complete weighted population, density factors, random state and diagnostics at stage boundaries, while keeping unfinished solver state separate from an assessed posterior.
+Changed inference inputs or sampler settings reject a resume, and the cumulative numerical budget remains fixed.
+The checkpoint restores numerical inference state; candidate simulations still reconstruct their full validated action prefix.
+Compute validation passed forty functional tests, three-file type/lint/format checks, and thirty-two exact paired comparisons with the pre-change sampler.
+
 ## Implemented boundary
 
 The rollout fitter exposes `SysIdOutcome.inference`, a version 1 `LegacyInferenceResult`.

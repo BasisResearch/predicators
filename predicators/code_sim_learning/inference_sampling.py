@@ -14,6 +14,8 @@ from typing import Callable, List, Literal, Optional, Tuple, Union
 
 import numpy as np
 
+from predicators.code_sim_learning.inference_checkpoint import \
+    SamplerCheckpoint
 from predicators.code_sim_learning.inference_data import InferenceIdentity, \
     content_digest
 
@@ -227,15 +229,17 @@ class _BudgetExceeded(Exception):
     """Internal control flow for an exhausted evaluation allowance."""
 
 
-def sample_batch(
-    prior: Union[BoxPrior, ConditionedPrior],
-    identity: InferenceIdentity,
-    log_likelihood: Callable[[np.ndarray], float],
-    config: SamplerConfig,
-    seed: int,
-    *,
-    condition: Optional[Callable[[np.ndarray], PriorPoint]] = None
-) -> BatchPosterior:
+def sample_batch(prior: Union[BoxPrior, ConditionedPrior],
+                 identity: InferenceIdentity,
+                 log_likelihood: Callable[[np.ndarray], float],
+                 config: SamplerConfig,
+                 seed: int,
+                 *,
+                 condition: Optional[Callable[[np.ndarray],
+                                              PriorPoint]] = None,
+                 checkpoint: Optional[Callable[[SamplerCheckpoint],
+                                               None]] = None,
+                 resume: Optional[SamplerCheckpoint] = None) -> BatchPosterior:
     """Sample a fixed-prior target from scratch, without carried fit weights.
 
     The callable must evaluate the immutable complete dataset under the
@@ -261,6 +265,14 @@ def sample_batch(
     Both callbacks receive owned arrays. The budget counts joint target
     evaluations, including rejected base points; simulator work may be less
     when a prior point is rejected before invoking the likelihood.
+
+    An optional checkpoint callback receives complete initialization and
+    temperature-stage boundaries. Resume restores that same run, including
+    its RNG and cumulative evaluation budget. Signatures require unchanged
+    data, model, prior, runtime, seed, NumPy version and sampler settings.
+    Interrupted stages are repeated from their last saved boundary; the
+    checkpoint is not a posterior or a numerical adequacy certificate.
+    Callers must identify all callback dependencies in identity.runtime.
     """
     if identity.prior != prior.digest:
         raise ValueError("Prior differs from immutable inference identity")
@@ -293,6 +305,96 @@ def sample_batch(
     ess_values: List[float] = []
     accepted = 0
     attempted = 0
+    completed_stage = 0
+    signature = content_digest(
+        json.dumps(
+            {
+                "kernel": "tempered_smc_stage_checkpoint_v1",
+                "identity": identity.digest,
+                "prior": prior.digest,
+                "config": asdict(config),
+                "seed": seed,
+                "numpy": np.__version__
+            },
+            sort_keys=True,
+            allow_nan=False).encode("utf-8"))
+
+    if resume is not None:
+        if resume.signature != signature:
+            raise ValueError("Checkpoint differs from requested inference run")
+        state = resume.unpack()
+        particles = np.asarray(state["particles"], dtype=float)
+        joints = np.asarray(state["joints"], dtype=float)
+        base_weights = np.asarray(state["base_weights"], dtype=float)
+        likelihoods = np.asarray(state["likelihoods"], dtype=float)
+        weights = np.asarray(state["weights"], dtype=float)
+        ancestors = np.asarray(state["ancestors"], dtype=int)
+        if particles.shape != (count, len(proposal_prior.names)) or \
+                joints.shape != (count, len(prior.names)) or any(
+                    a.shape != (count,) for a in
+                    (base_weights, likelihoods, weights, ancestors)):
+            raise ValueError("Invalid checkpoint population shape")
+        if not np.all(np.isfinite(particles)) or \
+                not np.all(np.isfinite(joints)) or \
+                np.any(particles < lower) or np.any(particles > upper) or \
+                np.any(np.isnan(base_weights)) or \
+                np.any(base_weights == math.inf) or \
+                np.any(np.isnan(likelihoods)) or \
+                np.any(likelihoods == math.inf) or \
+                not np.any(np.isfinite(likelihoods)) or \
+                not np.all(np.isfinite(weights)) or np.any(weights < 0) or \
+                not np.isclose(weights.sum(), 1., rtol=0., atol=1e-12) or \
+                np.any(ancestors < 0) or np.any(ancestors >= count):
+            raise ValueError("Invalid checkpoint population values")
+        evaluations = state["evaluations"]
+        initial_finite = state["initial_finite"]
+        completed_stage = state["completed_stage"]
+        accepted = state["accepted"]
+        attempted = state["attempted"]
+        resampling_count = state["resampling_count"]
+        ess_values = state["ess_values"]
+        if any(not isinstance(v, int) or isinstance(v, bool) or v < 0 for v in
+               (evaluations, initial_finite, completed_stage, accepted,
+                attempted, resampling_count)) or \
+                not count <= evaluations <= config.max_evaluations or \
+                not 0 < initial_finite <= count or \
+                completed_stage > config.temperatures or \
+                attempted != completed_stage * config.moves * count or \
+                accepted > attempted or resampling_count > completed_stage or \
+                len(ess_values) != completed_stage or any(
+                    not math.isfinite(v) or v <= 0 or v > count + 1e-8
+                    for v in ess_values):
+            raise ValueError("Invalid checkpoint progress")
+        completed = (config.temperature_schedule[completed_stage - 1]
+                     if config.temperature_schedule else
+                     completed_stage / config.temperatures) \
+                     if completed_stage else 0.
+        rng.bit_generator.state = state["rng_state"]
+
+    def emit_checkpoint() -> None:
+        if checkpoint is None:
+            return
+        state = {
+            "particles": particles.tolist(),
+            "joints": joints.tolist(),
+            # Explicit strings represent legitimate negative-infinite log
+            # densities without nonstandard JSON numeric extensions.
+            "base_weights": [str(float(v)) for v in base_weights],
+            "likelihoods": [str(float(v)) for v in likelihoods],
+            "weights": weights.tolist(),
+            "ancestors": ancestors.tolist(),
+            "evaluations": evaluations,
+            "initial_finite": initial_finite,
+            "completed_stage": completed_stage,
+            "accepted": accepted,
+            "attempted": attempted,
+            "resampling_count": resampling_count,
+            "ess_values": ess_values,
+            "rng_state": rng.bit_generator.state
+        }
+        checkpoint(
+            SamplerCheckpoint(
+                signature, json.dumps(state, sort_keys=True, allow_nan=False)))
 
     def evaluate(candidate: np.ndarray) -> Tuple[float, float, np.ndarray]:
         nonlocal evaluations
@@ -340,17 +442,19 @@ def sample_batch(
             if conditional else "offline_tempered_smc_box")
 
     try:
-        for i in range(count):
-            likelihoods[i], base_weights[i], joints[i] = evaluate(particles[i])
-            initial_finite += int(math.isfinite(likelihoods[i]))
-        if not initial_finite:
-            # This is not proof the model/data are impossible: a finite
-            # initialization may simply have missed valid support.
-            return result("no_particle_support")
-        if conditional:
-            weights = np.exp(base_weights - np.max(base_weights))
-            weights /= weights.sum()
-        for stage in range(1, config.temperatures + 1):
+        if resume is None:
+            for i in range(count):
+                likelihoods[i], base_weights[i], joints[i] = evaluate(
+                    particles[i])
+                initial_finite += int(math.isfinite(likelihoods[i]))
+            if not initial_finite:
+                # Finite initialization may simply have missed valid support.
+                return result("no_particle_support")
+            if conditional:
+                weights = np.exp(base_weights - np.max(base_weights))
+                weights /= weights.sum()
+            emit_checkpoint()
+        for stage in range(completed_stage + 1, config.temperatures + 1):
             beta = config.temperature_schedule[stage - 1] if \
                 config.temperature_schedule else stage / config.temperatures
             # Center before multiplication to avoid loss of stability from
@@ -417,6 +521,8 @@ def sample_batch(
                         joints[i] = proposed_joint
                         accepted += 1
             completed = beta
+            completed_stage = stage
+            emit_checkpoint()
         return result("complete")
     except _BudgetExceeded:
         return result("budget_exhausted")
