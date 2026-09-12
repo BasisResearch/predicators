@@ -32,6 +32,10 @@ Subsequent predictions use the applied values merged with the program's declared
 Predictions replay each complete recorded action sequence from its initial observation using the incumbent's existing rest-start assumption.
 The original observation ledger is checked again after fitting to detect unintended mutation.
 Worker time, constructed worlds, rollout calls and primitive simulation steps are recorded alongside per-feature prediction errors.
+The experiment retains six configured rollout workers and requests six CPUs.
+Step and world telemetry is collected at disconnection in each process, so completed child rollouts are included instead of reporting only parent-process work.
+Running reports exclude unfinished child worlds until their disconnection; final reports include them.
+Jobs `22638339_0` and `_1` verified this accounting for Domino and Fan using four three-step rollouts across two forked workers: each report contained exactly 12 steps and five worlds including the unstepped reference world.
 
 Canonical object ordering is a declared runtime control shared with the new initialization path.
 It is not a claim of bitwise reproduction of historical fit calls with their original insertion order and carried history.
@@ -67,7 +71,7 @@ Fan's full initial-state prior, including static layout and articulated switch s
 
 ## Submitted comparison jobs
 
-Array `22637957` is submitted to `mit_preemptable`, pinned to the same `node1412` CPU and explicit Python hash seed as the controlled Domino posterior runs.
+Array `22638308` is submitted to `mit_preemptable`, pinned to the same `node1412` CPU and explicit Python hash seed as the controlled Domino posterior runs.
 
 | Array task | Domain | Fitting data | Prediction use |
 | --- | --- | --- | --- |
@@ -83,8 +87,9 @@ The eight-hour job limit is an external compute cap, not a statistical stopping 
 
 The first preflight failed only on Fan because it assumed every visible environment had `_components`.
 The corrected object lookup supports direct environment-owned objects as well as optional components.
-The still-pending first comparison array `22637634` was cancelled before execution after that setup failure; its replacement is `22637957`.
+The still-pending first comparison array `22637634` was cancelled before execution after that setup failure.
+Its still-pending replacement `22637957` was superseded by `22638308` to allocate the configured six workers correctly and include child-process telemetry.
 Corrected preflight jobs `22637747_0` and `_1` both completed successfully.
 Infrastructure/setup outcomes are not agent seeds.
 
-Artifacts are in `logs/uncertainty_legacy_preflight_v2_20260912`, `logs/uncertainty_observation_state_v3_20260912` and `logs/uncertainty_legacy_comparison_v2_20260912`.
+Artifacts are in `logs/uncertainty_legacy_preflight_v2_20260912`, `logs/uncertainty_observation_state_v3_20260912`, `logs/uncertainty_legacy_telemetry_20260912` and `logs/uncertainty_legacy_comparison_v3_20260912`.
