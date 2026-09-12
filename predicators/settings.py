@@ -156,6 +156,8 @@ class GlobalSettings:
     # certifies a placement over where its target may really be. Off,
     # or an exact channel: the raw frame, the hard atom check and no
     # belief draws.
+    # Keep point-state smoothing when explicit uncertainty decisions are off.
+    continual_uncertainty_decisions = True
     continual_belief_frame = False
     continual_belief_window = 8
     continual_belief_sigmas = 3.0

@@ -687,6 +687,9 @@ class ContinualRun:
             true_state, lv.index, self._episode_index(), runner.num_steps)
         if not truth:
             frame = self._execution_frame(frame)
+        belief = None if truth else self.belief()
+        if belief is not None and not CFG.continual_uncertainty_decisions:
+            frame = belief.frame
         evaluation = None
         if runner.episode_state is not EpisodeState.NOT_FINISHED:
             evaluation = runner.evaluate()
@@ -700,7 +703,7 @@ class ContinualRun:
             evaluation=evaluation,
             ledger=self.ledger(),
             skills=self.skills,
-            belief=None if truth else self.belief(),
+            belief=belief,
         )
 
     def ledger(self) -> Ledger:
@@ -825,7 +828,12 @@ class ContinualRun:
         present = set(expected_absent or set()) & atoms_after
         fractions: Dict[GroundAtom, float] = {}
         belief = self.belief()
-        if belief is not None and (expected or expected_absent):
+        if belief is not None and not CFG.continual_uncertainty_decisions:
+            point_atoms = runner.abstract(belief.frame)
+            missing = set(expected) - point_atoms
+            present = set(expected_absent or set()) & point_atoms
+        if (belief is not None and CFG.continual_uncertainty_decisions
+                and (expected or expected_absent)):
             # The likelihood test: an expected atom is missing when it
             # holds on fewer than half the draws of the belief, so a
             # frame's own noise never reads as a divergence.

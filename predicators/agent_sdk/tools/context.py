@@ -59,6 +59,8 @@ class ToolContext:
     # sessions - the deployed belief model is fixed there, so the probe
     # rejects ``fit`` calls.
     probe_fit_provider: Optional[Callable[..., str]] = None
+    # Standalone program models cannot request engine replay diagnostics.
+    probe_engine_available: bool = True
     # Synthesis-session loaders behind ``sim.predicates()`` and
     # ``sim.samplers()``: each reloads the agent-authored file fresh
     # (predicates.py / samplers.py), installs the result into the
@@ -106,6 +108,8 @@ class ToolContext:
     # Refresh inferred memory after a model edit/refit before a current-state
     # probe. Continual MB sessions install this; other sessions keep None.
     current_observation_provider: Optional[Callable[[], State]] = None
+    # Arm-specific invariant checked before any charged continual request.
+    before_real_action: Optional[Callable[[], None]] = None
     # The execution-time belief over it (observation_belief.BeliefFrame)
     # when the run carries one, so sim.run(belief_draws=K) draws from
     # the belief the agent was shown.

@@ -203,7 +203,7 @@ def format_observation(obs: "ProtocolObservation",
     lines.append("[atoms] " + (", ".join(env_origin) or note or "(none)"))
     if invented:
         lines.append("[your predicates] " + ", ".join(invented))
-    if obs.belief is not None:
+    if obs.belief is not None and CFG.continual_uncertainty_decisions:
         try:
             fractions = atom_fractions(
                 obs.belief, set(ctx.predicates),
@@ -224,7 +224,8 @@ def format_observation(obs: "ProtocolObservation",
     if with_state:
         lines.append("[objects]")
         lines.append(obs.frame.dict_str(indent=2, num_decimal_points=4))
-        if obs.belief is not None and obs.belief.frames_used:
+        if (obs.belief is not None and obs.belief.frames_used
+                and CFG.continual_uncertainty_decisions):
             lines.append("[belief] each object smoothed over the frames it "
                          "rested through (value+-spread):")
             for obj in sorted(obs.frame, key=lambda o: o.name):
@@ -388,6 +389,8 @@ def build_continual_tools(
         def attempted() -> None:
             state.charged_calls += 1
 
+        if ctx.before_real_action is not None:
+            ctx.before_real_action()
         observer = observer or ExecutionObserver()
         observer.on_attempt = attempted
         await session.executor.execute(request, progress, observer)
