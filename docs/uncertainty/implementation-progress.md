@@ -22,6 +22,8 @@ The separate offline prototype now defines program, prior, sensor-model, runtime
 Real training recordings now pass the corrected reader and content-addressed snapshot audit in all five domains.
 The reader reconstructs the seeded observation channel from stored sanitized truth; it does not expose the noiseless stored poses as inference observations.
 Complete simulator runtime and resource closure is still pending.
+Explicit working-directory files, optional-file absence, and the complete child environment now have an immutable `RuntimeInputs` contract.
+Fresh-process balloons replay validates this portion of the runtime identity; native dependencies and arbitrary external reads remain outside that guarantee.
 The existing legacy cache key is not represented as an immutable statistical data identity.
 There is no new public estimator flag or agent-facing tool output in this chunk.
 
@@ -256,6 +258,22 @@ Compute job `22627437` passed 15 functional tests, mypy, configured lint, and pi
 An eight-seed importance-sampling reference passed its predeclared checks in 8/8 runs at 8,192 particles and 5/8 at 512 particles; the smaller-budget failures remain recorded.
 The existing SMC and production fitting paths are unchanged, and these references are not agent solve-rate seeds.
 
+The next velocity component is implemented as an explicit rest atom plus an isotropic Gaussian moving component.
+Exact rest retains the prior atom's mass, while positive speed retains the Maxwell radial-density factor and two uncertain direction coordinates.
+This is a normalized component prior, not a completed joint scene prior; hyperparameters and dependencies still need specification.
+Validation `22628133` passed 19 functional tests and focused type/lint/format checks.
+
+Runtime reproduction `22628126` found up to 0.4961 m of predicted balloon-height change from an optional parameter sidecar, despite unchanged program bytes and declared parameters.
+The new working-directory input contract distinguishes present/absent files and fixes the child environment.
+Fresh-process validation `22628194` gave identical repeated feature predictions within each condition and distinct runtime-input identities between them.
+Contract validation `22628197` passed 13 functional tests and focused type/lint/format checks.
+The velocity and runtime suites therefore cover 32 distinct functional tests in this chunk.
+
+Bridge audit `22628262` establishes a separate model-adequacy obstruction: the frozen no-op model keeps glue attributes constant, but four exact recorded glue attributes change.
+Under this reviewed invariant, the full sensor-only target is inconsistent regardless of initial-state prior or sampling budget.
+This case must return unavailable inference with its model contradiction visible; it is not a finite-search failure or a successful posterior with ordinary predictive residuals.
+See [the experiment record](experiments-20260912.md#a-structural-exact-output-contradiction-in-the-frozen-bridge-model).
+
 | Stage | Required work before advancement |
 | --- | --- |
 | A: probability model | Complete the five domain initial-state inventories, exact-conditioning construction and reference checks, full runtime capture, and feasible physical initial-state priors; existing numerical and recording references pass at the tested budget. |
@@ -276,6 +294,8 @@ Later stages are not implicitly complete because an offline interface exists.
 ## Next gate
 
 Finish Stage A by defining candidate initialization and priors with valid geometric and attachment support, completing runtime artifact capture, and resolving exact-output feasibility.
+Retain the explicit Bridge inconsistency control while constructing supported positive cases.
+Explaining that full recording requires model revision or a separately declared discrepancy model; additional state uncertainty alone cannot resolve the invariant contradiction.
 Complete the per-domain inventories before choosing physical sampling proposals.
 Exact predicted features must reject contradictions, while continuous exact observations require a valid conditional representation rather than generic sampling followed by an equality check.
 Distinguish failed feasible-candidate search from demonstrated model inconsistency, and identify conditioned inputs explicitly.
