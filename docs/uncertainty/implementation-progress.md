@@ -371,6 +371,11 @@ It preserves source likelihoods, refuses noisy or missing sources, and returns n
 The runtime-derived finger map matches all 1,983 public frames across the five development domains; the integrated reducer also rejects all 1,983 perturbed-readout controls.
 This removes a redundant finger constraint after verification, without relaxing the underlying joint observation or changing production observations.
 
+The subsequent [native Euler support audit](observation-reductions.md#native-euler-readout-support) rejects a proposed canonical-angle assumption.
+Of 1,983 recorded robot orientations, 1,310 have pitch exactly positive pi/2 and zero roll, including 31 whose native yaw lies outside [-pi, pi].
+Direct conversion probes reproduce collapse to the pole across a nonzero range of requested pitch values.
+The audit preserves those readings as valid evidence and leaves their coupled likelihood unresolved; independent continuous angle densities or silent wrapping are not a validated replacement.
+
 ## Next gate
 
 Finish Stage A by defining candidate initialization and priors with valid geometric and attachment support, completing runtime artifact capture, and resolving exact-output feasibility.
