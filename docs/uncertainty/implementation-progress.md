@@ -352,6 +352,11 @@ Stage A remains incomplete until physical initial-state support, exact-output fe
 No posterior estimator has been deployed to the acting agent.
 Later stages are not implicitly complete because an offline interface exists.
 
+The [explicit transition-discrepancy reference](transition-discrepancy.md) now implements analytic conditioning of a rest/Gaussian velocity transition on exact speed.
+It retains the noncentral radial density and directional uncertainty instead of inflating sensor variance or projecting without a likelihood factor.
+This is a separately declared stochastic model extension, motivated by the unresolved deterministic contact constraints.
+The recorded Balloons diagnostic tests conditional prefixes and unconditioned future continuations; it is not a posterior comparison or agent result.
+
 ## Next gate
 
 Finish Stage A by defining candidate initialization and priors with valid geometric and attachment support, completing runtime artifact capture, and resolving exact-output feasibility.
