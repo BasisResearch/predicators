@@ -1,0 +1,90 @@
+# Offline fitter comparison setup
+
+September 12, 2026.
+
+This comparison connects the incumbent's complete fitting pipeline to the same public observation ledger used by the posterior experiments.
+It is a cold-fit development comparison on fixed programs, not a reconstruction of historical agent conversations or evidence of closed-loop improvement.
+The [simplification proposal](simplification-proposal.md) still requires independent posterior validation, prediction comparisons and matched live runs before retirement.
+
+## Shared evidence and legacy path
+
+`RecordingProjection.to_state()` reconstructs object features and public joint/base observations using object handles owned by the visible model.
+It preserves the supplied floating-point values, creates new feature arrays and uses canonical object insertion order.
+It rejects missing features, unmatched objects, duplicate handles, unknown channels, discontinuous joint indices and incomplete base poses.
+It does not read private recording velocities, attachment frames, inferred memory or evaluator state.
+Its result is an observation frame for the incumbent fitter, not a feasible physical initial state for joint inference.
+
+Both paths use the same declared step-keyed noise reconstructed by `load_recorded_level()`.
+The adapter verifies an exact projection round trip before a frame reaches the legacy fitter.
+The compute preflight checked all 162 Domino frames and 133 Fan frames from the selected first training levels, with no changed or dropped public values.
+These recordings contain 161 and 132 actions respectively, each in one reset episode.
+Seven functional tests and two-file type/lint/format checks passed in job `22637746`.
+
+The comparison invokes the frozen approach's actual `_rollout_fit_trajectories()` preparation, followed by `run_rollout_sysid()`.
+It retains the configured settled-tail truncation, rest segmentation, noise filter, residual scaling, trimming, identifiability reports, interval handling, evidence calculation and trust selection.
+It does not replace the incumbent with a least-squares proxy.
+Registry scale stamping and prior anchors are obtained from the same visible model.
+The comparison starts with no carried fit history or cache, making the meaning of a cold fit explicit even though the experiment configuration enables carrying for successive fits.
+Sequential carried-prior comparisons remain a separate required comparison.
+
+Reports retain fitted and applied parameters separately.
+Subsequent predictions use the applied values merged with the program's declared initial values, which exposes refusals to apply a fit rather than silently evaluating an unpublished optimum.
+Predictions replay each complete recorded action sequence from its initial observation using the incumbent's existing rest-start assumption.
+The original observation ledger is checked again after fitting to detect unintended mutation.
+Worker time, constructed worlds, rollout calls and primitive simulation steps are recorded alongside per-feature prediction errors.
+
+Canonical object ordering is a declared runtime control shared with the new initialization path.
+It is not a claim of bitwise reproduction of historical fit calls with their original insertion order and carried history.
+Keep runtime-control changes separate from estimator effects in the final matched agent experiments.
+No acting-agent code or production defaults were changed by this comparison setup.
+
+## Fan prior provenance
+
+The saved Fan programs have identical dynamics-method syntax after excluding docstrings, but their parameter declarations changed:
+
+| Version | Initial speed | Declared bounds | Optimizer scale |
+| --- | --- | --- | --- |
+| 1 | 0.05 | [0, 1] | Log, invalid with zero lower bound |
+| 2 | 0.05 | [0.001, 2] | Log |
+| 3 | 0.0846 | [0.077, 0.092] | Linear |
+
+Version 3 explicitly derives its narrow interval from the recorded trajectory.
+Reusing that interval as an independent original Bayesian prior would reuse information from the fitting data.
+The earliest optimizer declaration also cannot define a proper log-uniform prior on its support: the integral diverges at zero, and the repository rejects the declaration.
+The invalid original artifact is retained rather than silently changing its bound or importing it as if executable.
+
+For the planned posterior comparison, declare `fan_speed ~ Uniform(0, 1)` using the earliest saved support and an explicit normalized density.
+This is a new, fixed experimental prior declaration, not a claim that the incumbent had this probability distribution or that optimizer scale determines prior density.
+It does not reuse the fitted value or narrow fitted interval as its center or support.
+The program itself was synthesized from training data, so this is a fixed-program development comparison, not evidence of prior specification before all observation of the domain.
+
+The latest executable program remains fixed.
+A compute-node audit confirmed that its parameter override accepts 0, 0.5 and 1 exactly without clipping to its current fitting bounds.
+The method-syntax check confirmed the same dynamics across all three saved versions.
+The legacy arm retains its current declarations and fitting bounds; its prior and deployment policy are part of the incumbent algorithm being compared.
+A future ablation must separate the effect of the fixed original prior from uncertain-state inference.
+Fan's full initial-state prior, including static layout and articulated switch state, still requires completion before a physical joint-posterior comparison.
+
+## Submitted comparison jobs
+
+Array `22637957` is submitted to `mit_preemptable`, pinned to the same `node1412` CPU and explicit Python hash seed as the controlled Domino posterior runs.
+
+| Array task | Domain | Fitting data | Prediction use |
+| --- | --- | --- | --- |
+| 0 | Domino | Initial frame and first 64 actions | Remaining 97 actions held out from this fit |
+| 1 | Fan | Initial frame and first 64 actions | Remaining 68 actions held out from this fit |
+| 2 | Domino | All 161 training actions | Reconstruction; no unused suffix in this recording |
+| 3 | Fan | All 132 training actions | Reconstruction; no unused suffix in this recording |
+
+The suffixes are not established as unseen during historical program synthesis.
+Completion will supply incumbent prediction baselines; it cannot by itself establish posterior numerical adequacy or an agent advantage.
+The frozen worker uses historical runtime `b09217bb3` plus the identified offline modules, the same physics source as the current Domino posterior pilots.
+The eight-hour job limit is an external compute cap, not a statistical stopping criterion or evidence that an interrupted fit completed.
+
+The first preflight failed only on Fan because it assumed every visible environment had `_components`.
+The corrected object lookup supports direct environment-owned objects as well as optional components.
+The still-pending first comparison array `22637634` was cancelled before execution after that setup failure; its replacement is `22637957`.
+Corrected preflight jobs `22637747_0` and `_1` both completed successfully.
+Infrastructure/setup outcomes are not agent seeds.
+
+Artifacts are in `logs/uncertainty_legacy_preflight_v2_20260912`, `logs/uncertainty_observation_state_v3_20260912` and `logs/uncertainty_legacy_comparison_v2_20260912`.

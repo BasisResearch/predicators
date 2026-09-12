@@ -14,13 +14,16 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, FrozenSet, Iterable, List, \
     Mapping, Optional, Set, Tuple
 
+import numpy as np
+
 from predicators.code_sim_learning.inference_data import EpisodeData, \
     FeatureKey, InferenceData, Observation, SensorFeature, SensorModel, \
     content_digest
 from predicators.observation_noise import ObservationNoise, step_rng
+from predicators.utils import PyBulletState
 
 if TYPE_CHECKING:
-    from predicators.structs import State
+    from predicators.structs import Object, State
 
 
 @dataclass(frozen=True)
@@ -180,6 +183,61 @@ class RecordingProjection:
                 values.extend((("__proprioception__", label, str(i)), float(v))
                               for i, v in enumerate(coordinates))
         return Observation(step, tuple(values))
+
+    def to_state(self, observation: Observation,
+                 objects: Iterable[Object]) -> State:
+        """Rebuild public values for legacy fitting without private recordings.
+
+        Object handles must belong to the supplied model world and match
+        the measured schema exactly. Arrays are newly owned and object
+        insertion order is canonical. No poses are denoised, velocities
+        inferred or hidden memory restored. This observation frame is
+        not a feasible physical candidate for joint initial-state
+        inference.
+        """
+        values = dict(observation.values)
+        data = {}
+        seen = set()
+        for obj in sorted(objects, key=lambda o: (o.name, o.type.name)):
+            identity = (obj.name, obj.type.name)
+            if identity in seen or obj.name == "__proprioception__":
+                raise ValueError("Duplicate or reserved model object")
+            seen.add(identity)
+            keys = [(obj.name, obj.type.name, f)
+                    for f in obj.type.feature_names]
+            if not keys or any(key not in values for key in keys):
+                raise ValueError("Missing measured object feature")
+            data[obj] = np.array([values.pop(key) for key in keys],
+                                 dtype=float)
+        coordinates: Dict[str, Dict[int, float]] = {}
+        for (name, kind, index), value in values.items():
+            if name != "__proprioception__" or kind not in ("joint_positions",
+                                                            "base_position",
+                                                            "base_quaternion"):
+                raise ValueError("Unknown measured feature")
+            if not index.isdecimal() or str(int(index)) != index:
+                raise ValueError("Noncanonical proprioception index")
+            coordinates.setdefault(kind, {})[int(index)] = value
+        metadata: Dict[str, Any] = {}
+        for kind, entries in coordinates.items():
+            if set(entries) != set(range(len(entries))):
+                raise ValueError("Discontinuous proprioception indices")
+        if "joint_positions" in coordinates:
+            joints = coordinates["joint_positions"]
+            metadata["joint_positions"] = [
+                joints[i] for i in range(len(joints))
+            ]
+        if "base_position" in coordinates or "base_quaternion" in coordinates:
+            position = coordinates.get("base_position", {})
+            quaternion = coordinates.get("base_quaternion", {})
+            if len(position) != 3 or len(quaternion) != 4:
+                raise ValueError("Incomplete measured base pose")
+            metadata["base_pose"] = (tuple(position[i] for i in range(3)),
+                                     tuple(quaternion[i] for i in range(4)))
+        state = PyBulletState(data, simulator_state=metadata)
+        if self.observe(observation.step, state) != observation:
+            raise ValueError("Observation reconstruction changed values")
+        return state
 
 
 @dataclass(frozen=True)

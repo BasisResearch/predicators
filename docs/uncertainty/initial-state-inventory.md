@@ -93,6 +93,10 @@ The supplied [visible base source](../../predicators/envs/pybullet_fan_base.py) 
 | Switch and target events | Exact `is_on` and `is_hit` | Event-consistent dynamics and initial articulated configuration | Discrete cases consistent with observed flags and public mechanisms | Indicators for predicted events; observed initial flags constrain cases | Compatible event cases, not extra continuous noise |
 | Frozen program memory | No declared memory | Invalid parameter declarations in the earliest version | Keep invalid logarithmic bounds classified as setup failures | Do not repair bounds silently for an inference comparison | Zero declared memory coordinates |
 
+The later [prior-provenance audit](offline-fitter-comparison.md#fan-prior-provenance) verifies identical dynamics methods across all three saved Fan versions and distinguishes optimizer declarations from probability densities.
+The planned posterior comparison uses an explicitly declared uniform prior on the earliest [0, 1] support with the latest executable program; the invalid earliest artifact remains unchanged.
+This resolves that parameter-prior choice for the development experiment, but not the static-layout, contact or articulated-state rows above.
+
 ## Domino
 
 The recording contains six dominoes and the robot.

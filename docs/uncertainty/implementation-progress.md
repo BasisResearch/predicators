@@ -397,6 +397,12 @@ New pilots pin the candidate-generation runtime and factor the initial observati
 The explicit-schedule sampler passed 19 functional tests, type/lint/format checks and eight exact default-parity comparisons.
 The new physical fits remain experimental until independent agreement, budget sensitivity and prediction checks establish usable inference.
 
+The [full legacy comparison setup](offline-fitter-comparison.md) now consumes the same reconstructed noisy public frames through a checked observation-to-state adapter.
+All 295 Domino and Fan training frames round-trip exactly; seven functional tests and focused type/lint/format checks pass.
+Four cold-fit comparisons are submitted for the two 64-action windows and the two complete training recordings, using the actual legacy preparation and orchestration pipeline.
+The Fan audit separates its earliest broad support from later data-derived bounds and declares a fixed uniform prior for future posterior experiments without changing the latest program dynamics.
+These are comparison inputs and submitted experiments, not completed Stage B evidence or a production replacement.
+
 ## Next gate
 
 Finish Stage A by defining candidate initialization and priors with valid geometric and attachment support, completing runtime artifact capture, and resolving exact-output feasibility.
