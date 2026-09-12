@@ -43,6 +43,26 @@ Replacing it with the simulator's original direction, or with its conditional me
 The implementation reports floating-point reconstruction error separately from the likelihood.
 It does not accept an arbitrary band around an exact speed observation.
 
+### Unconditional future transitions
+
+`VelocityDiscrepancy.sample` generates the original rest/Gaussian law around the predicted velocity using an explicit local random-number generator.
+It takes no observed speed or conditional direction coordinate.
+The rest branch returns zero velocity; the moving branch draws all three Cartesian components from the declared Gaussian.
+Nonfinite predictions and overflowing draws raise errors rather than being clipped.
+The caller applies the correction at the same physical boundary as fitting and retains the native angular velocity.
+Extracting the existing diagnostic branch into this method preserves its random draws and generator state exactly.
+
+For mean velocity `mu`, the generated mixture has mean `(1-rho) * mu` and covariance `(1-rho) * sigma_v**2 * I + rho * (1-rho) * mu * mu.T`.
+The tests check these moments, the rest frequency, and speed probabilities against an independent noncentral chi-squared reference, including central, shifted and pure-rest cases.
+Compute job `22652447` passed all 25 transition/conditioning tests, two-file mypy and pylint, and pinned formatting checks.
+The frozen sources and reports are in `logs/uncertainty_transition_generation_checks_20260912`.
+
+Unconditional generation does not replace the exact-speed density used to evaluate a future recording.
+A finite collection of unconditional velocity draws almost surely misses any specified positive speed exactly.
+Treating those samples as exact-output equality components would incorrectly assign zero predictive density to supported observations.
+Future-density evaluation must retain the radial density and integrate conditional directions, together with the Gaussian joint-position transition factors and subsequent physical history.
+Sampling future observations and evaluating their density therefore have distinct computational paths under this mixed continuous/discrete transition model.
+
 ## Recorded Balloons diagnostic
 
 The current frozen diagnostic bundle is `logs/uncertainty_balloons_transition_v3_20260912`.

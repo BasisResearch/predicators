@@ -203,3 +203,42 @@ The [pilot manifest](../../logs/uncertainty_balloons_joint_pilot_20260912/plan.j
 The original geometry normalizer and fixed initial robot-output factors cancel from these posterior comparisons; the pilots do not estimate model evidence.
 Their numerical availability remains unevaluated until the separate assessment is complete.
 No resulting parameter distribution is routed to the acting agent by this experiment.
+
+## Unconditional future-generation audit
+
+Compute job `22652531` validates the generation half of the stochastic forecast using the same mapped support witness and frozen learned program as the joint sampler preflight.
+It first reproduces the complete 235-action conditional path factor exactly as `-33314.92152710342`.
+It then holds the first 64 conditional actions and their direction coordinates fixed and generates eight different 32-action physical futures.
+The witness was previously selected using the full training recording; this is a mechanical integration check, not a prefix-fitted posterior or an independent held-out estimator comparison.
+
+During future generation, the nine joint-position corrections are unconditional Gaussian draws with standard deviation 0.001.
+Box linear velocity is drawn through `VelocityDiscrepancy.sample` with rest probability 0.1 and moving scale 0.01, retaining angular velocity.
+The predicted link-cache observation phase, attachments, discrete events and simulator memory retain the existing transition protocol.
+The generator's observation lookup table contains only the initial frame and 64 prefix readings, so attempting to retrieve a future reading would fail.
+Recorded future speeds and joints never determine the future corrections.
+
+All eight physical paths repeat exactly in fresh worlds, and all eight retain exactly the same conditional prefix as the full-recording reference.
+Their future paths differ across process-noise seeds.
+For two seeds, the complete generated paths also match the earlier inline velocity-draw implementation exactly.
+The audit performs 1,963 native actions, including the full reference, repeated paths and inline-draw comparisons.
+It runs on `node1381`, with the same Intel Xeon Gold 6230 CPU model as the original `node1391` preflight, and records its actual runtime.
+
+Each physical path then generates a complete 32-frame observation future with all 58 public fields.
+Robot xyz output errors use only the fitted prefix; Euler and sensor draws follow their declared laws, and the finger readout follows its sampled source coordinate.
+Exact fields without an assigned output-discrepancy factor retain their generated physical values.
+The observation draws repeat with the same output seed and never feed back into physical simulation.
+Prefix speed is omitted only from the output-error conditioning input because its density is already represented by the physical transition factor; generated future speed remains present.
+
+Across the 256 generated future transitions, the rest branch occurs 25 times.
+The 2,304 joint-position innovations have empirical mean `1.0623e-6` and standard deviation `0.0010270`.
+These are descriptive generation diagnostics, not posterior predictive calibration or task outcomes.
+The separate component tests validate the velocity mixture's moments, rest probability and speed CDF against independent probability references.
+
+The original audit `22652483` reproduced the full conditional score but failed an assertion that incorrectly required robot xyz output-discrepancy draws to equal their native values.
+The corrected assertion exempts all assigned output factors; the transition law and sampled paths were unchanged.
+That failed diagnostic remains archived.
+The successful report, source hashes, candidate coordinates and per-seed physical/observation artifacts are in `logs/uncertainty_balloons_future_generation_v2_20260912`.
+
+This audit supplies unconditional physical and observation generation, not the complete stochastic posterior forecast interface.
+Numerically assessed joint posterior weights and integration over future transitions remain required.
+In particular, future-density evaluation must use Gaussian joint and radial speed factors with conditional-history integration, rather than treating finitely many unconditional paths as exact-output equality components.

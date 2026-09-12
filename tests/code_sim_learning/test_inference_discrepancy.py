@@ -5,6 +5,7 @@ import math
 import numpy as np
 import pytest
 from scipy.integrate import quad
+from scipy.stats import ncx2
 
 from predicators.code_sim_learning.inference_conditioning import \
     ConditioningNumericalError, RestOrGaussianVelocityPrior, \
@@ -122,3 +123,46 @@ def test_invalid_laws_and_numerical_failure_are_explicit() -> None:
                                                            (.5, .5))
     assert model.digest != VelocityDiscrepancy(.2, .2).digest
     assert model.digest != VelocityDiscrepancy(.1, .3).digest
+
+
+@pytest.mark.parametrize("rest_probability", [0., .3, 1.])
+@pytest.mark.parametrize("predicted", [(0., 0., 0.), (.4, -.3, .8)])
+def test_unconditional_draws_match_mixture_moments_and_speed_law(
+        rest_probability, predicted):
+    """Generated transitions retain rest mass and the noncentral speed law."""
+    sigma = .2
+    model = VelocityDiscrepancy(rest_probability, sigma)
+    rng = np.random.default_rng(82)
+    draws = np.array([model.sample(predicted, rng) for _ in range(24000)])
+    mean = np.array(predicted)
+    expected_mean = (1 - rest_probability) * mean
+    covariance = (1 - rest_probability) * sigma**2 * np.eye(3) + \
+        rest_probability * (1 - rest_probability) * np.outer(mean, mean)
+    assert draws.mean(axis=0) == pytest.approx(expected_mean, abs=.012)
+    assert np.cov(draws.T) == pytest.approx(covariance, abs=.012)
+    speeds = np.linalg.norm(draws, axis=1)
+    assert np.mean(speeds == 0.) == pytest.approx(rest_probability, abs=.012)
+    for speed in (.2, .6, 1.2):
+        expected = rest_probability + (1 - rest_probability) * \
+            ncx2.cdf((speed / sigma)**2, 3, float(mean @ mean) / sigma**2)
+        assert np.mean(speeds <= speed) == pytest.approx(expected, abs=.012)
+
+
+def test_transition_draw_preserves_existing_random_stream():
+    """Extracting the existing native branch leaves generated paths intact."""
+    model = VelocityDiscrepancy(.3, .2)
+    predicted = (.4, -.3, .8)
+    old_rng = np.random.default_rng(23)
+    new_rng = np.random.default_rng(23)
+    for _ in range(100):
+        old = tuple(float(v) for v in old_rng.normal(predicted, model.sigma)) \
+            if old_rng.random() >= model.rest_probability else (0., 0., 0.)
+        assert model.sample(predicted, new_rng) == old
+    assert old_rng.random() == new_rng.random()
+    for invalid in ((math.nan, 0., 0.), (math.inf, 0., 0.), (0., 0.)):
+        with pytest.raises(ValueError, match="three finite"):
+            model.sample(invalid, new_rng)
+    with np.errstate(over="ignore"), \
+            pytest.raises(ConditioningNumericalError, match="overflow"):
+        VelocityDiscrepancy(0., 1e308).sample((1.7e308, 1.7e308, 1.7e308),
+                                              np.random.default_rng(4))

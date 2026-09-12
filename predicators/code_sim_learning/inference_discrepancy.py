@@ -126,6 +126,26 @@ class VelocityDiscrepancy:
         return ConditionedVelocity(velocity, 2, log_factor,
                                    abs(math.hypot(*velocity) - speed))
 
+    def sample(self, predicted: Tuple[float, float, float],
+               rng: np.random.Generator) -> Tuple[float, float, float]:
+        """Draw the original transition law without observing future speed.
+
+        The rest branch sets velocity to zero; the moving branch adds
+        isotropic Gaussian noise around the native prediction. The
+        caller supplies a local generator and applies the draw at the
+        declared physical transition boundary, retaining any angular
+        velocity. This does not score exact speed or condition on a
+        future reading.
+        """
+        if len(predicted) != 3 or any(not math.isfinite(v) for v in predicted):
+            raise ValueError("Predicted velocity needs three finite values")
+        if rng.random() < self.rest_probability:
+            return (0., 0., 0.)
+        values = rng.normal(predicted, self.sigma)
+        if any(not math.isfinite(v) for v in values):
+            raise ConditioningNumericalError("Sampled velocity overflow")
+        return (float(values[0]), float(values[1]), float(values[2]))
+
 
 def _radial_law(speed: float, mean: float,
                 sigma: float) -> Tuple[float, float]:
