@@ -87,3 +87,13 @@ This experiment establishes why a root solver's convergence flag alone is insuff
 
 Artifacts: [declared root law and source snapshot](../../logs/uncertainty_balloons_root_v4_20260912/plan.json), [all root samples and replay diagnostics](../../logs/uncertainty_balloons_root_v4_20260912/reference-22631706.json), [controlled support diagnostic](../../logs/uncertainty_balloons_support_20260912/reference-22631750.json).
 The [parameter-constraint diagnostic](../../logs/uncertainty_balloons_constraint_20260912/reference-22631837.json) preserves every scan point, root candidate, residual, derivative estimate, and later prediction error.
+
+The follow-up `22632107` varies supported-box xy and yaw instead of fixing the canonical pose.
+It obtains four admissible supported configurations per seed in 90 and 57 draws, then evaluates 21 damping values for each configuration.
+None of those eight scans finds a sign-changing bracket for the first-speed constraint.
+Their same-sign speed errors range in magnitude from approximately `3.57e-8` to `2.64e-6 m/s`.
+This finite scan is not proof that no solution exists, but it does not support extending the canonical damping-elimination chart across uncertain initial geometry.
+The [assessment](../../logs/uncertainty_balloons_supported_family_20260912/assessment.json) records the supported-component identity and corrects two inherited free-case metadata fields that were not used as weights in these diagnostics.
+
+The next diagnostic, `22632307`, varies box yaw as the eliminated coordinate while retaining uncertain xy and testing three native damping settings.
+It is a support investigation, not a posterior fit: root residuals, derivative variation, and unsearched brackets remain explicit.
