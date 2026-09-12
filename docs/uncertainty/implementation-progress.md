@@ -297,6 +297,13 @@ Fresh repeats and complete-prefix replay matched exactly, while finite-force wel
 Validation passed 21 functional tests and focused type, lint, and pinned formatting checks on compute nodes.
 These are known-geometry component references, not historical-domain posteriors; case probabilities, geometry uncertainty, full scene support, and robot-state priors remain unresolved.
 
+The offline [joint-state prior component](robot-state-prior.md) now retains exact initial-position density, unobserved joint positions, and explicit initial-velocity distributions or rest atoms.
+Validation passed 25 functional tests and focused type, lint, and pinned formatting checks.
+A visible-model audit restored 256 sampled joint states exactly across Bridge, Fan, Domino, and Boil, with 4 free coordinates in the declared rest component and 17 in the moving component.
+The same bounded prior is incompatible with the frozen balloons initial shoulder position; it correctly returns no conditional samples for that case.
+Head-geometry witnesses in all five domains show why identical public robot kinematics does not establish collision irrelevance of unobserved joints.
+These findings refine the remaining initialization-law and scene-support work rather than completing the full physical prior.
+
 | Stage | Required work before advancement |
 | --- | --- |
 | A: probability model | Complete the five domain initial-state inventories, exact-conditioning construction and reference checks, full runtime capture, and feasible physical initial-state priors; existing numerical and recording references pass at the tested budget. |
