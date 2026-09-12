@@ -88,6 +88,17 @@ class AgentContinualZeroShotApproach(AgentContinualApproach):
                 return no_fit()
             return residuals(**kwargs)
 
+        validation = ctx.probe_validation_provider
+        assert validation is not None
+
+        def frozen_validation(**kwargs: Any) -> str:
+            self._check_frozen_model()
+            if kwargs.get("params") is not None:
+                return ("Alternative parameter values are unavailable for "
+                        "the frozen model.")
+            return validation(**kwargs)
+
+        ctx.probe_validation_provider = frozen_validation
         ctx.probe_residuals_provider = frozen_residuals
         ctx.before_real_action = before_action
         return tools

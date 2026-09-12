@@ -34,8 +34,8 @@ from predicators.run import paths
 from predicators.run.episode import EpisodeOver, EpisodeRunner, EpisodeState, \
     InvocationOutcome, StepOutcome
 from predicators.run.interaction import InteractionExecutor
-from predicators.run.recording import LevelRecording, sanitize_state, \
-    states_close
+from predicators.run.recording import LevelRecording, restore_actions, \
+    sanitize_state, states_close
 from predicators.run.scorecard import EpisodeRecord, LevelCard, RunCard
 from predicators.settings import CFG
 from predicators.structs import Action, Dataset, EnvironmentTask, \
@@ -1062,8 +1062,8 @@ class ContinualRun:
 
     def previous_level_episodes(self,
                                 level_index: int) -> List[Dict[str, Any]]:
-        """A finished level's episodes from its recording (actions lose their
-        skill labels; prefer the arm's own memory when it has it)."""
+        """A finished level's episodes with portable recorded skill
+        identities."""
         path = paths.level_dir(self._run_dir, level_index)
         if not os.path.isdir(path):
             return []
@@ -1086,10 +1086,8 @@ class ContinualRun:
                     self._observed(s, level_index, ep["episode"], k)
                     for k, s in enumerate(ep["states"])
                 ],
-                "actions": [
-                    Action(np.array(a["arr"], dtype=np.float32))
-                    for a in ep["actions"]
-                ],
+                "actions":
+                restore_actions(ep["actions"], ep["states"][0], self.skills),
                 "end":
                 ep.get("end", "in_progress"),
                 "reward":
@@ -1191,7 +1189,8 @@ class ContinualRun:
         lv = self._card.levels[k]
         ckpt = self._recording.load_checkpoint()
         assert ckpt is not None
-        episode, action_arrs = self._recording.read_current_episode()
+        episode, action_records = self._recording.read_current_action_records()
+        action_arrs = [a["arr"] for a in action_records]
         now = time.time()
         lv.resumes += 1
         lv.preemptions += 1
@@ -1203,9 +1202,8 @@ class ContinualRun:
         self._replaying = True
         try:
             self._runner.reset(spec.split, spec.task_idx)
-            actions = [
-                Action(np.array(a, dtype=np.float32)) for a in action_arrs
-            ]
+            actions = restore_actions(action_records,
+                                      self._runner.observation(), self.skills)
             self._runner.replay(actions)
         finally:
             self._replaying = False
@@ -1392,10 +1390,9 @@ class ContinualRun:
                     ep["end"],
                     "states":
                     list(ep["states"]),
-                    "actions": [
-                        Action(np.array(a["arr"], dtype=np.float32))
-                        for a in ep["actions"]
-                    ],
+                    "actions":
+                    restore_actions(ep["actions"], ep["states"][0],
+                                    self.skills),
                 })
         if episodes and episodes[-1]["end"] == "in_progress":
             # Replace the live episode with the replayed one: same

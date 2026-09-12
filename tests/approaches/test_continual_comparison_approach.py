@@ -51,13 +51,15 @@ def test_comparison_config_matches_existing_domains(monkeypatch: Any) -> None:
             assert cfg.flags[key] == reference.flags[key], (cfg.env, key)
 
 
+@pytest.mark.parametrize("domain",
+                         ["boil", "bridge", "fan", "domino", "balloons"])
 @pytest.mark.parametrize(
     "arm", ["no_fitting", "no_uncertainty", "oracle_scene", "oracle_dynamics"])
-def test_ablation_play_tools(tmp_path: Any, monkeypatch: Any,
-                             arm: str) -> None:
+def test_ablation_play_tools(tmp_path: Any, monkeypatch: Any, arm: str,
+                             domain: str) -> None:
     """Real noisy observations retain means; tools enforce arm restrictions."""
     cfg = next(c for c in generate_run_configs(CONFIG, False)
-               if c.env == "pybullet_boil" and c.approach.endswith(arm))
+               if c.env == f"pybullet_{domain}" and c.approach.endswith(arm))
     _config(
         tmp_path, **{
             **{k: v
@@ -65,9 +67,10 @@ def test_ablation_play_tools(tmp_path: Any, monkeypatch: Any,
             False,
             "continual_make_video": False,
             "continual_runs_dir": str(tmp_path / "runs"),
+            "env": cfg.env,
             "approach": cfg.approach
         })
-    env = create_new_env("pybullet_boil", do_cache=False, use_gui=False)
+    env = create_new_env(cfg.env, do_cache=False, use_gui=False)
     agent: Any = create_approach(cfg.approach, env.predicates,
                                  get_gt_options(env.get_name()), env.types,
                                  env.action_space,
@@ -223,6 +226,8 @@ def test_zero_shot_seals_before_first_charge(tmp_path: Any,
         assert "step applied" in _call(agent, "env_step", action=action)
         saved = agent._extra_save_state()  # pylint: disable=protected-access
         assert saved["frozen_model_source"] == code
+        ctx = agent._tool_context  # pylint: disable=protected-access
+        assert "unavailable" in BeliefProbe(ctx).validate(params={"test": 2.0})
         path.write_text(code + "# edited after action\n", encoding="utf-8")
         assert "Dynamics are frozen" in _call(agent, "env_step", action=action)
         ctx = agent._tool_context  # pylint: disable=protected-access
@@ -299,3 +304,92 @@ def test_program_current_memory_replays_after_edits_and_reset(
     # Two two-step skills, one charged reset, and one primitive action.
     assert card.total_steps == 6
     assert card.total_resets == 1
+
+
+def _program_resume_stage(directory: str, stage: int) -> None:
+    """Drive one actual process of the standalone preemption audit."""
+    # pylint: disable=import-outside-toplevel,protected-access
+    from pathlib import Path
+
+    from predicators.run.checkpoints import maybe_auto_resume
+    from predicators.run.continual import run_continual
+    from tests.approaches.test_agent_continual_approach import _Killed
+    root = Path(directory)
+    _config(root,
+            approach="agent_continual_program_world_model",
+            max_num_steps_option_rollout=2,
+            auto_resume=stage == 2,
+            continual_make_video=False)
+    env = create_new_env("pybullet_boil", do_cache=False, use_gui=False)
+    agent: Any = create_approach("agent_continual_program_world_model",
+                                 env.predicates,
+                                 get_gt_options(env.get_name()), env.types,
+                                 env.action_space,
+                                 [t.task for t in env.get_train_tasks()])
+    if stage == 2:
+        maybe_auto_resume(agent)
+
+    def query(*_args: Any, **_kwargs: Any) -> Any:
+        ctx = agent._tool_context
+        path = Path(agent._resolve_synthesis_paths().base) / "world_model.py"
+        robot = next(o for o in ctx.current_observation
+                     if o.type.name == "robot")
+        if stage == 1:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                'LATENT_FEATURES = {}\n'
+                'def initial_latent(obs, rng):\n'
+                '    return {"count": 0}\n'
+                'def transition(obs, latent, option, rng):\n'
+                '    return obs.copy(), '
+                '{"count": latent["count"] + 1}, 2\n',
+                encoding="utf-8")
+            for _ in range(2):
+                _call(agent, "skills_invoke", skill=f"Wait({robot})[]")
+            _call(agent, "env_reset", note="new episode before preemption")
+            _call(agent, "skills_invoke", skill=f"Wait({robot})[]")
+            agent.save(0)
+            raise _Killed()
+        assert path.is_file()
+        probe = BeliefProbe(ctx).reset(current=True)
+        assert probe._state is not None
+        assert probe._state.latent == {"count": 1}
+        episodes = agent._play_session.level_episodes()
+        assert [len(ep["actions"]) for ep in episodes] == [4, 2]
+        _call(agent, "skills_invoke", skill=f"Wait({robot})[]")
+        probe = BeliefProbe(ctx).reset(current=True)
+        assert probe._state is not None
+        assert probe._state.latent == {"count": 2}
+        path.write_text(path.read_text().replace('+ 1', '+ 3'),
+                        encoding="utf-8")
+        probe = BeliefProbe(ctx).reset(current=True)
+        assert probe._state is not None
+        assert probe._state.latent == {"count": 6}
+        _call(agent, "give_up", note="resume audit complete")
+        return _result()
+
+    agent._query_agent_sync = query
+    if stage == 1:
+        with pytest.raises(_Killed):
+            run_continual(env, agent)
+    else:
+        card = run_continual(env, agent)
+        assert card.total_steps == 9 and card.total_resets == 1
+        assert card.levels[0].resumes == 1
+        assert card.levels[0].harness_resets == 0
+        assert card.end_reason == "agent_ended"
+
+
+def test_program_fresh_process_resume(tmp_path: Any) -> None:
+    """Resume skill identity and memory in an independent interpreter."""
+    import subprocess  # pylint: disable=import-outside-toplevel
+    for stage in (1, 2):
+        code = ('from tests.approaches.test_continual_comparison_approach '
+                'import _program_resume_stage\n'
+                f'_program_resume_stage({str(tmp_path)!r}, {stage})\n')
+        result = subprocess.run([sys.executable, "-c", code],
+                                check=False,
+                                capture_output=True,
+                                text=True,
+                                timeout=180)
+        assert result.returncode == 0, result.stdout + result.stderr

@@ -35,7 +35,7 @@ Inferred program memory is available at skill boundaries, not as a primitive-ste
 Checkpoint testing so far reloads approach artifacts in a live continual session; a fresh-process recording-resume audit remains required.
 Replay copies each recorded skill before calling model code so a prediction cannot mutate the recording's option memory; the stronger regression passed in job 22639480.
 Item 4 now has a frozen oracle approach and source generation for Domino, Fan, and original Balloons.
-Bridge still rejects setup until its observation-memory contract is implemented and audited.
+Bridge now has a native-process oracle with observation-derived curing and attachment memory, validated below.
 The old Balloons oracle rule module documents momentum loss when a release updates the state during motion, so copying that oracle unchanged would not satisfy the requested ground-truth dynamics comparison.
 The supplied Balloons subclass preserves momentum and pins the true lifts, masses, drag, and fade height.
 Nine mechanical checks passed in job 22639456: three source/calibration checks, two Balloons release schedules including a release during flight, and four Fan wind/contact cases.
@@ -76,3 +76,27 @@ Average steps only over whole-run successful seeds and state the qualifying coun
 Infrastructure failures and unfinished runs are not failed agent seeds.
 An oracle replay audit is mechanical validation, not an agent result.
 Preserve the existing MB/MF results and do not relaunch them as part of this sweep.
+
+## Bridge and resume validation
+
+The Bridge oracle freezes the native wetting, curing, temporary-tack, reciprocal-latch, and weld process into its supplied subclass.
+Its observation callback uses private symbolic records and object names, with no engine calls or live hidden state.
+Four mechanical checks passed in jobs 22641451 and 22641821, covering source loading, wetting, a flush curing/latching joint, an out-of-range joint, and restored weld cleanup.
+Five scene-calibration checks passed in job 22641850 under the actual sweep domain settings.
+They compare native/model body mass, friction, inertia, restitution, contact properties, and robot articulation, plus all Balloons material masses and drag.
+Calling the scene-only process hook leaves the state unchanged.
+These are mechanical checks and supply no agent outcomes.
+
+The separate-process standalone resume audit reproduced a recording bug in job 22641877.
+Replay preserved primitive action arrays but dropped their skill identity, making the recovered program-memory query reject the history as unsupported primitive actions.
+New recordings preserve exact skill arguments and distinct invocation boundaries in both the per-action log and episode snapshots.
+Resume and previous-level data restore those labels without executing skill policies or persisting privileged skill memory.
+Old recordings without that metadata remain primitive actions; rounded display labels are insufficient to recover exact parameters and consecutive identical invocations.
+The corrected fresh-process audit passed in job 22641928: completed-episode data, current-episode memory, subsequent action, model revision, and charged step/reset totals survived resume without a harness reset.
+
+The frozen-model validation API also exposed an alternate-parameter diagnostic route in job 22641899.
+It now refuses explicit parameter overrides alongside fitting and residual sweeps; the play-tool regression passed in job 22641929.
+The recording, continual core, inference-reader, and existing MB/MF regression checks passed together (42 tests, job 22641951).
+The expanded five-domain play checks are still running in job 22641846.
+The final 15-module mypy and pytest-pylint check passed in job 22642016 after formatting fixes.
+No comparison experiments have been launched yet.
