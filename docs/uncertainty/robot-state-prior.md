@@ -8,7 +8,7 @@ It does not replace the acting agent's state estimator, establish collision-free
 
 [JointStatePrior](../../predicators/code_sim_learning/inference_joints.py) requires an entry for every joint in URDF order.
 Mechanically fixed joints have position and velocity zero and no free coordinates.
-Every movable joint has explicit finite position bounds.
+Every movable joint has an explicit position prior: finite uniform bounds or the later Gaussian reset-law extension.
 A positive velocity half-width specifies a normalized uniform initial velocity distribution; zero specifies a prior atom at rest.
 The component declares independence among these coordinates.
 A full scene prior must justify dependencies, contact compatibility, and probabilities of its motion cases separately.
@@ -20,7 +20,7 @@ The balloons counterexample below demonstrates why that distinction matters.
 
 `condition_positions` takes exact initial joint measurements and eliminates those coordinates.
 The remaining independent coordinates keep their normalized original distributions.
-Each conditioned movable position contributes the original density `1 / (upper - lower)`; a fixed joint's exact zero contributes unit mass.
+Each conditioned movable position contributes its original uniform or Gaussian density; a fixed joint's exact zero contributes unit mass.
 `log_observation_factor` retains these factors, including when every coordinate is determined and no sampler is needed.
 The factor can matter when comparing components with different position priors and must not be silently dropped.
 No later observation is substituted into a rollout by this operation.
@@ -61,7 +61,9 @@ The other four audited recordings admit their exact initial positions under the 
 The robot wrapper restores positions through `resetJointState`; the prior cannot treat an idealized joint-limit interval as a proven invariant of all simulator reset states.
 This result does not justify clipping the observation, changing the archived task, silently widening the prior, or relabeling initial joint positions as external inputs to make this target pass.
 A broader initialization law or an explicitly justified conditional-input formulation would be a different declared model and needs its own validation.
-The rejected component remains a negative control while that choice is resolved.
+The rejected component remains a negative control.
+The later [Gaussian reset-law and scene-composition reference](scene-prior-composition.md) covers this initial position under a separately declared prior, while retaining its original reading density.
+That support result does not validate the Gaussian law's calibration or replace the full-scene and trajectory checks.
 
 ## Validation boundary
 

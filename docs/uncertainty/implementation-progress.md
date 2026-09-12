@@ -304,6 +304,14 @@ The same bounded prior is incompatible with the frozen balloons initial shoulder
 Head-geometry witnesses in all five domains show why identical public robot kinematics does not establish collision irrelevance of unobserved joints.
 These findings refine the remaining initialization-law and scene-support work rather than completing the full physical prior.
 
+The next [scene-composition reference](scene-prior-composition.md) covers the balloons joint start with a declared Gaussian reset law and retains its observation density.
+An actual wrapper reset reproduces every recorded initial joint exactly; the old bounded prior remains a negative control.
+Whole-candidate rejection preserves the stated joint/body measure, with an explicit finite-search outcome and no claim to estimate model evidence.
+The generated five-domain reference accepted 80 scenes in 82 draws after treating the two source-established wheel/plane contacts as fixed fixture geometry.
+The stricter all-intersections predicate rejected every candidate because those wheel spheres overlap the floor independently of joint angle; that failed policy remains recorded.
+Final validation passed 35 functional tests, four-file mypy and lint, and pinned formatting on compute nodes.
+These are generated component compositions, not historical scene reconstructions or replacements for the later exact-trajectory gate.
+
 | Stage | Required work before advancement |
 | --- | --- |
 | A: probability model | Complete the five domain initial-state inventories, exact-conditioning construction and reference checks, full runtime capture, and feasible physical initial-state priors; existing numerical and recording references pass at the tested budget. |
