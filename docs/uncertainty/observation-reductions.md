@@ -67,3 +67,29 @@ The [cached-link audit](transition-discrepancy.md#preserve-the-native-robot-obse
 Calling fresh forward kinematics can change the reported pose without changing the joint readings.
 That pose therefore cannot be removed using the finger-readout argument.
 The exact robot orientation and Cartesian outputs need a model that respects their actual timing and dependencies.
+
+## Native Euler readout support
+
+Compute audit `22634634` completed successfully on `mit_preemptable` and examined the same 1,983 public frames.
+It found that the proposed canonical Euler support was too restrictive; its `invalid_angles` field records violations of that proposed support, not invalid environment observations.
+All 31 witnesses have zero roll, pitch exactly positive pi/2, and yaw outside [-pi, pi].
+They must remain in the observation ledger.
+
+| Domain | Ordinary pitch | Pitch exactly positive pi/2 | Pole readings with yaw outside [-pi, pi] |
+| --- | ---: | ---: | ---: |
+| Bridge | 401 | 786 | 2 |
+| Fan | 60 | 73 | 13 |
+| Domino | 66 | 96 | 3 |
+| Boil | 118 | 147 | 13 |
+| Balloons | 28 | 208 | 0 |
+
+The audit also exercised the installed quaternion-to-Euler conversion directly, using roll 0.4 and yaw 0.7 at both pitch poles.
+For both float64 and float32 quaternion inputs, tested pitch offsets through 0.004 radians returned pitch exactly at the pole and roll zero; offsets 0.005, 0.01 and 0.05 did not.
+These probes bracket a change in this runtime's readout behavior; they do not identify an exact threshold or establish a probability law for orientations.
+The complete probes and recorded witnesses are preserved in [the audit artifact](../../logs/uncertainty_robot_angle_audit_20260912/reference-22634634.json).
+
+An orientation likelihood must account for this coupled readout, including its collapsed pole regime and native yaw branch.
+Three independent continuous angle densities would assign the wrong measure to the pole readings.
+Wrapping yaw and discarding its original branch would also change the exact observation target unless that reduction is separately justified.
+No such likelihood or reduction is deployed here.
+The next construction must retain these observations and validate its induced mass and density factors before using orientation evidence in a full-recording posterior.
