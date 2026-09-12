@@ -123,6 +123,33 @@ def assess_inference(
         availability, candidate if availability == "available" else None)
 
 
+def validated_posterior(result: AssessedInference) -> Optional[BatchPosterior]:
+    """Recheck a consumer's assessment, including manually built artifacts.
+
+    Unavailable inference returns None while retaining its diagnostics.
+    Contradictory availability, identities or assessment claims raise.
+    This applies the declared protocol, not an implicit adequacy test.
+    """
+    if result.availability not in ("available", "numerical_failure",
+                                   "unevaluated"):
+        raise ValueError("Invalid posterior availability")
+    if result.posterior is None:
+        if result.availability == "available":
+            raise ValueError("Available assessment needs a posterior")
+        return None
+    if result.availability != "available" or \
+            result.identity != result.posterior.identity or \
+            result.identity.prior != result.posterior.prior.digest:
+        raise ValueError("Assessment and posterior identity disagree")
+    checked = assess_inference(result.posterior, result.protocol,
+                               result.numerical_checks,
+                               result.predictive_checks)
+    if checked.availability != "available" or \
+            checked.sampler_status != result.sampler_status:
+        raise ValueError("Assessment does not supply an available posterior")
+    return result.posterior
+
+
 def _validate_digest(value: str) -> None:
     if len(value) != 64 or any(c not in "0123456789abcdef" for c in value):
         raise ValueError("Assessment identities must be SHA256 digests")

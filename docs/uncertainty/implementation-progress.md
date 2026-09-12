@@ -428,7 +428,11 @@ This is a physical integration check on two fixed candidates; neither is an asse
 The same output model now provides a causal joint future-likelihood score, preserving temporal error dependence while accumulating only future observation factors.
 It distinguishes an unsupported fitting prefix from a supported prefix followed by a zero-likelihood future, and avoids cancellation from subtracting large full-history scores.
 Forty-three functional tests pass, including independent conditional Gaussian references, and the native scoring check preserves all 33 archived complete-history scores exactly.
-This supplies component prediction diagnostics; posterior mixture construction, numerical adequacy and the matched estimator comparison remain open.
+The separate `JointForecast` adapter now constructs a deterministic physical-history mixture from assessed joint rows, preserving initial-state dependence, posterior mass and predictive diagnostics.
+It verifies the fitting ledger and output-model identity, rejects lost or unsupported positive-weight histories, and keeps one source particle fixed across an entire sampled future.
+Forty-seven functional tests and four-file static/format checks pass.
+An end-to-end linear Gaussian reference passes all declared prediction checks on both 2,048-particle runs and one of two 256-particle runs; the failed smaller-budget density check is retained despite passing parameter moments.
+Real-domain numerical adequacy, stochastic Balloons future integration and the matched estimator comparison remain open.
 The four full legacy comparison tasks have also completed, providing saved predictions for both 64-action fits and complete Domino/Fan recordings.
 Both domains retain their anchor parameters for prediction under the incumbent policy; a matched replacement posterior is still unavailable.
 The [Boil incomplete-model control](boil-incomplete-control.md) now separates missing filling/heating dynamics from sensor noise using a scalar likelihood bound and a causal suffix calculation.

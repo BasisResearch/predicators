@@ -16,7 +16,7 @@ import numpy as np
 from predicators.code_sim_learning.active_experiment import \
     noisy_read_information
 from predicators.code_sim_learning.inference_assessment import \
-    AssessedInference, InferenceCheck, assess_inference
+    AssessedInference, InferenceCheck, validated_posterior
 from predicators.code_sim_learning.inference_data import InferenceIdentity
 from predicators.code_sim_learning.inference_sampling import BatchPosterior
 
@@ -138,28 +138,10 @@ class ParameterPosterior:
                 not isinstance(name, str) or not name for name in coordinates):
             raise ValueError("One joint coordinate per parameter required")
         object.__setattr__(self, "coordinates", coordinates)
-        result = self.assessment
-        if result.availability not in ("available", "numerical_failure",
-                                       "unevaluated"):
-            raise ValueError("Invalid posterior availability")
-        if result.posterior is None:
-            if result.availability == "available":
-                raise ValueError("Available assessment needs a posterior")
+        posterior = validated_posterior(self.assessment)
+        if posterior is None:
             return
-        if result.availability != "available" or \
-                result.identity != result.posterior.identity or \
-                result.identity.prior != result.posterior.prior.digest:
-            raise ValueError("Assessment and posterior identity disagree")
-        # Recheck structural validity and the declared protocol even when
-        # callers construct AssessedInference directly instead of its helper.
-        checked = assess_inference(result.posterior, result.protocol,
-                                   result.numerical_checks,
-                                   result.predictive_checks)
-        if checked.availability != "available" or \
-                checked.sampler_status != result.sampler_status:
-            raise ValueError(
-                "Assessment does not supply an available posterior")
-        if not set(coordinates) <= set(result.posterior.prior.names):
+        if not set(coordinates) <= set(posterior.prior.names):
             raise ValueError("Unknown joint posterior parameter")
 
     def _posterior(self) -> BatchPosterior:

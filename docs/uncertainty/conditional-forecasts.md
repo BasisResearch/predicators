@@ -63,12 +63,42 @@ Missing scalar readings still advance the error process by their recorded primit
 
 For a weighted posterior forecast, the complete-history densities must be mixed using the prefix-fitted joint particle weights.
 Averaging log densities or independently mixing each time step would evaluate a different distribution.
-This component scorer does not construct or assess that posterior mixture.
+This component scorer does not construct or assess that posterior mixture; `JointForecast`, below, supplies the deterministic physical-history mixture.
 For a stochastic physical extension, it also does not replace integration over future physical transitions under the declared transition law.
 
 These density scores are diagnostics under the declared output model, not replacements for the common feature, event and action metrics in the legacy comparison.
 The incumbent robust fitting objective is not a normalized predictive likelihood and must not be compared numerically with this log density.
 Density comparisons across changed observation laws additionally require a common observation representation and reference measure.
+
+## Forecasts from the assessed joint posterior
+
+`JointForecast.replay` connects an assessed joint posterior to the output forecast and likelihood methods.
+It requires the exact fitting ledger and output-model identity from that posterior and a fitted reset episode whose history will be continued.
+The requested future actions are separate from the fitting observations.
+Data, model, episode and action validation occurs before invoking replay.
+The parameter-summary consumer and this forecast path share `validated_posterior`, which rechecks identity, numerical protocol and sample structure without suppressing predictive failures.
+
+Replay receives each complete positive-weight row, including all uncertain episode-state coordinates, as an owned dictionary.
+It also receives the fitted reset episode and the future actions; there is no future-observation argument.
+The caller remains responsible for implementing the frozen physical model, reconstructing that candidate's initial state and memory, replaying the complete prefix and disposing each world.
+Interface checks cannot prove that an arbitrary callback implements the declared physics.
+
+One resulting history corresponds to each positive-weight source particle, in its original order.
+Zero-weight particles are not simulated.
+An exception aborts construction, and missing histories or an unsupported fitted prefix raise errors instead of deleting particles and renormalizing the remainder.
+Predictive diagnostics, including failures, remain attached through the original assessment.
+The fixed output model is identical across these components; inferred output-model hyperparameters need an explicit extension to this contract.
+
+The forecast scores a future history using a stable log-sum-exp of its complete conditional densities and the original particle weights.
+An impossible future under every represented particle retains zero probability.
+Observation draws select one complete source particle for an entire history, then draw the output errors under that history's supported prefix.
+Returned source indices retain provenance, and explicit seeds make the draws reproducible.
+Parameter and initial-state coordinates are never sampled from separate marginals, and particles are not switched between time steps.
+
+This adapter currently covers deterministic physical continuation under joint parameter/initial-state rows.
+It does not integrate unobserved future physical transitions for the Balloons stochastic extension.
+Passing one stochastic rollout per particle through this adapter would omit that additional integration and must not be presented as the complete forecast law.
+The existing execution estimator and all acting-agent behavior remain unchanged.
 
 ## Numerical and native checks
 
@@ -116,3 +146,34 @@ This check reuses the hashed native predictions generated on `node1412`; it perf
 Likelihood scoring ran on an Intel Xeon Gold 6230 host (`node1376`), with exact compatibility checked there against the old implementation and archived prefix score.
 The originally submitted node-specific scoring job `22651798` was cancelled while pending because that node was fully allocated.
 Reports and frozen sources are in `logs/uncertainty_domino_future_scores_v2_20260912`.
+
+Compute job `22652185` passed 47 functional tests and focused four-file mypy, pylint, isort, yapf and docformatter checks for the joint forecast adapter and shared assessment validation.
+The tests include an enumerated anticorrelated joint measure, unequal particle masses, impossible mixed event sequences, stable mixture densities, reproducible whole-history draws, missing observations, provenance rejection, and failed-replay handling.
+The existing parameter-projection and assessment tests also pass after sharing their validation logic.
+Artifacts are in `logs/uncertainty_joint_forecast_checks_20260912`.
+
+### End-to-end numerical reference
+
+Compute job `22652221` completed four independent fits of a noisy constant-velocity model with uncertain initial position.
+Each fit uses the same original uniform box prior, two prefix readings with sensor standard deviation 0.3, and no future observations in fitting or replay construction.
+The two inferred coordinates are strongly anticorrelated: the independent Gaussian posterior reference has mean `(0.2, 0.3)` and covariance `[[0.09, -0.09], [-0.09, 0.18]]`.
+The probability mass excluded by the box bounds is at most `8.03e-29`, bounding the reference's truncation approximation.
+
+The worker passes sampled joint rows through assessment, deterministic replay, weighted future scoring and 5,000 observation draws per fit.
+The analytic two-step future has mean `(0.8, 1.1)` and covariance `[[0.54, 0.72], [0.72, 1.26]]`, including the original sensor noise.
+The full off-diagonal covariance matters: independently drawing initial position and velocity, or switching particles between future steps, would change this reference.
+
+| Particles | Numerical seed | Maximum parameter mean error | Future joint log-density error | All declared reference checks |
+| --- | --- | ---: | ---: | --- |
+| 256 | 62 | 0.01003 | 0.11927 | Fail |
+| 256 | 63 | 0.01637 | 0.09974 | Pass |
+| 2,048 | 62 | 0.00316 | 0.02685 | Pass |
+| 2,048 | 63 | 0.00350 | 0.00402 | Pass |
+
+The criteria were frozen before running: parameter mean error below 0.06, parameter covariance error below 0.03, future log-density error below 0.1, sampled future mean error below 0.1 and sampled future covariance error below 0.12.
+The preliminary assessment used to exercise the forecast adapter checks parameter moments only, and all four fits pass that preliminary check.
+The complete reference also checks future predictions; the 256-particle seed 62 fails its density criterion and is retained as a failed numerical reference.
+This discrepancy is sampling approximation error in a known model, not evidence of missing physical dynamics.
+It demonstrates why the real-domain numerical protocol needs prediction stability as well as parameter summaries.
+The larger budget passes 2/2 numerical seeds, and the smaller passes 1/2; these are synthetic reference trials, not task or agent seeds, calibration across domains, or a production acceptance result.
+The frozen plan, output, and explicit reference assessment are in `logs/uncertainty_joint_forecast_reference_20260912`.
