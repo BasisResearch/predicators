@@ -69,8 +69,8 @@ ENVS:
       continual_steps_per_level: 5000
       num_train_tasks: 2
       balloons_scene: chute
-      balloons_task_generation: validated
-      balloons_require_jam_decoy: false
+      balloons_task_generation: original
+      balloons_require_jam_decoy: true
       balloons_goal_dwell_steps: 25
 APPROACHES:
   agent_continual_model_free_dwell_r1:

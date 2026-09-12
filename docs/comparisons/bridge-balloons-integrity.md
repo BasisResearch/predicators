@@ -47,13 +47,14 @@ Each new episode begins with an empty dwell history.
 The instantaneous InBand predicate is a local subgoal; episode success additionally requires the explicitly described dwell.
 Continual termination, episode rewards, and simulation trajectory verdicts use the same temporal evaluator.
 
-The original task screen accepts some trajectories that only reach the band at a turning point.
-Mechanical checks of its reference plans reproduced eventual rest outside the band.
-The new MF cohort therefore uses the validated non-hatch task generator with the sustained criterion and public Release controller.
-The optional jam-only challenge is disabled, matching the native feasibility audit; ordinary witnessed burst decoys remain eligible.
-These are new task draws under a changed acceptance rule, not reused outcomes or a paired replacement for historical MF.
+The original reference planner can select a transient turning-point solution that fails the sustained criterion.
+That does not establish task infeasibility: other release sequences can succeed on the same task.
+Audits `22648749_0`, `22648749_1`, and `22648749_2` found sustained-hover witnesses for every one of the nine original tasks, with task descriptions matching the archived MF seeds.
+The new MF cohort therefore keeps `balloons_task_generation: original` and `balloons_require_jam_decoy: true`, exactly as in the original MF sampling configuration.
+The goal and shared observation interface are corrected; the task sampling distribution is preserved.
 Position noise remains 1 cm, orientation noise 0.02 rad, and the real interaction budget remains 5,000 steps per level.
 Each seed has two training levels and one test level.
+The separate validated-generator search was cancelled after these witnesses established that it was unnecessary.
 
 ## Validation and execution records
 
@@ -81,6 +82,10 @@ Glue transitions and weld counts agree exactly; this is bounded prediction accur
 The configuration and public-boundary audit passed eight checks in job `22646683`.
 Type checking passed for all three changed Python files, and all three lint checks passed in job `22646775`.
 
-Balloons feasibility audits `22645599_0`, `22645599_1`, and `22645599_2` are still running on compute nodes.
-They must finish with verified sustained-hover witnesses before submitting the three MF seeds.
+The first Balloons reference-only checks rejected plans, not all possible solutions.
+A subsequent validated-generator search exhausted its initial allocation and was superseded by the successful original-task alternative-sequence audits.
+These are mechanical validation outcomes, not agent scores.
 No Balloons MB rerun is authorized for this cohort.
+
+The final original-task and observation-boundary suite passed nine checks in job `22648911`.
+Type checking and both lint checks passed in job `22648912`.

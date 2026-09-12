@@ -1,4 +1,4 @@
-"""Mechanical validation of sustained hovering on validated Balloons tasks."""
+"""Mechanical validation of sustained hovering on original Balloons tasks."""
 # pylint: disable=protected-access
 import itertools
 from typing import Any
@@ -11,13 +11,14 @@ from predicators.envs import create_new_env
 
 
 @pytest.mark.parametrize('seed', [0, 1, 2])
-def test_validated_tasks_admit_sustained_hover(seed: int) -> None:
+def test_original_tasks_admit_sustained_hover(seed: int) -> None:
     """Each pilot task has a public-controller sequence that sustains the goal.
 
     This is mechanical validation with known physics, not an agent
-    result. The validated task generator certifies executable release
-    sequences with twenty-five full intervals of quiet hovering. These
-    are new draws, separate from the original task distribution.
+    result. Historical reference choices can fail the sustained
+    criterion; feasibility requires a working public-controller
+    sequence, not the old reference. Task sampling remains the original
+    distribution.
     """
     utils.reset_config({
         'env': 'pybullet_balloons',
@@ -25,7 +26,8 @@ def test_validated_tasks_admit_sustained_hover(seed: int) -> None:
         'num_train_tasks': 2,
         'num_test_tasks': 1,
         'balloons_scene': 'chute',
-        'balloons_task_generation': 'validated',
+        'balloons_task_generation': 'original',
+        'balloons_require_jam_decoy': True,
         'balloons_goal_dwell_steps': 25,
         'partially_observable': True,
         'skill_phase_use_motion_planning': True,
@@ -36,10 +38,12 @@ def test_validated_tasks_admit_sustained_hover(seed: int) -> None:
     try:
         for index, task in enumerate(env.get_train_tasks() +
                                      env.get_test_tasks()):
-            subset = env.solution_subset(task.init)
-            assert subset is not None
+            count = len(env._active_balloons(task.init))
+            orders = itertools.chain.from_iterable(
+                itertools.permutations(range(count), size)
+                for size in range(1, count + 1))
             results = []
-            for order in itertools.permutations(subset):
+            for order in orders:
                 outcome = env._run_release_sequence(task.init, order)
                 results.append((order, outcome.status, outcome.steps))
                 if outcome.won:
