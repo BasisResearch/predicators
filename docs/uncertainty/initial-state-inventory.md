@@ -151,6 +151,13 @@ The offline batch sampler now retains these conditional-base factors throughout 
 Its integrated affine-dynamics references pass at the tested larger budget; they do not resolve the physical rows above.
 The reviewed constant-output checker separately represents the frozen Bridge contradiction without requiring an invented physical prior or treating failed candidate search as proof.
 
+The [rigid-assembly component](assembly-prior.md) now supplies one explicit generative representation for fixed relative geometry.
+It derives all body poses and weld frames from a root pose, and child linear velocities include the shared angular motion around that root.
+Free/rest, free/moving, and planar-support components have 6, 12, and 3 continuous coordinates, independent of the number of bodies whose relative poses are fixed by that model.
+These dimensions describe those declared components only; the recordings do not establish fixed relative geometry or identify a support case merely by omitting fields.
+Normalized case masses, uncertain relative transforms, scene regions, and robot motion still require specification before reporting a full task-prior dimension.
+The generated physical reference passed all 12 trials, including plane contact and full-prefix replay, without loading evaluator tasks or recorded hidden state.
+
 Before the physical comparison, close the unresolved rows with an explicit generative initial-state model and its normalizing/case factors.
 Then validate its support on known-model recordings and measure exact-output feasibility on frozen learned programs.
 Use the existing complete-prefix replay; do not promote arbitrary mid-run snapshots to exact engine state.

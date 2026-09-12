@@ -289,6 +289,14 @@ It does not infer invariants from successful rollouts or declare feasibility whe
 The frozen Bridge ledger yields all four known witnesses without sampler or simulation work.
 See [the integrated validation record](experiments-20260912.md#integrated-conditional-base-sampling-and-support-assessment).
 
+The new offline [rigid-assembly prior component](assembly-prior.md) generates correlated body poses, velocities, and original weld frames from one root pose and twist.
+It provides explicit free/rest, free/moving, and horizontal-support cases with 6, 12, and 3 continuous coordinates respectively.
+The supported case fixes height from a declared physical face instead of projecting independent noisy poses onto contact.
+All 12 generated mechanical trials passed initialization and replay checks across gravity and plane contact, totaling 8,640 simulator steps.
+Fresh repeats and complete-prefix replay matched exactly, while finite-force welds deflected by up to 3.41 mm during impacts.
+Validation passed 21 functional tests and focused type, lint, and pinned formatting checks on compute nodes.
+These are known-geometry component references, not historical-domain posteriors; case probabilities, geometry uncertainty, full scene support, and robot-state priors remain unresolved.
+
 | Stage | Required work before advancement |
 | --- | --- |
 | A: probability model | Complete the five domain initial-state inventories, exact-conditioning construction and reference checks, full runtime capture, and feasible physical initial-state priors; existing numerical and recording references pass at the tested budget. |
