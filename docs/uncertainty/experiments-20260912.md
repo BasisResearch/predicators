@@ -433,3 +433,63 @@ The corrected audit reads predicted object features through `Observation.from_st
 Both attempts remain in the experiment record, with the first classified as an audit setup error.
 
 Artifact: [invariant and exact-observation report](../../logs/uncertainty_bridge_invariant_v2_20260912/job-22628262.json).
+
+## Integrated conditional-base sampling and support assessment
+
+The offline SMC implementation now accepts `ConditionedPrior`, which identifies the original generative prior, exact-conditioning map, and normalized uniform proposal in free coordinates.
+The map returns full joint coordinates and the conditional-base/proposal log-density ratio.
+Initialization retains that ratio, and every Metropolis move retains its untempered difference while tempering only the remaining likelihood.
+Results include eliminated initial-state coordinates so parameter and state marginals and future predictions use the same weighted joint samples.
+The caller must justify the map's coverage and density; a declaration alone does not prove them.
+The implementation still requires at least one free continuous proposal coordinate and does not provide a general contact-constraint chart.
+
+The integrated numerical model is `x(t) = start * theta**t`, with exact observation `x(1) = 0.5`.
+The original prior is uniform in `theta`, `start`, and an unused coordinate; eliminating `start` contributes `1/theta` to the conditional base density.
+One reference uses `theta` between 1 and 8 with no remaining noisy evidence, testing that repeated moves preserve this nonuniform base.
+The other uses `theta` between 1 and 2 with noisy observations at times 0, 2, and 3, comparing the fitted joint distribution and prediction at held-out time 4 against independent midpoint integration.
+The unused coordinate should retain its original marginal.
+
+Compute job `22628442` ran the predeclared two problems, two budgets, and four seeds per combination.
+All runs used 24 temperatures and three moves per temperature.
+
+| Reference | 512 particles | 2,048 particles |
+| --- | ---: | ---: |
+| Conditional base with no remaining likelihood | 2/4 passed | 4/4 passed |
+| Noisy dynamics and held-out prediction | 4/4 passed | 4/4 passed |
+| Total | 6/8 passed | 8/8 passed |
+
+The smaller-budget base trials at seeds 1 and 2 missed the predeclared mean tolerance of 0.08, with errors 0.1187 and 0.1440.
+Their other acceptance metrics passed; both failures remain recorded, without relaxing thresholds or replacing seeds.
+The largest mean error for the larger-budget base reference was 0.0612.
+For the larger-budget noisy reference, maximum parameter-mean error was 0.00456 and maximum held-out predictive-mean error was 0.0156.
+These are numerical reference trials, not agent seeds or a posterior-calibration study across independently generated datasets.
+
+The first focused regression job, `22628424`, missed the broader-base mean tolerance of 0.07 at 2,000 particles and seed 4, with error 0.1109.
+The revised fixed regression increases its particles to 8,192 while keeping that seed, tolerance, temperature schedule, and proposal scale unchanged.
+The original finite-budget failure is preserved alongside the independent multi-seed budget comparison above.
+Job `22628478` passed all 26 functional tests and four-file mypy, then found one overlong source line in lint.
+Job `22628640` also passed all 26 functional tests and four-file mypy, but splitting the line still left its assignment overlong.
+The final static-check snapshot shortens only that local temporary's name, without changing arithmetic or control flow.
+Job `22628728` passed four-file mypy, all four configured lint checks, and pinned isort, yapf, and docformatter checks.
+Together with the 26 passing functional tests, these are scoped compute-node checks, not full-repository CI.
+
+The tests additionally cover a conditional component with log mass -1000 that an exact discrete observation selects.
+Its mass must remain in log space until the first likelihood update, rather than disappearing through premature underflow.
+Invalid map outputs raise errors; exhausted budgets and finite searches with no supported particles return no posterior samples.
+Original Box-prior sampler parity job `22628479` compares eight old/new cases in separate processes and obtains byte-identical serialized results, including samples, weights, and diagnostics.
+
+The separate `audit_constant_outputs` API takes a reviewed declaration tied to program bytes, runtime identity, and a review artifact.
+It checks every supplied episode's exact predicted observations, respecting reset boundaries, and returns the first conflicting pair for each declared feature.
+Noisy measurements and exogenous conditioned inputs cannot establish this exact contradiction.
+`model_inconsistent` means witnesses contradict the supplied invariant; `not_disproved` means only that this check found no contradiction.
+The API neither proves arbitrary Python semantics nor infers invariants from finite rollout samples.
+
+The same reference job reloaded the full frozen Bridge public ledger, verified its data and sensor identities, and applied the earlier reviewed glue invariant.
+It found the four recorded changes at steps 58, 122, 156, and 200, with zero sampler evaluations and zero simulation steps for this check.
+That assessment remains specific to the frozen no-op program and reviewed runtime.
+It is separate from sampler `no_particle_support`, unsupported conditional charts, predictive disagreement under nonzero likelihood, and agent solve outcomes.
+
+The production agent continues to use legacy uncertainty handling.
+Full physical initial-state priors, remaining exact robot/contact constraints, and complete runtime capture still gate real-domain posterior comparisons.
+
+Artifacts: [reference plan](../../logs/uncertainty_conditional_reference_20260912/plan.json), [all reference trials and Bridge witnesses](../../logs/uncertainty_conditional_reference_20260912/job-22628442.json), [original sampler parity](../../logs/uncertainty_sampler_parity_20260912/job-22628479.json), [functional checks](../../logs/uncertainty_conditional_batch_v3_20260912/checks-22628640.xml), [final static-check plan](../../logs/uncertainty_conditional_batch_v4_20260912/plan.json).
