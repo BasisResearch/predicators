@@ -159,6 +159,10 @@ This resolves the mathematical support construction for this candidate velocity 
 The balloon program versions also change parameter names and narrow some bounds after observing transients.
 A fixed-original-prior comparison cannot silently reuse the latest narrowed bounds as though they preceded the data.
 Record parameter meanings, units, prior provenance, and sidecar precedence for each chosen fixed-program target.
+The later [composed target and prior audit](balloons-composed-inference.md) records those five-version changes, declares a fixed ten-parameter development prior, and verifies every lower/middle/upper program override.
+It also gives finite complete-recording conditional path factors under an explicit stochastic extension for one sampled root, while retaining another root's exact event failures.
+The resulting joint target has 522-553 active continuous coordinates, including two conditional velocity directions at each of 235 actions, across the existing sixteen initial motion cases.
+This is a defined candidate inference problem, not a numerically adequate posterior or support for the deterministic sensor-only model.
 
 ## What this permits next
 

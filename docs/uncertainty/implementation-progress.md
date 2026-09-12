@@ -424,6 +424,10 @@ The subsequent [Fan joint-inference integration](fan-joint-inference.md) supplie
 The mapped witness reproduces its full likelihood exactly, and native proposal audits find finite targets in both local components while retaining broad-component failures.
 Two full-recording Fan sampler pilots are submitted alongside the existing Domino runs; none is automatically treated as numerically adequate.
 
+The [Balloons transition/output composition](balloons-composed-inference.md) now accounts for the exact-speed transition density and all remaining outputs in one conditional path factor.
+Six paths from one sampled root have finite factors over the complete 235-action training episode and repeat exactly; six from the other root retain their exact tie/clip failures.
+This supplies complete-recording support for the explicit stochastic extension, while the deterministic reference, original-prior joint inference and predictive-adequacy questions remain separate.
+
 The [articulated replay correction](articulated-replay.md) closes an omission exposed by the Fan prior work: snapshots previously lost all four slider and twenty rotor joint states.
 The corrected offline snapshot restores those states exactly and repeats a 64-action native Fan trajectory at every recorded boundary.
 Twenty-two functional replay tests and focused static/format checks pass.

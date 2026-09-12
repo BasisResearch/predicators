@@ -129,3 +129,7 @@ During the sixteen unconditioned future actions, pathwise box-speed RMSE ranges 
 These are descriptive errors for a few unweighted paths, not calibrated posterior predictions or an improvement comparison.
 The [v3 assessment](../../logs/uncertainty_balloons_transition_v3_20260912/assessment.json) records the failures, repeatability and all 1,152 modeled actions including repeats.
 The extension now has verified conditional arithmetic and a correctly specified cached-link observation phase, but still needs a joint construction for the later contact constraints before full-recording parameter inference.
+
+The later [transition/output composition](balloons-composed-inference.md) adds the separately tested robot-output discrepancy while retaining conditional speed/joint factors and exact events.
+It finds finite full-recording conditional path factors for one sampled root and preserves event failures for the other.
+This supersedes the earlier support obstruction for that explicit extension, without turning those few paths into an adequate joint posterior or establishing deterministic-model support.
