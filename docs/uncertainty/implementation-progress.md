@@ -420,6 +420,9 @@ Directed parameter and fixture-placement probes are investigating that condition
 Those probes have now found a complete-recording Fan support witness by adjusting a sampled switch placement within the original prior at speed 0.09.
 Independent full replays verify that point and three nearby positive perturbations; a fourth perturbation fails, preserving the sensitivity evidence.
 This opens a supported full-recording inference experiment while leaving numerical adequacy and comparison gates unresolved.
+The subsequent [Fan joint-inference integration](fan-joint-inference.md) supplies a fixed coordinate map covering all declared cases and a broad/local mixture proposal with full density corrections.
+The mapped witness reproduces its full likelihood exactly, and native proposal audits find finite targets in both local components while retaining broad-component failures.
+Two full-recording Fan sampler pilots are submitted alongside the existing Domino runs; none is automatically treated as numerically adequate.
 
 The [articulated replay correction](articulated-replay.md) closes an omission exposed by the Fan prior work: snapshots previously lost all four slider and twenty rotor joint states.
 The corrected offline snapshot restores those states exactly and repeats a 64-action native Fan trajectory at every recorded boundary.
