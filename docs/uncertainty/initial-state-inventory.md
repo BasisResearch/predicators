@@ -32,6 +32,9 @@ On eight recorded Balloons actions, the native cached poses match the historical
 The Cartesian readings therefore cannot be eliminated as instantaneous functions of the observed joint vector without preserving this historical observation phase.
 This is engine observation timing, not evidence for increasing sensor noise.
 See the [cache audit](../../logs/uncertainty_robot_cache_20260912/assessment.json) and [transition reference](transition-discrepancy.md).
+The finger readout has a different result: all 1,983 recorded frames match the fixed endpoint interpolation applied after float32 conversion of the exact left-finger joint observation.
+The [checked readout reduction](observation-reductions.md) therefore retains the joint's likelihood and verifies the extra readout without treating it as independent evidence.
+Omitting the float32 conversion produces 1,967 false mismatches; incompatible or source-missing readouts are not silently dropped.
 The compute audit in `logs/uncertainty_state_inventory_v2_20260912` enumerates the actual visible-model joints without generating evaluator tasks.
 Job `22627492` confirms the same layout in all five domains: 24 URDF joints, comprising nine observed movable joints, four unobserved movable joints, and eleven fixed joints.
 The unobserved movable joints are the two wheels and head pan/tilt.

@@ -366,6 +366,11 @@ Joint inference of velocity, uncertain initial position and error scale agrees w
 The five-domain diagnostic compares persistent and independent error on selected real-valued channels with fixed native predictions and a suffix held out from discrepancy fitting.
 It does not yet supply a full-recording posterior, an uncertain-scene comparison or a replacement for the legacy fitter.
 
+The [exact-readout boundary](observation-reductions.md) now verifies deterministic readouts of exactly observed source fields before reducing an observation view.
+It preserves source likelihoods, refuses noisy or missing sources, and returns no reduced view for contradictions.
+The runtime-derived finger map matches all 1,983 public frames across the five development domains; the integrated reducer also rejects all 1,983 perturbed-readout controls.
+This removes a redundant finger constraint after verification, without relaxing the underlying joint observation or changing production observations.
+
 ## Next gate
 
 Finish Stage A by defining candidate initialization and priors with valid geometric and attachment support, completing runtime artifact capture, and resolving exact-output feasibility.
