@@ -95,6 +95,9 @@ The contact diagnostic identifies the same two pairs in every visible domain: ea
 The checked URDF places the spherical wheel collision centers at height 0.055325 m and gives them radius 0.065 m.
 The fixed-base placement therefore produces signed distance -0.009675 m, independent of wheel rotation.
 This is a property of the supplied fixture geometry; sampling different joint angles cannot remove it.
+This particular placement is the constructor-only geometry used by that generated-component reference.
+The later [historical-root reference](balloons-initial-scene.md#why-the-reset-protocol-matters) calls the full robot reset, which places the base COM at its configured pose and produces signed distance -0.011075 m instead.
+The two fixture policies are tied to their explicit initialization protocols; the earlier result does not certify the later placement.
 
 The revised reference permits only those two named wheel/plane fixture contacts at that expected signed distance.
 The support identity records the exception, expected distance, source hashes, and geometric roundoff policy.

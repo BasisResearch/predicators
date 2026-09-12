@@ -137,6 +137,23 @@ Record parameter meanings, units, prior provenance, and sidecar precedence for e
 
 ## What this permits next
 
+The later public-candidate map audit `22631317` constructs all five visible worlds using only projected feature values and fresh model-owned body handles.
+At the initial boundary, all five reproduce every exact recorded feature when feature values retain float64 precision.
+This is an initialization-map check, not a geometric-prior or trajectory-feasibility certificate.
+The first audit's float32 cast introduced artificial descriptor mismatches; that audit implementation was corrected without changing the agent or recorded data.
+
+The audit independently perturbs each of the 177 noisy coordinates in both directions, for 354 probes.
+All sixteen Fan pose coordinates are reset to configured fan placements by the visible base and therefore cannot be independent initial-state coordinates under that initialization protocol.
+Boil likewise resets spilled level and derives bubbling from its initialized hidden heat; a noisy observation of either is not itself a writable latent quantity.
+Bridge's Euler-angle probes exhibit canonicalization and coupling near a pitch pole, so independent noisy Euler coordinates cannot be confused with independent physical rotations.
+These are properties of the tested visible initialization map; reductions in a learned-program prior still require checking that program's initialization and output overrides.
+See [the map audit](../../logs/uncertainty_scene_map_v3_20260912/reference-22631317.json).
+
+The first complete Balloons candidate-scene reference now has an explicit conditional root law with 42 through 73 continuous dimensions across sixteen motion cases.
+Its sixteen accepted samples satisfy the declared geometry policy, reproduce every exact initial feature, and give identical repeated fresh-world continuations.
+They still contradict later exact observations, starting with moving robot joints or box speed at action one.
+The [root-prior definition](balloons-initial-scene.md) records its assumptions, the reset-dependent fixture geometry, the supported-rest diagnostic, and the remaining exact-trajectory constraint.
+
 The measured-coordinate counts sum to 177 noisy scalars per initial frame across five reset episodes.
 They are an audit of evidence, not a 177-dimensional independent box prior.
 The actual posterior dimension and discrete case count remain undefined until normalized physical support, robot-state reductions, assembly charts, and memory initialization are fixed.

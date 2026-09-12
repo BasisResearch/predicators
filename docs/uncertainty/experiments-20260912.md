@@ -694,3 +694,57 @@ They do not provide historical scene layouts, attachment-case probabilities, unk
 The production estimator and historical experiment runtime remain unchanged.
 
 Artifacts: [predeclared reference plan](../../logs/uncertainty_feasible_batch_v2_20260912/plan.json), [all numerical trials](../../logs/uncertainty_feasible_batch_v2_20260912/reference-22630419.json), [final check snapshot](../../logs/uncertainty_feasible_batch_v3_20260912/plan.json), [functional checks](../../logs/uncertainty_feasible_batch_v3_20260912/checks-22630449.xml).
+
+## Recorded scene initialization and Balloons contact constraints
+
+The public candidate-map audit `22631317` uses only projected public observations, fresh visible-model body handles, and the full reset path.
+All five domains reproduce every exact initial field.
+It probes all 177 noisy initial coordinates in both directions, totaling 354 perturbations.
+The results expose sixteen fixed Fan pose outputs, two reset/derived Boil scalar outputs, and coupled canonical Euler outputs near Bridge's pitch pole.
+Those are properties of the visible initialization map; they do not by themselves identify a learned program's complete prior or establish geometric feasibility.
+Initial setup `22630947` imported `PyBulletState` from the wrong module and performed no audit.
+Follow-up `22630961` used an unnecessary float32 cast and missed Domino's component-owned handles; `22631317` corrects both without changing production or recorded data.
+
+The new Gaussian-coordinate conditioning helper supplies exact Gaussian initial-position proposals, together with their original marginal observation density.
+It supports exact coordinates by elimination, retains evidence under sequential independent readings, and rejects numerical overflow rather than manufacturing zero support or a small sensor variance.
+Validation `22631716` passed seventeen functional tests, two-file dependency-following mypy, two configured lint checks, and pinned formatting.
+The initial check job `22631701` named a nonexistent test file and ran no tests; that setup failure is separate from the completed validation.
+
+The [Balloons initial-scene reference](balloons-initial-scene.md) supplies a declared original free-pose scene law with 42 through 73 continuous dimensions across sixteen motion cases after initial conditioning.
+It conditions translations through the Gaussian helper, handles clip yaw with its truncated angular likelihood, preserves omitted orientations, and conditions exact initial joints and box speed.
+Its support policy is explicit about permitted static-fixture overlaps and the visible wall-box-only chute rule.
+All body handles and hidden candidate quantities come from the model and prior, not evaluator recording metadata.
+
+The first attempt `22631523` called the visible rack-placement helper by the wrong name and sampled no scenes.
+The next attempt `22631543` correctly refused the constructor-only wheel-contact assumption after the full robot reset changed the base frame.
+The URDF inertial offset gives the corrected, source-derived reset contact distance of -11.075 mm, compared with -9.675 mm immediately after construction.
+The previous generated-component reference remains valid for its own constructor-only protocol; it does not certify the full-reset geometry.
+Reference `22631584` verifies the corrected geometry with inline conjugate conditioning, and final `22631706` repeats the same experiment using the checked Gaussian helper.
+
+| Sampling seed | Complete candidate draws | Accepted roots | Exact initial observations reproduced | Repeated 16-action replay identical |
+| --- | ---: | ---: | ---: | ---: |
+| 0 | 1,242 | 8 | 8/8 | 8/8 |
+| 1 | 1,715 | 8 | 8/8 | 8/8 |
+
+These are conditional initial-state samples, not agent seeds or dynamics-parameter posteriors.
+Each accepted root was replayed twice in fresh worlds, totaling 512 model action steps in the final reference.
+Every root still contradicts at least one later exact output at action one, starting with box speed or moving robot joints.
+Those failures remain visible instead of being discarded to obtain a successful full-target fit.
+
+The separate support diagnostic `22631750` evaluates 84 one-action predictions over seven box-height offsets, three masses, and four native damping values.
+The upright box at nominal public xy and table support height is admissible and reduces the first-speed discrepancy to less than `2.63e-11 m/s` for one tested setting, with exact first-step public joints.
+Below-table controls remain explicitly inadmissible.
+This motivates a supported prior component, not a change to the original free-pose law or an observation tolerance.
+
+Constraint diagnostic `22631837` scans native damping over its visible `[0.01, 40]` range at three fixed masses.
+The restricted supported component has a near-equality candidate around 2.2, but two other sign-changing brackets terminate at discontinuities and fail equality.
+The latter's finite-difference slopes scale inversely with the step size, so their displayed inverse-slope factors are diagnostic arithmetic, not valid conditional weights.
+Even the low-damping candidate retains later exact-speed discrepancies of approximately `1e-4 m/s` within the sixteen-action prefix.
+A complete conditional representation must account for supported/free cases, uncertain geometry, all relevant branches, numerical conditioning, and later observations before a physical posterior comparison is available.
+None of these numerical candidates was published to an acting agent.
+
+Every audit, model replay, and functional/static validation ran on `mit_preemptable` compute nodes.
+The completed reference and check jobs exited with status zero, with their statistical and model failures retained in their reports.
+Full repository CI and live estimator comparisons were not run in this increment.
+
+Artifacts: [five-domain map audit](../../logs/uncertainty_scene_map_v3_20260912/reference-22631317.json), [Gaussian source snapshot](../../logs/uncertainty_gaussian_coordinate_v2_20260912/plan.json), [Gaussian functional checks](../../logs/uncertainty_gaussian_coordinate_v2_20260912/checks-22631716.xml), [final declared root law](../../logs/uncertainty_balloons_root_v4_20260912/plan.json), [root samples and replay](../../logs/uncertainty_balloons_root_v4_20260912/reference-22631706.json), [supported-box control](../../logs/uncertainty_balloons_support_20260912/reference-22631750.json), [scalar constraint diagnostic](../../logs/uncertainty_balloons_constraint_20260912/reference-22631837.json).
