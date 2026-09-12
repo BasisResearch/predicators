@@ -25,6 +25,19 @@ def oracle_source() -> str:
     # Imports here avoid loading all PyBullet environments before registry
     # discovery has completed.
     # pylint: disable=import-outside-toplevel
+    if CFG.env == "pybullet_boil":
+        boil_path = Path(__file__).with_name("boil_oracle.py")
+        tree = ast.parse(boil_path.read_text(encoding="utf-8"))
+        tree.body = [
+            node for node in tree.body
+            if not (isinstance(node, ast.ImportFrom)
+                    and node.module == "predicators.envs.pybullet_boil")
+        ]
+        for node in tree.body:
+            if isinstance(node, ast.ClassDef) and node.name == "BoilOracle":
+                node.bases = [ast.Name(id="BaseSimulator", ctx=ast.Load())]
+        tree.body.extend(ast.parse("RESIDUAL_ENV = BoilOracle").body)
+        return ast.unparse(ast.fix_missing_locations(tree)) + "\n"
     if CFG.env == "pybullet_domino":
         return ("class OracleDynamics(BaseSimulator):\n"
                 "    AGENT_PARAM_SPECS = " + _fixed_specs(

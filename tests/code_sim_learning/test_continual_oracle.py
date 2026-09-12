@@ -1,6 +1,6 @@
 """Mechanical oracle audits, separate from continual agent outcomes."""
 # pylint: disable=protected-access
-from typing import Any
+from typing import Any, List, Tuple
 
 import numpy as np
 import pytest
@@ -9,7 +9,10 @@ from predicators import utils
 from predicators.code_sim_learning.base_simulator import base_simulator_class
 from predicators.code_sim_learning.continual_oracle import oracle_source
 from predicators.code_sim_learning.fit_space import ParamSpec
+from predicators.code_sim_learning.latent_tracker import \
+    make_subclass_latent_tracker
 from predicators.envs import create_new_env
+from predicators.run.recording import sanitize_state
 from predicators.settings import CFG
 from tests.code_sim_learning.test_balloons_subclass_form import _hold, _level
 from tests.code_sim_learning.test_fan_gt_simulator import _make_noop
@@ -25,7 +28,8 @@ def _load() -> Any:
 
 
 @pytest.mark.parametrize(
-    "env_name", ["pybullet_domino", "pybullet_fan", "pybullet_balloons"])
+    "env_name",
+    ["pybullet_domino", "pybullet_fan", "pybullet_balloons", "pybullet_boil"])
 def test_oracle_source_loads_fixed_values(env_name: str) -> None:
     """Every supplied parameter is pinned, including material calibration."""
     utils.reset_config({
@@ -136,3 +140,99 @@ def test_fan_oracle_wind_and_contact(sides: list) -> None:
     assert max(errors) < 1e-5, max(errors)
     if sides:
         assert max(moved) > 0.01, "The wind was not exercised"
+
+
+@pytest.mark.parametrize("mode", ["heat", "not_full", "fill", "spill"])
+def test_boil_oracle_mechanisms_and_observed_memory(mode: str) -> None:
+    """Match native effects and infer hidden heat without privileged input."""
+    utils.reset_config({
+        "env": "pybullet_boil",
+        "seed": 0,
+        "partially_observable": True,
+        "num_train_tasks": 1,
+        "num_test_tasks": 1,
+        "boil_goal": "simple",
+        "boil_num_jugs_train": [1],
+        "boil_num_jugs_test": [1],
+        "boil_num_burner_train": [1],
+        "boil_num_burner_test": [1],
+        "boil_require_jug_full_to_heatup": True,
+        "boil_water_fill_speed": 0.0015,
+    })
+    real: Any = create_new_env(CFG.env, do_cache=False, use_gui=False)
+    cls = _load()
+    model = cls(use_gui=False, skip_residual_dynamics=False)
+    initial = real.get_train_tasks()[0].init.copy()
+    jug = next(o for o in initial if o.type.name == "jug")
+    burner = next(o for o in initial if o.type.name == "burner")
+    faucet = next(o for o in initial if o.type.name == "faucet")
+    if mode in {"heat", "not_full"}:
+        initial.set(jug, "x", initial.get(burner, "x"))
+        initial.set(jug, "y", initial.get(burner, "y"))
+        initial.set(jug, "water_volume", 1.0 if mode == "heat" else 0.2)
+        initial.set(burner, "is_on", 1.0)
+    else:
+        initial.set(faucet, "is_on", 1.0)
+        x, y = real._faucet_outlet_xy(initial, faucet)
+        initial.set(jug, "x", x + (0.3 if mode == "spill" else 0.0))
+        initial.set(jug, "y", y)
+        initial.set(jug, "water_volume", 1.2 if mode == "fill" else 0.0)
+    real._set_state(initial)
+    clean = sanitize_state(initial)
+    assert clean.privileged is None
+    model._set_state(clean)
+    tracker = make_subclass_latent_tracker(cls, lambda: {})
+    assert tracker is not None
+    tracker.attach(clean, None)
+    errors = []
+    witnesses: List[Tuple[float, int, str, str, float, float]] = []
+    for index in range(55):
+        action = _make_noop(real._get_state(),
+                            real)  # type: ignore[no-untyped-call]
+        real._step_once(action)
+        model._step_once(action)
+        actual, predicted = real._get_state(), model._get_state()
+        observed = sanitize_state(actual)
+        assert observed.privileged is None
+        inferred = tracker.attach(observed, action)
+        assert not tracker.failed
+        assert inferred.latent is not None
+        assert np.isclose(inferred.latent["heat"].get(jug.name, 0.0),
+                          real._heat_of(jug))
+        assert np.isclose(inferred.latent["spill"],
+                          real._faucet._spilled_level)
+        for obj in actual:
+            if obj.type.name in {"jug", "faucet", "human", "burner"}:
+                errors.extend(abs(actual[obj] - predicted[obj]))
+                witnesses.extend(
+                    (abs(float(a) - float(b)), index, obj.name, feat, float(a),
+                     float(b)) for feat, a, b in zip(
+                         obj.type.feature_names, actual[obj], predicted[obj]))
+        if mode == "heat" and index < 2:
+            assert np.isclose(real._heat_of(jug), index * real.heating_speed)
+    assert max(errors) < 1e-5, max(witnesses)
+    if mode == "heat":
+        assert np.isclose(real._heat_of(jug), 1.0)
+    elif mode == "not_full":
+        assert real._heat_of(jug) == 0.0
+    else:
+        assert real._faucet._spilled_level > 0.0
+    # A restored prediction uses inferred memory, even if a caller tries to
+    # smuggle contradictory privileged heat into the starting frame.
+    inferred.privileged = {jug.name: {"heat_level": 123.0}}
+    model._set_state(inferred)
+    assert np.isclose(model._heat_of(jug), real._heat_of(jug))
+    assert model._faucet.prev_on == real._faucet.prev_on
+    assert np.isclose(model._faucet._spilled_level,
+                      real._faucet._spilled_level)
+    for _ in range(3):
+        action = _make_noop(real._get_state(),
+                            real)  # type: ignore[no-untyped-call]
+        real._step_once(action)
+        model._step_once(action)
+        actual, predicted = real._get_state(), model._get_state()
+        for obj in actual:
+            for feature in ("water_volume", "bubbling_level", "spilled_level"):
+                if feature in obj.type.feature_names:
+                    assert np.isclose(actual.get(obj, feature),
+                                      predicted.get(obj, feature))

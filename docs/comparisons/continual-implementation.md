@@ -35,15 +35,30 @@ Inferred program memory is available at skill boundaries, not as a primitive-ste
 Checkpoint testing so far reloads approach artifacts in a live continual session; a fresh-process recording-resume audit remains required.
 Replay copies each recorded skill before calling model code so a prediction cannot mutate the recording's option memory; the stronger regression passed in job 22639480.
 Item 4 now has a frozen oracle approach and source generation for Domino, Fan, and original Balloons.
-Bridge and Boil deliberately reject setup until their observation-memory contracts are implemented and audited.
+Bridge still rejects setup until its observation-memory contract is implemented and audited.
 The old Balloons oracle rule module documents momentum loss when a release updates the state during motion, so copying that oracle unchanged would not satisfy the requested ground-truth dynamics comparison.
 The supplied Balloons subclass preserves momentum and pins the true lifts, masses, drag, and fade height.
 Nine mechanical checks passed in job 22639456: three source/calibration checks, two Balloons release schedules including a release during flight, and four Fan wind/contact cases.
 Balloons pose errors stayed below 5 mm and tied/popped flags agreed; Fan ball coordinates stayed within 10 micrometers with explicit wind-motion witnesses.
 These checks do not establish agent outcomes or complete the five-domain oracle audit.
 The old Boil oracle omits the one-step consecutive-on delay and uses a different water-volume heating condition; its source cannot be copied unchanged into the ground-truth arm.
+The new Boil subclass uses the native effect ordering and infers hidden heat, switch history, and the spill countdown from public observations.
+Its first mechanical audit exposed shared burner `prev_on` records across the live and model worlds, shifting modeled boiling by one action.
+Oracle state restoration now deep-copies objects so native mutable mechanism records remain private to that world.
+The corrected Boil audit passed five checks in job 22640531, covering heating, insufficient water, filling/overflow, uncovered-faucet spilling, and continuation from restored inferred memory.
+Contradictory privileged heat inserted into a restoration input is ignored.
+The continual integration and existing MB/MF regressions passed together (21 tests, job 22640532), including a complete scripted oracle-agent play round.
+The 13-module type/lint check passed in job 22640592.
 The final 12-module type/lint check, including the new oracle files and recording-isolation assertion, passed in job 22639507 after fixing one overlong source string.
 No comparison experiments have been submitted.
+
+## Runtime compatibility still required
+
+The isolated checkout inherited a version without the original Balloons distribution selector and bounded-Wait/current-joint interface present in the frozen MB/MF runtime `b09217bb3` / `41e433427`.
+The missing pieces are documented by source comparison and the original commits `2db66d5a2` and `41e433427`.
+Restore those behaviors before launch rather than dropping the configuration keys or comparing changed action interfaces.
+An audit of the actual CLI parser for all ninety comparison configurations is submitted as job 22640624.
+The concurrent uncertainty checkout and the running frozen MF source must remain untouched.
 
 ## Reporting and launch requirements
 

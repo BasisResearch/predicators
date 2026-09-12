@@ -42,8 +42,8 @@ def test_comparison_config_matches_existing_domains() -> None:
             assert cfg.flags[key] == reference.flags[key], (cfg.env, key)
 
 
-@pytest.mark.parametrize("arm",
-                         ["no_fitting", "no_uncertainty", "oracle_scene"])
+@pytest.mark.parametrize(
+    "arm", ["no_fitting", "no_uncertainty", "oracle_scene", "oracle_dynamics"])
 def test_ablation_play_tools(tmp_path: Any, monkeypatch: Any,
                              arm: str) -> None:
     """Real noisy observations retain means; tools enforce arm restrictions."""
@@ -89,8 +89,10 @@ def test_ablation_play_tools(tmp_path: Any, monkeypatch: Any,
                 probe.run("", belief_draws=2)
             # Numerical fitting remains installed even before any data.
             assert ctx.probe_fit_provider is not None
-        elif arm == "oracle_scene":
-            assert "Oracle scene reconstruction comparison" in prompt
+        elif arm in {"oracle_scene", "oracle_dynamics"}:
+            heading = ("Oracle scene reconstruction comparison" if arm
+                       == "oracle_scene" else "Oracle dynamics comparison")
+            assert heading in prompt
             assert "unavailable" in BeliefProbe(ctx).fit()
         else:
             assert "No numerical parameter fitting" in prompt
