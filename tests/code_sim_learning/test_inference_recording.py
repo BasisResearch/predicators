@@ -8,7 +8,7 @@ import pytest
 from predicators.code_sim_learning.inference_recording import ArtifactBundle, \
     RecordingProjection, SourceArtifact, combine_recorded_levels, \
     load_recorded_level
-from predicators.observation_noise import ObservationNoise, step_rng
+from predicators.observation_noise import ObservationNoise
 from predicators.run.recording import LevelRecording
 from predicators.structs import Action, Object, Type
 from predicators.utils import PyBulletState
@@ -16,7 +16,6 @@ from predicators.utils import PyBulletState
 
 def _write_level(directory: Path) -> None:
     obj = Object("box", Type("box", ["x", "attached"]))
-    noise = ObservationNoise(position=.1)
     truth = PyBulletState({obj: np.array([.3, 0.])},
                           simulator_state={
                               "joint_positions": [.1, .2],
@@ -25,9 +24,8 @@ def _write_level(directory: Path) -> None:
                                   "box": ((0., 0., 0.), (0., 0., 0.))
                               },
                           })
-    frames = [
-        noise.perturb(truth, step_rng(4, 0, 0, step)) for step in range(3)
-    ]
+    # The actual continual writer stores sanitized truth for replay.
+    frames = [truth.copy() for _ in range(3)]
     action = Action(np.array([.1, .2], dtype=np.float32))
     writer = LevelRecording(str(directory))
     writer.begin_episode(0, "level_start")
@@ -55,8 +53,12 @@ def test_recording_roundtrip_and_artifact_snapshot(tmp_path: Path) -> None:
     _write_level(directory)
     paths = [directory / "episodes.pkl", directory / "actions.jsonl"]
     original = [path.read_bytes() for path in paths]
-    level = load_recorded_level(directory, "run-1",
-                                ObservationNoise(position=.1), _projection())
+    level = load_recorded_level(directory,
+                                "run-1",
+                                ObservationNoise(position=.1),
+                                _projection(),
+                                observation_seed=4,
+                                level_index=0)
     assert [path.read_bytes() for path in paths] == original
     episode, = level.data.episodes
     assert len(episode.actions) == 2 and len(episode.observations) == 3
@@ -95,19 +97,35 @@ def test_reset_and_flush_alignment(tmp_path: Path) -> None:
         "a": [.1, .2]
     }) + "\n")
     with pytest.raises(ValueError, match="flush before snapshot"):
-        load_recorded_level(directory, "run", ObservationNoise(),
-                            _projection())
+        load_recorded_level(directory,
+                            "run",
+                            ObservationNoise(),
+                            _projection(),
+                            observation_seed=4,
+                            level_index=0)
     actions.write_text("\n".join(original.splitlines()[1:]) + "\n")
     with pytest.raises(ValueError, match="reset marker"):
-        load_recorded_level(directory, "run", ObservationNoise(),
-                            _projection())
+        load_recorded_level(directory,
+                            "run",
+                            ObservationNoise(),
+                            _projection(),
+                            observation_seed=4,
+                            level_index=0)
     actions.write_text(original)
-    level = load_recorded_level(directory, "run", ObservationNoise(),
-                                _projection())
+    level = load_recorded_level(directory,
+                                "run",
+                                ObservationNoise(),
+                                _projection(),
+                                observation_seed=4,
+                                level_index=0)
     with pytest.raises(ValueError, match="Duplicate reset episode"):
         combine_recorded_levels((level, level))
-    other = load_recorded_level(directory, "other-run", ObservationNoise(),
-                                _projection())
+    other = load_recorded_level(directory,
+                                "other-run",
+                                ObservationNoise(),
+                                _projection(),
+                                observation_seed=4,
+                                level_index=0)
     combined = combine_recorded_levels((level, other))
     assert len(combined.data.episodes) == 2
 
@@ -117,8 +135,12 @@ def test_metadata_requires_explicit_semantics(tmp_path: Path) -> None:
     directory = tmp_path / "L01"
     _write_level(directory)
     with pytest.raises(ValueError, match="Unclassified recording metadata"):
-        load_recorded_level(directory, "run", ObservationNoise(),
-                            RecordingProjection())
+        load_recorded_level(directory,
+                            "run",
+                            ObservationNoise(),
+                            RecordingProjection(),
+                            observation_seed=4,
+                            level_index=0)
     with pytest.raises(ValueError, match="needs a reason"):
         RecordingProjection(excluded_metadata=(("body_velocities", ""), ))
     with pytest.raises(ValueError, match="cannot be excluded"):
@@ -148,3 +170,50 @@ def test_artifact_identity_and_collision(tmp_path: Path) -> None:
     manifest.write_bytes(b"corrupted")
     with pytest.raises(ValueError, match="Artifact content mismatch"):
         bundle.save(tmp_path)
+
+
+def test_recording_noise_coordinates_and_identity(tmp_path: Path) -> None:
+    """Keyed observations change with run seed and cannot use a wrong level."""
+    directory = tmp_path / "L01"
+    _write_level(directory)
+    noise = ObservationNoise(position=.1)
+    first = load_recorded_level(directory,
+                                "run",
+                                noise,
+                                _projection(),
+                                observation_seed=4,
+                                level_index=0)
+    again = load_recorded_level(directory,
+                                "run",
+                                noise,
+                                _projection(),
+                                observation_seed=4,
+                                level_index=0)
+    other = load_recorded_level(directory,
+                                "run",
+                                noise,
+                                _projection(),
+                                observation_seed=5,
+                                level_index=0)
+    assert first == again
+    assert first.data.digest != other.data.digest
+    assert first.sensor.digest == other.sensor.digest
+    assert first.source.digest != other.source.digest
+    key = ("box", "box", "x")
+    values = [dict(o.values)[key] for o in first.data.episodes[0].observations]
+    assert len(set(values)) == 3
+    assert all(v != pytest.approx(.3) for v in values)
+    with pytest.raises(ValueError, match="Level directory"):
+        load_recorded_level(directory,
+                            "run",
+                            noise,
+                            _projection(),
+                            observation_seed=4,
+                            level_index=1)
+    with pytest.raises(ValueError, match="nonnegative integers"):
+        load_recorded_level(directory,
+                            "run",
+                            noise,
+                            _projection(),
+                            observation_seed=-1,
+                            level_index=0)

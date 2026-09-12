@@ -1,15 +1,15 @@
 """Read-only projection of flushed continual recordings for offline inference.
 
-This adapter reads explicitly selected trusted recording files. It does
-not choose development/test splits, create environment instances, infer
-hidden state, or modify a recording. The source byte snapshots remain
-available alongside the statistical ledger for provenance.
+Continual recordings contain sanitized truth for replay, not the noisy
+frames the agent received. This adapter reconstructs that observation
+channel using explicit run/level coordinates. It does not choose data
+splits, create environments, infer hidden state, or modify recordings.
 """
 from __future__ import annotations
 
 import json
 import pickle
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, FrozenSet, Iterable, List, \
     Mapping, Optional, Set, Tuple
@@ -17,9 +17,9 @@ from typing import TYPE_CHECKING, Any, Dict, FrozenSet, Iterable, List, \
 from predicators.code_sim_learning.inference_data import EpisodeData, \
     FeatureKey, InferenceData, Observation, SensorFeature, SensorModel, \
     content_digest
+from predicators.observation_noise import ObservationNoise, step_rng
 
 if TYPE_CHECKING:
-    from predicators.observation_noise import ObservationNoise
     from predicators.structs import State
 
 
@@ -191,17 +191,39 @@ class RecordedLevel:
 
 
 def load_recorded_level(directory: Path, run_id: str, noise: ObservationNoise,
-                        projection: RecordingProjection) -> RecordedLevel:
+                        projection: RecordingProjection, *,
+                        observation_seed: int,
+                        level_index: int) -> RecordedLevel:
     """Load one explicitly selected trusted level after its recording flush.
 
     Validate reset markers and every primitive action against
     actions.jsonl. A live/unflushed or inconsistent pair of files is
     rejected rather than truncating an episode or treating a
     continuation as a fresh reset. The caller must select development
-    recordings and freeze them before fitting.
+    recordings and freeze them before fitting. The stored states are
+    sanitized simulator truth: recreate the same step-keyed noise as
+    ContinualRun._observed, rather than exposing that truth to
+    inference. Already-noisy exports require a different reader, not a
+    second draw.
     """
     if not run_id:
         raise ValueError("Recording run identity must be explicit")
+    if any(not isinstance(value, int) or isinstance(value, bool) or value < 0
+           for value in (observation_seed, level_index)):
+        raise ValueError("Noise coordinates must be nonnegative integers")
+    if directory.name != f"L{level_index + 1:02d}":
+        raise ValueError("Level directory disagrees with noise coordinates")
+    channel = SourceArtifact(
+        "recording_observation_channel",
+        json.dumps(
+            {
+                "schema": 1,
+                "stored_states": "sanitized_simulator_truth",
+                "observation_seed": observation_seed,
+                "level_index": level_index,
+                "noise": asdict(noise),
+            },
+            sort_keys=True).encode("utf-8"))
     episodes_source = SourceArtifact.read("episodes.pkl",
                                           directory / "episodes.pkl")
     actions_source = SourceArtifact.read("actions.jsonl",
@@ -251,7 +273,14 @@ def load_recorded_level(directory: Path, run_id: str, noise: ObservationNoise,
         observations: List[Observation] = []
         keys: Optional[FrozenSet[FeatureKey]] = None
         for step, state in enumerate(states):
+            # Validate the original record before perturb() sanitizes it,
+            # so unexpected metadata cannot silently disappear.
             observation = projection.observe(step, state)
+            if noise.enabled:
+                view = noise.perturb(
+                    state, step_rng(observation_seed, level_index, index,
+                                    step))
+                observation = projection.observe(step, view)
             observed_keys = frozenset(key for key, _ in observation.values)
             if keys is not None and observed_keys != keys:
                 raise ValueError(
@@ -281,7 +310,11 @@ def load_recorded_level(directory: Path, run_id: str, noise: ObservationNoise,
         raise ValueError("Unknown conditioned observation")
     return RecordedLevel(
         InferenceData(tuple(episodes)), SensorModel(tuple(features.values())),
-        ArtifactBundle((episodes_source, actions_source, projection.artifact)))
+        ArtifactBundle(
+            (episodes_source, actions_source, projection.artifact, channel,
+             SourceArtifact.read(
+                 "observation_noise_source",
+                 Path(__file__).parents[1] / "observation_noise.py"))))
 
 
 def combine_recorded_levels(levels: Iterable[RecordedLevel]) -> RecordedLevel:

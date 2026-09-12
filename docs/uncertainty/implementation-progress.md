@@ -19,7 +19,8 @@ The adapter is a property rather than a new stored field, so historical outcomes
 Canonical, diagnostic, cached, and no-survivor fits retain their existing handling.
 
 The separate offline prototype now defines program, prior, sensor-model, runtime, and observation-ledger hashes.
-Real training recordings now pass the reader and content-addressed snapshot audit in all five domains.
+Real training recordings now pass the corrected reader and content-addressed snapshot audit in all five domains.
+The reader reconstructs the seeded observation channel from stored sanitized truth; it does not expose the noiseless stored poses as inference observations.
 Complete simulator runtime and resource closure is still pending.
 The existing legacy cache key is not represented as an immutable statistical data identity.
 There is no new public estimator flag or agent-facing tool output in this chunk.
@@ -190,8 +191,9 @@ At 256 particles, 23 of 24 passed; correlated-reference seed 102 shifted the uni
 The smaller budget remains a documented stress-test failure rather than a recommended default.
 See [the September 12 experiments](experiments-20260912.md) for per-reference counts and source paths.
 
-Recording audit `22625681` passed for all five domains.
-It reads only explicitly selected historical training levels, verifies action/reset alignment, retains public joint observations, rejects an exact-observation contradiction, and freezes the original source bytes.
+The corrected recording audit `22625932` passed for all five domains.
+Initial audit `22625681` established file integrity but used the wrong observation projection; its statistical data is superseded.
+It reads only explicitly selected historical training levels, reconstructs the same step-keyed noisy views as the continual agent, verifies action/reset alignment, retains public joints, rejects an exact-observation contradiction, and freezes the source bytes and channel coordinates.
 This audit is not a fit or prediction-quality result.
 
 Nominal fixed-program prediction preflight `22625747` failed during configuration setup because the launcher manifest uses the CLI alias `log`, while `reset_config` expects `log_file`.
@@ -200,6 +202,29 @@ Corrected setup job `22625774` keeps the same programs, data, and numerical pred
 This experiment measures nominal prediction disagreement and repeated-replay error from fixed training-program snapshots before posterior fitting.
 It does not claim to reproduce historical fitted parameters, and explicitly excludes the optional balloons `model_params.json` override in an isolated working directory.
 All such setup outcomes remain separate from model or agent outcomes.
+
+### Observation-channel correction and physical prediction findings
+
+The reader's first implementation mistook stored sanitized simulator truth for noisy agent observations.
+A regression through the actual continual session and writer reproduced this in job `22625874`.
+The corrected reader requires run seed and level index and reconstructs the same observation channel used by `ContinualRun._observed`.
+Final job `22626126` passes all 29 functional tests, mypy, configured lint, and pinned formatting after correcting a lint-only type check.
+This change is offline-only and does not alter existing recordings or acting MF/MB agents.
+
+Prediction setup also had to restore the original `b09217bb3` runtime: current-branch balloons scene controls differ from the historical recording runtime.
+Corrected prediction job `22625933` used reconstructed noisy starts, public predicted outputs, and frozen training programs on that historical runtime.
+All 14 executable nominal cases were exactly repeatable, but all contradicted at least one exact observation under the strict likelihood.
+Two early Fan cases were invalid programs with a zero lower bound for a logarithmic parameter; they were not modified to make the experiment pass.
+Nominal failures are not a proof that every feasible initial state and parameter is impossible.
+They require explicit initial-state support and a reconstruction/model-error diagnosis before a meaningful posterior comparison.
+
+Mechanical follow-up `22626183` isolates full-state restoration versus the legacy zero-velocity reset under recorded-action stress inputs in recreated evaluator worlds.
+It does not feed evaluator state into a fit or an agent.
+The completed audit shows residual reconstruction errors in every domain when robot joints are included.
+The moving-start balloons continuation differs by 106.17 mm and changes attachment topology, compared with 86.78 mm for legacy zero-velocity replay.
+The explicit state is therefore not yet an adequate complete representation for contact-rich posterior inference.
+Constraint frames, engine implementation state, and unrepresented domain memory must be diagnosed before adding an empirical discrepancy term.
+The detailed evidence and pending gates are in [the experiment record](experiments-20260912.md).
 
 ### Remaining full-plan execution
 
