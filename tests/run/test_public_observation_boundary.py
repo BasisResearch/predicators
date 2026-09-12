@@ -175,3 +175,4 @@ def test_pilot_configs_parse_with_matched_arms(monkeypatch: Any) -> None:
         assert cfg.flags['continual_steps_per_level'] == 10000
     assert all(c.approach == 'agent_continual_model_free' for c in balloons)
     assert all(c.flags['balloons_goal_dwell_steps'] == 25 for c in balloons)
+    assert all(not c.flags['balloons_require_jam_decoy'] for c in balloons)

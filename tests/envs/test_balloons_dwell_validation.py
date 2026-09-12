@@ -15,9 +15,9 @@ def test_validated_tasks_admit_sustained_hover(seed: int) -> None:
     """Each pilot task has a public-controller sequence that sustains the goal.
 
     This is mechanical validation with known physics, not an agent
-    result. Task sampling remains the original distribution; only
-    acceptance at execution time now requires twenty-five full intervals
-    of quiet hovering.
+    result. The validated task generator certifies executable release
+    sequences with twenty-five full intervals of quiet hovering. These
+    are new draws, separate from the original task distribution.
     """
     utils.reset_config({
         'env': 'pybullet_balloons',

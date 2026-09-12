@@ -50,6 +50,7 @@ Continual termination, episode rewards, and simulation trajectory verdicts use t
 The original task screen accepts some trajectories that only reach the band at a turning point.
 Mechanical checks of its reference plans reproduced eventual rest outside the band.
 The new MF cohort therefore uses the validated non-hatch task generator with the sustained criterion and public Release controller.
+The optional jam-only challenge is disabled, matching the native feasibility audit; ordinary witnessed burst decoys remain eligible.
 These are new task draws under a changed acceptance rule, not reused outcomes or a paired replacement for historical MF.
 Position noise remains 1 cm, orientation noise 0.02 rad, and the real interaction budget remains 5,000 steps per level.
 Each seed has two training levels and one test level.
@@ -63,3 +64,23 @@ Bridge mechanics check both roster sizes, restoration of public observations, co
 Native task audits are feasibility checks, not agent seeds or solve-rate observations.
 Mean steps are computed only over whole-run successful agent seeds, with the qualifying count shown.
 Infrastructure failures are excluded from agent solve/reset averages.
+
+## Pilot launch and follow-up preparation
+
+Bridge MB seed 0 is job `22646173_0` and Bridge MF seed 0 is `22646174_0`, both on `mit_preemptable` with account b.
+Their frozen runtime is commit `3e95b1798c6fc7b6e24dccf0fd0b6702c8801d94` in `/home/ycliang/predicators-bridge-balloons-frozen-bridge-20260912`.
+The prelaunch suite passed 82 checks, type checking passed for 17 files, and lint passed.
+Both runs have current scorecards; their results are generated in `bridge-balloons-integrity-results.md` in the primary checkout.
+The eighteen older Bridge comparison seeds remain held, while non-Bridge dependency chains bypass them.
+
+`scripts/configs/predicatorv3/protocol_continual_bridge_span_comparisons_r1.yaml` prepares the six Section 4 comparison arms with seeds 0, 1, and 2 for the changed span distribution.
+This follow-up configuration has not been launched; the paired pilot still determines whether to include new MB seeds.
+The native four-span oracle audit verifies all three curing joints, inferred reciprocal attachment identities, model restoration, and return to the smaller training roster.
+Its measured prediction error was at most 0.834 mm in position and 0.01299 rad in orientation over the 35-step audit, below the pilot's 5 mm and 0.02 rad observation scales.
+Glue transitions and weld counts agree exactly; this is bounded prediction accuracy after public-state restoration, not exact reproduction of contact solver history.
+The configuration and public-boundary audit passed eight checks in job `22646683`.
+Type checking passed for all three changed Python files, and all three lint checks passed in job `22646775`.
+
+Balloons feasibility audits `22645599_0`, `22645599_1`, and `22645599_2` are still running on compute nodes.
+They must finish with verified sustained-hover witnesses before submitting the three MF seeds.
+No Balloons MB rerun is authorized for this cohort.
