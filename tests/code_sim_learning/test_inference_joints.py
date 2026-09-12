@@ -6,7 +6,8 @@ import numpy as np
 import pytest
 
 from predicators.code_sim_learning.inference_joints import \
-    ConditionedJointPrior, IncompatibleJointObservation, JointStatePrior
+    ConditionedJointPrior, GaussianJointPosition, \
+    IncompatibleJointObservation, JointCoordinateBoundary, JointStatePrior
 
 
 def test_conditioning_preserves_unobserved_positions_and_velocities():
@@ -43,7 +44,7 @@ def test_rest_and_fully_conditioned_cases_are_atoms():
     assert conditional.lift(np.array([])) == ((0., 0.), (0., 0.))
     assert conditional.log_observation_factor == -math.log(4)
     # Uniform[-1,1] gives twice the observation density of Uniform[-2,2].
-    narrower = replace(prior, position_bounds=((-1., 1.), None))
+    narrower = replace(prior, position_priors=((-1., 1.), None))
     ratio = math.exp(
         narrower.condition_positions({
             "arm": 0.
@@ -75,3 +76,36 @@ def test_missing_joint_motion_cannot_be_invented():
         JointStatePrior(("fixed", ), (None, ), (.1, ))
     with pytest.raises(ValueError, match="finite position"):
         JointStatePrior(("wheel", ), ((-math.inf, math.inf), ), (1., ))
+
+
+def test_gaussian_reset_law_conditions_without_widening_bounds():
+    """Unbounded reset support retains its density and does not wrap angles."""
+    normal = GaussianJointPosition(0., math.pi)
+    prior = JointStatePrior(("shoulder", "head", "fixed"),
+                            (normal, normal, None), (0., .25, 0.))
+    measured = -1.5119263197144368
+    conditional = prior.condition_positions({"shoulder": measured})
+    assert conditional.lift(np.array([.5, .1])) == ((measured, 0.), (0., .1),
+                                                    (0., 0.))
+    expected = -.5 * (measured / math.pi)**2 - math.log(
+        math.pi * math.sqrt(2 * math.pi))
+    assert conditional.log_observation_factor == pytest.approx(expected)
+    assert prior.condition_positions({
+        "shoulder": 7.
+    }).lift(np.array([.5, 0.]))[0][0] == 7.
+    for unit in (.001, .1, .5, .9, .999):
+        position = conditional.lift(np.array([unit, 0.]))[1][0]
+        cdf = .5 * (1 + math.erf(position / (math.pi * math.sqrt(2))))
+        assert cdf == pytest.approx(unit, abs=1e-14)
+
+
+def test_gaussian_coordinate_endpoints_and_numerical_errors_are_distinct():
+    """Zero-measure quantile endpoints are not finite Gaussian states."""
+    normal = GaussianJointPosition(0., 1.)
+    for endpoint in (0., 1.):
+        with pytest.raises(JointCoordinateBoundary):
+            normal.quantile(endpoint)
+    with pytest.raises(ArithmeticError):
+        normal.log_density(1e308)
+    with pytest.raises(ValueError):
+        GaussianJointPosition(0., 0.)
