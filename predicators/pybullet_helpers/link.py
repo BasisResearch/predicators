@@ -41,13 +41,14 @@ def get_link_state(
 ) -> LinkState:
     """Get the state of a link in a given body.
 
-    Note: it is unclear what the computeForwardKinematics flag does as we
-    could not reproduce any difference in the resulting Cartesian world
-    position or orientation of the link after setting joint positions
-    with both the flag set to False or True.
-
-    The default PyBullet flag is computeForwardKinematics=False, so we
-    will stick to that.
+    Preserve PyBullet's default computeForwardKinematics=False. After
+    stepping physics, this can return a cached link transform that
+    differs from forward kinematics of the current joint positions.
+    Requesting fresh forward kinematics, or even resetting a joint to
+    its existing position, can refresh that cache and change the pose
+    without changing joint positions or velocities. Historical robot
+    observations use this cached phase; inference must preserve its
+    observation timing rather than assume redundant instantaneous FK.
     """
     link_state = p.getLinkState(body, link, physicsClientId=physics_client_id)
     return LinkState(*link_state)
