@@ -163,3 +163,80 @@ The full Stage A gate still requires physical initial-state priors with feasible
 Stage B must then compare posterior and legacy fitting on common frozen programs and data, including held-out causal suffix predictions and incomplete programs.
 Shadow planning and live agent comparisons follow predictive acceptance.
 No historical MF run or current MB run is silently switched to the prototype estimator.
+
+## Resolving physical continuation failures
+
+Constraint diagnostic `22626945` reproduced the original balloons error using the same training-action continuation.
+At the midpoint, two attachment commands and two lift forces were queued for the next action.
+The old offline snapshot dropped that queue, causing the next step to remove existing welds and omit the lift.
+Preserving the queue reduced the largest non-robot position-coordinate discrepancy from 106.17 mm to 4.00 mm.
+
+The public balloons feature vector contains positions but not box or balloon orientations.
+A physical continuation nevertheless needs those orientations and the original weld frames, rather than frames recomputed from the deflected current poses.
+Follow-up `22626966` restored all three together: pending commands, complete body poses, and original command-weld frames.
+Its maximum non-robot position-coordinate discrepancy was 9.73e-14 m over the 118-action continuation.
+The attachment sequence matched.
+Robot joint differences remained as large as 1.97e-4 radians, so this is not an exact complete-state checkpoint.
+
+The same diagnostic identified a separate error in the previous in-process checkpoint experiment.
+PyBullet restore left the third balloon's later-created constraint in the world when rewinding to a boundary that had only two constraints.
+A second restore accumulated another extra constraint.
+The corrected diagnostic removes constraints created after the saved boundary and verifies that every original constraint still exists before restoring.
+This reduced both checkpoint attempts' non-robot position error to zero; robot joint error remained 7.52e-7 radians.
+This narrow diagnostic does not implement general restoration after an original constraint has been removed or modified.
+The old failed attempts remain recorded and must not be interpreted as simulator stochasticity or sensor variance.
+
+The offline replay implementation now represents full physical body poses, next-step commands, and original command-weld frames explicitly.
+These are candidate quantities or evaluator-only diagnostic quantities, never additional agent observations.
+Unknown command targets, incomplete physical poses, and missing weld frames are rejected.
+The production fitter, observation channel, and acting MB/MF runtime are unchanged.
+
+A new `prefix` argument reconstructs a candidate's action history in the same fresh world before producing a requested continuation.
+It retains accumulated engine state, native attachments, and model memory without a mid-trajectory restore.
+Every call pays for the full prefix; a parameter change must replay that prefix under the changed parameters.
+The initial candidate still needs a valid physical prior and canonical initialization.
+Exact agreement with an uninterrupted candidate is a different claim from agreement with the historical evaluator or a learned program's predictive accuracy.
+
+Reports: [constraint lifecycle](../../logs/uncertainty_constraint_diagnostic_20260912/job-22626945/report.json), [full poses and checkpoint cleanup](../../logs/uncertainty_constraint_diagnostic_v2_20260912/job-22626966/report.json).
+
+Corrected five-domain contact audit `22627021` uses the same recorded-action stress inputs as the earlier audit.
+Its `prefix` continuations exactly match uninterrupted portable-root candidate rollouts in all five domains at both tested boundaries, including every observed feature, all robot joint positions and velocities, body velocities, attachment sequences, and captured model memory.
+The ten comparisons span up to 256 actions per domain, with 1,040 source actions total.
+Fresh portable replays also remain exactly repeatable.
+This establishes candidate continuation consistency, not equality with the source evaluator initialized through its original reset lifecycle.
+Residual midpoint restoration errors relative to that source remain:
+
+| Domain | Largest non-robot position-coordinate error | Largest robot joint-position error |
+| --- | ---: | ---: |
+| Bridge | 4.51 mm | 0.00975 rad |
+| Fan | 0 mm | 0.000651 rad |
+| Domino | 3.40 mm | 0.00298 rad |
+| Boil | 6.75 mm | 0.00968 rad |
+| Original balloons | 9.73e-11 mm | 0.000197 rad |
+
+Root diagnostic `22627069` compares a repeated evaluator reset with physical-state reconstruction.
+Bridge, Fan, Boil, and Balloons repeated their source reset trajectories exactly.
+Domino did not; that reset-protocol inconsistency must be kept separate from the bit-identical portable-candidate prefix comparisons.
+The inspected base-body poses, velocities, dynamics settings, and engine settings matched between fresh reset and physical restore, except one balloons quaternion component differing below 1e-42.
+This inspection does not include contact solver caches or certify complete robot controller state.
+
+The explicit `replay_initialized_candidate` API permits a declared initialization protocol to run before the prefix.
+It does not select evaluator tasks by default.
+This supports evaluator-only reset references and, separately, a future generative candidate initialization based on the declared prior.
+Its initializer, inputs, and runtime must be included in artifact identity.
+The initializer and every prefix action run under the requested candidate parameters, and initializer failures release the temporary world.
+
+Reports: [corrected five-domain contact replay](../../logs/uncertainty_contact_replay_v2_20260912/job-22627021/report.json), [root protocol diagnostic](../../logs/uncertainty_root_diagnostic_20260912/job-22627069/report.json).
+
+Explicit-initializer audit `22627125` reproduced Bridge, Fan, Boil, and Balloons exactly from their evaluator reset protocols through both tested boundaries.
+Domino still differed even when the diagnostic replaced time-limited IK with a fixed attempt bound, so that hypothesis did not resolve its reset inconsistency.
+Inspection found that its disk task cache retains feature values but discards the exact initial robot joint configuration, then invokes inverse kinematics again on load.
+The cache boundary is being tested independently; the evaluator-only initializer must not silently mix generated and reconstructed task roots.
+The diagnostic IK setting is not a change to an acting experiment.
+
+Focused implementation validation `22627013` passed 24 functional tests and mypy but identified two test-only lint errors.
+Those errors were corrected and validation `22627081` passed all 14 replay tests, type checking, lint, and pinned formatting.
+After adding explicit initialization and parameter/history ownership tests, final validation `22627126` passed 26 focused functional tests, mypy for both changed files, both lint checks, and pinned formatting.
+This is focused validation, not the full repository CI required before a PR.
+
+Report: [explicit initialization audit](../../logs/uncertainty_initialized_replay_20260912/job-22627125/report.json).
