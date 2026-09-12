@@ -147,6 +147,9 @@ It supports exact initial coordinate elimination as a special case.
 It does not solve overdetermined robot-contact trajectories or arbitrary nonlinear observations.
 The separate velocity-prior construction handles a speed-norm observation only under its explicit rest/isotropic-Gaussian assumption.
 Unsupported charts, rejected individual prior points, and numerical solve errors remain separate outcomes.
+The offline batch sampler now retains these conditional-base factors throughout tempering and Metropolis moves, and returns full joint samples including eliminated coordinates.
+Its integrated affine-dynamics references pass at the tested larger budget; they do not resolve the physical rows above.
+The reviewed constant-output checker separately represents the frozen Bridge contradiction without requiring an invented physical prior or treating failed candidate search as proof.
 
 Before the physical comparison, close the unresolved rows with an explicit generative initial-state model and its normalizing/case factors.
 Then validate its support on known-model recordings and measure exact-output feasibility on frozen learned programs.

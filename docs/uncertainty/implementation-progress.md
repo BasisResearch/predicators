@@ -256,7 +256,8 @@ It separates unsupported singular charts, individual points outside prior suppor
 This construction handles exact initial coordinate observations and parameter-dependent affine elimination; it is not a nonlinear contact-constraint solver.
 Compute job `22627437` passed 15 functional tests, mypy, configured lint, and pinned formatting.
 An eight-seed importance-sampling reference passed its predeclared checks in 8/8 runs at 8,192 particles and 5/8 at 512 particles; the smaller-budget failures remain recorded.
-The existing SMC and production fitting paths are unchanged, and these references are not agent solve-rate seeds.
+Those importance-sampling references are not agent solve-rate seeds.
+The later conditional-base extension below integrates this construction with offline SMC; production fitting remains unchanged.
 
 The next velocity component is implemented as an explicit rest atom plus an isotropic Gaussian moving component.
 Exact rest retains the prior atom's mass, while positive speed retains the Maxwell radial-density factor and two uncertain direction coordinates.
@@ -273,6 +274,20 @@ Bridge audit `22628262` establishes a separate model-adequacy obstruction: the f
 Under this reviewed invariant, the full sensor-only target is inconsistent regardless of initial-state prior or sampling budget.
 This case must return unavailable inference with its model contradiction visible; it is not a finite-search failure or a successful posterior with ordinary predictive residuals.
 See [the experiment record](experiments-20260912.md#a-structural-exact-output-contradiction-in-the-frozen-bridge-model).
+
+The offline sampler now accepts an explicitly identified conditional base measure and returns full joint parameter/initial-state samples.
+Exact-observation density and proposal corrections enter the initial weights and every Metropolis acceptance ratio; only the remaining likelihood is tempered.
+An integrated affine-dynamics reference checks these weights, parameter/state dependence, an uninformed coordinate, and prediction at a held-out time against numerical integration.
+All eight reference trials pass at 2,048 particles; six of eight pass at 512 particles, with both smaller-budget failures retained.
+This validates the tested conditional construction, not a contact-state prior or repeated-dataset calibration.
+Eight comparisons against the prior Box sampler produce identical serialized results.
+Validation passed 26 functional tests, four-file mypy and configured lint, and pinned formatting on `mit_preemptable`.
+
+`audit_constant_outputs` checks exact observation contradictions under a separately reviewed, versioned program/runtime invariant.
+It returns `model_inconsistent` with observation witnesses, or `not_disproved`; neither outcome is a posterior.
+It does not infer invariants from successful rollouts or declare feasibility when no contradiction is found.
+The frozen Bridge ledger yields all four known witnesses without sampler or simulation work.
+See [the integrated validation record](experiments-20260912.md#integrated-conditional-base-sampling-and-support-assessment).
 
 | Stage | Required work before advancement |
 | --- | --- |
