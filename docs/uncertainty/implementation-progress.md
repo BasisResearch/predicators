@@ -27,6 +27,14 @@ Fresh-process balloons replay validates this portion of the runtime identity; na
 The existing legacy cache key is not represented as an immutable statistical data identity.
 There is no new public estimator flag or agent-facing tool output in this chunk.
 
+The offline feasible-scene adapter now connects support checks to the conditional batch sampler without discarding exact-observation or proposal-density factors.
+It explicitly distinguishes globally conditioning the entire parameter/state prior from normalizing each conditional state law while preserving the parameter prior.
+The latter requires the original support probability as a declared function of its retained variables, before conditioning on observations.
+This closes an integration gap between the generated scene sampler and the numerical posterior reference; it does not supply the still-missing historical scene laws or their normalizers.
+See [scene-prior composition](scene-prior-composition.md#connecting-feasible-scenes-to-parameter-inference) for the equations and applicability limits.
+Compute validation passed 22 functional tests plus focused static and formatting checks.
+Both support-normalization references passed 8/8 trials at 2,048 particles; the smaller 512-particle budget passed 15/16, with the failed trial retained.
+
 ## Candidate replay contract
 
 The separate offline `replay_candidate` API accepts a fresh environment factory, an explicit `ReplayState`, executed actions, and fixed candidate parameters.

@@ -653,3 +653,44 @@ The final implementation uses the standard-library equivalent and reruns the fun
 All tests and engine audits ran on `mit_preemptable` compute nodes.
 
 Artifacts: [final source plan](../../logs/uncertainty_scene_prior_v3_20260912/plan.json), [declared reference and fixture policy](../../logs/uncertainty_scene_prior_v3_20260912/reference-plan.json), [final per-domain results](../../logs/uncertainty_scene_prior_v3_20260912/reference-22629815.json), [strict-policy rejection report](../../logs/uncertainty_scene_prior_v2_20260912/reference-22629703.json), [contact witnesses](../../logs/uncertainty_scene_prior_v2_20260912/contacts-22629779.json), [functional checks](../../logs/uncertainty_scene_prior_v3_20260912/checks-22629786.xml).
+
+## Feasible scene weights in batch inference
+
+`FeasibleConditioning` connects a declared support predicate to the existing exact-conditioning and tempered-sampling interfaces.
+It distinguishes a globally constrained joint prior from a state prior normalized separately for each parameter value.
+The latter retains the intended parameter marginal by including the original support probability `Z(theta)` in every base weight.
+Exact-observation and proposal-density corrections remain in that weight, and the remaining noisy likelihood enters once afterward.
+The distinction and analytic derivation are documented in [scene-prior composition](scene-prior-composition.md#connecting-feasible-scenes-to-parameter-inference).
+
+Numerical reference `22630419` evaluates both laws on the same support and exact observation, using eight seeds from 100 through 107 at each of two particle counts.
+Before submission, the plan fixed 12 temperatures, three moves per temperature, a maximum of 100,000 target evaluations per trial, and accuracy thresholds of 0.06 for the parameter mean, 0.09 for the uninformed coordinate mean, and 0.13 for each parameter quantile at probabilities 0.05, 0.5, and 0.95.
+Every completed fit must also preserve the exact constraint to floating-point residual at most 1e-15.
+These criteria check this known numerical reference; they are not general posterior-calibration or deployment thresholds.
+
+| Prior law | Particles | Trials meeting all criteria | Largest parameter-mean error |
+| --- | ---: | ---: | ---: |
+| Global joint conditioning | 512 | 7/8 | 0.07232 |
+| Global joint conditioning | 2,048 | 8/8 | 0.02107 |
+| Conditional state normalization | 512 | 8/8 | 0.05651 |
+| Conditional state normalization | 2,048 | 8/8 | 0.02851 |
+
+All 32 numerical fits reached their final temperature, but reaching that temperature alone does not satisfy the accuracy criteria.
+The smaller global-joint trial with seed 107 returned mean 2.23636 against the analytic mean 2.16404.
+Its minimum effective sample size was approximately 441 out of 512, and all 512 original ancestors survived, so those diagnostics did not expose the mean and median error by themselves.
+The failed trial remains part of the report, without a replacement seed or adjusted threshold.
+The two larger-budget groups pass all sixteen trials.
+The experiment used 1,392,329 target evaluations in total; these were algebraic reference evaluations, not simulator steps or agent actions.
+
+The functional checks also include an exact observation that excludes part of the parameter interval, combined with a noisy reading and an independent quadrature reference.
+They verify that invalid normalizers and callback failures propagate, rejected candidates cannot become posterior samples, and support callbacks cannot mutate shared candidate arrays.
+Initial validation `22630373` passed 22 functional tests and then found two test callbacks without types that mypy could infer.
+The corrected test snapshot adds explicit callback annotations and pinned formatting; its implementation module is identical to the completed numerical reference.
+Final validation `22630449` passed all 22 functional tests, two-file dependency-following mypy, two configured lint checks, and pinned isort, yapf, and docformatter checks.
+Both final validation and the numerical experiment completed with exit status zero on `mit_preemptable` compute nodes.
+This is focused validation, not a full repository CI run.
+
+These results establish the support-weight composition on the stated reference problems.
+They do not provide historical scene layouts, attachment-case probabilities, unknown parameter-dependent normalizers, or a conditional representation for exact contact trajectories.
+The production estimator and historical experiment runtime remain unchanged.
+
+Artifacts: [predeclared reference plan](../../logs/uncertainty_feasible_batch_v2_20260912/plan.json), [all numerical trials](../../logs/uncertainty_feasible_batch_v2_20260912/reference-22630419.json), [final check snapshot](../../logs/uncertainty_feasible_batch_v3_20260912/plan.json), [functional checks](../../logs/uncertainty_feasible_batch_v3_20260912/checks-22630449.xml).
