@@ -95,5 +95,13 @@ Their same-sign speed errors range in magnitude from approximately `3.57e-8` to 
 This finite scan is not proof that no solution exists, but it does not support extending the canonical damping-elimination chart across uncertain initial geometry.
 The [assessment](../../logs/uncertainty_balloons_supported_family_20260912/assessment.json) records the supported-component identity and corrects two inherited free-case metadata fields that were not used as weights in these diagnostics.
 
-The next diagnostic, `22632307`, varies box yaw as the eliminated coordinate while retaining uncertain xy and testing three native damping settings.
-It is a support investigation, not a posterior fit: root residuals, derivative variation, and unsearched brackets remain explicit.
+Completed diagnostic `22632307` varies box yaw as the eliminated coordinate while retaining uncertain xy and testing three native damping settings.
+It evaluated twelve scene/damping contexts with 2,297 one-action model predictions.
+All four contexts at damping 2.2 include a zero-residual yaw candidate, including the canonical zero yaw.
+At zero yaw, the three tested central-difference slopes are approximately `-7.868e-10`, with much smaller variation than the discontinuity candidates.
+The smallest residuals at damping 0.04 and 10 are approximately `1.58e-8` and `7.69e-10 m/s` respectively; those solver outputs do not satisfy the exact constraint.
+The raw list contains repeated roots at shared bracket boundaries, so its fifteen zero-residual entries are not fifteen independent solutions or samples.
+Neither the scan nor the finite-difference checks establish all branches, their conditional weights, or whole-trajectory support.
+This provides positive first-output witnesses in the supported component but does not resolve the later discrepancies already measured above.
+The [completed assessment](../../logs/uncertainty_balloons_yaw_constraint_20260912/assessment.json) records counts, hashes, and a correction to an inherited metadata label: the eliminated yaw law is uniform on `[-pi, pi]`, while the old `constraint.prior` description refers to damping.
+No prior weights were used, and these diagnostics are not posterior or agent results.

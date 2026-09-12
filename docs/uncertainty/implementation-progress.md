@@ -27,6 +27,15 @@ Fresh-process balloons replay validates this portion of the runtime identity; na
 The existing legacy cache key is not represented as an immutable statistical data identity.
 There is no new public estimator flag or agent-facing tool output in this chunk.
 
+The offline `assess_inference` boundary now separates numerical availability from predictive checks.
+Its identified assessment protocol requires an explicit set of numerical checks; omitted checks remain unevaluated rather than becoming implicit passes.
+Completed sampler output is exposed as a posterior only after those checks pass and its sample structure and normalized weights are valid.
+Predictive failures remain attached to an available posterior, while sampler failures, failed numerical checks, and missing checks expose no usable posterior through this boundary.
+The boundary does not publish a canonical fit, retain an older fit, approve an action, or establish that a caller's chosen assessment protocol is scientifically sufficient.
+Production integration and the remaining physical inference gates are still pending.
+Compute job `22632593` passed 21 functional tests, two-file mypy and lint, and pinned formatting checks for this boundary.
+The first check attempt failed because its new test fixture requested zero sampler moves, which the sampler correctly rejects; the corrected frozen fixture and final check artifacts are in `logs/uncertainty_assessment_v2_20260912`.
+
 The offline feasible-scene adapter now connects support checks to the conditional batch sampler without discarding exact-observation or proposal-density factors.
 It explicitly distinguishes globally conditioning the entire parameter/state prior from normalizing each conditional state law while preserving the parameter prior.
 The latter requires the original support probability as a declared function of its retained variables, before conditioning on observations.
