@@ -65,7 +65,8 @@ class SamplerConfig:
 
     Nonempty blocks partition the proposal coordinates and are selected
     uniformly for symmetric moves. Empty blocks preserve full-vector
-    moves.
+    moves. An explicit increasing schedule may replace equally spaced
+    temperatures, with the same stage count and final target.
     """
     particles: int = 512
     temperatures: int = 32
@@ -74,6 +75,7 @@ class SamplerConfig:
     max_evaluations: int = 100000
     resample_ess_fraction: float = 0.5
     proposal_blocks: Tuple[Tuple[int, ...], ...] = ()
+    temperature_schedule: Tuple[float, ...] = ()
 
     def __post_init__(self) -> None:
         for value in (self.particles, self.temperatures, self.moves,
@@ -93,6 +95,17 @@ class SamplerConfig:
             raise ValueError(
                 "Proposal blocks require distinct nonnegative indices")
         object.__setattr__(self, "proposal_blocks", blocks)
+        schedule = tuple(self.temperature_schedule)
+        if schedule and (len(schedule) != self.temperatures
+                         or schedule[-1] != 1. or any(
+                             isinstance(beta, bool) or not math.isfinite(beta)
+                             or beta <= previous
+                             for previous, beta in zip((0., ) +
+                                                       schedule, schedule))):
+            raise ValueError(
+                "Temperature schedule must increase from zero to one "
+                "with the declared number of stages")
+        object.__setattr__(self, "temperature_schedule", schedule)
 
 
 @dataclass(frozen=True)
@@ -338,7 +351,8 @@ def sample_batch(
             weights = np.exp(base_weights - np.max(base_weights))
             weights /= weights.sum()
         for stage in range(1, config.temperatures + 1):
-            beta = stage / config.temperatures
+            beta = config.temperature_schedule[stage - 1] if \
+                config.temperature_schedule else stage / config.temperatures
             # Center before multiplication to avoid loss of stability from
             # large normalizing constants common to every candidate.
             if conditional and stage == 1:

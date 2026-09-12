@@ -88,6 +88,8 @@ Independent-run agreement, budget sensitivity and predictive assessment remain r
 Both pilots completed the temperature schedule but collapsed to one surviving initial ancestor.
 Their parameter estimates disagree substantially: the lateral-friction medians are approximately 0.112 and 0.0206, and the mass medians are 0.212 and 0.0343.
 These are diagnostic outputs of inadequate small-budget approximations, not reportable parameter estimates or evidence of identification.
+The subsequent [process reproducibility audit](sampling-reproducibility.md) also found uncontrolled initialization order and small cross-node differences in generated poses.
+Their disagreement therefore cannot be attributed solely to sampler RNG variation under an identical numerical runtime.
 
 | Sampler RNG seed | Candidate evaluations | Finite initial particles / 32 | First-stage ESS | Surviving ancestors | Distinct final parameter vectors | Worker seconds |
 | --- | --- | --- | --- | --- | --- | --- |
