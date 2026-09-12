@@ -102,5 +102,28 @@ Increasing the budget or changing proposal groups is a numerical experiment, not
 
 The runtime identity is still a development identity rather than complete capture of installed native dependencies and assets.
 The program was synthesized from historical training experience, so later recording suffixes are not established as unseen during program synthesis.
-The full legacy-fitter comparison, all-five-domain validation and matched planning experiments remain open.
-Fan additionally needs an explicit original prior: its inspected latest program narrows parameter bounds using the same recorded trajectory, which cannot be reused as an independent prior without changing the inference target.
+At that pilot stage, the full legacy-fitter comparison, all-five-domain validation and matched planning experiments remained open.
+The later [legacy comparison](offline-fitter-comparison.md) supplies completed incumbent fits and predictions; matched replacement-posterior and planning comparisons still remain open.
+Fan also initially lacked an explicit original prior because its latest program narrowed bounds using the fitting data.
+The subsequent [Fan joint-inference experiment](fan-joint-inference.md) addresses that prior declaration without adopting the data-narrowed bounds as independent prior information.
+
+## Conditioned-base continuation and compute recovery
+
+The subsequent [reproducible initialization experiment](sampling-reproducibility.md) uses 64 particles, 32 cubic-spaced temperatures and eight moves per stage, retaining the initial-observation factor in the conditional base.
+It fits the same 64-action development prefix under fixed priors and an identified CPU/runtime.
+Run `22637359_100` reached its four-hour Slurm limit before producing a completed sampler result.
+Its last saved progress report recorded 9,536 target calls; the scheduler reports `TIMEOUT`, not an agent outcome or a completed posterior.
+No sampler checkpoint existed in that frozen worker, so its best candidate cannot serve as a continuation state.
+The other numerical seed, `22637359_101`, remains a separate running fit with an eight-hour allocation.
+
+Replacement `22649657_100` restarts numerical seed 100 from the original prior with the same data, priors, temperature schedule and evaluation budget.
+It adds the tested scalar likelihood optimization, [stage checkpoints](sampler-checkpoints.md) and an eight-hour allocation on the same AMD EPYC 7542 worker node.
+The runtime identity changes to identify those source changes; the statistical model and sampler configuration do not change.
+Its startup checks compare complete old/new likelihoods on two replayed candidates before fitting.
+One pair retains zero support, and the finite pair matches exactly at `8141.576094195281` on this AMD runtime.
+The retry is running and has saved its initialized population checkpoint after 64 evaluations.
+All sixty recorded finite-initial-base entries also match the timed-out run's entries exactly.
+
+The [retry manifest](../../logs/uncertainty_domino_conditioned_checkpoint_20260912/plan.json) retains the timeout reason and hashes the old likelihood source used for the paired check.
+Attempt files retain per-attempt counters; the sampler result and checkpoint retain the cumulative numerical evaluation count.
+This recovery does not establish posterior adequacy, convergence or an improvement in agent performance.
