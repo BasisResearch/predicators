@@ -419,6 +419,9 @@ The [parameter consumer boundary](parameter-consumers.md) now derives parameter 
 It preserves parameter dependence and predictive diagnostics, requires explicit coordinate/name mapping, and refuses numerical results that are unavailable or unevaluated.
 This prepares an offline interface for later saved-decision comparisons; it does not make the current physical posterior pilots adequate or route the acting agent through a new estimator.
 Nineteen functional tests, focused type/lint checks and pinned formatters pass for this consumer boundary.
+The same ensemble now supplies its weights to the incumbent per-atom information criterion through `atom_information`, with explicit observation-channel probabilities and no acting-agent routing change.
+This extension passed 61 functional tests and focused static/format checks on a compute node; 768 comparisons preserve the default scoring path exactly.
+The physical inference and saved-decision comparison gates remain open.
 The four full legacy comparison tasks have also completed, providing saved predictions for both 64-action fits and complete Domino/Fan recordings.
 Both domains retain their anchor parameters for prediction under the incumbent policy; a matched replacement posterior is still unavailable.
 

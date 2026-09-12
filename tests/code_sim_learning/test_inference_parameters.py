@@ -75,6 +75,26 @@ def test_resampling_preserves_modes_and_parameter_dependence() -> None:
     assert ensemble.predictive_checks[0].status == "fail"
 
 
+def test_assessed_ensemble_drives_information_score() -> None:
+    """A posterior mode's probability, not its row count, weights a probe."""
+    result = ParameterPosterior(_assessment(), ("a", "b"))
+    ensemble = result.weighted_samples()
+    # The proposed probe distinguishes only a=3, whose posterior mass is .6.
+    reads = np.array([[row["a"] == 3.] for row in ensemble.as_dicts()])
+    entropy = -.6 * np.log2(.6) - .4 * np.log2(.4)
+    assert ensemble.atom_information(reads) == pytest.approx(entropy)
+    # A binary symmetric read-error channel with crossover probability .2.
+    noisy_reads = .2 + .6 * reads
+    marginal = .6 * .8 + .4 * .2
+    reference = -marginal * np.log2(marginal) - \
+        (1. - marginal) * np.log2(1. - marginal) + \
+        .2 * np.log2(.2) + .8 * np.log2(.8)
+    assert ensemble.atom_information(noisy_reads) == pytest.approx(reference)
+    assert ensemble.predictive_checks[0].status == "fail"
+    with pytest.raises(ValueError, match="weight"):
+        ensemble.atom_information(reads[:2])
+
+
 def test_explicit_simulator_names_and_shared_coordinates() -> None:
     """Simulator names are explicitly mapped to the joint inference schema."""
     result = ParameterPosterior(_assessment(), ("force", "drag"), ("b", "a"))

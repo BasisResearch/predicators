@@ -13,6 +13,8 @@ from typing import Dict, Literal, Optional, Sequence, Tuple
 
 import numpy as np
 
+from predicators.code_sim_learning.active_experiment import \
+    noisy_read_information
 from predicators.code_sim_learning.inference_assessment import \
     AssessedInference, InferenceCheck, assess_inference
 from predicators.code_sim_learning.inference_data import InferenceIdentity
@@ -96,6 +98,17 @@ class ParameterEnsemble:
             raise ValueError("One finite outcome per ensemble row required")
         return math.fsum(weight * value
                          for weight, value in zip(self.weights, values))
+
+    def atom_information(self, read_probabilities: np.ndarray) -> float:
+        """Score noisy atom reads using this ensemble's posterior weights.
+
+        Supply one row per parameter map and one column per atom, with
+        each entry the probability of reading that atom true under the
+        declared observation channel. Binary entries describe exact
+        reads. This uses the incumbent per-atom information criterion;
+        it does not approve a probe or erase predictive failures.
+        """
+        return noisy_read_information(read_probabilities, weights=self.weights)
 
 
 @dataclass(frozen=True)

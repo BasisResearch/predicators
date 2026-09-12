@@ -43,6 +43,24 @@ This adds Monte Carlo error to the represented approximation and does not increa
 Boolean outcomes give success probability under that represented ensemble, not a guarantee or an action decision.
 Stress-test candidates and their outcomes must remain separately labeled; these weights do not assign them posterior probability.
 
+## Information seeking from the same weights
+
+`ParameterEnsemble.atom_information(read_probabilities)` applies the existing information-seeking criterion to the ensemble's own weights.
+Rows must follow `as_dicts()` order, columns identify atoms, and each entry gives the probability of reading that atom as true under the declared observation channel.
+Binary entries represent exact reads.
+The caller remains responsible for evaluating the same atoms and observation channel under each parameter map.
+
+For each atom, the score is `H(sum_k w_k p_k) - sum_k w_k H(p_k)`, averaged over atoms.
+Both terms use the same posterior mass, avoiding an implicit conversion of unequal posterior weights into equal member counts.
+This is the existing mean of per-atom information scores, not the joint information in reading all atoms together.
+It does not define a new probe threshold, approve an action, or remove predictive failures attached to the ensemble.
+
+The existing `mean_bernoulli_entropy` and `noisy_read_information` helpers accept optional normalized member weights.
+The weighted path checks probabilities, dimensions and finite nonnegative masses, and refuses unnormalized inputs rather than repairing them.
+A valid ensemble with no atom columns scores zero; an empty or malformed weighted ensemble is rejected.
+Omitting weights retains the incumbent arithmetic and call sites.
+Acting-agent routing remains unchanged until the offline inference and saved-decision gates pass.
+
 ## Numerical and predictive status
 
 Construction checks assessment/posterior identity, original-prior identity, source coordinates and the declared numerical assessment protocol.
@@ -68,6 +86,13 @@ This is a small numerical consumer test, not a protocol sufficient to certify a 
 
 Compute job `22642559` passed all 19 functional tests, focused mypy and pylint, and pinned formatter checks.
 The checked source hashes match the committed module and test files; the frozen check manifest and output are in `logs/uncertainty_parameter_view_checks_v6_20260912`.
+
+The weighted information extension passed 61 functional tests, four-file mypy and pylint, and pinned formatter checks in compute job `22650348`.
+Its independent reference enumerates the joint distribution of parameter member and binary read, including unequal masses, irrelevant zero-mass rows and identical-member splitting.
+The assessed-posterior integration test retains a predictive failure while producing the analytically expected information score through the shared ensemble.
+All 768 default-path comparisons with the frozen incumbent matched exactly, including empty atom sets and unanimous or uncertain reads.
+Artifacts and checked source hashes are in `logs/uncertainty_weighted_information_checks_20260912`.
+These checks establish scoring and interface behavior, not physical-domain posterior adequacy or unchanged solve rates.
 
 These APIs are ready for offline and saved-decision comparisons once the source inference passes its numerical and predictive investigations.
 No acting agent has been routed through them, and no legacy mechanism has been retired.
