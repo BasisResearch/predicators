@@ -391,6 +391,12 @@ These developments enable a physical integration experiment, but numerical adequ
 Both small-budget Domino pilots completed but collapsed to one initial ancestor, retaining only one and three distinct physical parameter vectors and disagreeing across independent runs.
 They do not provide usable parameter uncertainty; the next numerical experiment must address first-temperature concentration and parameter movement before comparison with the incumbent.
 
+The [sampling reproducibility follow-up](sampling-reproducibility.md) identified unordered candidate initialization and cross-node quantile differences that also confounded the initial pilots.
+Canonical object ordering with identical saved physical candidates reproduced all 31 candidate trajectories and likelihoods across three CPU types and two hash seeds.
+New pilots pin the candidate-generation runtime and factor the initial observation into the conditioned base before tempering the remaining trajectory, preserving the complete target.
+The explicit-schedule sampler passed 19 functional tests, type/lint/format checks and eight exact default-parity comparisons.
+The new physical fits remain experimental until independent agreement, budget sensitivity and prediction checks establish usable inference.
+
 ## Next gate
 
 Finish Stage A by defining candidate initialization and priors with valid geometric and attachment support, completing runtime artifact capture, and resolving exact-output feasibility.
