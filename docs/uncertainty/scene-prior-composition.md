@@ -50,6 +50,44 @@ A common `Z` cancels in ratios for one fixed posterior target, but a parameter-d
 This sampler neither asserts that `Z` is parameter-independent nor implements evidence comparison across differently normalized models.
 A full generative scene model still has to specify how observation conditioning, component probabilities, geometry, and dynamics parameters interact.
 
+## Connecting feasible scenes to parameter inference
+
+`FeasibleConditioning` now carries that distinction into the existing offline batch sampler.
+It wraps an exact-conditioning map, evaluates feasibility on the complete lifted candidate, and preserves the map's observation-density and proposal corrections.
+It adds no resampling or alternative inference algorithm.
+The caller must explicitly choose which original distribution is intended:
+
+| Declared law | Original distribution | Additional conditional-base factor |
+| --- | --- | --- |
+| `global_joint` | `p0(theta, s) I[C(theta, s)] / Z` | The feasibility indicator; one global constant cancels within this posterior. |
+| `conditional_state` | `p0(theta) p0(s given theta) I[C(theta, s)] / Z(theta)` | The indicator and `1 / Z(theta)`, retaining the declared parameter marginal before observations. |
+
+For `conditional_state`, `Z(theta)` is the support probability under the original state law before observing the data.
+It is not the acceptance rate after conditioning on the current recording.
+The adapter requires a separately identified deterministic log-normalizer callback; it cannot derive that normalizer from finite rejection samples.
+Its implementation and dependence on the retained variables remain part of the caller's reviewed probability model.
+Missing normalization, invalid probability values, and scene-construction exceptions remain explicit errors rather than zero likelihoods.
+Zero support found in a finite candidate batch remains a search outcome, not a proof of inconsistency.
+
+The supported original-prior identity includes the feasibility policy and the normalization choice, separately from the exact observations.
+Changing observations therefore changes the inference target without redefining the original prior.
+Weights flow through the same `PriorPoint` and `ConditionedPrior` interfaces, so the existing sampler retains them during initialization and every Metropolis move.
+Noisy observations are applied afterward, once, through the remaining likelihood.
+
+An analytic reference makes the distinction measurable.
+Let `theta` be uniform on `[1, 4]`, let `x` be independently uniform on `[0, 4]`, require `x <= theta`, and observe `theta*x = 0.5` exactly.
+The coordinate map eliminates `x`, retaining the factor `1/theta`.
+Global joint conditioning then gives mean `theta = 3/log(4)`, approximately 2.164.
+Normalizing the state prior separately uses `Z(theta) = theta/4`, giving density proportional to `1/theta^2` and mean `theta = log(4)/0.75`, approximately 1.848.
+Omitting that factor changes the statistical question despite using the same feasible candidates.
+This is a numerical reference, not a historical-domain result or evidence that either law is the right task prior.
+
+For the proposal's fixed parameter-prior endpoint, use `conditional_state` when defining feasibility inside `p0(s given theta)`.
+A support probability independent of all sampled parameters can cancel, but that independence needs justification.
+If geometry or attachment parameters affect the normalizer and it is unavailable, retain an explicit unsupported construction until a normalized generative representation or validated normalization method is supplied.
+Selecting `global_joint` just to avoid that calculation would generally change the declared parameter prior.
+Full historical scene laws, attachment cases, and exact trajectory conditioning remain outstanding.
+
 ## Fixed fixture contacts are part of the geometry contract
 
 Rejecting every robot/background intersection gives no accepted candidates in the strict reference.
