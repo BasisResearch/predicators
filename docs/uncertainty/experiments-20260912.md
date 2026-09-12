@@ -338,3 +338,98 @@ The first inventory attempt, `22627481`, used a nonexistent public physics-clien
 The corrected audit uses the visible model's actual client handle; the failed attempt is preserved and is not an agent outcome.
 
 Artifacts: [inventory plan](../../logs/uncertainty_state_inventory_v2_20260912/plan.json), [verified inventory report](../../logs/uncertainty_state_inventory_v2_20260912/job-22627492.json).
+
+## Explicit velocity prior and exact rest
+
+The initial balloon box has exact observed speed zero, so an unconstrained continuous velocity proposal or a positive-speed sphere alone misses the required construction.
+`RestOrGaussianVelocityPrior` now defines a normalized mixture: mass `rho` at velocity zero, otherwise a three-dimensional isotropic Gaussian with per-axis standard deviation `sigma`.
+These are explicit modeling assumptions, not hidden evaluator values or reset guarantees.
+A full initial-state prior still has to specify their values and dependencies on scene geometry and attachments.
+
+At speed zero, the conditional velocity is exactly zero and the observation contributes mass `rho`.
+At positive speed `r`, two uniform coordinates generate an isotropic direction, while the speed observation contributes `(1-rho) * sqrt(2/pi) * r^2 / sigma^3 * exp(-r^2/(2*sigma^2))`.
+Both factors use the declared measure consisting of a point mass at zero plus Lebesgue measure on positive speeds.
+The speed-squared factor is required; dropping it or treating the direction proposal as evidence would change the model.
+When `rho=0`, conditioning on the zero-density boundary is explicitly unsupported rather than assigned an arbitrary posterior.
+When `rho=1`, a positive speed is outside the prior's support.
+An unrepresentable log density raises a numerical error instead of masquerading as exact zero support.
+
+Compute job `22628133` passed 19 functional tests, two-file mypy and lint, and pinned formatting.
+The four new tests check unit total mass, isotropic positive-speed directions, retained information about rest probability, and the distinction between zero speed and an arbitrarily small positive speed.
+For a uniform prior on `rho`, one rest observation produces conditional density `2*rho` and mean `2/3`, while an independent uninformed moving-scale parameter retains its prior.
+The tests verify that the rest factor is independent of that scale; they do not establish a fitted physical posterior for the balloon domain.
+
+Artifacts: [plan](../../logs/uncertainty_velocity_prior_20260912/plan.json), [validation report](../../logs/uncertainty_velocity_prior_20260912/checks-22628133.xml).
+
+## External runtime inputs affect physical predictions
+
+The frozen balloon model reads `./model_params.json` and gives its entries precedence over `agent_param`.
+Mechanical reproduction `22628126` held program bytes, declared candidate parameters, initial recorded state, and all 235 actions fixed while changing only that optional file.
+Replacing the four lift coefficients through the sidecar changed predicted box height by up to 0.496114686 m.
+The override values were within the declared coefficient ranges.
+This is a runtime-dependency reproduction, not an agent seed, physical-prior fit, or model-quality comparison.
+It demonstrates why program and parameter hashes alone do not identify a simulator.
+
+The new offline `RuntimeInputs` snapshot records present file bytes, explicitly absent optional paths, and a complete child environment.
+It materializes a fresh worker directory and verifies its declared inputs before a result is accepted.
+Source edits cannot change previously captured bytes; added, removed, changed, or symlinked worker inputs invalidate verification.
+Its artifact identity includes absence and environment settings, so a sidecar-free hypothesis cannot collide with the sidecar-backed model.
+Callers must use separate worker processes with that complete environment, rather than temporarily changing the working directory or environment in concurrent sampler threads.
+The production model loader and acting agent were not changed.
+
+Fresh-process replay validation `22628194` ran each file condition twice under this contract.
+
+| Frozen file condition | Declared candidate parameters | Largest repeated feature difference | Runtime-input identity prefix |
+| --- | --- | ---: | --- |
+| `model_params.json` absent | Same in both conditions | 0 | `f0788c84e53d` |
+| Override file present | Same in both conditions | 0 | `1c592739083a` |
+
+The two conditions still differ by 0.496114686 m in predicted box height and now have distinct runtime-input identities.
+The identity prefixes describe this audit's explicit environment and inputs; they are not universal program identifiers.
+Validation `22628197` passed 13 functional tests, two-file mypy and lint, and pinned formatting.
+An earlier validation failed because the test fixture wrote an invalid JSON number; that fixture was corrected in the retained second snapshot.
+
+This closes the explicit working-directory input gap, not all runtime dependencies.
+Interpreter binaries, package imports, native libraries, assets, configuration, and invocation still need complete runtime capture.
+Post-run file verification is not a filesystem sandbox and does not detect transient writes or arbitrary external reads.
+The attempted system-call trace in job `22627944` was rejected by the compute node's `ptrace` policy; the follow-up does not claim native dependency discovery.
+That setup failure is preserved separately from the successful replay reproduction.
+
+Artifacts: [reproduction](../../logs/uncertainty_runtime_inputs_v2_20260912/job-22628126.json), [frozen replay validation](../../logs/uncertainty_runtime_replay_20260912/job-22628194.json), [contract validation](../../logs/uncertainty_runtime_contract_v2_20260912/checks-22628197.xml).
+
+## A structural exact-output contradiction in the frozen Bridge model
+
+The final archived Bridge program is byte-identical to the frozen cycle-000 program, SHA256 `4ef259f6c0de775971e7ecd92b1a854743471bafaa28fb5a9376623d96b1f6bf`.
+Its residual hook returns `None`, it declares no model memory, and it has no declared residual parameters.
+Source inspection establishes an invariant for this program under uninterrupted replay: every `glue_*` attribute retains its initial value.
+The generic step advances robot control, rigid-body physics, and grasps; the glue observation reads the stored attribute.
+The glue-changing process and its latch calls are in the domain-specific hook that this program replaces with a no-op.
+Changing initial poses, velocities, or native physical parameters cannot add that missing hook.
+
+Compute audit `22628262` checked the reviewed invariant against the actual public observation ledger and replayed all 1,186 training actions through the frozen model.
+All 15 predicted glue attributes stayed exactly at their initial values.
+Four exact observed attributes changed:
+
+| Exact feature | Step 0 value | First differing step | Observed value at that step |
+| --- | ---: | ---: | ---: |
+| `span0.glue_end_a` | 0 | 58 | 0.2 |
+| `span0.glue_end_b` | 0 | 156 | 0.2 |
+| `span1.glue_end_b` | 0 | 122 | 0.2 |
+| `span2.glue_end_a` | 0 | 200 | 0.2 |
+
+The source invariant and either pair of differing exact observations establish inconsistent full-recording support for this frozen program under the declared deterministic sensor-only target.
+The rollout confirms the inspected code path; finite candidate sampling alone would not prove inconsistency.
+This is stronger than the earlier nominal-replay failures: no broader initial-state prior or larger sampler budget can make a constant output equal both observed values.
+This conclusion is specific to the frozen no-op program, its runtime, and the full recorded target, not to all Bridge models or the acting agent's solve rate.
+The agent still solved the recorded task; that does not imply that its simulator explains every observed mechanism.
+
+The comparison must retain this as an explicit unavailable-posterior/model-inconsistency control.
+It must not inflate sensor noise, replace later predicted glue values with observations, or select only the pre-glue prefix to claim the full target passed.
+A revised simulator or an explicitly evaluated dynamics-discrepancy model is required to explain those transitions.
+The legacy agent remains the deployment baseline while that separate model-adequacy problem is addressed.
+
+The first audit, `22628239`, completed its rollout but incorrectly sent predicted states through the recording-only sanitizer.
+The corrected audit reads predicted object features through `Observation.from_state`; the public observation ledger and its noise model are unchanged.
+Both attempts remain in the experiment record, with the first classified as an audit setup error.
+
+Artifact: [invariant and exact-observation report](../../logs/uncertainty_bridge_invariant_v2_20260912/job-22628262.json).

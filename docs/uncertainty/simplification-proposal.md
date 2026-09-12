@@ -74,6 +74,9 @@ Document any numerical constraint-solver tolerance and test its effect on the co
 An explicit observation-resolution or dynamics-discrepancy model is a separately justified model change.
 The [September 12 prediction preflight](experiments-20260912.md#fixed-program-prediction-preflight) found exact-output contradictions in all 14 executable nominal cases, including very small joint discrepancies and larger errors.
 These results motivate the support and replay investigation; they do not establish that every feasible initial state and parameter is inconsistent.
+The later [Bridge invariant audit](experiments-20260912.md#a-structural-exact-output-contradiction-in-the-frozen-bridge-model) establishes a narrower structural impossibility: the frozen no-op program keeps glue attributes constant while four exact recorded glue attributes change.
+Retain that full-recording target as an explicit model-inconsistency control, rather than attempting to repair it with a larger initial-state prior or sampling budget.
+Explaining those transitions requires program revision or a separately evaluated discrepancy model.
 
 The current [fitting replay](../../predicators/code_sim_learning/rollout_env.py), `rollout_states`, zeros velocities after restoring its initial state.
 An inference path that samples initial velocities must restore and retain those velocities; it cannot inherit that rest-start assumption unchanged.

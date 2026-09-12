@@ -35,6 +35,8 @@ This is 17 possible continuous robot coordinates per root, not an assertion that
 The frozen Bridge and Boil cycle-000 programs are no-op models with empty parameter declarations.
 They are useful incomplete-program controls, but cannot by themselves establish predictive performance of the final learned models.
 Later cycle versions exist in the source run archives; selecting them requires recording their training-information boundary and parameter sidecars before comparison.
+The final archived Bridge and Boil `simulator.py` files were also checked: their byte hashes match their cycle-000 no-op versions.
+For these two particular seed-0 runs, selecting a later cycle does not supply a more complete model.
 The frozen programs declare no `MODEL_STATE_INIT` quantities.
 That gives these particular programs zero declared memory dimensions; it does not establish that real heat, curing, or other hidden processes are absent.
 
@@ -123,6 +125,11 @@ The hatch layout and acceptance rules are outside this inventory.
 The audited first balloon observation has exact box speed `0.0`.
 Consequently, the positive-speed sphere construction alone would not cover even this first development episode.
 An explicitly declared rest component is one candidate prior design; its mass must be specified rather than inferred from an omitted velocity field.
+The offline `RestOrGaussianVelocityPrior` now implements that component: probability `rho` at zero velocity and probability `1-rho` in a zero-mean isotropic Gaussian with declared per-axis standard deviation `sigma`.
+Its exact zero-speed conditional selects the rest component, has no free velocity direction, and retains the observation mass `rho`.
+At positive speed, two uniform sphere coordinates describe direction and the Maxwell radial density retains the information about `rho` and `sigma`.
+Zero speed without a declared atom remains unsupported unless a separate conditional extension is specified.
+This resolves the mathematical support construction for this candidate velocity component; it does not choose its hyperparameters or establish independence from pose, attachment, and robot state in a full physical prior.
 
 The balloon program versions also change parameter names and narrow some bounds after observing transients.
 A fixed-original-prior comparison cannot silently reuse the latest narrowed bounds as though they preceded the data.
@@ -137,7 +144,8 @@ Reporting a numerical joint dimension now would conceal those unresolved choices
 
 The [affine conditioning reference](../../predicators/code_sim_learning/inference_conditioning.py) implements one restricted reduction correctly: a square nonsingular equation `y = A(u) z + b(u)` eliminates `z` and retains `1 / abs(det(A(u)))` in the density on free coordinates `u`.
 It supports exact initial coordinate elimination as a special case.
-It does not solve overdetermined robot-contact trajectories, speed-norm constraints, or arbitrary nonlinear observations.
+It does not solve overdetermined robot-contact trajectories or arbitrary nonlinear observations.
+The separate velocity-prior construction handles a speed-norm observation only under its explicit rest/isotropic-Gaussian assumption.
 Unsupported charts, rejected individual prior points, and numerical solve errors remain separate outcomes.
 
 Before the physical comparison, close the unresolved rows with an explicit generative initial-state model and its normalizing/case factors.
