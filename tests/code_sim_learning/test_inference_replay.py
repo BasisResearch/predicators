@@ -8,10 +8,10 @@ import pybullet as p
 import pytest
 
 from predicators import utils
-from predicators.code_sim_learning.commands import CommandBuffer
+from predicators.code_sim_learning.commands import ApplyForce, CommandBuffer
 from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.code_sim_learning.inference_replay import \
-    capture_replay_state, replay_candidate
+    capture_replay_state, replay_candidate, replay_initialized_candidate
 from predicators.code_sim_learning.rollout_env import rollout_states
 from predicators.envs.pybullet_balloons import PyBulletBalloonsEnv
 from predicators.envs.pybullet_bridge import PyBulletBridgeEnv
@@ -222,3 +222,135 @@ def test_candidate_restores_command_attachments():
                     initial.state.get(obj, feature)) < 1e-6
     finally:
         env.dispose()
+
+
+class _QueuedForceModel(_MovingModel):
+    """A force and attachment remain queued at each action boundary."""
+
+    def _domain_specific_step(self):
+        commands = CommandBuffer()
+        commands.apply_force(self._box, (0., 0., 4.))
+        commands.attach(self._balloons[0], self._box)
+        self.queue_residual_commands(commands.commands)
+
+
+def test_replay_retains_pending_commands_and_unobserved_orientation():
+    """Continue a real tilted, welded assembly with an outstanding force."""
+    utils.reset_config({"env": "pybullet_balloons", "seed": 0})
+    source = PyBulletBalloonsEnv(use_gui=False)
+    env = _QueuedForceModel()
+    try:
+        state = source.level_state(0, [0, 1], (.7, .75))
+        state.set(source._box, "z", 1.1)
+        env._set_state(state)
+        p.resetBasePositionAndOrientation(
+            env._box.id,
+            (state.get(source._box, "x"), state.get(source._box, "y"), 1.1),
+            p.getQuaternionFromEuler((.1, .2, .3)),
+            physicsClientId=env._physics_client_id)
+        env._current_observation = env._get_state()
+        action = Action(
+            np.array(env._current_observation.joint_positions,
+                     dtype=np.float32))
+        for _ in range(3):
+            env.step(action)
+        initial = capture_replay_state(env)
+        predicted = replay_candidate(_QueuedForceModel, initial, [], {})[0]
+        # These quantities are candidate state, never public observations.
+        assert predicted.pending_commands == initial.pending_commands
+        assert predicted.command_welds == initial.command_welds
+        for name, pose in initial.body_poses.items():
+            assert np.allclose(predicted.body_poses[name][0],
+                               pose[0],
+                               rtol=0,
+                               atol=1e-12)
+            assert np.allclose(predicted.body_poses[name][1],
+                               pose[1],
+                               rtol=0,
+                               atol=1e-12)
+    finally:
+        env.dispose()
+        source.dispose()
+
+
+def test_prefix_replay_keeps_engine_history_and_memory(moving_env):
+    """A continued contact trajectory equals its uninterrupted candidate."""
+    initial = capture_replay_state(moving_env)
+    hold = Action(
+        np.array(initial.state.simulator_state["joint_positions"],
+                 dtype=np.float32))
+    full = replay_candidate(_MovingModel, initial, [hold] * 30, {})
+    branch = replay_candidate(_MovingModel,
+                              initial, [hold] * 19, {},
+                              prefix=[hold] * 11)
+    assert len(branch) == 20
+    for expected, actual in zip(full[11:], branch):
+        for obj in expected.state:
+            np.testing.assert_array_equal(expected.state[obj],
+                                          actual.state[obj])
+        assert expected.robot_joints == actual.robot_joints
+        assert expected.body_poses == actual.body_poses
+        assert expected.pending_commands == actual.pending_commands
+        assert expected.command_welds == actual.command_welds
+        assert expected.state.latent == actual.state.latent
+    assert initial.state.latent == {"events": []}
+
+
+@pytest.mark.parametrize("invalid", ["poses", "command", "weld"])
+def test_replay_rejects_incomplete_physical_state(moving_env, invalid):
+    """Missing physical quantities must not become implicit zero defaults."""
+    initial = capture_replay_state(moving_env)
+    if invalid == "poses":
+        initial = replace(initial, body_poses={})
+    elif invalid == "command":
+        initial = replace(initial,
+                          pending_commands=(ApplyForce("missing",
+                                                       (0., 0., 1.)), ))
+    else:
+        initial.state.simulator_state["command_welds"] = [
+            (moving_env._balloons[0].name, moving_env._box.name)
+        ]
+    with pytest.raises(ValueError, match="Replay"):
+        replay_candidate(_MovingModel, initial, [], {})
+
+
+def test_explicit_initializer_replays_prefix_under_candidate_parameters(
+        moving_env):
+    """The initializer and full prefix use the requested candidate
+    parameters."""
+    initial = capture_replay_state(moving_env)
+    hold = Action(
+        np.array(initial.state.simulator_state["joint_positions"],
+                 dtype=np.float32))
+    seen = []
+
+    def initialize(env):
+        seen.append(env.agent_param("rate"))
+        env._set_state(initial.state)
+
+    first = replay_initialized_candidate(_MovingModel,
+                                         initialize, [hold], {"rate": .5},
+                                         prefix=[hold] * 3)
+    second = replay_initialized_candidate(_MovingModel,
+                                          initialize, [hold], {"rate": .75},
+                                          prefix=[hold] * 3)
+    assert seen == [.5, .75]
+    assert first[0].state.latent == {"events": [.5] * 3}
+    assert first[1].state.latent == {"events": [.5] * 4}
+    assert second[0].state.latent == {"events": [.75] * 3}
+    assert second[1].state.latent == {"events": [.75] * 4}
+    assert initial.state.latent == {"events": []}
+
+
+def test_initializer_failure_disposes_fresh_world():
+    """A rejected candidate root must release its engine client."""
+    utils.reset_config({"env": "pybullet_balloons", "seed": 0})
+    clients = []
+
+    def initialize(env):
+        clients.append(env._physics_client_id)
+        raise ValueError("invalid candidate root")
+
+    with pytest.raises(ValueError, match="invalid candidate root"):
+        replay_initialized_candidate(_MovingModel, initialize, [], {})
+    assert clients and not p.isConnected(clients[0])

@@ -222,21 +222,34 @@ Mechanical follow-up `22626183` isolates full-state restoration versus the legac
 It does not feed evaluator state into a fit or an agent.
 The completed audit shows residual reconstruction errors in every domain when robot joints are included.
 The moving-start balloons continuation differs by 106.17 mm and changes attachment topology, compared with 86.78 mm for legacy zero-velocity replay.
-The explicit state is therefore not yet an adequate complete representation for contact-rich posterior inference.
-Constraint frames, engine implementation state, and unrepresented domain memory must be diagnosed before adding an empirical discrepancy term.
-The subsequent evaluator-only checkpoint diagnostic `22626292` also failed to reproduce the balloons continuation with PyBullet `saveState` plus copied Python state.
-Engine constraint frames and lifecycle state need direct comparison; matching portable attachment names is insufficient.
-The detailed evidence and pending gates are in [the experiment record](experiments-20260912.md).
+Subsequent diagnostics `22626945` and `22626966` isolated omitted next-step commands, unobserved body orientations, and original weld frames.
+Preserving all three reduced the balloons midpoint non-robot position error to 9.73e-14 m and restored the correct attachment sequence.
+Robot joint differences remain, so a portable mid-trajectory state is still not an exact engine checkpoint.
+
+The earlier `22626292` checkpoint failure had a separate lifecycle bug: restoring the engine did not remove constraints created after the saved boundary.
+Removing those later constraints and verifying the originals reduced non-robot position error to zero in both follow-up checkpoint attempts.
+This is diagnostic evidence, not a general checkpoint implementation or justification for adding sensor variance.
+
+The offline replay now supports reconstructing the full action prefix in one fresh world.
+Corrected audit `22627021` produced bit-identical prefix continuations versus uninterrupted candidate trajectories across all five domains, at both tested boundaries.
+The explicit initializer API makes the candidate root protocol part of the model and artifact contract.
+It never selects evaluator tasks implicitly; inference initialization must use the declared prior and allowed conditioned inputs.
+Root reconstruction, exact-output feasibility, and learned-program prediction quality remain separate gates.
+Detailed results and limitations are in [the experiment record](experiments-20260912.md).
 
 ### Remaining full-plan execution
 
 | Stage | Required work before advancement |
 | --- | --- |
-| A: probability model | Complete constrained-support recovery, full runtime capture, and feasible physical initial-state priors; numerical and recording references now pass at the tested budget. |
+| A: probability model | Complete the five domain initial-state inventories, exact-conditioning construction and reference checks, full runtime capture, and feasible physical initial-state priors; existing numerical and recording references pass at the tested budget. |
 | B: recorded predictions | Freeze development programs/data and compare with legacy on all five domains, including contact transitions, incomplete programs and held-out causal suffixes. |
 | C: planning | Run saved-decision shadow reports, then matched live parameter-belief comparisons; evaluate exploration and conditional-state rollout changes separately. |
-| D: execution state | Validate causal conditional filtering, reconstruction and bounded degraded-mode recovery before replacing the observation smoother. |
-| E: retirement | Predeclare margins, evaluation size and budgets; run matched per-domain comparisons, retain inconclusive results, and retire legacy only after acceptance. |
+| D: execution state (optional) | Validate causal conditional filtering, reconstruction and bounded degraded-mode recovery if pursuing a replacement for the observation smoother. |
+| E: retirement | Predeclare margins, evaluation size and budgets; run matched per-domain comparisons, retain inconclusive results, and retire the legacy parameter fitter only after acceptance. |
+
+Under the September 12 proposal revision, Stage C can proceed directly to Stage E with the existing execution state estimator.
+Conditional state sampling for planning and the live conditional filter are optional extensions, not requirements for completing parameter-uncertainty simplification.
+The revised result contract also requires returning numerically adequate posterior fits with predictive failures visible, separately from decision use; this is a requirement for the replacement, not a claim about current production behavior.
 
 The numerical-reference gate now passes at the tested larger budget.
 Stage A remains incomplete until physical initial-state support, exact-output feasibility, and simulator/runtime closure are established.
@@ -245,9 +258,11 @@ Later stages are not implicitly complete because an offline interface exists.
 
 ## Next gate
 
-Finish Stage A by validating the offline probability prototype, adding complete recording and runtime artifact capture, and defining initial-state priors with valid geometric and attachment support.
-Exact predicted features must reject contradictions, while conditioned inputs must be identified explicitly.
-Use small numerical reference problems before applying the batch sampler to real recordings.
+Finish Stage A by defining candidate initialization and priors with valid geometric and attachment support, completing runtime artifact capture, and resolving exact-output feasibility.
+Complete the per-domain inventories before choosing physical sampling proposals.
+Exact predicted features must reject contradictions, while continuous exact observations require a valid conditional representation rather than generic sampling followed by an equality check.
+Distinguish failed feasible-candidate search from demonstrated model inconsistency, and identify conditioned inputs explicitly.
+The numerical references and observation-channel checks have passed; retain them while adding physical-model validation.
 The sampler must not silently interpret unsupported replay state or program mismatch as sensor noise.
 
 Then compare fixed-prior batch inference and uncertain initial states with the incumbent on fixed development programs and recorded interactions from all five domains.
