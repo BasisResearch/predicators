@@ -36,17 +36,39 @@ All three seeded test layouts passed public-controller pickability checks for ev
 The native mechanics and oracle tests passed eleven checks in job `22648954`.
 The four-span oracle reproduces all three glue-to-weld transitions and inferred reciprocal attachments, with bounded pose differences after public-state restoration.
 Type checking and all three lint checks passed in job `22648955`.
-The full twenty-five-test comparison-interface suite is running in job `22648953`.
+The full twenty-five-test comparison-interface suite passed in job `22648953`, including a separate-process standalone-model resume.
+It completed in 34 minutes with peak allocation memory of approximately 2.4 GB, including the resume subprocess.
 
 The earlier combined suite exceeded its allocation and then exhausted 8 GB of memory because its cases left native physics clients connected.
 A test-only fixture now tracks and disconnects clients created by each case, including evicted skill simulators, and removes their cached handles.
 It does not change agent execution or experiment outcomes.
-The entire suite must pass before the follow-up is submitted.
+The launch controller verified all required test and static-check summaries before submission.
+
+## Submitted cohort
+
+Controller `22650115` submitted and released all twenty-one seeds from immutable runtime `73b5e517bf18fea0ec79eec5c6d1a18964f8a4c3`.
+The frozen checkout is `/home/ycliang/predicators-bridge-transfer-frozen-20260912`.
+The three MF seeds were verified running; the comparison seeds were pending on their declared dependencies at submission.
+Each array below contains seeds 0, 1, and 2.
+
+| Arm | Array | Predecessor |
+|---|---|---|
+| MF direct coding agent | 22650415 | None |
+| Oracle dynamics | 22650416 | 22642729 |
+| Oracle scene reconstruction | 22650417 | 22642732 |
+| Zero-shot synthesis | 22650418 | 22650416 |
+| No numerical fitting | 22650419 | 22650417 |
+| No explicit uncertainty | 22650420 | 22650418 |
+| Standalone program | 22650421 | 22650419 |
+
+The eighteen old Bridge jobs in arrays `22642706`, `22642711`, `22642716`, `22642721`, `22642726`, and `22642731` were cancelled only after the replacement arrays were successfully submitted.
+They have no agent outcomes and are marked superseded in the historical table.
+The non-Bridge comparison arrays were not changed.
 
 ## Reporting
 
 Operational scripts, validation logs, immutable-source hashes, and submission journals are in `/home/ycliang/predicators/logs/bridge_span_followup_20260912/`.
-The reporter writes `docs/comparisons/bridge-span-followup-results.md` in the primary checkout after submission.
+The reporter writes [Bridge follow-up results](/home/ycliang/predicators/docs/comparisons/bridge-span-followup-results.md) in the primary checkout and is called when each experiment exits.
 Report wins, charged steps, and resets for each seed.
 Only completed agent outcomes enter solve-rate and reset averages; only whole-run successes enter mean steps, with the qualifying count shown.
 Infrastructure interruptions remain separate.
