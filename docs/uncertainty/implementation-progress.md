@@ -429,7 +429,10 @@ The four full legacy comparison tasks have also completed, providing saved predi
 Both domains retain their anchor parameters for prediction under the incumbent policy; a matched replacement posterior is still unavailable.
 The [Boil incomplete-model control](boil-incomplete-control.md) now separates missing filling/heating dynamics from sensor noise using a scalar likelihood bound and a causal suffix calculation.
 Compute job `22650461` completed the source/data audit and independent numerical references.
-Four matched cold legacy controls for the frozen Boil and Bridge programs are queued as array `22650411`; these are offline fits, not agent seeds.
+The original Boil/Bridge control array `22650411` was cancelled before starting because its worker bypassed the parameter-free public fit dispatch.
+Replacement array `22651160` completed all four tasks, verifying the actual no-fit return and declared-dynamics predictions.
+The paired Boil and Bridge runs respectively replayed 264 and 1,186 actions with exactly identical predictions and zero fitting evaluations.
+They retain the missing filling/heating and exact glue-transition failures; these are offline parameter-free controls, not fits or agent seeds.
 
 The [full Fan initial-scene experiment](fan-initial-scene.md) now declares the remaining placement and geometry components, retaining all articulated and robot uncertainty under a normalized original law and explicit whole-scene support policy.
 The corrected proposal preserves support for every quarter-turn case and records actual worker hardware instead of inherited CPU labels.

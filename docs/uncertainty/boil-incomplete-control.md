@@ -57,11 +57,30 @@ A separate 10,000-dataset stationary Gaussian reference had mean centered chi-sq
 Those generated scalar datasets validate the diagnostic calculation; they are not Boil tasks or agent seeds.
 The report is [job-22650461.json](../../logs/uncertainty_boil_scalar_control_20260912/job-22650461.json), with source, configuration and scripts beside it.
 
-Array `22650411` submits matched cold legacy-fitter controls for Boil and Bridge, each with a first-64-action fit and a complete-recording fit.
-It uses the same public ledger, frozen program, legacy preparation and orchestration path as the existing Domino/Fan comparisons.
-The worker explicitly checks the native parameter registry instead of inferring an empty registry from `AGENT_PARAM_SPECS` alone.
-Its six-worker allocation and CPU model match that comparison protocol; the four jobs are currently queued for resources.
-Artifacts are in `logs/uncertainty_incomplete_legacy_20260912`.
+The original array `22650411` was cancelled while all four tasks were still pending.
+Its worker incorrectly bypassed the public fit dispatch and called the optimizer with an empty parameter schema.
+The frozen agent's `sim.fit()` explicitly returns without fitting or publication for these parameter-free subclasses.
+This was an experiment-harness error; the production agent already handles the case correctly.
+
+Replacement array `22651160` exercises the real `BeliefProbe.fit()` and frozen synthesis backend, verifies that return, and then saves uninterrupted legacy predictions from the public noisy initial frame at the program's declared dynamics.
+It checks the native parameter registry and declared schema before interpreting the result.
+The first-64-action and complete-recording arms only partition prediction diagnostics; neither estimates parameters.
+The tasks use one CPU each because the optimizer and its parallel validation workers are never invoked.
+The frozen runtime, public observations, program and CPU model remain the same.
+Artifacts are in `logs/uncertainty_incomplete_legacy_v2_20260912`; the original bundle remains preserved.
+All four replacement tasks completed with exit code zero: each Boil task replayed 264 actions and each Bridge task replayed 1,186 actions.
+Both domain pairs produced exactly identical complete predictions, despite their different diagnostic prefix lengths, and reported zero fitting likelihood evaluations.
+The [verification report](../../logs/uncertainty_incomplete_legacy_v2_20260912/verification.json) records the public fit response, empty native registry, paired prediction equality and feature errors.
+
+| Boil scalar | Legacy suffix RMSE, 200 actions |
+| --- | ---: |
+| Spilled level | 0.06909 |
+| Bubbling level | 0.48782 |
+| Water volume | 0.87211 |
+
+These are actual legacy predictions initialized from the public noisy frame, distinct from the optimistic constant-model calculation above.
+The Bridge suffix retains mismatches in four exact glue attributes: `span0.glue_end_a`, `span0.glue_end_b`, `span1.glue_end_b`, and `span2.glue_end_a`.
+Neither result is an agent solve-rate trial or an assessed replacement posterior.
 
 These controls preserve failed predictions in the comparison instead of attempting to repair missing dynamics with wider initial-state uncertainty or larger sensor variance.
 They do not supply an adequate posterior, finish the five-domain comparison, or authorize live use of the replacement estimator.
