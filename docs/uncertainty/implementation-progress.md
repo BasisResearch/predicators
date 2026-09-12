@@ -224,6 +224,8 @@ The completed audit shows residual reconstruction errors in every domain when ro
 The moving-start balloons continuation differs by 106.17 mm and changes attachment topology, compared with 86.78 mm for legacy zero-velocity replay.
 The explicit state is therefore not yet an adequate complete representation for contact-rich posterior inference.
 Constraint frames, engine implementation state, and unrepresented domain memory must be diagnosed before adding an empirical discrepancy term.
+The subsequent evaluator-only checkpoint diagnostic `22626292` also failed to reproduce the balloons continuation with PyBullet `saveState` plus copied Python state.
+Engine constraint frames and lifecycle state need direct comparison; matching portable attachment names is insufficient.
 The detailed evidence and pending gates are in [the experiment record](experiments-20260912.md).
 
 ### Remaining full-plan execution
