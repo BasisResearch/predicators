@@ -101,16 +101,16 @@ def test_transfer_structure_requires_welds(count: int) -> None:
         p.disconnect(env._physics_client_id)
 
 
-def test_four_span_staging_is_pickable_with_public_skills() -> None:
-    """The pilot seed's extra block remains reachable by the shared
-    controller."""
+@pytest.mark.parametrize('seed', [0, 1, 2])
+def test_four_span_staging_is_pickable_with_public_skills(seed: int) -> None:
+    """All follow-up layouts remain reachable by the shared controller."""
     from predicators.ground_truth_models import get_gt_options
     from predicators.ground_truth_models.skill_factories.base import \
         _SHARED_SIMULATOR_CACHE
     from predicators.run.episode import EpisodeRunner
     utils.reset_config({
         'env': 'pybullet_bridge',
-        'seed': 0,
+        'seed': seed,
         'num_train_tasks': 1,
         'num_test_tasks': 1,
         'bridge_train_span_blocks': 3,
