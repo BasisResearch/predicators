@@ -240,3 +240,49 @@ After adding explicit initialization and parameter/history ownership tests, fina
 This is focused validation, not the full repository CI required before a PR.
 
 Report: [explicit initialization audit](../../logs/uncertainty_initialized_replay_20260912/job-22627125/report.json).
+
+## Domino task-cache reconstruction
+
+End-to-end reproduction `22627163` generated a real Domino task, moved the physical robot to a valid alternative configuration, saved the task, and loaded it into a fresh simulator through the production cache reader.
+The loader changed the first joint from -0.1533237473 to 0.4424211360 radians because its feature-only record forced another IK solution.
+The missing joint configuration explains why matching object features is insufficient for a faithful task-cache round trip.
+Changing the IK time limit had not addressed this information loss.
+
+The cache writer now includes portable simulator metadata, including exact initial joints, and the reader supplies that metadata to the existing task-restoration path.
+Goal semantics and task sampling rules are unchanged.
+Old feature-only cache files remain readable through the legacy reconstruction path.
+The existing source digest changes the cache key for future runs, so newly generated caches preserve the complete stored robot configuration.
+The frozen MF sweep checkout and its running jobs are not modified by this fix.
+This harness correction is separate from the offline replay implementation and does not change MB prompts or its uncertainty estimator.
+
+Cache-fix audit `22627211` removed Domino's multi-radian initial-configuration error but retained a smaller contact discrepancy.
+The remaining diagnostic mismatch came from comparing different initialization lifecycles: the source performed task-generation simulations in its execution world, while subsequent worlds loaded the cached tasks.
+`ContinualRun._begin_level` already uses a fresh execution world sharing previously generated tasks when `test_fresh_env_per_episode` is enabled, as it is in this sweep.
+The faithful mechanical reference must use that lifecycle for both source and replay.
+
+Final audit `22627245` matches the continual lifecycle: generate tasks in a template, create fresh instances sharing those tasks, reset, and execute the recorded training actions.
+The source and candidate use identical historical configuration values, with the task-cache correction and offline replay modules recorded as overlays.
+All ten comparisons across five domains passed exact equality of the measured features, every robot joint position and velocity, body velocities, attachment sequences, and captured model memory.
+No extra sensor noise or likelihood tolerance was introduced.
+
+| Domain | Source actions | Continuation boundaries | Largest measured feature error | Largest robot joint-position error |
+| --- | ---: | --- | ---: | ---: |
+| Bridge | 256 | 0, 128 | 0 | 0 |
+| Fan | 132 | 0, 66 | 0 | 0 |
+| Domino | 161 | 0, 80 | 0 | 0 |
+| Boil | 256 | 0, 128 | 0 | 0 |
+| Original balloons | 235 | 0, 117 | 0 | 0 |
+
+This establishes a validated reconstruction path from explicit initialization plus action history on the tested development prefixes.
+It does not certify arbitrary portable checkpoints, every possible trajectory, historical solve-rate replication, or posterior quality.
+The replay obstacle can be bypassed without changing the current MB estimator: use the declared initializer and reconstruct prefixes, paying their simulator cost.
+Physical initial-state priors, exact-observation support, runtime closure, and posterior-versus-legacy predictive comparisons remain outstanding.
+
+Reports: [cache fix with mismatched lifecycle](../../logs/uncertainty_initialized_replay_v2_20260912/job-22627211/report.json), [continual-lifecycle replay validation](../../logs/uncertainty_continual_replay_20260912/job-22627245/report.json).
+
+Cache validation `22627201` passed both end-to-end cases but exposed a type annotation mismatch after extracting the existing float64 state dictionary into a local variable.
+The annotation was corrected without changing numeric precision.
+Validation `22627228` then passed both cases and type checking but flagged an overlong test import.
+Final validation `22627254` passed both end-to-end cases, mypy, both lint checks, and pinned formatting after that import was shortened.
+The two cases cover exact joint preservation through fresh-world actions and compatibility with older feature-only cache files.
+Together with the 26 focused replay/legacy tests, these are 28 distinct passing functional tests across the two implementation chunks.

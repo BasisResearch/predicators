@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Iterator, List, \
 
 import numpy as np
 
+from predicators import utils
 from predicators.envs.pybullet_domino import geometry
 from predicators.envs.pybullet_domino.task_generators import goal_text
 from predicators.envs.pybullet_domino.task_generators import \
@@ -34,8 +35,10 @@ from predicators.envs.pybullet_domino.task_generators.min_block_utils import \
     _PROBE_ANCHOR, clear_probe_memo, compute_k_star, compute_turn_k_star, \
     dual_valid_turn_layout_exists, heavy_dogleg_k_star, straight_span_k_star, \
     swerve_k_star
+from predicators.run.recording import portable_simulator_state
 from predicators.settings import CFG
-from predicators.structs import EnvironmentTask, GroundAtom, Object, State
+from predicators.structs import Array, EnvironmentTask, GroundAtom, Object, \
+    State
 
 if TYPE_CHECKING:
     from predicators.envs.pybullet_domino.env import PyBulletDominoComposedEnv
@@ -293,10 +296,13 @@ def _load_min_block_cache(
     tasks: List[EnvironmentTask] = []
     for entry in entries:
         objs = {name: live_objs[name] for name, _tname in entry["objects"]}
-        state = State({
+        data: Dict[Object, Array] = {
             objs[name]: np.array(vals, dtype=np.float64)
             for name, vals in entry["data"].items()
-        })
+        }
+        sim_state = entry.get("simulator_state")
+        state = (State(data) if sim_state is None else utils.PyBulletState(
+            data, simulator_state=sim_state))
         goal = {
             GroundAtom(pred_map[pname], [objs[oname] for oname in onames])
             for pname, onames in entry["goal"]
@@ -312,8 +318,10 @@ def _load_min_block_cache(
             } if k_star is not None else {}),
             early_stop_min_reward=(_early_stop_bar(float(k_star))
                                    if k_star is not None else None))
-        # Re-run the standard PyBullet conversion (joints, optional
-        # rendering) instead of caching simulator state.
+        # Bind live bodies and refresh optional rendering. New caches carry
+        # the exact initial joints: solving IK again can choose a different
+        # redundant arm configuration and change subsequent contacts.
+        # Older caches retain the legacy feature-only reconstruction.
         tasks.extend(env._add_pybullet_state_to_tasks([plain]))
     if num_requested is not None and len(tasks) < num_requested:
         logging.warning(
@@ -328,7 +336,7 @@ def _load_min_block_cache(
 
 def _save_min_block_cache(path: Optional[Path], tasks: List[EnvironmentTask],
                           num_requested: int) -> None:
-    """Serialize finished tasks (init data, goal, K*) to the cache.
+    """Serialize finished tasks (portable init state, goal, K*) to the cache.
 
     Only the offline K* is stored; the ``DominoEvaluator`` is rebuilt on
     load. ``num_requested`` is stored alongside so a partial set (the
@@ -345,6 +353,8 @@ def _save_min_block_cache(path: Optional[Path], tasks: List[EnvironmentTask],
             "objects": [(o.name, o.type.name) for o in init],
             "data": {o.name: [float(v) for v in init.data[o]]
                      for o in init},
+            "simulator_state":
+            portable_simulator_state(init.simulator_state),
             "goal": [(a.predicate.name, [o.name for o in a.objects])
                      for a in env_task.goal],
             "goal_nl":
