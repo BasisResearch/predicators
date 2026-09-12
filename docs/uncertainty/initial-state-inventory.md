@@ -202,3 +202,9 @@ This closes those component-support obstructions under a declared model, not the
 Before the physical comparison, close the unresolved rows with an explicit generative initial-state model and its normalizing/case factors.
 Then validate its support on known-model recordings and measure exact-output feasibility on frozen learned programs.
 Use the existing complete-prefix replay; do not promote arbitrary mid-run snapshots to exact engine state.
+
+The subsequent [Domino integration](domino-joint-inference.md) closes a restricted positive case with a declared global rest/moving mixture, full robot state and six uncertain body poses.
+Its active dimensions are 27 at rest and 94 when moving, including five physical parameters, plus one discrete case.
+It conditions on the observed unheld initial case; this does not close other attachment cases or the inventories of the other four domains.
+All eight preflight roots were geometrically feasible and repeated exactly over 64 actions, with finite full-output likelihood for two roots.
+The supported-root construction is now available for inference testing; reliable physical posterior sampling is still a separate requirement.

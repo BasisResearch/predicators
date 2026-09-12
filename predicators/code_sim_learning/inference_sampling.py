@@ -61,13 +61,19 @@ class BoxPrior:
 
 @dataclass(frozen=True)
 class SamplerConfig:
-    """Explicit simulator budget and deterministic temperature schedule."""
+    """Budget, temperature schedule and optional proposal-coordinate blocks.
+
+    Nonempty blocks partition the proposal coordinates and are selected
+    uniformly for symmetric moves. Empty blocks preserve full-vector
+    moves.
+    """
     particles: int = 512
     temperatures: int = 32
     moves: int = 4
     proposal_scale: float = 0.05  # fraction of each prior width
     max_evaluations: int = 100000
     resample_ess_fraction: float = 0.5
+    proposal_blocks: Tuple[Tuple[int, ...], ...] = ()
 
     def __post_init__(self) -> None:
         for value in (self.particles, self.temperatures, self.moves,
@@ -78,6 +84,15 @@ class SamplerConfig:
             raise ValueError("Proposal scale must be finite and positive")
         if not 0 < self.resample_ess_fraction <= 1:
             raise ValueError("Resampling ESS fraction must lie in (0, 1]")
+        blocks = tuple(tuple(block) for block in self.proposal_blocks)
+        members = [index for block in blocks for index in block]
+        if any(not block for block in blocks) or any(
+                not isinstance(index, int) or isinstance(index, bool) or
+                index < 0 for index in members) or \
+                len(set(members)) != len(members):
+            raise ValueError(
+                "Proposal blocks require distinct nonnegative indices")
+        object.__setattr__(self, "proposal_blocks", blocks)
 
 
 @dataclass(frozen=True)
@@ -242,6 +257,11 @@ def sample_batch(
             "A conditional prior requires exactly one coordinate map")
     proposal_prior = prior.proposal if isinstance(prior,
                                                   ConditionedPrior) else prior
+    if config.proposal_blocks and set(
+            i for block in config.proposal_blocks for i in block) != \
+            set(range(len(proposal_prior.names))):
+        raise ValueError(
+            "Proposal blocks must partition all proposal coordinates")
     rng = np.random.default_rng(seed)
     lower, upper = np.asarray(proposal_prior.bounds).T
     count = config.particles
@@ -349,9 +369,22 @@ def sample_batch(
             for _ in range(config.moves):
                 for i in range(count):
                     attempted += 1
-                    proposal = particles[i] + rng.normal(
-                        size=len(proposal_prior.names)) * (upper - lower) * \
-                        config.proposal_scale
+                    if config.proposal_blocks:
+                        # A state-independent uniform mixture of symmetric
+                        # block kernels preserves the same tempered target.
+                        block = config.proposal_blocks[int(
+                            rng.integers(len(config.proposal_blocks)))]
+                        block_indices = list(block)
+                        proposal = particles[i].copy()
+                        proposal[block_indices] += rng.normal(
+                            size=len(block_indices)) * \
+                            (upper[block_indices] - lower[block_indices]) * \
+                            config.proposal_scale
+                    else:
+                        # Preserve the original full-vector random stream.
+                        proposal = particles[i] + rng.normal(
+                            size=len(proposal_prior.names)) * \
+                            (upper - lower) * config.proposal_scale
                     if not np.all(np.isfinite(proposal)) or np.any(
                             proposal < lower) or np.any(proposal > upper):
                         continue

@@ -1,0 +1,104 @@
+# Domino joint-inference integration
+
+September 12, 2026.
+
+This experiment connects the offline sampler to a complete candidate physical scene and the [composed observation likelihood](orientation-discrepancy.md).
+It is an integration pilot for the simplification plan, not a validated replacement fitter or an agent solve-rate experiment.
+Production parameter fitting and execution estimation remain on the incumbent implementation.
+
+## Target and initialization
+
+The frozen program is Domino training seed 0's `cycle_000_vers_002_simulator.py`, running against historical source `b09217bb3` with the saved offline-module overlays.
+The fit uses the initial observation and the next 64 recorded actions and observations from L01.
+It conditions on the observed unheld initial case and immutable task descriptors.
+It does not claim a distribution over other initial attachment cases or use recorded private velocities.
+
+The five parameter declarations have identical bounds and scales in both archived program versions.
+Changed fitted initial values are not new prior centers.
+The check establishes declaration stability across these versions, not that the program was specified independently of its training observations.
+
+| Parameter | Fixed prior |
+| --- | --- |
+| Lateral friction | Log-uniform [0.01, 2] |
+| Restitution | Uniform [0, 0.9] |
+| Rolling friction | Uniform [0, 0.1] |
+| Spinning friction | Log-uniform [0.01, 2] |
+| Mass | Log-uniform [0.005, 1] |
+
+Before geometric conditioning, a declared mixture assigns probability 0.8 to all six dominoes resting upright on the support plane and 0.2 to free orientations and motion.
+This shared rest/moving case is an engineering prior, not a guarantee inferred from missing recording fields.
+Body placement cells come from the visible component workspace, eroded by enclosing body radii.
+The rest component uses uniform horizontal position and yaw, with fixed support height and zero motion.
+The moving component uses uniform position, Haar orientation, independent linear velocity coordinates in [-0.1, 0.1] m/s and angular coordinates in [-0.2, 0.2] rad/s.
+
+Movable robot joint positions have zero-centered Gaussian priors with standard deviation pi radians for angular joints and 0.1 m for prismatic joints.
+Nine exact initial controlled positions are conditioned with their original density retained; four other movable positions remain uncertain.
+All movable joint velocities are zero in the rest case and uniform within plus or minus 0.1 in the moving case.
+Including the five parameters, the active continuous dimensions are 27 at rest and 94 when moving, plus the discrete case.
+
+Geometric conditioning rejects the entire scene for prohibited queried penetrations below -1e-7 m.
+The only explicit fixture exceptions are the two fixed wheel/plane contacts at -0.011075 m under this full-reset initializer.
+This check does not add robot self-collision to the engine model.
+One whole-scene support normalizer applies across both cases; feasibility is not normalized separately within each case.
+The five contact/mass parameters do not alter this geometry, so that common normalizer cancels within the parameter/state posterior.
+No model-evidence estimate is claimed without evaluating the normalizer.
+
+The proposal concentrates horizontal positions and supported yaw around the first noisy readings using truncated Gaussian distributions.
+The original physical priors remain those above, and the prior/proposal density ratios are retained.
+The complete initial observation is scored once, with the conditioned exact joint factor retained once.
+The remaining observation factors use the explicitly declared scalar and coupled-orientation output discrepancies; this is not a sensor-only posterior.
+
+Each candidate initializes a fresh world using its sampled poses and joints before semantic state restoration, then installs full body orientations, velocities and joint motion.
+Refreshing `get_observation()` updates the simulator's backing observation before uninterrupted action replay.
+This avoids allowing noisy pose values to determine initializer side effects before replacing them with sampled poses.
+
+## Sampler implementation
+
+`SamplerConfig.proposal_blocks` optionally partitions the proposal coordinates into disjoint groups.
+Each move selects a group uniformly and applies a symmetric Gaussian proposal within it, retaining the existing bounds rejection and conditional density correction.
+State-independent selection preserves the same tempered target.
+An empty block declaration keeps the original full-vector algorithm and random stream.
+Blocks do not increase the evaluation budget or establish that a high-dimensional target has been explored adequately.
+
+Validation passed 17 functional tests, including conditional and unconditional correlated-grid references, uninformed marginals, malformed partitions and budget exhaustion.
+Two-file type checking and lint passed in job `22636679`; its only remaining failure was docstring wrapping, subsequently corrected.
+Job `22636896` passed final pinned formatting and exact old/new default-result comparisons across eight RNG seeds, excluding only the added empty configuration field.
+The final executable syntax trees match the functional/type/lint snapshot after removing docstrings.
+
+The pilot uses 95 unit proposal coordinates with auxiliary unused coordinates in the rest case.
+Those auxiliary uniforms integrate to one; they are not additional uncertain physical quantities.
+Separate blocks update the five parameters, the mixture selector, robot state, and each domino's state.
+Each of the two runs uses 32 particles, eight temperatures, four moves, proposal scale 0.05, and at most 1,056 candidate evaluations.
+These intentionally small budgets test integration before larger numerical comparisons.
+
+## Validation and artifacts
+
+The corrected scene preflight, job `22636219`, accepted eight of eight proposed scenes and reproduced every 64-action trajectory exactly in a fresh second world.
+It covered six rest and two moving candidates.
+Two candidates had finite complete-output likelihood; the other six contradicted exact outputs.
+Those candidate rejections are neither infrastructure failures nor proofs that the whole model is inconsistent.
+The earlier `22636183` setup attempt failed by assigning the read-only `_current_state` property; its artifact is retained separately.
+
+Artifacts are in `logs/uncertainty_domino_joint_scene_v3_20260912` and `logs/uncertainty_domino_joint_fit_20260912`.
+The latter freezes source, overlays, program/data hashes, prior policy, worker and compute configuration.
+Pilot jobs `22636393_100` and `22636393_101` completed on `mit_preemptable` and wrote individual final reports.
+Completion, final particle ESS, or finite likelihood alone cannot establish numerical adequacy.
+Independent-run agreement, budget sensitivity and predictive assessment remain required before posterior use.
+
+Both pilots completed the temperature schedule but collapsed to one surviving initial ancestor.
+Their parameter estimates disagree substantially: the lateral-friction medians are approximately 0.112 and 0.0206, and the mass medians are 0.212 and 0.0343.
+These are diagnostic outputs of inadequate small-budget approximations, not reportable parameter estimates or evidence of identification.
+
+| Sampler RNG seed | Candidate evaluations | Finite initial particles / 32 | First-stage ESS | Surviving ancestors | Distinct final parameter vectors | Worker seconds |
+| --- | --- | --- | --- | --- | --- | --- |
+| 100 | 612 | 11 | 1.00002 | 1 | 1 | 561.2 |
+| 101 | 769 | 15 | 1.00000 | 1 | 3 | 651.4 |
+
+The total accepted-move counts, 371 and 420, include updates to initial state and auxiliary coordinates and therefore do not demonstrate exploration of the parameters.
+The next sampling comparison must address concentration at the first temperature and poor physical-parameter movement, retaining the same target and reporting independent-run agreement.
+Increasing the budget or changing proposal groups is a numerical experiment, not permission to publish the current collapsed samples.
+
+The runtime identity is still a development identity rather than complete capture of installed native dependencies and assets.
+The program was synthesized from historical training experience, so later recording suffixes are not established as unseen during program synthesis.
+The full legacy-fitter comparison, all-five-domain validation and matched planning experiments remain open.
+Fan additionally needs an explicit original prior: its inspected latest program narrows parameter bounds using the same recorded trajectory, which cannot be reused as an independent prior without changing the inference target.
