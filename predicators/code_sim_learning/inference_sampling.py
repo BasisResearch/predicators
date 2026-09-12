@@ -1,16 +1,16 @@
 """Offline tempered batch sampling for small continuous reference problems.
 
-The current implementation uses an independent uniform box prior over a
-joint vector of parameters and episode initial states. It is not a
-feasible physical-state prior for the five domains, and is not used by
-the agent.
+The box reference and the explicit conditional-base extension share the
+same tempered kernel. Conditional maps must supply their correct density
+factors and full joint coordinates. This does not establish a feasible
+physical-state prior for the five domains and is not used by the agent.
 """
 from __future__ import annotations
 
 import json
 import math
 from dataclasses import asdict, dataclass
-from typing import Callable, List, Literal, Tuple
+from typing import Callable, List, Literal, Optional, Tuple, Union
 
 import numpy as np
 
@@ -81,6 +81,61 @@ class SamplerConfig:
 
 
 @dataclass(frozen=True)
+class ConditionedPrior:
+    """A declared conditional base measure in explicit proposal coordinates.
+
+    original_prior identifies the fixed generative prior, not a previous
+    fit. conditioning identifies the exact observations, coordinate map,
+    and density correction. The supplied map must cover the intended
+    support and include the density ratio relative to the normalized
+    uniform proposal. This declaration does not verify those properties.
+    names describe the full joint output, including eliminated
+    coordinates.
+    """
+    names: Tuple[str, ...]
+    original_prior: str
+    conditioning: str
+    proposal: BoxPrior
+
+    def __post_init__(self) -> None:
+        names = tuple(self.names)
+        if not names or len(set(names)) != len(names) or any(
+                not isinstance(n, str) or not n for n in names):
+            raise ValueError("Conditional output names must be distinct")
+        for digest in (self.original_prior, self.conditioning):
+            if len(digest) != 64 or any(c not in "0123456789abcdef"
+                                        for c in digest):
+                raise ValueError(
+                    "Conditional identities must be SHA256 digests")
+        object.__setattr__(self, "names", names)
+
+    @property
+    def digest(self) -> str:
+        """Pin the original prior, conditioning map and proposal
+        declaration."""
+        return content_digest(
+            json.dumps(
+                {
+                    "schema": 1,
+                    "family": "conditional_base_measure",
+                    "prior": asdict(self)
+                },
+                sort_keys=True).encode("utf-8"))
+
+
+@dataclass(frozen=True)
+class PriorPoint:
+    """Full joint candidate and log conditional-base/proposal density ratio.
+
+    The ratio includes exact-observation evidence and all coordinate or
+    proposal corrections, but no remaining noisy-observation likelihood.
+    Negative infinity rejects this point; unsupported maps must raise.
+    """
+    joint: Tuple[float, ...]
+    log_weight: float
+
+
+@dataclass(frozen=True)
 class BatchPosterior:
     """Versioned candidate result; never a publication or adequacy certificate.
 
@@ -91,7 +146,7 @@ class BatchPosterior:
     missing modes.
     """
     identity: InferenceIdentity
-    prior: BoxPrior
+    prior: Union[BoxPrior, ConditionedPrior]
     config: SamplerConfig
     seed: int
     status: Literal["complete", "budget_exhausted", "no_particle_support"]
@@ -106,7 +161,9 @@ class BatchPosterior:
     surviving_ancestors: int
     resampling_count: int
     schema_version: Literal[1] = 1
-    estimator: Literal["offline_tempered_smc_box"] = "offline_tempered_smc_box"
+    estimator: Literal[
+        "offline_tempered_smc_box",
+        "offline_tempered_smc_conditional"] = "offline_tempered_smc_box"
 
     def marginal_quantiles(
         self, name: str, probabilities: Tuple[float, ...] = (.05, .5, .95)
@@ -142,9 +199,15 @@ class _BudgetExceeded(Exception):
     """Internal control flow for an exhausted evaluation allowance."""
 
 
-def sample_batch(prior: BoxPrior, identity: InferenceIdentity,
-                 log_likelihood: Callable[[np.ndarray], float],
-                 config: SamplerConfig, seed: int) -> BatchPosterior:
+def sample_batch(
+    prior: Union[BoxPrior, ConditionedPrior],
+    identity: InferenceIdentity,
+    log_likelihood: Callable[[np.ndarray], float],
+    config: SamplerConfig,
+    seed: int,
+    *,
+    condition: Optional[Callable[[np.ndarray], PriorPoint]] = None
+) -> BatchPosterior:
     """Sample a fixed-prior target from scratch, without carried fit weights.
 
     The callable must evaluate the immutable complete dataset under the
@@ -162,13 +225,31 @@ def sample_batch(prior: BoxPrior, identity: InferenceIdentity,
     never clipped. Final weighted particles target beta=1, but diagnostics and
     repeatability
     checks remain necessary; no ESS threshold certifies undiscovered modes.
+
+    For a ConditionedPrior, condition maps proposal coordinates to the full
+    joint candidate. Initial weights include its base/proposal correction
+    before any likelihood tempering. Metropolis ratios retain that base
+    factor at every temperature; only the remaining likelihood is tempered.
+    Both callbacks receive owned arrays. The budget counts joint target
+    evaluations, including rejected base points; simulator work may be less
+    when a prior point is rejected before invoking the likelihood.
     """
     if identity.prior != prior.digest:
         raise ValueError("Prior differs from immutable inference identity")
+    conditional = isinstance(prior, ConditionedPrior)
+    if conditional != (condition is not None):
+        raise ValueError(
+            "A conditional prior requires exactly one coordinate map")
+    proposal_prior = prior.proposal if isinstance(prior,
+                                                  ConditionedPrior) else prior
     rng = np.random.default_rng(seed)
-    lower, upper = np.asarray(prior.bounds).T
+    lower, upper = np.asarray(proposal_prior.bounds).T
     count = config.particles
-    particles = rng.uniform(lower, upper, size=(count, len(prior.names)))
+    particles = rng.uniform(lower,
+                            upper,
+                            size=(count, len(proposal_prior.names)))
+    joints = np.zeros((count, len(prior.names)))
+    base_weights = np.zeros(count)
     ancestors = np.arange(count)
     likelihoods = np.full(count, -np.inf)
     weights = np.full(count, 1.0 / count)
@@ -180,15 +261,26 @@ def sample_batch(prior: BoxPrior, identity: InferenceIdentity,
     accepted = 0
     attempted = 0
 
-    def evaluate(candidate: np.ndarray) -> float:
+    def evaluate(candidate: np.ndarray) -> Tuple[float, float, np.ndarray]:
         nonlocal evaluations
         if evaluations >= config.max_evaluations:
             raise _BudgetExceeded
         evaluations += 1
-        value = float(log_likelihood(candidate.copy()))
+        point = (PriorPoint(tuple(candidate), 0.)
+                 if condition is None else condition(candidate.copy()))
+        joint = np.asarray(point.joint, dtype=float)
+        base = float(point.log_weight)
+        if joint.shape != (len(prior.names), ) or not np.all(
+                np.isfinite(joint)):
+            raise ValueError("Coordinate map returned invalid joint values")
+        if math.isnan(base) or base == math.inf:
+            raise ValueError("Base weight returned NaN or positive infinity")
+        if base == -math.inf:
+            return -math.inf, base, joint.copy()
+        value = float(log_likelihood(joint.copy()))
         if math.isnan(value) or value == math.inf:
             raise ValueError("Likelihood returned NaN or positive infinity")
-        return value
+        return value, base, joint.copy()
 
     def result(
         status: Literal["complete", "budget_exhausted", "no_particle_support"]
@@ -201,7 +293,7 @@ def sample_batch(prior: BoxPrior, identity: InferenceIdentity,
             seed=seed,
             status=status,
             samples=tuple(tuple(float(v) for v in row)
-                          for row in particles) if complete else (),
+                          for row in joints) if complete else (),
             weights=tuple(float(w) for w in weights) if complete else (),
             evaluations=evaluations,
             completed_temperature=completed,
@@ -210,22 +302,32 @@ def sample_batch(prior: BoxPrior, identity: InferenceIdentity,
             accepted_moves=accepted,
             attempted_moves=attempted,
             surviving_ancestors=len(set(ancestors.tolist())),
-            resampling_count=resampling_count)
+            resampling_count=resampling_count,
+            estimator="offline_tempered_smc_conditional"
+            if conditional else "offline_tempered_smc_box")
 
     try:
         for i in range(count):
-            likelihoods[i] = evaluate(particles[i])
+            likelihoods[i], base_weights[i], joints[i] = evaluate(particles[i])
             initial_finite += int(math.isfinite(likelihoods[i]))
         if not initial_finite:
             # This is not proof the model/data are impossible: a finite
             # initialization may simply have missed valid support.
             return result("no_particle_support")
+        if conditional:
+            weights = np.exp(base_weights - np.max(base_weights))
+            weights /= weights.sum()
         for stage in range(1, config.temperatures + 1):
             beta = stage / config.temperatures
             # Center before multiplication to avoid loss of stability from
             # large normalizing constants common to every candidate.
-            log_weights = np.full(count, -np.inf)
-            np.log(weights, out=log_weights, where=weights > 0)
+            if conditional and stage == 1:
+                # Keep tiny base mass in log space until the first likelihood
+                # update: a discrete observation may select that component.
+                log_weights = base_weights - np.max(base_weights)
+            else:
+                log_weights = np.full(count, -np.inf)
+                np.log(weights, out=log_weights, where=weights > 0)
             log_weights += (beta - completed) * (likelihoods -
                                                  np.max(likelihoods))
             weights = np.exp(log_weights - np.max(log_weights))
@@ -239,6 +341,8 @@ def sample_batch(prior: BoxPrior, identity: InferenceIdentity,
                                      p=weights)
                 particles = particles[indices].copy()
                 likelihoods = likelihoods[indices].copy()
+                base_weights = base_weights[indices].copy()
+                joints = joints[indices].copy()
                 ancestors = ancestors[indices]
                 weights.fill(1.0 / count)
                 resampling_count += 1
@@ -246,19 +350,24 @@ def sample_batch(prior: BoxPrior, identity: InferenceIdentity,
                 for i in range(count):
                     attempted += 1
                     proposal = particles[i] + rng.normal(
-                        size=len(prior.names)) * (upper - lower) * \
+                        size=len(proposal_prior.names)) * (upper - lower) * \
                         config.proposal_scale
                     if not np.all(np.isfinite(proposal)) or np.any(
                             proposal < lower) or np.any(proposal > upper):
                         continue
-                    proposed_likelihood = evaluate(proposal)
+                    trial = evaluate(proposal)
+                    proposed_likelihood, proposed_base, proposed_joint = trial
                     if proposed_likelihood == -math.inf:
                         continue
                     log_ratio = beta * (proposed_likelihood - likelihoods[i])
+                    if conditional:
+                        log_ratio += proposed_base - base_weights[i]
                     # 1-random lies in (0, 1], so log never sees zero.
                     if math.log(1.0 - rng.random()) < log_ratio:
                         particles[i] = proposal
                         likelihoods[i] = proposed_likelihood
+                        base_weights[i] = proposed_base
+                        joints[i] = proposed_joint
                         accepted += 1
             completed = beta
         return result("complete")
