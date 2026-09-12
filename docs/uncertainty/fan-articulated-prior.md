@@ -73,6 +73,6 @@ The sampled cases have 40, 42 or 44 continuous articulated coordinates; the expe
 The four symmetric switch readings contribute a retained log probability of -2.7725887222397807 in each trial, rather than being silently treated as exogenous inputs.
 
 These tests hold the remaining scene and robot root at controlled public-frame inputs; they do not turn those noisy inputs into a valid full-scene prior.
-A complete Fan candidate still needs a coherent static-layout prior, geometric/contact support for the whole scene, and sensitivity assessment of the declared motion laws.
-The articulated components do not close those requirements.
-The full scene dimension and the recorded-trajectory posterior remain unresolved.
+The [whole-scene follow-up](fan-initial-scene.md) now declares fixture placement, box orientation cases, robot/ball components and an explicit geometric support policy, with 82 to 112 continuous initial-state coordinates.
+It retains these articulated components and validates repeated whole-scene candidate trajectories.
+Sensitivity assessment, calibrated scene assumptions and a usable complete-recording posterior remain unresolved.

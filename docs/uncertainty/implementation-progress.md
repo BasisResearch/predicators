@@ -405,6 +405,12 @@ These are comparison inputs and submitted experiments, not completed Stage B evi
 
 ## Next gate
 
+The [full Fan initial-scene experiment](fan-initial-scene.md) now declares the remaining placement and geometry components, retaining all articulated and robot uncertainty under a normalized original law and explicit whole-scene support policy.
+The corrected proposal preserves support for every quarter-turn case and records actual worker hardware instead of inherited CPU labels.
+Eight scenes pass geometry and repeated 32-action replay; seven have finite complete-output likelihood on that prefix.
+All eight earlier saved scenes still fail later exact events over the complete 132-action recording, despite exact repeatability.
+Directed parameter and fixture-placement probes are investigating that conditional support; they are not posterior estimates or evidence of an improvement over legacy fitting.
+
 The [articulated replay correction](articulated-replay.md) closes an omission exposed by the Fan prior work: snapshots previously lost all four slider and twenty rotor joint states.
 The corrected offline snapshot restores those states exactly and repeats a 64-action native Fan trajectory at every recorded boundary.
 Twenty-two functional replay tests and focused static/format checks pass.

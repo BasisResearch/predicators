@@ -40,3 +40,7 @@ The regression includes a supplementary physical fan without a public object, a 
 Existing tests continue to cover robot motion, model memory, original weld frames, queued commands and full-prefix replay.
 
 The remaining Fan work is to compose supported scene geometry and articulated priors with the complete recording likelihood, then establish numerical and predictive adequacy against the incumbent fitter.
+
+The [whole-scene follow-up](fan-initial-scene.md) has since supplied a declared geometric root law and exposed later exact-event failures over the full recording.
+Runtime addenda for [the reproduction](../../logs/uncertainty_articulated_replay_repro_20260912/runtime-audit.json) and [the fixed audit](../../logs/uncertainty_articulated_replay_fixed_20260912/runtime-audit.json) correct inherited node1412 labels: those jobs actually ran on node1408 and node1926 respectively.
+The measured within-job repeatability claims remain unchanged; the raw artifacts are preserved.

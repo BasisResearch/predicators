@@ -102,7 +102,11 @@ The four prismatic switches have 29.6 mm enforced travel and a 14.8 mm on thresh
 Four public fan objects represent twenty physical fan bodies with continuous, collision-bearing rotor joints.
 The later articulated replay correction preserves all these nonrobot joint states, which earlier snapshots omitted.
 A declared uniform rotor position/velocity component adds forty continuous coordinates; eight joint slider/rotor samples restore exactly and repeat sixteen recorded actions in fresh worlds.
-The articulated portion has 40 to 48 continuous dimensions across sixteen switch rest/moving combinations; coherent layout, full-scene support and the total posterior dimension remain unresolved.
+The articulated portion has 40 to 48 continuous dimensions across sixteen switch rest/moving combinations.
+The subsequent [full Fan root law](fan-initial-scene.md) combines those variables with fixture placement, box orientation cases, ball pose/motion and conditioned robot state under an explicit fixed-mounting and contact policy.
+That development representation has 82 to 112 continuous state coordinates, or 83 to 113 with its airflow parameter, across 65,536 case combinations before support and remaining observations.
+Eight sampled whole scenes pass the declared support gate and repeat exactly, but none of the earlier eight saved candidates satisfies the entire 132-action event sequence.
+The complete-recording conditional support and numerical/predictive adequacy remain open; this is not a calibrated task prior or a production posterior.
 
 ## Domino
 
