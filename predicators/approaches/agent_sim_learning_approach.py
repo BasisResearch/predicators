@@ -2543,29 +2543,32 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             self._record_sysid_diagnostics({}, physical_names, 0,
                                            len(rollouts), outcome.traj_rms)
             return outcome.fit_result, float("nan")
+        inference = outcome.inference
         logger.info("Identifiability (posterior/prior contraction):\n%s",
-                    format_identifiability(outcome.report))
-        log_param_changes(init_params, outcome.fitted)
-        self._apply_identified_physical_params(outcome.applied)
-        self.note_carried_posterior(outcome.applied, outcome.report)
+                    format_identifiability(inference.parameter_diagnostics))
+        log_param_changes(init_params, inference.point_estimate)
+        self._apply_identified_physical_params(inference.selected_parameters)
+        self.note_carried_posterior(inference.selected_parameters,
+                                    inference.parameter_diagnostics)
         if outcome.evidence is not None:
             self.note_fit_evidence(
                 self._current_simulator_version or "harness", outcome.evidence)
         # Snapshot the cycle-level decision: this (not whatever the
         # agent's in-session sim.fit last applied) is what a future
         # INCONSISTENT verdict holds on to.
-        self._cycle_applied_physical = dict(outcome.applied)
+        self._cycle_applied_physical = dict(inference.selected_parameters)
         # Physics-margin points for the capture gate: the fit's posterior
         # widths (floored, see identifiability_report) turned into a grid
         # of perturbations spanning +-1 sigma of the applied values.
         self._identified_physical_sigma_points = self._physics_margin_points(
-            outcome.applied, outcome.report, physical_specs)
+            inference.selected_parameters, inference.parameter_diagnostics,
+            physical_specs)
         if self._identified_physical_sigma_points:
             logger.info("Physics-margin points for capture validation: %s",
                         [{k: f"{v:.4f}"
                           for k, v in pt.items()}
                          for pt in self._identified_physical_sigma_points])
-        self._record_sysid_diagnostics(outcome.report,
+        self._record_sysid_diagnostics(inference.parameter_diagnostics,
                                        physical_names, outcome.num_survivors,
                                        len(rollouts), outcome.traj_rms)
         return outcome.fit_result, outcome.post_sse

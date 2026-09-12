@@ -34,6 +34,8 @@ from predicators.code_sim_learning.fit_space import FitResult, ParamSpec, \
     scalar_to_fit_space
 from predicators.code_sim_learning.identifiability import \
     identifiability_report, select_trustworthy_params
+from predicators.code_sim_learning.inference_result import \
+    LegacyInferenceResult
 from predicators.code_sim_learning.physical_sysid import \
     _explainability_cache_key, fit_params_rollout_trimmed
 from predicators.code_sim_learning.rollout_env import RolloutTrajectory, \
@@ -85,6 +87,11 @@ class SysIdOutcome:
     # The Laplace evidence at the MAP (code_sim_learning_fit_evidence);
     # None when off or when the fit carries no Jacobian.
     evidence: Optional[LaplaceEvidence] = None
+
+    @property
+    def inference(self) -> LegacyInferenceResult:
+        """A versioned, isolated view without changing saved outcome fields."""
+        return LegacyInferenceResult.from_outcome(self)
 
 
 @dataclass
