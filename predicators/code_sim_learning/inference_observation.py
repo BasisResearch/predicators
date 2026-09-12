@@ -12,10 +12,11 @@ import math
 from dataclasses import dataclass
 from typing import Callable, Tuple
 
+import numpy as np
 import pybullet as p
 
 from predicators.code_sim_learning.inference_conditioning import \
-    UnsupportedConditioning
+    ConditioningNumericalError, UnsupportedConditioning
 from predicators.code_sim_learning.inference_data import FeatureKey, \
     Observation, SensorModel, content_digest
 from predicators.code_sim_learning.inference_orientation import \
@@ -191,3 +192,96 @@ class OutputObservationModel:
                 reading = (observed[roll], observed[pitch], observed[yaw])
                 terms.append(euler.process.log_density(mean, reading))
         return math.fsum(terms)
+
+    def sample_future(self, predictions: Tuple[Observation, ...],
+                      observed_prefix: Tuple[Observation, ...],
+                      rng: np.random.Generator) -> Tuple[Observation, ...]:
+        """Draw a joint future observation history using only a fitted prefix.
+
+        Predictions include the initial frame and every future primitive
+        step. They must come from causal simulator continuation, without
+        using future readings to correct physical state. This method
+        receives no future observations and never changes predictions.
+
+        Scalar discrepancy is filtered on the prefix, then sampled as a
+        correlated error history. Sensor noise remains independent and
+        separate. Euler errors use the declared raw quaternion mixture,
+        and checked displays are derived from their sampled sources.
+        Conditioned inputs must be supplied in the future prediction
+        frames; they are copied as given inputs, not assigned a density.
+
+        An empty prefix draws from the original output-error law. A
+        zero-likelihood prefix has no conditional forecast under this
+        supplied physical history. This is an output-model sampler, not
+        a posterior over physical parameters or current execution state.
+        """
+        count = len(observed_prefix)
+        if not predictions or count > len(predictions) or \
+                [o.step for o in predictions] != list(range(len(predictions))):
+            raise ValueError("Predictions must contain each step from zero")
+        if count:
+            score = self.log_likelihood(predictions[:count], observed_prefix)
+            if score == -math.inf:
+                raise UnsupportedConditioning(
+                    "No conditional forecast for a zero-likelihood prefix")
+            if not math.isfinite(score):
+                raise ConditioningNumericalError("Nonfinite prefix score")
+        if any(f.process.pole_threshold != .99999 for f in self.eulers):
+            raise UnsupportedConditioning(
+                "Native Euler sampling requires pole threshold .99999")
+        if count == len(predictions):
+            return ()
+        predicted = [dict(o.values) for o in predictions]
+        observed = [dict(o.values) for o in observed_prefix]
+        sensor = {f.key: f for f in self.sensor.features}
+        displays = {r.declaration.output for r in self.readouts}
+        for values in predicted[count:]:
+            if any(key not in values for key in sensor if key not in displays):
+                raise ValueError(
+                    "Missing future prediction or conditioned input")
+        # One boundary draw per scalar retains temporal dependence within
+        # the suffix, unlike drawing each filtered marginal independently.
+        errors = {}
+        for scalar in self.scalars:
+            process = scalar.process
+            mean, sigma = 0., process.initial_sigma
+            if count:
+                filtered = output_error_likelihood(
+                    process,
+                    tuple(row[scalar.key] for row in predicted[:count]),
+                    tuple(row.get(scalar.key) for row in observed),
+                    sensor[scalar.key].sigma)
+                mean = filtered.steps[-1].filtered_mean
+                sigma = filtered.steps[-1].filtered_sigma
+            errors[scalar.key] = float(rng.normal(mean, sigma))
+        draws = []
+        for index in range(count, len(predictions)):
+            values = {
+                key: predicted[index][key]
+                for key in sensor if key not in displays
+            }
+            for scalar in self.scalars:
+                process = scalar.process
+                if index:
+                    errors[scalar.key] = float(
+                        process.persistence * errors[scalar.key] +
+                        rng.normal(0., process.innovation_sigma))
+                values[scalar.key] += errors[scalar.key]
+            for euler in self.eulers:
+                angles = [predicted[index][key] for key in euler.keys]
+                mean_quaternion = np.asarray(p.getQuaternionFromEuler(angles))
+                sign = 1. if rng.integers(2) else -1.
+                raw = sign * mean_quaternion + rng.normal(
+                    0., euler.process.sigma, size=4)
+                # Do not normalize: the likelihood models native Euler
+                # readout of raw quaternion components, including poles.
+                values.update(zip(euler.keys, p.getEulerFromQuaternion(raw)))
+            for key, feature in sensor.items():
+                if feature.sigma > 0 and not feature.conditioned:
+                    values[key] += float(rng.normal(0., feature.sigma))
+            for readout in self.readouts:
+                declaration = readout.declaration
+                values[declaration.output] = readout.evaluate(
+                    values[declaration.source])
+            draws.append(Observation(index, tuple(values.items())))
+        return tuple(draws)

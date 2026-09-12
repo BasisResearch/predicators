@@ -422,6 +422,9 @@ Nineteen functional tests, focused type/lint checks and pinned formatters pass f
 The same ensemble now supplies its weights to the incumbent per-atom information criterion through `atom_information`, with explicit observation-channel probabilities and no acting-agent routing change.
 This extension passed 61 functional tests and focused static/format checks on a compute node; 768 comparisons preserve the default scoring path exactly.
 The physical inference and saved-decision comparison gates remain open.
+The [conditional forecast interface](conditional-forecasts.md) now draws complete future observation histories from the fitted output model, retaining scalar temporal dependence, coupled Euler outputs and checked readouts.
+Its native Domino check repeats both complete 161-action histories exactly, rejects the incompatible prefix and generates all 70 fields for the supported candidate's 97-action suffix without future-observation conditioning.
+This is a physical integration check on two fixed candidates; neither is an assessed posterior sample.
 The four full legacy comparison tasks have also completed, providing saved predictions for both 64-action fits and complete Domino/Fan recordings.
 Both domains retain their anchor parameters for prediction under the incumbent policy; a matched replacement posterior is still unavailable.
 The [Boil incomplete-model control](boil-incomplete-control.md) now separates missing filling/heating dynamics from sensor noise using a scalar likelihood bound and a causal suffix calculation.
