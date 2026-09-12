@@ -10,7 +10,8 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import asdict, dataclass
-from typing import Mapping, Optional, Tuple
+from statistics import NormalDist
+from typing import Mapping, Optional, Tuple, Union
 
 import numpy as np
 
@@ -26,26 +27,73 @@ class IncompatibleJointObservation(ValueError):
     """
 
 
+class JointCoordinateBoundary(ValueError):
+    """A Gaussian quantile endpoint has zero measure and no finite lift."""
+
+
+@dataclass(frozen=True)
+class GaussianJointPosition:
+    """A declared Gaussian over reset angles/positions, without wrapping.
+
+    This describes a simulator initialization law, not an ideal hard
+    mechanical limit. Its parameters must be fixed independently of the
+    readings used for a fit. It does not certify collision feasibility.
+    """
+    mean: float
+    sigma: float
+
+    def __post_init__(self) -> None:
+        if not math.isfinite(self.mean) or not math.isfinite(
+                self.sigma) or self.sigma <= 0:
+            raise ValueError(
+                "Gaussian position needs a finite mean and positive scale")
+
+    def log_density(self, value: float) -> float:
+        """Retain exact-position information under the original reset law."""
+        ratio = (value - self.mean) / self.sigma
+        result = -.5 * ratio * ratio - math.log(
+            self.sigma) - .5 * math.log(2 * math.pi)
+        if not math.isfinite(result):
+            raise ArithmeticError(
+                "Gaussian position density is not representable")
+        return result
+
+    def quantile(self, unit: float) -> float:
+        """Push uniform open-unit coordinates to the whole real line."""
+        if not 0 < unit < 1:
+            raise JointCoordinateBoundary(
+                "Gaussian quantiles require an interior coordinate")
+        result = self.mean + self.sigma * NormalDist().inv_cdf(unit)
+        if not math.isfinite(result):
+            raise ArithmeticError(
+                "Gaussian position quantile is not representable")
+        return result
+
+
+PositionPrior = Union[Tuple[float, float], GaussianJointPosition]
+
+
 @dataclass(frozen=True)
 class JointStatePrior:
-    """Independent bounded joint positions and explicit rest/motion choices.
+    """Independent position priors and explicit rest/motion choices.
 
-    None position bounds denote a mechanically fixed joint with state
-    (0, 0). Every movable joint needs finite positive-width position
-    bounds, including continuous URDF joints: finite winding support is
-    a prior assumption, not a mechanical limit or angle-wrapping rule.
-    Positive velocity half-widths give normalized uniform velocities;
-    zero denotes a prior atom at zero velocity. Dependencies and mixture
+    None denotes a mechanically fixed joint with state (0, 0). Movable
+    joints have either finite uniform bounds or Gaussian reset
+    positions. Finite winding support and Gaussian tails are explicit
+    assumptions, not mechanical limits or angle-wrapping rules. Positive
+    velocity half-widths give normalized uniform velocities; zero
+    denotes a prior atom at zero velocity. Dependencies and mixture
     masses require a separately specified full initial-state model.
     """
     names: Tuple[str, ...]
-    position_bounds: Tuple[Optional[Tuple[float, float]], ...]
+    position_priors: Tuple[Optional[PositionPrior], ...]
     velocity_half_widths: Tuple[float, ...]
 
     def __post_init__(self) -> None:
         names = tuple(self.names)
-        bounds = tuple(None if b is None else tuple(float(v) for v in b)
-                       for b in self.position_bounds)
+        bounds = tuple(
+            b if b is None or isinstance(b, GaussianJointPosition) else tuple(
+                float(v) for v in b) for b in self.position_priors)
         widths = tuple(float(v) for v in self.velocity_half_widths)
         if (not names or len(set(names)) != len(names)
                 or any(not isinstance(n, str) or not n for n in names)
@@ -61,13 +109,15 @@ class JointStatePrior:
                 if width != 0:
                     raise ValueError(
                         "Fixed joint cannot have uncertain velocity")
+            elif isinstance(bound, GaussianJointPosition):
+                continue
             elif (len(bound) != 2 or not all(math.isfinite(v) for v in bound)
                   or bound[0] >= bound[1]
                   or not math.isfinite(bound[1] - bound[0])):
                 raise ValueError(
                     "Movable joint requires finite position bounds")
         object.__setattr__(self, "names", names)
-        object.__setattr__(self, "position_bounds", bounds)
+        object.__setattr__(self, "position_priors", bounds)
         object.__setattr__(self, "velocity_half_widths", widths)
 
     @property
@@ -76,9 +126,9 @@ class JointStatePrior:
         return content_digest(
             json.dumps(
                 {
-                    "schema": 1,
+                    "schema": 2,
                     "family":
-                    "bounded_joint_positions_and_uniform_or_rest_velocities",
+                    "joint_position_priors_and_uniform_or_rest_velocities",
                     "prior": asdict(self)
                 },
                 sort_keys=True).encode())
@@ -89,8 +139,9 @@ class JointStatePrior:
 
         The exact measurements must be initial positions, not future
         values injected into a rollout. Movable positions contribute
-        their original uniform density. A fixed joint's zero contributes
-        unit mass. Out-of-support observations raise a distinct error.
+        their original position density. A fixed joint's zero
+        contributes unit mass. Out-of-support observations raise a
+        distinct error.
         """
         return ConditionedJointPrior(self, tuple(observations.items()))
 
@@ -117,9 +168,9 @@ class ConditionedJointPrior:
         for name, value in values:
             if not math.isfinite(value):
                 raise ValueError("Joint observation must be finite")
-            bound = self.prior.position_bounds[self.prior.names.index(name)]
+            bound = self.prior.position_priors[self.prior.names.index(name)]
             if (bound is None
-                    and value != 0) or (bound is not None
+                    and value != 0) or (isinstance(bound, tuple)
                                         and not bound[0] <= value <= bound[1]):
                 raise IncompatibleJointObservation(
                     f"Exact position for {name} is outside the declared prior")
@@ -131,10 +182,12 @@ class ConditionedJointPrior:
         measured = dict(self.observations)
         names = []
         bounds = []
-        for name, bound in zip(self.prior.names, self.prior.position_bounds):
+        for name, bound in zip(self.prior.names, self.prior.position_priors):
             if bound is not None and name not in measured:
                 names.append(name + ".position")
-                bounds.append(bound)
+                bounds.append((
+                    0.,
+                    1.) if isinstance(bound, GaussianJointPosition) else bound)
         for name, width in zip(self.prior.names,
                                self.prior.velocity_half_widths):
             if width:
@@ -147,10 +200,12 @@ class ConditionedJointPrior:
         """Density/mass of the conditioned readings under the original
         prior."""
         measured = dict(self.observations)
-        return -sum(
-            math.log(bound[1] - bound[0])
-            for name, bound in zip(self.prior.names, self.prior.position_bounds
-                                   ) if name in measured and bound is not None)
+        return sum(
+            bound.log_density(measured[name]) if isinstance(
+                bound, GaussianJointPosition) else -math.log(bound[1] -
+                                                             bound[0]) for
+            name, bound in zip(self.prior.names, self.prior.position_priors)
+            if name in measured and bound is not None)
 
     @property
     def digest(self) -> str:
@@ -180,8 +235,11 @@ class ConditionedJointPrior:
             free = dict(zip(space.names, values))
         measured = dict(self.observations)
         joints = []
-        for name, bound in zip(self.prior.names, self.prior.position_bounds):
+        for name, bound in zip(self.prior.names, self.prior.position_priors):
             position = measured.get(name, free.get(name + ".position", 0.))
+            if isinstance(bound,
+                          GaussianJointPosition) and name not in measured:
+                position = bound.quantile(position)
             velocity = free.get(name + ".velocity", 0.)
             joints.append((float(position) if bound is not None else 0.,
                            float(velocity)))
