@@ -493,3 +493,51 @@ The production agent continues to use legacy uncertainty handling.
 Full physical initial-state priors, remaining exact robot/contact constraints, and complete runtime capture still gate real-domain posterior comparisons.
 
 Artifacts: [reference plan](../../logs/uncertainty_conditional_reference_20260912/plan.json), [all reference trials and Bridge witnesses](../../logs/uncertainty_conditional_reference_20260912/job-22628442.json), [original sampler parity](../../logs/uncertainty_sampler_parity_20260912/job-22628479.json), [functional checks](../../logs/uncertainty_conditional_batch_v3_20260912/checks-22628640.xml), [final static-check plan](../../logs/uncertainty_conditional_batch_v4_20260912/plan.json).
+
+## Rigid-assembly prior and planar-contact reference
+
+The offline `RigidAssemblyPrior` maps normalized free coordinates to one coherent assembly, including original weld frames and correlated body motion.
+Its geometry consists of fixed local body poses and enclosing collision radii inside a declared obstacle-free cell.
+A full scene prior must justify those inputs and specify uncertain geometry, attachment alternatives, robot state, and component probabilities.
+The implementation does not infer them from hidden recording metadata or plug noisy observed poses into prior bounds.
+See [the component contract](assembly-prior.md).
+
+| Component | Continuous coordinates | Explicit construction |
+| --- | ---: | --- |
+| Free/rest | 6 | Uniform root xyz and uniform SO(3) orientation; zero twist |
+| Free/moving | 12 | Free/rest pose distribution plus bounded root linear and angular motion |
+| Planar support/rest | 3 | Uniform xy and yaw; exact height from a declared lowest support face; zero twist |
+
+The components are separately normalized distributions, not a mixture with unspecified implicit weights.
+Root placement bounds conservatively contain every orientation permitted by the component, and nonoverlapping enclosing spheres guarantee internal separation under the declared geometry.
+The tabletop case is a separate lower-dimensional contact distribution, not the result of projecting unconstrained position samples onto a table.
+Child velocities include `omega cross offset`, which is needed for instantaneous compatibility with the weld.
+The mechanical reference found up to 0.03851 m/s of attachment-velocity disagreement if one instead copied the parent's linear velocity to the child.
+
+Job `22628947` used a generated 6 cm cube and an attached 2 cm-radius sphere at a fixed 12 cm root-frame offset.
+It loaded no evaluator task or historical hidden state.
+For each component and seeds 0 through 3, it simulated 240 gravity steps in a new PyBullet world, repeated the trajectory in another fresh world, then reconstructed the full 120-step prefix before returning the suffix in a third world.
+The declared checks required no initial penetration beyond 1e-12 m engine geometry roundoff, actual plane contacts, finite states, and repeat/prefix differences no greater than 1e-12.
+The geometry roundoff threshold is an audit tolerance, not a softened observation likelihood.
+The twelve trials used 8,640 simulator steps.
+
+| Component | Mechanical trials passing | Largest repeat/prefix feature difference | Largest weld position deflection during simulation |
+| --- | ---: | ---: | ---: |
+| Free/rest | 4/4 | 0 | 2.696 mm |
+| Free/moving | 4/4 | 0 | 3.414 mm |
+| Planar support/rest | 4/4 | 0 | 0.001027 mm |
+
+The finite-force weld deflections are retained as simulation behavior, not treated as failed reconstruction or added sensor noise.
+The prior establishes compatible geometry and velocity at initialization; it does not turn the engine's weld solver into a perfectly rigid constraint.
+The initial supported face also does not certify static balance for arbitrary masses or geometry.
+These generated trials validate a physical component and repeatability, not the full historical balloons task, a posterior fit, or agent solve performance.
+
+Final validation `22628938` passed 21 functional tests, two-file mypy and configured lint, and pinned isort, yapf, and docformatter checks.
+The tests include actual engine separation and contact distances, independently composed weld frames, a finite-difference rigid-motion check, rotational isotropy, declared support rejection, and the existing replay suite.
+Initial validation `22628904` passed its 20 functional tests but found a tuple annotation too narrow for both coordinate dimensions.
+Static follow-up `22628919` passed after annotating the variable-length tuple and explicitly discarding the validation property's return value.
+The subsequent supported component adds one functional test and is covered by the final 21-test job.
+The earlier eight free-assembly reference trials in `22628914` also passed and remain separate, overlapping evidence rather than eight additional final cases.
+All validation and simulation ran on `mit_preemptable` compute nodes.
+
+Artifacts: [final source plan](../../logs/uncertainty_assembly_v3_20260912/plan.json), [predeclared mechanical checks](../../logs/uncertainty_assembly_v3_20260912/reference-plan.json), [per-trial physical results](../../logs/uncertainty_assembly_v3_20260912/reference-22628947.json), [functional checks](../../logs/uncertainty_assembly_v3_20260912/checks-22628938.xml).
