@@ -31,6 +31,8 @@ This supplies active-carry repeated-data coverage and supports an immutable orig
 The original harness reproduction also confirms that applying fitted values to a reused subclass reference can change registry defaults even with explicit carrying off; the corrected comparison isolates that effect without changing production behavior.
 
 The existing long-prefix Balloons and full-recording Fan fits remain separate ongoing diagnostics.
+The [repeated-dataset Gaussian reference](repeated-dataset-reference.md) now has a validated exact-posterior preflight and a queued 512-fit coverage study across two cases and particle budgets.
+It addresses statistical behavior across independent synthetic datasets while keeping physical-domain calibration and live-agent acceptance separate.
 The next gate is trustworthy decision-relevant prediction within the declared computation budget, followed by saved-decision shadow comparisons and matched live use.
 No current physical posterior has been approved for the acting agent.
 
