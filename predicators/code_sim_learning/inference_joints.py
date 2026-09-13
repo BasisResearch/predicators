@@ -295,6 +295,38 @@ class RestingJointPrior:
         """Condition on position > threshold without selecting one angle."""
         return ThresholdJointPrior(self, threshold, observed)
 
+    @property
+    def coordinates(self) -> BoxPrior:
+        """Unit coordinates for the original, unobserved joint law."""
+        return BoxPrior(
+            (self.name + ".position_mixture", self.name + ".velocity"),
+            ((0., 1.), ) * 2)
+
+    def lift(self, point: np.ndarray) -> Tuple[float, float]:
+        """Draw the original rest/motion prior without inventing a reading.
+
+        The second coordinate is an unused uniform auxiliary in either
+        rest case. The original law is already normalized, so this map
+        contributes no observation or proposal-density correction.
+        """
+        values = np.asarray(point, dtype=float)
+        if values.shape != (2, ) or not np.isfinite(values).all():
+            raise ValueError("Invalid original joint coordinates")
+        if np.any(values <= 0) or np.any(values >= 1):
+            raise JointCoordinateBoundary(
+                "Original joint coordinates must be interior")
+        for index, position in enumerate(self.rest_positions):
+            if values[0] < self.rest_probability * (index + 1) / 2:
+                return position, 0.
+        position = self.lower + (self.upper - self.lower) * \
+            (float(values[0]) - self.rest_probability) / \
+            (1 - self.rest_probability)
+        if not self.lower < position < self.upper:
+            raise JointCoordinateBoundary(
+                "Interior position rounded to an original-prior boundary")
+        velocity = self.velocity_half_width * (2 * float(values[1]) - 1)
+        return position, velocity
+
 
 @dataclass(frozen=True)
 class ThresholdJointPrior:

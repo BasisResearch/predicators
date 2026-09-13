@@ -81,8 +81,11 @@ Ten initial-slider candidates retain the failure, but estimating static fixture 
 These point-state cases are independently verified and supply candidates for explicit initial-state inference; they are not posterior forecasts or Stage B acceptance.
 The [Boil fixture proposal](boil-fixture-proposal.md) now separates an explicit uniform fixture-position prior from a first-65-observation Gaussian guide, retaining the complete prior/proposal density correction.
 Independent quadrature checks recover original-prior moments and posterior reference integrals under different guides.
-Twenty-seven functional tests and focused static/format checks pass; the native 29-history audit and independent reader are queued.
+Twenty-seven functional tests and focused static/format checks pass.
+The native 29-history audit and independent reader are complete: all 18 guided fixture draws have supported full conditional histories, all six broad draws retain zero likelihood, and the reader verifies 68,904 joint factors plus all guide densities and inverse quantiles.
 Full initial-state composition and posterior adequacy remain open.
+The subsequent [Boil articulated-state component](boil-articulated-prior.md) adds a direct original-prior map for the unobserved faucet joint while preserving the existing conditioning interface for the two switches.
+Sixteen functional tests and focused static/format checks pass; the native 18-history audit is running and its readers are queued.
 The next gate is trustworthy decision-relevant prediction within the declared computation budget, followed by saved-decision shadow comparisons and matched live use.
 No current physical posterior has been approved for the acting agent.
 

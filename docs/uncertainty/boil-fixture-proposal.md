@@ -51,9 +51,16 @@ Independent quadrature tests check proposal normalization, the joint mixture law
 Additional tests cover finite support endpoints, deterministic mapping, the defensive weight bound, identities, and invalid inputs.
 The first compute check passed all 27 proposal/output-error tests and focused type checking; its two test-file lint findings were corrected before resubmission.
 Final compute checks `22687335` completed successfully: 27 functional tests, two-file type checking and lint, and pinned formatting.
-Native audit `22687337_0` and independent reader `22687339` are queued in dependency order on `mit_preemptable`.
+Native audit `22687337_0` and independent reader `22687339` completed on `mit_preemptable`, using respectively 379 and 327 allocation seconds on one CPU.
+All 18 guided random draws have finite complete conditional likelihoods and no detected initial fixture-pair intersections.
+All six uniform-component draws have zero complete likelihood; two also have fixture-pair intersections.
+The guide center and both previous mean controls remain supported, and the original failed point repeats exactly.
+The reader verifies all 68,904 joint-transition factors, with maximum independent calculation difference 3.638e-12, and rejects all six corrupted-input classes.
+Its dense Gaussian reference validates all eight guide summaries and all 24 proposal densities and inverse quantiles.
+The coordinate guide standard deviation is 4.74818 millimeters under the retained temporally correlated output model.
 The cancelled dependent jobs from the first lint failure performed no native actions and are setup outcomes, not failed inference trials.
 
-The next gate is to inspect support across the sampled fixture positions, then incorporate this component into the remaining initial-state composition with the fixed parameter prior and complete likelihood accounting.
+These support results justify incorporating this component into the remaining initial-state composition with the fixed parameter prior and complete likelihood accounting.
+The 18 supported conditional draws establish local support under this proposal, not an 18-seed agent solve rate, a posterior estimate, or independent calibration.
 Neither a supported draw nor a successful numerical component test establishes posterior adequacy, held-out prediction quality, or unchanged agent performance.
 Production fitting, planning, and execution estimation remain unchanged.
