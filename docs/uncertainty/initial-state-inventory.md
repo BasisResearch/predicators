@@ -139,7 +139,7 @@ This is a noisy predictive failure, not an exact contradiction or a reason to in
 
 The later [Boil articulated-state component](boil-articulated-prior.md) identifies an additional unobserved revolute joint in the faucet asset, separate from the two observed on/off switches.
 Its original position/motion law must remain unconditioned by those flags; the switch laws retain their actual event probabilities.
-The component implementation passes numerical references and the native inventory confirms all three joints; restoration and full-history checks are running.
+The component implementation passes numerical references, the native inventory confirms all three joints, and independent checks verify 48 initial joint draws plus all 18 complete conditional histories.
 This adds explicit missing joint coordinates without declaring the rest of the Boil scene inventory complete.
 
 ## Original non-hatch balloons

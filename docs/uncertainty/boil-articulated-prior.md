@@ -43,7 +43,7 @@ The reader independently reconstructs the mixture maps and rejects altered readb
 It also verifies all existing output and transition factors and both reference histories.
 
 The driver saves each native observation before the historical rules execute.
-A separate reader will reconstruct those states and run the literal historical rules, requiring exact agreement with all saved output predictions and model memory and rejecting emitted physical commands.
+A separate reader reconstructs those states and runs the literal historical rules, requiring exact agreement with all saved output predictions and model memory and rejecting emitted physical commands.
 This checks a possible reuse boundary for cheaper later parameter evaluations.
 It does not authorize reuse for other programs or establish that the entire joint-state inference problem is solved.
 
@@ -53,9 +53,14 @@ Compute checks `22687962` passed 16 functional tests, focused type checking, lin
 These include independent piecewise quadrature for the original mixed prior, both pure-component limits, unchanged conditional behavior, and invalid-coordinate cases.
 The first check's untyped quadrature-library call was replaced by the analytic two-node Gaussian quadrature rule; the statistical reference itself had already passed.
 
-Native job `22688041_0` is running on `mit_preemptable`, followed by queued independent reader `22688102` and literal-rule reader `22688171`.
+Native job `22688041_0`, independent reader `22688102`, and literal-rule reader `22688171` all completed on `mit_preemptable`.
+Their one-CPU allocation times are respectively 232, 208, and 22 seconds.
 The instantiated inventory confirms two sliders with URDF interval `[0, 0.296]` and the separate faucet hinge with interval `[0, pi/2]`; the effective slider interval is `[0, 0.0296]` meters.
-No native result is accepted merely because these jobs have been submitted.
+All 16 sampled joint triples have finite full conditional likelihoods, and both reference histories repeat exactly.
+The samples include nonzero initial velocity in four faucet-switch draws, one burner-switch draw, and five faucet-hinge draws.
+The independent reader verifies all 48 initial joint draws and 42,768 robot transition factors, with maximum arithmetic difference 3.553e-15, and rejects seven corrupted-input classes.
+The literal-rule reader reproduces all 4,752 post-rule output frames and every recorded model-memory state exactly, with no new native actions.
+This reuse check covers the tested parameter values; validating reuse across parameter changes remains a prerequisite for an optimized fitter.
 
 The full scene model must still combine these joints with uncertain fixture height/orientation, jug pose and motion, robot nuisance state, physical support, and the fixed program's liquid/memory initialization contract.
 Any feasibility conditioning must preserve its normalization and the original parameter prior.

@@ -85,7 +85,8 @@ Twenty-seven functional tests and focused static/format checks pass.
 The native 29-history audit and independent reader are complete: all 18 guided fixture draws have supported full conditional histories, all six broad draws retain zero likelihood, and the reader verifies 68,904 joint factors plus all guide densities and inverse quantiles.
 Full initial-state composition and posterior adequacy remain open.
 The subsequent [Boil articulated-state component](boil-articulated-prior.md) adds a direct original-prior map for the unobserved faucet joint while preserving the existing conditioning interface for the two switches.
-Sixteen functional tests and focused static/format checks pass; the native 18-history audit is running and its readers are queued.
+Sixteen functional tests and focused static/format checks pass.
+All 16 sampled joint triples have supported full conditional histories; independent readers verify 48 initial joint draws, 42,768 transition factors, and exact literal-rule reconstruction of all 4,752 saved output frames and model-memory states.
 The next gate is trustworthy decision-relevant prediction within the declared computation budget, followed by saved-decision shadow comparisons and matched live use.
 No current physical posterior has been approved for the acting agent.
 
