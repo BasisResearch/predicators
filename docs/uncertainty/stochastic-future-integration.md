@@ -126,3 +126,19 @@ Each run first reproduces the full 235-action reference factor, and every path e
 The terminal audit repeats one retained full history and checks that its sum of block factors equals its direct whole-future factor.
 Each completed run requires 21,419 native actions, including reconstruction and terminal checks, rather than just its 1,024 newly sampled future actions.
 These pilots remain numerical diagnostics of a fixed full-training-selected witness, not prefix-only inference, new agent results or a comparison of model quality.
+
+All four tasks completed and passed the full-prefix, terminal replay, block-factor decomposition and artifact checks.
+The numerical consistency result is negative:
+
+| Evaluated future | Seed 911 log density | Seed 912 log density | Between-seed difference | Final original ancestors, seeds 911 / 912 |
+| --- | ---: | ---: | ---: | --- |
+| Generated701 | 4950.40744 | 4960.59650 | 10.18906 | 1 / 2 |
+| Recorded | -2573.78777 | -2548.09901 | 25.68876 | 1 / 1 |
+
+Both comparisons fail the predeclared 0.2 log-density-difference diagnostic.
+Individual block effective counts sometimes improve, but that does not establish an adequate complete-history integral.
+The retained ancestry and independent-run disagreement show why terminal particle counts alone are insufficient.
+The four jobs took approximately 6.5, 10.2, 8.6 and 6.6 allocated minutes and performed 85,676 native actions in total.
+This pilot uses more replay work per integration than the earlier whole-path diagnostic; it does not demonstrate either accuracy or cost superiority.
+Verified outputs and a repeatable artifact checker are in the native bundle's `verification.json` and `verify_report.py`.
+Position-guided proposals or another demonstrated variance reduction remain necessary before claiming a reliable stochastic forecast score.

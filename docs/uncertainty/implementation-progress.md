@@ -1,6 +1,6 @@
 # Uncertainty simplification: implementation progress
 
-Updated September 12, 2026.
+Updated September 13, 2026.
 This tracks implementation of the [simplification proposal](simplification-proposal.md).
 The incumbent estimator remains the production default.
 
@@ -10,7 +10,10 @@ Its first native Balloons diagnostic reproduces the reference trajectory but fai
 This is an unresolved integration problem, so these scores are not used to compare estimators or change agent behavior.
 A native factor audit reproduces ten selected paths exactly and attributes their output-score variation to the box and attached balloon positions; robot factors remain invariant.
 The subsequent offline sequential integrator retains complete histories and block density normalizers, with explicit ancestry diagnostics.
-Forty-four functional tests and focused static checks pass; four native Balloons integrations are running on compute nodes to assess whether it reduces the observed concentration.
+Forty-four functional tests and focused static checks pass.
+All four native sequential integrations completed with exact replay and factor accounting, but both independent-run comparisons fail the declared density-stability diagnostic and retain only one or two original ancestors.
+The two [Domino conditioned-base pilots](domino-joint-inference.md#completed-numerical-pilots-september-13) also completed, with strongly different parameter summaries and one original ancestor each; numerical adequacy remains unestablished.
+Fan recovery jobs are active after confirmed allocation timeouts, and the two Balloons fits have been submitted for continuation from their saved complete-stage checkpoints under the same numerical budgets.
 
 The latest [likelihood cost reduction](likelihood-cost.md) preserves all 2,560 archived orientation densities and five complete Fan likelihoods exactly on the checked runtimes.
 It removes array reductions from two-term quadrature sums, making the measured density evaluations about four times faster while retaining the statistical model and numerical acceptance checks.

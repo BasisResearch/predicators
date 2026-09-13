@@ -114,16 +114,41 @@ It fits the same 64-action development prefix under fixed priors and an identifi
 Run `22637359_100` reached its four-hour Slurm limit before producing a completed sampler result.
 Its last saved progress report recorded 9,536 target calls; the scheduler reports `TIMEOUT`, not an agent outcome or a completed posterior.
 No sampler checkpoint existed in that frozen worker, so its best candidate cannot serve as a continuation state.
-The other numerical seed, `22637359_101`, remains a separate running fit with an eight-hour allocation.
+The other numerical seed, `22637359_101`, used an eight-hour allocation and subsequently completed.
 
 Replacement `22649657_100` restarts numerical seed 100 from the original prior with the same data, priors, temperature schedule and evaluation budget.
 It adds the tested scalar likelihood optimization, [stage checkpoints](sampler-checkpoints.md) and an eight-hour allocation on the same AMD EPYC 7542 worker node.
 The runtime identity changes to identify those source changes; the statistical model and sampler configuration do not change.
 Its startup checks compare complete old/new likelihoods on two replayed candidates before fitting.
 One pair retains zero support, and the finite pair matches exactly at `8141.576094195281` on this AMD runtime.
-The retry is running and has saved its initialized population checkpoint after 64 evaluations.
+The retry saved its initialized population after 64 evaluations and subsequently completed all 32 stages.
 All sixty recorded finite-initial-base entries also match the timed-out run's entries exactly.
 
 The [retry manifest](../../logs/uncertainty_domino_conditioned_checkpoint_20260912/plan.json) retains the timeout reason and hashes the old likelihood source used for the paired check.
 Attempt files retain per-attempt counters; the sampler result and checkpoint retain the cumulative numerical evaluation count.
 This recovery does not establish posterior adequacy, convergence or an improvement in agent performance.
+
+### Completed numerical pilots, September 13
+
+Both conditioned-base fits now have terminal `COMPLETED` job states and complete, structurally valid 64-row weighted sampler results at temperature 1.
+Numerical seed 100 used 14,318 target evaluations in its replacement attempt, and seed 101 used 14,038.
+Their completed attempts took approximately 5 hours 8 minutes and 5 hours 32 minutes; seed 100 also incurred the earlier four-hour timed-out attempt.
+Both retained only one original ancestor after 11 resampling events.
+The minimum recorded effective sample sizes were 18.32 and 20.33, respectively.
+
+Their empirical parameter summaries disagree substantially:
+
+| Parameter | Seed 100: 5th / 50th / 95th percentile | Seed 101: 5th / 50th / 95th percentile |
+| --- | --- | --- |
+| Lateral friction | 0.11496 / 0.17337 / 0.21346 | 0.42817 / 0.65932 / 0.87769 |
+| Restitution | 0.25945 / 0.41405 / 0.55124 | 0.72363 / 0.87345 / 0.89240 |
+| Rolling friction | 0.003084 / 0.003496 / 0.006734 | 0.000129 / 0.000129 / 0.002509 |
+| Spinning friction | 0.01137 / 0.02051 / 0.02760 | 0.03731 / 0.04631 / 0.06521 |
+| Mass | 0.30506 / 0.40014 / 0.53333 | 0.49608 / 0.64470 / 0.78762 |
+
+These are summaries of the numerical populations, not validated credible intervals.
+Shared data, sensor, program, prior and sampler configuration were verified, along with complete finite samples and normalized nonnegative weights.
+The runtime-source difference and its earlier exact likelihood parity checks remain part of the comparison's provenance.
+Completion does not resolve the disagreement or establish trustworthy posterior coverage.
+Predictive stability and a defensible exploration of the joint parameter/initial-state distribution remain required before any posterior publication or legacy comparison claim.
+The source hashes and completion checks are retained in `logs/uncertainty_domino_conditioned_checkpoint_20260912/completion-comparison-20260913.json`.

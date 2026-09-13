@@ -141,3 +141,13 @@ The initially queued unguarded recovery submissions `22650769` and `22650770` we
 The recovery manifest, gate checks and authoritative scheduler evidence are in the same bundle.
 Original jobs remain live and unchanged; no full replacement is running concurrently.
 Original attempts, initialization checks and any eventual recovery all belong to the same two numerical seeds, not additional agent outcomes or independent posterior replications.
+
+### Recovery activation, September 13
+
+Slurm now confirms both original tasks `22643258_0` and `22643258_1` timed out at their eight-hour limits.
+Their guarded recovery jobs `22650786_0` and `22650787_1` activated after those terminal failures and are running on node1412.
+They restart the same numerical seeds from the verified stage-zero populations after 64 evaluations; the original eight-hour workers did not save their later sampler populations.
+The recovery allocations are twelve hours each, and original-attempt costs remain part of the total.
+They are not additional independent fits or agent outcomes.
+The earlier descriptions of live original jobs and pending recoveries above record the state when the safeguards were implemented.
+No completed or numerically assessed Fan posterior is claimed by this update.

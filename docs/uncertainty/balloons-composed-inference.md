@@ -204,6 +204,18 @@ The original geometry normalizer and fixed initial robot-output factors cancel f
 Their numerical availability remains unevaluated until the separate assessment is complete.
 No resulting parameter distribution is routed to the acting agent by this experiment.
 
+## Checkpoint continuation, September 13
+
+Both original array tasks `22649168_0` and `22649168_1` reached their eight-hour Slurm limits with terminal `TIMEOUT` states.
+Numerical seeds 300 and 301 retained complete-stage checkpoints at stages 14 and 13, after 7,922 and 7,601 evaluations respectively.
+Their old progress reports still say running because the scheduler terminated the process; those reports do not override the terminal job states.
+
+Array `22671041` continues those same numerical seeds from the saved sampler populations and random states, using the identical frozen worker, target, proposal and 32,896-evaluation cap.
+Each continuation has another eight-hour allocation on node1391; the additional allocation is part of the total inference cost and is not a new experiment seed.
+The original checkpoints were copied and hashed before continuation in `logs/uncertainty_balloons_joint_pilot_20260912/continuation-20260913`.
+The first continuation has confirmed `resumed=true` with 7,922 saved evaluations; the other task is queued for resources at this update.
+No completed Balloons posterior or numerical adequacy result is available from these fits yet.
+
 ## Unconditional future-generation audit
 
 Compute job `22652531` validates the generation half of the stochastic forecast using the same mapped support witness and frozen learned program as the joint sampler preflight.
