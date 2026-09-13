@@ -47,6 +47,8 @@ The new [constant-output guide calculation](constant-output-guides.md) passes 33
 A prefix-only saved-history audit verifies the 30 fixture coordinates and a 3.312 mm Gaussian guide scale.
 The guided proposal subsequently passed density correction, original physical target and serial/parallel initialization checks.
 Two guided 64-particle fits and gated reserved-future forecasts are submitted, with the original prior, program and observation model retained.
+The first guided fit `22678810_0` and forecast `22679493_1` have completed; archived source hashes and the forecast's exact checkpoint/coordinate checks are verified.
+That fit retains one initial ancestor, and its paired fit and final comparison remain unfinished.
 Initial weight effective sample size is worse than the original proposal, so this guide remains an exploratory comparison rather than an improvement claim.
 The [guided-tempering reference](guided-tempering.md) completed 16 exact Gaussian fits; annealing the finite mixture correction reduces error in these references while preserving the final target.
 Its native Fan preflight preserves the target and serial/parallel state, with initial effective sample size 15 instead of 2.010; two matched alternative-bridge fits are running.
