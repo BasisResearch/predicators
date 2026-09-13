@@ -94,4 +94,24 @@ Short sampler fixture `22678838` is queued, followed on successful completion by
 The adapter first restores the completed augmented-coordinate checkpoint without additional target evaluations.
 It transforms each positive-weight proposal into the saved original scene coordinates, then checks the original native prefix likelihood and the fully corrected base density during full-trajectory replay.
 The first positive-weight history is repeated, and every history is saved with its unchanged population weight.
-These jobs validate the adapter only; full guided-fit forecasts have not yet been submitted.
+These jobs validate the adapter only; the full forecasts below depend on the additional saved-artifact verification passing.
+
+
+## Matched prediction comparison
+
+The comparison reader is in `logs/uncertainty_fan_guided_summary_20260913`.
+It permits the intended proposal/conditioning identity change while requiring identical data, observation model, physical program, original scene prior and sampler settings apart from the additional proposal coordinate.
+The original simulator and scene mapping are byte-identical between arms.
+The only changed inference overlay adds the two constant-output helper definitions; removing those additions leaves the entire original module syntax tree unchanged.
+The original target evaluator is preserved byte-for-byte in the guided wrapper.
+
+Validation `22678900` completed in 11 allocation seconds on one compute CPU, independently checking all 128 positive-weight original forecast histories and their unchanged weights.
+It rejected eight incompatible comparisons covering data, sensor, program, prior, sampler configuration, coordinate meanings, source runtime and target factorization.
+This establishes comparison checks, not guided prediction quality.
+The guided saved-artifact verifier `22678924` remains dependent on the native forecast fixture.
+It checks every canonical scene and full-mixture correction, then tests rejection of altered or missing coordinate checks, corrections, weights, predictions, particles and checkpoint identities.
+
+Full guided forecasts `22678925_1` and `22678926_2` are queued behind that verifier and their respective completed fits.
+Summary `22678943` waits for the validation jobs and both forecast terminal states, retaining missing or unavailable outcomes explicitly.
+The summary reports both original and both guided populations, all available pairwise prediction disagreements, parameter mass concentration and inference/forecast costs.
+No guided prediction result or adequacy conclusion is available yet.
