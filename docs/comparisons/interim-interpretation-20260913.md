@@ -30,9 +30,13 @@ The table above contains methods with all four non-Bridge domains complete.
 Additional completed domain groups are Boil standalone (3/3 whole-run successes, 1,838 mean steps, n=3), and the no-explicit-uncertainty arm in Fan (3/3, 312.3 steps, n=3), Boil (3/3, 735 steps, n=3), and original Balloons (3/3, 260.7 steps, n=3).
 The latter Balloons result includes a confirmed custom uncertainty sweep and cannot establish strict point-estimate performance; see the protocol audit below.
 Fan standalone is now complete at 3/3 whole-run successes, 724 mean steps (n=3), and zero resets; per-seed steps are 735, 890, and 547.
-Fan seeds 0 and 2 saved no world_model.py and their play transcripts contain no sim.run/refine/score calls, despite the prompt requesting executable modeling.
+Fan seeds 0 and 2 and Boil seeds 1 and 2 saved no world_model.py, and their play transcripts contain no sim.run/refine/score call mentions, despite the prompt requesting executable modeling.
 Real actions were not gated on writing or using a model, so these are assigned-arm outcomes rather than evidence that those seeds used the standalone prediction interface.
-See the [final Fan audit](/home/ycliang/predicators/logs/continual_comparisons_20260912/fan-standalone-final-20260913.json).
+These four seeds all succeeded, so this qualification affects both the Fan and Boil standalone success rates.
+The completed-run audit covers all ten finalized standalone seeds; it excludes the two unfinished Balloons seeds.
+File presence and interface-call mentions alone do not establish predictive accuracy or whether decisions used predictions.
+A zero sim_rollouts counter also does not exclude scoring calls or direct analytical code.
+See the [standalone model-use audit](/home/ycliang/predicators/logs/continual_comparisons_20260912/standalone-model-use-audit-20260913.json).
 Domino standalone is complete with 0/3 whole-run successes: each seed won training and gave up on test.
 Seeds 0, 1, and 2 used 702, 484, and 459 total steps respectively, all with zero resets; mean successful steps is unavailable (n=0).
 The [final Domino standalone audit](/home/ycliang/predicators/logs/continual_comparisons_20260912/domino-standalone-final-20260913.json) separates the verified failures from the agents' unverified mechanical explanations.
