@@ -76,7 +76,12 @@ Scorecard and terminal-log verification for this snapshot is saved in the [outco
 
 A later audit confirmed that original Balloons seed1 in the no-explicit-uncertainty arm executed an agent-written parameter sweep.
 It evaluated release choices over 4001 red-lift values at each of three possible mass ratios and printed intervals that would reach the goal.
-The supplied uncertainty tools were disabled, but the run does not establish strictly point-estimate reasoning.
+A subsequent audit confirmed another sweep in still-running Domino seed 1.
+Before observing a real push, it evaluated future cascades at five friction values and compared one-blue and two-blue layout thresholds; its journal explicitly described having no real dynamics data and making a prior-based decision.
+It later varied friction jointly with push controls to compare future outcomes.
+These are sensitivity checks for future decisions, rather than parameter fitting against recorded transitions.
+The supplied uncertainty tools were disabled, but these runs do not establish strictly point-estimate reasoning.
+The Domino finding is a protocol caveat while the run is unfinished, not a final solve-rate result.
 The user has been asked whether to retain a narrower no-harness-uncertainty-tools interpretation or pursue a stricter implementation and rerun.
-Point fitting, observation averaging, and controller-parameter searches are not themselves evidence of a violation.
+Point fitting, observation averaging, and controller-parameter searches at fixed dynamics are not themselves evidence of a violation.
 See the [executed-code evidence](/home/ycliang/predicators/logs/continual_comparisons_20260912/no-uncertainty-protocol-audit.json).
