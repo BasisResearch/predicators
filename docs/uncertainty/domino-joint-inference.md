@@ -186,4 +186,32 @@ Together with the replica differences, it leaves the present finite-population p
 A low average position error on one suffix cannot establish posterior coverage, toppling/timing stability, or unchanged agent performance.
 
 The source populations, reconstruction code, full histories, per-row scores, complete forecast curves and comparison checks are retained in `logs/uncertainty_domino_population_forecast_20260913`.
-This is a population-stability diagnostic; a completed matched comparison against the incumbent predictions and the broader validation gates remain required.
+This population-stability diagnostic is followed by the matched incumbent comparison below; broader validation gates remain required.
+
+## Matched legacy prediction diagnostic, September 13
+
+Compute job `22672106` completed evaluation of the already-frozen predictions from the cold legacy fit and both new populations.
+All three use the same fixed program and 64-action fitting prefix, followed by the same 97-action future suffix.
+The worker verifies input identities and all 128 compressed population histories, and independently reconstructs their previously reported means and toppling curves.
+Stored noiseless states are evaluator-only labels, read after the forecasts were fixed; they enter neither inference nor prediction.
+This evaluation takes no native simulator steps.
+
+| Forecast | Cartesian RMSE to noisy readings | Cartesian RMSE to stored truth | Mean toppling Brier error | Final domino_1 toppling probability |
+| --- | ---: | ---: | ---: | ---: |
+| Cold legacy fit | 0.011062 m | 0.004933 m | 0.003436 | 0 |
+| Population 100, unassessed | 0.011585 m | 0.006138 m | 0.002801 | 0.96875 |
+| Population 101, unassessed | 0.012130 m | 0.006849 m | 0.002824 | 0.32628 |
+
+The legacy fit has smaller position error on this suffix.
+Both new populations have slightly smaller Brier error averaged over all 97 frames and six objects, but their final predictions disagree substantially.
+The recorded first toppling frames for objects 0 through 5 are `[157, 161, absent, 159, 160, absent]`.
+Legacy predicts `[157, absent, absent, 159, 161, absent]`.
+Population 100 mostly predicts object 3 toppling at frame 158, one frame early, while population 101 predicts frame 159.
+A long interval before any toppling makes the frame-averaged metric particularly insufficient as a goal or event-timing assessment.
+These are descriptive errors on one training suffix, not independent-trial uncertainty estimates or evidence of an agent advantage.
+
+The cold legacy fit took 214.39 seconds using its six-CPU allocation.
+The new serial population fits took over five hours each, with an additional timed-out attempt for seed 100.
+The methods change both parameter inference and initial-state handling, so the planned matched ablations are still required.
+Numerical stability, predictive adequacy and inference cost have not passed the replacement gate.
+The report, frozen inputs and evaluator are in `logs/uncertainty_domino_legacy_prediction_comparison_20260913`.

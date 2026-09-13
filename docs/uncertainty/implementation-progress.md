@@ -19,6 +19,14 @@ The completed Domino population replay gives similar mean Cartesian errors (1.16
 The disagreement therefore affects goal-relevant predictions despite similar averaged feature errors.
 Fan recovery jobs are active after confirmed allocation timeouts, and the two Balloons fits have been submitted for continuation from their saved complete-stage checkpoints under the same numerical budgets.
 
+The completed matched Domino diagnostic now compares all three forecasts on the same 97-action suffix, with stored truth used only for evaluation after predictions were frozen.
+Legacy has lower Cartesian error, while the new populations have slightly lower frame-averaged toppling Brier error and substantially different final toppling probabilities.
+This does not establish a replacement advantage, and the new multi-hour fits retain an unresolved cost problem.
+The next [ordered batch evaluation component](batch-evaluation.md) combines each conditional map and likelihood into an indivisible worker operation, allowing isolated processes to evaluate a mutation sweep concurrently.
+Its scalar path retains the original random schedule, while batch mode uses a separate checkpoint identity and reserves its numerical budget before dispatch.
+Thirty-two functional tests, sixteen exact comparisons against the original scalar implementation and final focused type/lint/format checks pass.
+The native Domino check reproduces all target values and complete sampler output exactly across one and four processes, with a measured 3.76-fold sampler speedup; numerical adequacy remains unestablished.
+
 The latest [likelihood cost reduction](likelihood-cost.md) preserves all 2,560 archived orientation densities and five complete Fan likelihoods exactly on the checked runtimes.
 It removes array reductions from two-term quadrature sums, making the measured density evaluations about four times faster while retaining the statistical model and numerical acceptance checks.
 Twenty-three functional tests and focused type/lint/format checks pass; running fits retain their existing frozen source.

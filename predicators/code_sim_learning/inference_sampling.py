@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import asdict, dataclass
-from typing import Callable, List, Literal, Optional, Tuple, Union
+from typing import Callable, Iterator, List, Literal, Optional, Tuple, Union
 
 import numpy as np
 
@@ -18,6 +18,7 @@ from predicators.code_sim_learning.inference_checkpoint import \
     SamplerCheckpoint
 from predicators.code_sim_learning.inference_data import InferenceIdentity, \
     content_digest
+from predicators.code_sim_learning.inference_evaluation import BatchedTarget
 
 
 @dataclass(frozen=True)
@@ -231,7 +232,8 @@ class _BudgetExceeded(Exception):
 
 def sample_batch(prior: Union[BoxPrior, ConditionedPrior],
                  identity: InferenceIdentity,
-                 log_likelihood: Callable[[np.ndarray], float],
+                 log_likelihood: Union[Callable[[np.ndarray], float],
+                                       BatchedTarget],
                  config: SamplerConfig,
                  seed: int,
                  *,
@@ -273,11 +275,22 @@ def sample_batch(prior: Union[BoxPrior, ConditionedPrior],
     Interrupted stages are repeated from their last saved boundary; the
     checkpoint is not a posterior or a numerical adequacy certificate.
     Callers must identify all callback dependencies in identity.runtime.
+
+    Alternatively, a BatchedTarget owns both conditioning and likelihood and
+    receives one ordered population per mutation sweep. Workers must evaluate
+    whole candidates in isolated processes. This mode pre-draws an acceptance
+    uniform for every proposal, including rejected ones, so worker scheduling
+    cannot change the random stream. Its separately identified checkpoint
+    kernel cannot resume scalar-mode checkpoints. Scalar calls preserve the
+    original draw schedule. Both modes target the same declared distribution;
+    their random streams and resulting finite populations can differ.
     """
     if identity.prior != prior.digest:
         raise ValueError("Prior differs from immutable inference identity")
     conditional = isinstance(prior, ConditionedPrior)
-    if conditional != (condition is not None):
+    batched = isinstance(log_likelihood, BatchedTarget)
+    if (batched and condition is not None) or (not batched and conditional !=
+                                               (condition is not None)):
         raise ValueError(
             "A conditional prior requires exactly one coordinate map")
     proposal_prior = prior.proposal if isinstance(prior,
@@ -309,7 +322,8 @@ def sample_batch(prior: Union[BoxPrior, ConditionedPrior],
     signature = content_digest(
         json.dumps(
             {
-                "kernel": "tempered_smc_stage_checkpoint_v1",
+                "kernel": "tempered_smc_ordered_batch_v1"
+                if batched else "tempered_smc_stage_checkpoint_v1",
                 "identity": identity.digest,
                 "prior": prior.digest,
                 "config": asdict(config),
@@ -412,10 +426,74 @@ def sample_batch(prior: Union[BoxPrior, ConditionedPrior],
             raise ValueError("Base weight returned NaN or positive infinity")
         if base == -math.inf:
             return -math.inf, base, joint.copy()
+        assert not isinstance(log_likelihood, BatchedTarget)
         value = float(log_likelihood(joint.copy()))
         if math.isnan(value) or value == math.inf:
             raise ValueError("Likelihood returned NaN or positive infinity")
         return value, base, joint.copy()
+
+    def evaluate_many(
+        candidates: List[np.ndarray]
+    ) -> Iterator[Tuple[float, float, np.ndarray]]:
+        nonlocal evaluations
+        if not isinstance(log_likelihood, BatchedTarget):
+            for candidate in candidates:
+                yield evaluate(candidate)
+            return
+        allowed = min(len(candidates), config.max_evaluations - evaluations)
+        proposals = tuple(
+            tuple(float(v) for v in candidate)
+            for candidate in candidates[:allowed])
+        # Reserve the logical budget before any workers can start. A partial
+        # stage never emits a checkpoint or usable posterior population.
+        evaluations += allowed
+        if proposals:
+            rows = log_likelihood.evaluate(proposals, len(prior.names),
+                                           conditional)
+            for row in rows:
+                yield row.log_likelihood, row.log_base, np.asarray(row.joint)
+        if allowed < len(candidates):
+            raise _BudgetExceeded
+
+    def propose(index: int) -> np.ndarray:
+        if config.proposal_blocks:
+            # A state-independent mixture of symmetric block kernels.
+            block = list(config.proposal_blocks[int(
+                rng.integers(len(config.proposal_blocks)))])
+            proposal = particles[index].copy()
+            proposal[block] += rng.normal(size=len(block)) * \
+                (upper[block] - lower[block]) * config.proposal_scale
+            return proposal
+        return particles[index] + rng.normal(
+            size=len(proposal_prior.names)) * \
+            (upper - lower) * config.proposal_scale
+
+    def supported(proposal: np.ndarray) -> bool:
+        return bool(
+            np.all(np.isfinite(proposal)) and np.all(proposal >= lower)
+            and np.all(proposal <= upper))
+
+    def accept(index: int,
+               proposal: np.ndarray,
+               trial: Tuple[float, float, np.ndarray],
+               beta: float,
+               uniform: Optional[float] = None) -> None:
+        nonlocal accepted
+        proposed_likelihood, proposed_base, proposed_joint = trial
+        if proposed_likelihood == -math.inf:
+            return
+        log_ratio = beta * (proposed_likelihood - likelihoods[index])
+        if conditional:
+            log_ratio += proposed_base - base_weights[index]
+        # The original scalar path draws only after a finite evaluation.
+        # Batch mode supplies its independently pre-drawn acceptance value.
+        draw = rng.random() if uniform is None else uniform
+        if math.log(1.0 - draw) < log_ratio:
+            particles[index] = proposal
+            likelihoods[index] = proposed_likelihood
+            base_weights[index] = proposed_base
+            joints[index] = proposed_joint
+            accepted += 1
 
     def result(
         status: Literal["complete", "budget_exhausted", "no_particle_support"]
@@ -443,9 +521,8 @@ def sample_batch(prior: Union[BoxPrior, ConditionedPrior],
 
     try:
         if resume is None:
-            for i in range(count):
-                likelihoods[i], base_weights[i], joints[i] = evaluate(
-                    particles[i])
+            for i, trial in enumerate(evaluate_many(list(particles))):
+                likelihoods[i], base_weights[i], joints[i] = trial
                 initial_finite += int(math.isfinite(likelihoods[i]))
             if not initial_finite:
                 # Finite initialization may simply have missed valid support.
@@ -485,41 +562,23 @@ def sample_batch(prior: Union[BoxPrior, ConditionedPrior],
                 weights.fill(1.0 / count)
                 resampling_count += 1
             for _ in range(config.moves):
-                for i in range(count):
-                    attempted += 1
-                    if config.proposal_blocks:
-                        # A state-independent uniform mixture of symmetric
-                        # block kernels preserves the same tempered target.
-                        block = config.proposal_blocks[int(
-                            rng.integers(len(config.proposal_blocks)))]
-                        block_indices = list(block)
-                        proposal = particles[i].copy()
-                        proposal[block_indices] += rng.normal(
-                            size=len(block_indices)) * \
-                            (upper[block_indices] - lower[block_indices]) * \
-                            config.proposal_scale
-                    else:
-                        # Preserve the original full-vector random stream.
-                        proposal = particles[i] + rng.normal(
-                            size=len(proposal_prior.names)) * \
-                            (upper - lower) * config.proposal_scale
-                    if not np.all(np.isfinite(proposal)) or np.any(
-                            proposal < lower) or np.any(proposal > upper):
-                        continue
-                    trial = evaluate(proposal)
-                    proposed_likelihood, proposed_base, proposed_joint = trial
-                    if proposed_likelihood == -math.inf:
-                        continue
-                    log_ratio = beta * (proposed_likelihood - likelihoods[i])
-                    if conditional:
-                        log_ratio += proposed_base - base_weights[i]
-                    # 1-random lies in (0, 1], so log never sees zero.
-                    if math.log(1.0 - rng.random()) < log_ratio:
-                        particles[i] = proposal
-                        likelihoods[i] = proposed_likelihood
-                        base_weights[i] = proposed_base
-                        joints[i] = proposed_joint
-                        accepted += 1
+                if batched:
+                    pending = []
+                    for i in range(count):
+                        attempted += 1
+                        proposal = propose(i)
+                        uniform = float(rng.random())
+                        if supported(proposal):
+                            pending.append((i, proposal, uniform))
+                    trials = evaluate_many([row[1] for row in pending])
+                    for row, trial in zip(pending, trials):
+                        accept(row[0], row[1], trial, beta, row[2])
+                else:
+                    for i in range(count):
+                        attempted += 1
+                        proposal = propose(i)
+                        if supported(proposal):
+                            accept(i, proposal, evaluate(proposal), beta)
             completed = beta
             completed_stage = stage
             emit_checkpoint()
