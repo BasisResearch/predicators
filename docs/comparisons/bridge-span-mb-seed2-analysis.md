@@ -39,3 +39,17 @@ The full comparison is saved in `/home/ycliang/predicators/logs/bridge_mb_extens
 
 A separate code review found that the final 60-substep certificate bypasses ordinary domain updates, including weld relaxation intended to suppress numerical creep.
 Testing that difference against normal waiting remains necessary before treating it as a cause or changing the success rule.
+
+## Recorded-action replay gate, 2026-09-13
+
+Compute arrays `22678198` and `22678239` replayed the recorded MB and oracle-scene seed-2 test actions before comparing the existing certificate with three ordinary hold-position steps.
+These are mechanical diagnostics, not agent runs or new solve-rate seeds.
+Both replays begin with exactly matching recorded observations but diverge at action 38 of the initial PickBottle invocation, affecting bottle and robot features.
+The first robot position discrepancy reaches approximately 0.289 mm and later differences grow substantially.
+Matching the original environment cache setup in the second array did not eliminate this divergence.
+The replayed MB layout already fails the geometric goal before certification, whereas the recorded run reached the certificate with a candidate goal layout.
+Consequently, neither replay can establish the cause of the original settling rejection.
+The replayed oracle-scene layout survives both checks, but this does not validate the MB counterfactual.
+The next reproduction should include the public skill-controller calls and their simulator side effects, rather than assuming recorded joint commands alone reconstruct the original execution.
+No experiment runtime or success rule was changed, and all unfinished Bridge baselines remain held.
+The assessment and per-mode artifacts are under `/home/ycliang/predicators/logs/bridge_mb_extension_20260913/settling-audit-assessment.json`.
