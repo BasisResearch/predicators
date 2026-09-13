@@ -33,6 +33,12 @@ Forty-one functional tests, thirty-two disabled-refresh compatibility comparison
 The native mixed-proposal check also matches target values and sampler output exactly between synchronous and four-process execution.
 The two refresh-arm Domino fits are running; two matched local-only controls await the array concurrency limit, and no new posterior is yet available.
 
+The [initial-state ablation](initial-state-ablation.md) now supplies a first-observation-only point-start comparison while retaining the original parameter prior and output model.
+Its selected scene is feasible, repeats exactly and yields finite full-prefix likelihoods at 39 of 64 random parameter settings.
+Two parameter-only fits are running alongside the joint fits; this is an explicitly labeled approximation, not an exact state observation.
+The [checkpoint-driven forecast follow-up](checkpoint-forecasts.md) now reproduces every complete history and aggregate metric from the earlier 64-row forecast exactly.
+Six follow-up jobs are submitted with dependencies on successful completion of their individual source fits; no new prediction comparisons are complete yet.
+
 The latest [likelihood cost reduction](likelihood-cost.md) preserves all 2,560 archived orientation densities and five complete Fan likelihoods exactly on the checked runtimes.
 It removes array reductions from two-term quadrature sums, making the measured density evaluations about four times faster while retaining the statistical model and numerical acceptance checks.
 Twenty-three functional tests and focused type/lint/format checks pass; running fits retain their existing frozen source.
