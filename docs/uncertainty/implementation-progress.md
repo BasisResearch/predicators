@@ -27,7 +27,7 @@ The [revised Bridge subclass](bridge-subclass-inference.md) now matches all obse
 The exact-rate component also passes: 600 actual-rule latch cases reproduce the analytic conditional support and retained rate-prior density, with 1,812 rule steps and no native rollout.
 That component assumes an eligible deposition schedule; full latent geometry, remaining exact-output constraints and a complete Bridge inference target are still required.
 The [revised Bridge incumbent control](bridge-incumbent-control.md) now freezes a 600-action fitting prefix containing the first bond and reserves the remaining 586 actions, including the second bond.
-Preflight `22696941` is queued for resources on the audited node, followed by the full serial incumbent fit `22697046` and independent forecast verification `22697048`.
+Preflight `22696941` has started on the audited node, followed by the queued full serial incumbent fit `22697046` and independent forecast verification `22697048`.
 The new Bridge probability-model arm remains unfinished; this pipeline does not substitute a point fit for the planned posterior comparison.
 
 The [Balloons population forecast adapter](balloons-prefix-forecasts.md#complete-population-forecast-adapter) now passes native replay, nonuniform weighted-summary, zero-density and no-refit checkpoint checks, including twelve malformed-result rejections.
@@ -92,7 +92,8 @@ Both 64-particle point-start fits and their independently verified full-suffix f
 The new pair agrees to 0.215 mm in position means but differs by 0.166830 in final-toppling probability, failing the declared 0.15 limit.
 Future-bank variability is much smaller than fitted-replica disagreement, and the new model has worse toppling scores than the matched older model on this recording despite slightly better position error.
 The complete artifacts retain original weights, separate generation from conditioned density evaluation and reject six deliberately corrupted inputs.
-Matched 128-particle follow-ups `22688869_0` and `_1` are running, with dependent forecast/verifier jobs `22689058_0` and `22689059_1` and a six-pair budget report `22689095`.
+Matched 128-particle follow-ups `22688869_0` and `_1` completed all 32 temperatures with 31,921/31,959 evaluations, retaining 15/10 initial ancestors.
+Complete populations and weights match their checksummed checkpoints; forecast/verifier jobs `22689058_0` and `22689059_1` are running, with six-pair budget report `22689095` still dependent.
 These remain offline diagnostics; neither the short fixture nor a completed sampler is an approved posterior.
 
 The [Fan prefix comparison](fan-prefix-comparison.md) has two completed 64-particle fits and causal forecasts on 68 reserved actions.

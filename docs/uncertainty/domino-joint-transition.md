@@ -166,4 +166,11 @@ The runtime identities legitimately differ because they include the budget-speci
 Follow-up reader check `22689407` passes, and both live 128-particle reports match their independently reconstructed expected runtime identity.
 Reader test `22689104` passes identical-summary, injected-regression and misaligned-coordinate controls and correctly reports the current two-population comparison as incomplete.
 The follow-up forecast/report bundle is `logs/uncertainty_domino_transition_128_forecast_20260913/`.
+
+Both larger fits have now completed all 32 temperatures.
+Seed 100 used 31,921 evaluations in a 3:39:43 allocation and retained 15 initial ancestors; seed 101 used 31,959 evaluations in 3:40:32 and retained 10.
+Each recorded five resampling events.
+Their complete sample populations and weights match the checksummed checkpoints exactly.
+The dependent native forecast/verifier jobs `22689058_0` and `22689059_1` are running, with the budget comparison `22689095` still queued behind them.
+Completion and ancestor counts do not establish that the previously observed toppling-prediction disagreement has been resolved.
 All results remain a fixed-initial-state ablation and do not close Stage B.
