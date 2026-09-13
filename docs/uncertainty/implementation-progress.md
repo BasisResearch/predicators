@@ -12,6 +12,11 @@ The active work is Stage B offline comparison; Stage C live posterior use and St
 Stage D execution smoothing remains optional and deferred.
 The full plan remains incomplete, and the incumbent estimator remains the production default.
 
+The [Bridge glue attribution](bridge-glue-attribution.md) now proves a structural contradiction in the transferred parameterized program, beyond the original no-op control.
+Four exact `0, 0.2, 0.4, 1` progressions cannot arise from its constant-increment deposition law for any parameter setting under the preserved memory contract.
+Six geometry-conditioned development cases and an independent 7,116-step direct-rule verifier complete; clean recorded geometry still exposes wrong face selection and timing, and a saturation correction alone is insufficient.
+This identifies model revision as the next Bridge action; these conditional diagnostics are not causal forecasts or an accepted posterior.
+
 The [Balloons population forecast adapter](balloons-prefix-forecasts.md#complete-population-forecast-adapter) now passes native replay, nonuniform weighted-summary, zero-density and no-refit checkpoint checks, including twelve malformed-result rejections.
 Forecast jobs `22693026` and `22693027` are gated behind the two live prefix fits; each is followed by independent artifact verification, then paired report `22693044`.
 Every positive-weight particle keeps its original weight, receives eight generated suffixes and eight separate conditional-density draws, and must reproduce its saved prefix likelihood.
