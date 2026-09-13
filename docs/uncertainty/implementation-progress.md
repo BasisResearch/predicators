@@ -49,10 +49,13 @@ Fixed centers preserve every diagnostic report across all three repetitions; car
 This supplies active-carry repeated-data coverage and supports an immutable original prior, but does not establish unchanged future predictions or planning decisions.
 The original harness reproduction also confirms that applying fitted values to a reused subclass reference can change registry defaults even with explicit carrying off; the corrected comparison isolates that effect without changing production behavior.
 
-The long-prefix Balloons fits remain ongoing.
+The first full-recording Balloons fit, numerical seed 300, has completed; seed 301 remains ongoing.
 After Slurm confirmed `22671041_0` timed out, its seed-300 fit continued as `22684078_0` from completed stage 28 and 15,107 evaluations under the same frozen runtime, prior and numerical budget.
 Its two previous eight-hour allocations remain part of the cost.
 Seed 301 subsequently reached a confirmed allocation timeout and continued as `22686274_1` from completed stage 24 and 13,819 evaluations, preserving its existing numerical budget and prior sixteen allocation hours.
+Seed 300 has now completed all 32 stages with 17,200 evaluations, 29 resampling events and one surviving initial ancestor.
+Its report and checksummed checkpoint agree exactly on the saved joint population and weights; numerical availability remains unevaluated.
+The final 2:25:46 allocation adds to its prior sixteen hours, and the full fitting recording is not a held-out prediction test.
 Both full-recording Fan fits and their verified report have completed, but their narrow empirical speed distributions do not overlap and each retains one initial ancestor; they remain unassessed.
 The [repeated-dataset Gaussian reference](repeated-dataset-reference.md) has completed all 512 fits.
 All three parameter-coordinate groups pass the declared CDF-error screens at 2,048 particles; both correlated coordinates fail at 256 particles despite apparently plausible coverage.

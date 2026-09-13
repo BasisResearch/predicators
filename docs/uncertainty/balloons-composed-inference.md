@@ -254,3 +254,17 @@ The successful report, source hashes, candidate coordinates and per-seed physica
 This audit supplies unconditional physical and observation generation, not the complete stochastic posterior forecast interface.
 Numerically assessed joint posterior weights and integration over future transitions remain required.
 In particular, future-density evaluation must use Gaussian joint and radial speed factors with conditional-history integration, rather than treating finitely many unconditional paths as exact-output equality components.
+
+## First completed full-recording pilot
+
+Seed 300 completed through continuation job `22684078_0` in an additional 2:25:46 allocation on September 13.
+Its two previous eight-hour allocations remain part of the approximately 18:25:46 allocated runtime cost.
+This is one continued numerical seed, not three experiments or an agent result.
+
+The final population has 128 particles after 17,200 evaluated proposals and all 32 temperature stages.
+It accepted 8,150 of 32,768 attempted moves, with 29 resampling events and only one surviving initial ancestor.
+The report and checksummed checkpoint agree exactly on all joint samples, weights, completed stage and evaluation count.
+The consistency record is `logs/uncertainty_balloons_joint_pilot_20260912/seed300-completion-check.json`.
+These checks establish a completed artifact, not adequate posterior exploration, calibrated uncertainty or trustworthy predictions.
+Seed 301 remains running as `22686274_1`; a paired assessment is not yet available.
+The complete 235-action fitting recording cannot also serve as an independent held-out prediction test for this fit.
