@@ -1,6 +1,6 @@
 # Continual comparison interpretation, 2026-09-13
 
-Snapshot updated at 11:58 UTC against final scorecards, terminal experiment logs, and current scheduler state.
+Snapshot updated at 12:31 UTC against final scorecards, terminal experiment logs, and current scheduler state.
 
 **The user approved retaining this arm as No harness fitting, disclosing agent-written numerical dynamics fitting.**
 The harness fitting API is disabled, but this does not remove all numerical estimation.
@@ -8,7 +8,7 @@ Agent-written dynamics fitting is confirmed in Boil seeds 0, 1, 2 and Balloons s
 The frozen prompt originally discouraged custom fitting; the narrower interpretation was adopted after observing those calls.
 See the [protocol audit](/home/ycliang/predicators/logs/continual_comparisons_20260912/no-fitting-protocol-audit.json).
 This note interprets the completed groups; the [live comparison table](/home/ycliang/predicators/docs/comparisons/continual-results.md) remains authoritative for later outcomes, per-seed steps, resets, and source paths.
-There are 66 finished non-Bridge comparison seeds, including 58 whole-run successes.
+There are 68 finished non-Bridge comparison seeds, including 60 whole-run successes.
 The separate primary Bridge MB/MF comparison is complete across three distinct seeds per arm; the 18 replacement Bridge baseline/ablation seeds have begun running.
 The experiments are still incomplete.
 
@@ -23,6 +23,7 @@ Whole-run success requires every training and test level to be won.
 | Oracle scene | 3/3; 513.7 (n=3) | 3/3; 319 (n=3) | 3/3; 945.7 (n=3) | 1/3; 335 (n=1) |
 | Zero-shot model | 3/3; 451 (n=3) | 3/3; 425.7 (n=3) | 3/3; 724 (n=3) | 2/3; 388.5 (n=2) |
 | No harness fitting | 3/3; 344 (n=3) | 2/3; 455.5 (n=2) | 3/3; 791.3 (n=3) | 2/3; 609.5 (n=2) |
+| No explicit uncertainty (protocol caveats) | 3/3; 312.3 (n=3) | 2/3; 328 (n=2) | 3/3; 735 (n=3) | 3/3; 260.7 (n=3) |
 
 The table above contains methods with all four non-Bridge domains complete.
 Additional completed domain groups are Boil standalone (3/3 whole-run successes, 1,838 mean steps, n=3), and the no-explicit-uncertainty arm in Fan (3/3, 312.3 steps, n=3), Boil (3/3, 735 steps, n=3), and original Balloons (3/3, 260.7 steps, n=3).
@@ -75,10 +76,11 @@ No MB run under that changed goal was requested.
 
 ## Remaining evidence
 
-Finish the standalone-program and no-explicit-uncertainty groups in all four original non-Bridge domains and all six comparison methods on the new Bridge variant.
+Finish the standalone-program groups in original Balloons and Domino, and all six comparison methods on the new Bridge variant.
+The no-explicit-uncertainty arm is complete in the four non-Bridge domains, but its interpretation remains unresolved because three seeds used custom uncertainty checks, including both successful Domino seeds.
 Keep the no-harness-fitting interpretation and agent-written-fitting disclosure in the final report.
 Only then can the full six-method sweep be reported as complete.
-The current partial uncertainty-ablation results do not establish whether explicit uncertainty improves success or sample efficiency.
+The observed uncertainty-ablation results do not isolate whether explicit uncertainty improves success or sample efficiency.
 
 Scorecard and terminal-log verification for this snapshot is saved in the [outcome audit](/home/ycliang/predicators/logs/continual_comparisons_20260912/outcome-audit-20260913T081745Z.json).
 
@@ -92,7 +94,7 @@ Before observing a real push, it evaluated future cascades at five friction valu
 It later varied friction jointly with push controls to compare future outcomes.
 These are sensitivity checks for future decisions, rather than parameter fitting against recorded transitions.
 The supplied uncertainty tools were disabled, but these runs do not establish strictly point-estimate reasoning.
-The Domino seed-1 finding remains a protocol caveat while that run is unfinished.
+Domino seed 1 later finished at 2/2 levels, 272 steps and zero resets; the parameter-sweep caveat applies to this successful result.
 Domino seed 2 subsequently finished successfully at 2/2 levels, 384 steps and zero resets, but its executed code also tested the same push across 14 nominal/perturbed layout states and later scored placement candidates across 11 pose perturbations.
 Those pose perturbations and all-variants success checks form explicit state-uncertainty robustness validation, so this seed also does not establish strictly point-estimate performance.
 Its separate friction search against recorded transitions is point fitting and is not the reason for this finding.
