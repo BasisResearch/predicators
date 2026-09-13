@@ -23,9 +23,11 @@ Two full-prior prefix fits are submitted as `22674242_0` and `_1`, with numerica
 These are offline inference replicas; completed prediction comparisons and numerical assessment remain pending.
 The Fan reserved-suffix forecast path now passes complete-checkpoint recovery, per-particle prefix-factor equality and checks on all 64 saved complete histories using an explicitly unassessed short fixture.
 It retains every positive-weight particle even though all fixture future densities are zero.
-Two forecast follow-ups are submitted with dependencies on successful completion of their individual full prefix fits; no full-fit Fan prediction result is available yet.
+Both full Fan prefix fits and their forecast follow-ups have completed; the two populations retain one and two initial ancestors.
 The paired Fan report now passes compute validation `22676293`, reconstructing all 64 fixture histories and rejecting six corrupted-output cases, including removal of zero future density.
-Finite summary `22676382` will compare full-fit position, event and geometric-goal predictions after both forecasts terminate; it does not automatically approve a posterior.
+The completed paired report gives lower position error than legacy on this recording, but a maximum 0.33212 geometric-goal probability disagreement and only one nonzero full-future-density particle per replica.
+Corrected summary `22676681` also reconstructs and verifies the two parameter-quantile reports; the first summary omitted their Fan-specific field.
+A 128-particle comparison is queued as array `22676775`, gated by native preflight `22676726` and validation finalizer `22676770`; no posterior is approved by the current evidence.
 The separate [carried-center comparison](carried-center-comparison.md) submits four paired legacy tasks as `22674821`, covering Fan and Domino with carrying off/on.
 Its 64/96/96/full prefix schedule tests both accumulating experience and refitting identical evidence while holding the other legacy mechanisms fixed.
 It explicitly records whether carrying is ever active, rather than treating unchanged results with empty carried history as evidence about removing active carrying.
@@ -38,6 +40,7 @@ The first off-arm fit selects friction 0.6739569, then its second-fit guard dete
 Native audit `22676108` confirms that this can shift prior centers with explicit carrying off.
 The corrected isolated pair `22676127` keeps an unfitted registry reference and uses fresh selected-parameter worlds for predictions; both arms must reproduce that first fit exactly before repeated-data comparisons.
 Its paired summary `22676128` is queued; the interrupted original comparison remains separate and is not an agent outcome.
+The original reused-reference carrying arm has completed: selected values and predictions stay identical, while friction width grows from 0.34494 to 0.49270 on the first repeated fit, then stays stable.
 The [combined Domino assessment](domino-comparison-summary.md) reproduces prior diagnostics, verifies complete weighted histories and rejects dropped particles, altered samples and altered event aggregates.
 Three finite follow-up jobs will produce comparison snapshots as the individual forecast pairs terminate; the new posterior comparisons remain incomplete.
 Both mixed-proposal Domino fits have now completed all 32 stages, retaining two and one initial ancestors respectively.

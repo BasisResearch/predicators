@@ -79,7 +79,7 @@ The preceding attempt `22674140` failed in report construction because checkpoin
 The corrected attempt changes only summary decoding and adds the initial weight effective sample size.
 The launch manifest pins the successful preflight, target scripts and configuration before any fit starts.
 Array `22674242` submits task 0 for numerical seed 302 and task 1 for numerical seed 303, each with four CPUs, 20 GB and a four-hour allocation limit on `mit_preemptable`.
-Neither has a completed posterior or prediction comparison yet.
+Both fits and their reserved-suffix forecasts have now completed; numerical adequacy remains unestablished, as detailed below.
 
 ## Reserved-suffix forecast validation
 
@@ -137,3 +137,50 @@ It rejects dropped particles, altered weights, changed native means, changed eve
 The initial summary is explicitly incomplete because the full inference forecasts are still pending.
 Finite summary `22676382` depends on successful validation and termination of both full forecast jobs.
 This does not re-enable the MB/MF notification monitor.
+
+## Completed 64-particle prefix comparison
+
+Both fits complete all 32 stages: seed 302 uses 15,466 target evaluations and retains one initial ancestor; seed 303 uses 15,609 evaluations and retains two.
+They take 5,521 and 5,568 allocation seconds on four CPUs, with 989,824 and 998,976 completed native fitting actions.
+These are numerical replicas on the same development recording, not independent agent seeds.
+The two forecasts complete in 73 and 79 allocation seconds and retain every positive-weight history.
+
+| Forecast | Conditional ball-position RMSE to noisy readings | Native ball-position RMSE | Native goal Brier error | Probability of reaching geometric goal in suffix |
+| --- | ---: | ---: | ---: | ---: |
+| Legacy point forecast | 7.072 mm | 7.072 mm | 0.044118 | 1.0 |
+| Numerical seed 302 | 6.311 mm | 6.442 mm | 0.042419 | 0.78125 |
+| Numerical seed 303 | 6.130 mm | 6.172 mm | 0.020787 | 0.90209 |
+
+The recorded goal first occurs at action 116, within the reserved suffix.
+The new replicas have lower position error on this recording, but their conditional mean positions differ by 2.866 mm and their native geometric goal curves differ by as much as 0.33212.
+Their probability of ever reaching the goal within the suffix differs by 0.12084.
+Only one positive-weight particle in each population assigns nonzero density to the complete observed future; all other particles still contribute to the position, event and goal forecasts at their unchanged weights.
+Their similar mixture log densities, 18,398.66 and 18,398.31, therefore do not establish a stable density estimate.
+No domain-specific numerical acceptance threshold is introduced after these outcomes.
+
+The fan-speed empirical 5th, 50th and 95th percentiles are `[0.06622, 0.08353, 0.91372]` and `[0.07732, 0.10989, 0.93241]`.
+Their largest masses at an exact retained speed value are 0.328125 and 0.283687.
+These empirical distributions, ancestry and decision-relevant prediction differences require further numerical assessment.
+The cost is also substantial: the matched legacy fit and replay used 30.88 worker seconds and 1,777 native actions.
+This comparison does not demonstrate an agent efficiency or solve-rate improvement.
+
+The first completed summary `22676382` preserved the prediction metrics but omitted parameter quantiles because it read a generic field instead of `fan_speed_quantiles`.
+The corrected `compare-v2.py` independently reconstructs those weighted quantiles and checks the saved values.
+Validation `22676681` reproduces the history checks, validates both completed parameter summaries and rejects altered quantiles; it completes in ten allocation seconds with zero native simulation.
+The corrected complete report is `summary-22676681.json` in the paired-report bundle.
+The first report and reader remain preserved as the reporting defect's reproduction.
+
+## Larger-population comparison
+
+The next numerical comparison doubles particles from 64 to 128 and the evaluation limit from 16,448 to 32,896 while preserving the program, observations, original prior, output model, proposal kernel, temperature schedule and moves.
+It uses the same two numerical seeds, 302 and 303, without reusing a completed population as initialization.
+The frozen bundle is `logs/uncertainty_fan_prefix_budget_20260913`.
+Native preflight `22676726` must reproduce fixed target factors and match the entire 128-particle initial population between serial and four-process execution.
+Its target identity and prior must exactly equal the validated 64-particle protocol, allowing only the two declared numerical configuration changes.
+The preflight action count scales with the actual population size.
+
+Finite gate `22676770` validates that evidence and pins the run inputs before array `22676775` can start.
+The two full fits request four CPUs, 20 GB and six hours each on node1412 in `mit_preemptable`, with complete-stage checkpoints and at most two simultaneous tasks.
+Their same-suffix forecasts will be prepared from the validated larger configuration.
+Compare both larger replicas and all four cross-budget replica pairs, preserving zero-density outcomes and actual computation costs.
+These jobs do not change the production estimator or restore result notifications.

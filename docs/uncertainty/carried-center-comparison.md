@@ -154,3 +154,24 @@ Array `22676127` depends on successful native metadata validation and requests s
 Finite report `22676128` depends on successful completion of both tasks.
 The corrected frozen bundle is `logs/uncertainty_carried_prior_isolated_20260913`; source hashes, setup failures and the original-reference diagnostic remain separate.
 The probability model for the new inference method already uses an explicit immutable prior identity; this experiment checks the legacy feedback mechanisms it is meant to replace.
+
+## Completed original reused-reference carrying arm
+
+The original carrying task `22675807_1` completed all three identical-data fits in 1,211 allocation seconds and 1,187.65 worker seconds, recording 100,803 native simulator actions.
+These are simulation actions used by fitting and replay, not new environment interactions or agent solve-rate results.
+All selected parameter values and complete prediction histories are exactly unchanged across the three stages.
+Its initial fit matches the completed first stage of the interrupted off arm exactly.
+
+| Repeated-data fit | Entering friction anchor | Selected friction | Legacy width | Verdict |
+| --- | ---: | ---: | ---: | --- |
+| First | 0.3 | 0.6739569 | 0.3449425 | Weakly identified |
+| Second | 0.6739569 | 0.6739569 | 0.4926973 | Anchored |
+| Third | 0.6739569 | 0.6739569 | 0.4926973 | Anchored |
+
+The width changes after refitting identical evidence and then remains stable; this case does not show progressive narrowing.
+It does not isolate explicit carrying from mutable reference defaults and cannot establish a change in decisions or performance.
+The verification and source hashes are retained in `reused-reference-diagnostic.json` in the original active-comparison bundle.
+The corrected isolated pair remains necessary.
+
+Both corrected tasks have now completed their first fit and passed the exact saved-reference check, with entering friction anchor 0.3 and width 0.3449425.
+Their repeated-data stages are running; the isolated paired outcome is not yet complete.
