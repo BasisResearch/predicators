@@ -71,7 +71,7 @@ MB and MF each solve 1/3 whole runs, so this variant shows no observed solve-rat
 Mean successful steps are 2,939 for MB and 2,634 for MF, each based on only one qualifying seed; mean resets across all three finalized seeds are zero and one respectively.
 The unnecessary additional MF seed-0 failure (3,131 steps, zero resets) is disclosed separately and does not replace its successful pilot or count as another independent seed.
 See the [primary per-seed table](bridge-span-mb-mf-results.md) and [comparison conclusion](bridge-span-comparison-conclusion.md).
-Bridge oracle-scene seed 2 has finished successfully; the 17 other Bridge baseline/ablation seeds remain running or queued.
+Bridge oracle-scene seed 2 has finished successfully; all 17 other Bridge baseline/ablation seeds are now held at the user's request until the domain variant is decided.
 
 The [fixed Balloons MF cohort](/home/ycliang/predicators/docs/comparisons/bridge-balloons-integrity-results.md) requires sustained hovering and is also separate.
 Its three successes cannot be substituted for an MF control under the original instantaneous goal used in the table above.
@@ -79,7 +79,9 @@ No MB run under that changed goal was requested.
 
 ## Remaining evidence
 
-Finish the two remaining standalone-program seeds in original Balloons and the 17 remaining comparison seeds on the new Bridge variant.
+Finish the two running standalone-program seeds in original Balloons.
+Keep the 17 unfinished Bridge comparison seeds held until the user decides which domain variant to use.
+Their previous automatic dependency-release plan is superseded; three interrupted runs retain saved checkpoints for later replay-verified resumption.
 The no-explicit-uncertainty arm is complete in the four non-Bridge domains, but its interpretation remains unresolved because three seeds used custom uncertainty checks, including both successful Domino seeds.
 Keep the no-harness-fitting interpretation and agent-written-fitting disclosure in the final report.
 Only then can the full six-method sweep be reported as complete.

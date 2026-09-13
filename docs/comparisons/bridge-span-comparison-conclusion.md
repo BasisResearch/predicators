@@ -20,7 +20,9 @@ Neither is an infrastructure or usage-limit failure.
 The [seed-2 analysis](bridge-span-mb-seed2-analysis.md) documents its unchanged no-op residual and separates verified outcome evidence from the agent's proposed mechanical explanation.
 
 The [per-seed table](bridge-span-mb-mf-results.md) and [final audit](/home/ycliang/predicators/logs/bridge_mb_extension_20260913/final-comparison-20260913.json) contain the underlying scorecards.
-Under the user's conditional plan, the MF comparison on this variant is now complete and the six baseline/ablation methods remain to finish.
-All 18 Bridge baseline/ablation seeds were already submitted; oracle-scene seed 2 started at approximately 11:43 UTC, with the remaining 17 queued behind their comparison predecessors.
-This result does not trigger another MB or MF rerun.
-The broader comparison sweep remains incomplete.
+The user clarified on 2026-09-13 that Bridge baseline experiments must remain paused until the domain variant is chosen.
+Fourteen queued tasks were held, and the three unfinished running tasks were requeued on hold after verifying saved level checkpoints.
+The completed oracle-scene seed 2 result is retained; its remaining video processing does not release the held successor.
+Resumption requires the variant decision, and uses the existing checkpoint replay verification; interrupted in-flight reasoning may need repeating.
+Non-Bridge experiments are unaffected.
+The operational record is `logs/bridge_span_followup_20260912/pause-20260913.json`.
