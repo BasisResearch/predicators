@@ -30,10 +30,11 @@ All sampled boundary contact-pair sets match between those pairs, and an indepen
 The subsequent 124-case local-sensitivity test also completes: non-restitution joint-response derivatives vary strongly across 1e-6 to 1e-4 parameter changes, while 241,800 additional scalar factors verify independently; a simple gradient proposal is not supported.
 The separate [joint-transition model comparison](domino-joint-transition.md) now passes 124-case probability/replay checks and full 97-action future-generation/density validation.
 It retains every joint transition density and cached-link observation timing while removing only the former joint AR output factors as an explicit model change.
-Two fresh 64-particle point-start inference replicas, `22683118_0` and `_1`, are running under the original prior and unchanged sampler settings; their posterior prediction comparison remains pending.
-The checkpoint-driven forecast adapter now passes a native 16-particle integration fixture and an independent reader over all 144 saved histories.
-The reader verifies original weights, separates unconditional generation from future-conditioned density evaluation, and rejects six deliberately corrupted inputs.
-Full forecasts `22684522_1` and `22684523_2` are queued behind their respective fits, with fixture validation required before execution and complete artifact verification afterward.
+Both 64-particle point-start fits and their independently verified full-suffix forecasts have completed.
+The new pair agrees to 0.215 mm in position means but differs by 0.166830 in final-toppling probability, failing the declared 0.15 limit.
+Future-bank variability is much smaller than fitted-replica disagreement, and the new model has worse toppling scores than the matched older model on this recording despite slightly better position error.
+The complete artifacts retain original weights, separate generation from conditioned density evaluation and reject six deliberately corrupted inputs.
+Matched 128-particle follow-ups `22688869_0` and `_1` are running, with dependent forecast/verifier jobs `22689058_0` and `22689059_1` and a six-pair budget report `22689095`.
 These remain offline diagnostics; neither the short fixture nor a completed sampler is an approved posterior.
 
 The [Fan prefix comparison](fan-prefix-comparison.md) has two completed 64-particle fits and causal forecasts on 68 reserved actions.
@@ -535,6 +536,14 @@ All 295 Domino and Fan training frames round-trip exactly; seven functional test
 Four cold-fit comparisons are submitted for the two 64-action windows and the two complete training recordings, using the actual legacy preparation and orchestration pipeline.
 The Fan audit separates its earliest broad support from later data-derived bounds and declares a fixed uniform prior for future posterior experiments without changing the latest program dynamics.
 These are comparison inputs and submitted experiments, not completed Stage B evidence or a production replacement.
+
+The [complete Boil scene audit](boil-full-scene-prior.md) now composes fixture poses, robot nuisance joints and motion, jug pose/motion/water and all articulated components under an explicit geometry-conditioned law.
+The corrected native audit completed 28 histories and 7,392 actions; two of sixteen sampled scenes have finite complete-recording likelihood, three are geometrically infeasible and eleven retain exact-event contradictions.
+Paired default/random parameter cases preserve identical physical histories for the fixed feature-only program.
+Fresh independent geometry reconstruction verifies all sixteen scenes, 464 body pairs and both native support probes per scene.
+Independent density and coordinate checks pass, including 66,528 transition factors, original-prior corrections and fifteen corruption controls.
+Literal rule evaluation also reproduces all 7,392 frames and model-memory states exactly across both parameter settings without additional native actions.
+This validates a fixed-program reuse boundary for future inference, while remaining a prior/support audit rather than a posterior or agent result.
 
 ## Next gate
 

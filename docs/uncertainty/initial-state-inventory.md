@@ -142,6 +142,12 @@ Its original position/motion law must remain unconditioned by those flags; the s
 The component implementation passes numerical references, the native inventory confirms all three joints, and independent checks verify 48 initial joint draws plus all 18 complete conditional histories.
 This adds explicit missing joint coordinates without declaring the rest of the Boil scene inventory complete.
 
+The subsequent [full unheld-scene composition](boil-full-scene-prior.md) declares fixture xyz/orientation, all robot nuisance joints and motion, jug pose/motion/water and the three articulated components together.
+Its 84 unit inputs include mixture selectors and unused case auxiliaries as well as eight parameter inputs; this is a computational map size, not a claim of 84 independent physical degrees of freedom.
+The whole-scene geometry predicate has a parameter-independent normalizer only for the frozen historical feature-only program.
+Independent density, coordinate and fresh-native geometry checks pass, including two full-recording supported sampled scenes and exact rule reuse across changed parameters.
+This closes a declared prior/support construction for that unheld development case, while broader attachment cases, posterior adequacy and all-domain runtime closure remain separate requirements.
+
 ## Original non-hatch balloons
 
 The recording contains one box, three balloons, three clips, one band, and the robot.
