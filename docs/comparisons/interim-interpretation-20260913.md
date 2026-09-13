@@ -2,9 +2,10 @@
 
 Snapshot checked at 08:17 UTC against final scorecards and terminal experiment logs.
 
-**Correction after protocol audit: the no-fitting arm contains agent-written numerical dynamics fitting and does not currently support a strict no-numerical-fitting ablation claim.**
-Five violations are confirmed: Boil seeds 0, 1, 2 and Balloons seeds 1, 2.
-Other no-fitting seeds have not been fully cleared.
+**The user approved retaining this arm as No harness fitting, disclosing agent-written numerical dynamics fitting.**
+The harness fitting API is disabled, but this does not remove all numerical estimation.
+Agent-written dynamics fitting is confirmed in Boil seeds 0, 1, 2 and Balloons seeds 1, 2; the other seeds have not been fully audited.
+The frozen prompt originally discouraged custom fitting; the narrower interpretation was adopted after observing those calls.
 See the [protocol audit](/home/ycliang/predicators/logs/continual_comparisons_20260912/no-fitting-protocol-audit.json).
 This note interprets the completed groups; the [live comparison table](/home/ycliang/predicators/docs/comparisons/continual-results.md) remains authoritative for later outcomes, per-seed steps, resets, and source paths.
 There are 50 finished non-Bridge comparison seeds, including 44 whole-run successes, and three finished Bridge MF follow-up seeds.
@@ -20,7 +21,7 @@ Whole-run success requires every training and test level to be won.
 | Oracle dynamics | 3/3; 408.7 (n=3) | 2/3; 345 (n=2) | 3/3; 549.3 (n=3) | 3/3; 379 (n=3) |
 | Oracle scene | 3/3; 513.7 (n=3) | 3/3; 319 (n=3) | 3/3; 945.7 (n=3) | 1/3; 335 (n=1) |
 | Zero-shot model | 3/3; 451 (n=3) | 3/3; 425.7 (n=3) | 3/3; 724 (n=3) | 2/3; 388.5 (n=2) |
-| No fitting (protocol compromised) | 3/3; 344 (n=3) | 2/3; 455.5 (n=2) | 3/3; 791.3 (n=3) | 2/3; 609.5 (n=2) |
+| No harness fitting | 3/3; 344 (n=3) | 2/3; 455.5 (n=2) | 3/3; 791.3 (n=3) | 2/3; 609.5 (n=2) |
 
 The standalone-program and no-explicit-uncertainty groups are incomplete and excluded from this completed-group table.
 The full table also reports resets; infrastructure interruptions do not enter any agent average.
@@ -31,14 +32,14 @@ Zero-shot models solve all three seeds in Fan, Domino, and Boil.
 Consequently, these samples do not support claiming that learning dynamics from interaction is necessary for success in every domain.
 The zero-shot arm still adapts its actions and journal during continual interaction; only its dynamics and parameter values are sealed before the first real action.
 
-The nominal no-fitting arm solves every Fan and Boil seed, but this cannot establish that numerical fitting is unnecessary.
+The no-harness-fitting arm solves every Fan and Boil seed, but this cannot establish that numerical fitting is unnecessary.
 Executed tool logs show least-squares estimates of filling dynamics in all three Boil seeds, and numerical fitting of Balloons dynamics in seeds 1 and 2.
 The harness fitting API was disabled; arbitrary agent code still performed fitting.
-The observed outcomes remain in the table for transparency, pending a decision about a narrower no-harness-fitting comparison or a stricter implementation and rerun.
+The observed outcomes are retained under the user-approved no-harness-fitting interpretation; no rerun is requested.
 
-Original Balloons is more discriminating among the completed methods: oracle dynamics wins 3/3, oracle scene 1/3, zero-shot 2/3, and no fitting 2/3.
+Original Balloons is more discriminating among the completed methods: oracle dynamics wins 3/3, oracle scene 1/3, zero-shot 2/3, and no harness fitting 2/3.
 These are small-sample descriptive differences, not established effect sizes.
-The nominal no-fitting results additionally carry the protocol caveat above.
+The no-harness-fitting results have the narrower interpretation described above.
 In particular, oracle scene's 335-step mean includes only its one successful seed; it is not evidence that oracle scene is more efficient overall than a method that solves all seeds.
 
 Correct supplied dynamics are not a guaranteed successful controller: the Domino oracle-dynamics arm loses one test level to a recorded game-over.
@@ -64,7 +65,7 @@ No MB run under that changed goal was requested.
 ## Remaining evidence
 
 Finish the standalone-program and no-explicit-uncertainty groups in all four original non-Bridge domains and all six comparison methods on the new Bridge variant.
-Resolve the no-fitting protocol discrepancy before reporting that intended ablation as complete.
+Keep the no-harness-fitting interpretation and agent-written-fitting disclosure in the final report.
 Only then can the full six-method sweep be reported as complete.
 The current partial uncertainty-ablation results do not establish whether explicit uncertainty improves success or sample efficiency.
 

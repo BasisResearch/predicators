@@ -59,7 +59,7 @@ The predecessor column names the preceding array; seed `s` now depends on its pr
 | Oracle dynamics | 22650416 | 22642729 |
 | Oracle scene reconstruction | 22650417 | 22642732 |
 | Zero-shot synthesis | 22650418 | 22650416 |
-| No numerical fitting | 22650419 | 22650417 |
+| No harness fitting | 22650419 | 22650417 |
 | No explicit uncertainty | 22650420 | 22650418 |
 | Standalone program | 22650421 | 22650419 |
 
@@ -81,3 +81,12 @@ Report wins, charged steps, and resets for each seed.
 Only completed agent outcomes enter solve-rate and reset averages; only whole-run successes enter mean steps, with the qualifying count shown.
 Infrastructure interruptions remain separate.
 Historical three-block MB scores and the single transfer pilot must not be presented as a matched three-seed MB cohort for this changed task.
+
+
+## No-harness-fitting interpretation
+
+On 2026-09-13, the user approved retaining item 7 as **No harness fitting**, after the audit found executed agent-written numerical dynamics fits.
+This removes the supplied fitting API, not all numerical estimation by the coding agent.
+The frozen prompt originally discouraged custom fitting, so this is a disclosed post hoc interpretation of the existing runs.
+Runtime identifiers and configuration filenames retain `no_fitting` for continuity; frozen runtimes, queued jobs, and scorecards are unchanged.
+See the [audit](/home/ycliang/predicators/logs/continual_comparisons_20260912/no-fitting-protocol-audit.json) and [current results](/home/ycliang/predicators/docs/comparisons/continual-results.md).

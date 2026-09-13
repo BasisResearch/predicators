@@ -11,7 +11,7 @@ It must not be launched until all six arm contracts and their end-to-end tests p
 | 4 | Oracle dynamics | Supply fixed correct mechanisms and parameters, with noisy observations and inferred memory | Recorded-action parity in each domain; model remains fixed across action, reset and resume |
 | 5 | Oracle scene reconstruction | Supply true geometry, articulation and base physics, omit mechanisms, freeze model | Disclose calibration; missing mechanisms stay absent and true current poses remain hidden |
 | 6 | Zero-shot synthesis | Synthesize before the first real interaction, then freeze dynamics and parameter values | Refuse first action without a valid model; seal before charging it; prevent later edits/refits including after resume |
-| 7 | No numerical fitting | Agent revises declared values and ranges from recordings; numerical optimizer disabled | Live fit and fitted residual/sweep routes refuse; declared values deploy without optimization |
+| 7 | No harness fitting | Agent revises declared values and ranges from recordings; numerical optimizer disabled | Live fit and fitted residual/sweep routes refuse; declared values deploy without optimization |
 | 8 | No explicit uncertainty | Keep noise-aware fitting, smoothed point observations and inferred memory; remove distributional decision tools | No belief draws, parameter sweeps, disagreement probes or probabilistic predicate monitoring; ordinary rehearsals remain |
 
 ## Progress
@@ -117,3 +117,12 @@ The authoritative manifest and submission journal are under `/home/ycliang/predi
 Each exiting experiment triggers a refresh; the former MB/MF heartbeat remains disabled.
 Aggregation has a separate check showing that unfinished runs never enter statistics, unsuccessful finished runs enter solve/reset averages, and only whole-run successes enter average steps.
 The launch establishes experiment activity, not agent outcomes; the objective remains incomplete until results are verified and reported.
+
+
+## No-harness-fitting interpretation
+
+On 2026-09-13, the user approved retaining item 7 as **No harness fitting**, after the audit found executed agent-written numerical dynamics fits.
+This removes the supplied fitting API, not all numerical estimation by the coding agent.
+The frozen prompt originally discouraged custom fitting, so this is a disclosed post hoc interpretation of the existing runs.
+Runtime identifiers and configuration filenames retain `no_fitting` for continuity; frozen runtimes, queued jobs, and scorecards are unchanged.
+See the [audit](/home/ycliang/predicators/logs/continual_comparisons_20260912/no-fitting-protocol-audit.json) and [current results](/home/ycliang/predicators/docs/comparisons/continual-results.md).
