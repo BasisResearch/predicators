@@ -47,3 +47,36 @@ Keep a component with full original support if adding local guidance.
 Independent numerical replicas and budget sensitivity remain required before treating fitted samples as usable posterior estimates.
 Only then compare the frozen-weight predictions on the remaining 68 actions against the existing legacy predictions, including ball trajectory, event timing, goal outcomes and computation cost.
 This support audit produces no agent solve-rate result and does not change the production fitter.
+
+## Prefix inference protocol
+
+The follow-up bundle is `logs/uncertainty_fan_prefix_inference_20260913`.
+It uses the original 120-coordinate proposal conditioned on the first reading, with the prior/proposal correction retained.
+It adds no local mixture around a selected supported candidate.
+Both resting and moving robot/ball cases remain available with their original probabilities, unlike the restricted support search above.
+The parameter prior remains `Uniform[0, 1]` for fan speed.
+
+The base factor contains the initial observation likelihood and the original-prior/proposal correction, subject to initial geometry and complete-prefix exact constraints.
+Tempering applies to the remaining prefix log likelihood, so each observation enters exactly once.
+The inference data identity includes only the first 64 actions and 65 observations.
+The fixed source, offline modules, worker scripts, actual numerical runtime and isolated working directory enter the runtime identity.
+
+Two numerical replicas are specified with seeds 302 and 303, 64 particles, 32 cubic temperature stages, eight moves per stage and a maximum of 16,448 target evaluations each.
+Their proposal kernel mixes local moves with full-range block refreshes at probability 0.5.
+The parameter has its own block; other blocks group coupled robot, fixture, ball, switch and rotor coordinates.
+Four isolated processes evaluate complete candidate maps and likelihoods in order.
+Complete-stage checkpoints preserve the fixed numerical budget across preemption; interrupted work remains additional actual cost.
+
+The compute preflight checks retained support-audit factors and identical initial sampler states across serial and four-process execution before the replicas may launch.
+A completed fit remains numerically unassessed until independent prediction comparisons and budget sensitivity have been evaluated.
+The two replicas are inference diagnostics on the same recording, not two agent seeds or evidence of solve-rate improvement.
+
+The corrected preflight `22674192` completed successfully in 159 allocation seconds and 152.93 worker seconds, with 9,728 native actions.
+All 12 checked native target rows and the entire 64-particle initial sampler state match exactly between serial and four-process evaluation.
+Initialization found 11 finite particles with weight effective sample size 9.10; this describes initialization only.
+Serial initialization took 84.68 seconds and parallel initialization took 21.64 seconds, excluding process startup and the separate fixed-row checks.
+The preceding attempt `22674140` failed in report construction because checkpoint log weights are serialized strings; its native comparisons had reached equality assertions, and its allocation and report remain retained.
+The corrected attempt changes only summary decoding and adds the initial weight effective sample size.
+The launch manifest pins the successful preflight, target scripts and configuration before any fit starts.
+Array `22674242` submits task 0 for numerical seed 302 and task 1 for numerical seed 303, each with four CPUs, 20 GB and a four-hour allocation limit on `mit_preemptable`.
+Neither has a completed posterior or prediction comparison yet.

@@ -17,6 +17,10 @@ It removes the 68-action suffix before scene construction and scoring and does n
 Eight of 48 sampled rest scenes have valid geometry and finite prefix likelihood, and the first supported trajectory repeats exactly.
 All 16 median-scene probes instead have an initial penetration, ruling out that unmodified point-state baseline.
 This prepares a comparison against the completed 64-action legacy fit while the existing full-recording fits continue unchanged.
+The next prefix inference preflight, `22674192`, exactly matches 12 retained native targets and the complete initial population across serial and four-process execution.
+It finds 11 supported initial particles with weight effective sample size 9.10 and verifies a roughly fourfold initialization speedup.
+Two full-prior prefix fits are submitted as `22674242_0` and `_1`, with numerical seeds 302 and 303 and unchanged original support for moving and resting states.
+These are offline inference replicas; completed prediction comparisons and numerical assessment remain pending.
 
 ## Recent evidence
 
