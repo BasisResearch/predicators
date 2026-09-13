@@ -4,6 +4,22 @@ Updated September 13, 2026.
 This tracks implementation of the [simplification proposal](simplification-proposal.md).
 The incumbent estimator remains the production default.
 
+## Current stage
+
+Stage 0 interface preservation is complete, with scripted behavior parity checked.
+Stage A has implemented probability and replay components, but physical support and numerical validation remain incomplete.
+The active work is Stage B offline comparison; Stage C live posterior use and Stage E retirement are not yet approved by the evidence.
+Stage D execution smoothing remains optional and deferred.
+The full plan remains incomplete.
+
+The [Fan prefix comparison](fan-prefix-comparison.md) now has a completed compute support audit, `22674026`.
+It removes the 68-action suffix before scene construction and scoring and does not reuse the full-recording proposal guide.
+Eight of 48 sampled rest scenes have valid geometry and finite prefix likelihood, and the first supported trajectory repeats exactly.
+All 16 median-scene probes instead have an initial penetration, ruling out that unmodified point-state baseline.
+This prepares a comparison against the completed 64-action legacy fit while the existing full-recording fits continue unchanged.
+
+## Recent evidence
+
 The new offline [stochastic future integration component](stochastic-future-integration.md) retains exact joint/speed density factors and reports Monte Carlo concentration explicitly.
 Forty functional tests and focused static checks pass.
 Its first native Balloons diagnostic reproduces the reference trajectory but fails all four numerical comparisons: eight and 64 complete paths remain dominated by a single contribution.
