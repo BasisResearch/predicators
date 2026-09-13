@@ -51,4 +51,21 @@ Array `22674821` is submitted to `mit_preemptable`, with six CPUs, 16 GB and a t
 The preceding array `22674643` failed its configuration guard before fitting because the guard compared runtime tuples with JSON lists.
 The serialized configurations were verified identical; the corrected guard normalizes representation before comparison.
 The failed reports and original driver are retained, and those setup outcomes are not agent failures.
-The replacement array is currently queued for resources; no paired outcome is available yet.
+The Fan pair has completed successfully; the Domino pair is running.
+
+## Completed Fan control
+
+Both Fan arms reproduce the archived cold fit exactly and produce identical selected parameters, diagnostic widths and complete prediction histories at every stage.
+
+| Fitted actions | Selected fan speed in both arms | Legacy diagnostic width | Carry active before fit |
+| --- | ---: | ---: | --- |
+| 64 | 0.0846 | 0.1 | No |
+| 96 | 0.0846 | 0.1 | No |
+| 96, repeated data | 0.0846 | 0.1 | No |
+| 132 | 0.0846 | 0.1 | No |
+
+Every verdict is anchored, so no accepted fitted center enters a subsequent prior.
+The repeated 96-action fits change neither the selected value nor the prediction history in either arm.
+Each arm uses 11,332 recorded native simulator actions across the four fits and their predictions.
+The paired comparison and source hashes are retained in `fan-comparison.json` in the bundle.
+This is an inactive-policy control and does not establish that removing active carrying preserves performance.
