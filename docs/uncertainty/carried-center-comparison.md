@@ -178,3 +178,37 @@ Both corrected tasks have also completed their second fit: the off arm retains t
 The isolated carrying arm `22676127_1` has completed all three repetitions in 1,141 allocation seconds and 1,125.42 worker seconds with 100,803 native actions.
 Its selected parameters and complete predictions remain exactly unchanged; friction width changes from 0.3449425 to 0.4926973 and then remains stable.
 The fixed-center arm is still running, so the isolated paired outcome is not yet complete.
+
+## Completed isolated repeated-data comparison
+
+Both corrected arms and paired report `22676128` have completed.
+The fixed-center arm uses 1,598 allocation seconds on six CPUs, 1,579.50 worker seconds and 150,435 native actions.
+The carrying arm uses 1,141 allocation seconds on six CPUs, 1,125.42 worker seconds and 100,803 native actions.
+Each arm repeats exactly the same 161-action recording three times; these costs belong to fitting and replay, not additional agent interactions.
+
+The source reports have identical runtime controls, program, data, parameter declarations, configuration, reference policy and worker script.
+Both first fits reproduce the saved reference exactly.
+All six selected parameter sets and complete 161-step prediction histories are exactly equal.
+With fixed centers, all three full diagnostic reports are also exactly equal.
+With carrying, the reports change after the first fit and then remain exactly equal for the final two repetitions.
+
+| Diagnostic | Fixed centers, every repetition | Carrying, first repetition | Carrying, later repetitions |
+| --- | ---: | ---: | ---: |
+| Entering friction anchor | 0.3 | 0.3 | 0.6739569 |
+| Selected friction | 0.6739569 | 0.6739569 | 0.6739569 |
+| Friction legacy width | 0.3449425 | 0.3449425 | 0.4926973 |
+| Restitution legacy width | 0.4125 | 0.4125 | 0.3375 |
+| Mass legacy width | 2.4283955 | 2.4283955 | 1.5453426 |
+| Friction verdict | Weakly identified | Weakly identified | Anchored |
+
+Rolling-friction and spinning-friction widths remain unchanged across the arms.
+The reported widths change in both directions after carrying, without new observations or a change in the selected simulator.
+This case does not demonstrate progressive confidence accumulation: both policies become stable on the repeated evidence.
+It does establish that accepted-center feedback changes the legacy uncertainty report independently of new data, while fixed centers preserve the fitted dynamics in this example.
+That supports the replacement's explicit original-prior contract and supplies the previously missing active-carry repeated-data coverage.
+It does not establish preservation across accumulating datasets, unseen interactions, different domains or closed-loop decisions; interval changes can affect planning even when the selected point simulator is unchanged.
+There are no reserved future actions in this diagnostic, and neither arm's widths are newly validated credible intervals.
+
+`completed-verification.json` independently pins both final source reports and the paired report, verifies the runtime match and all six prediction histories, and checks the full diagnostic-report equalities.
+The original mutable-reference attempt and inactive-policy controls remain separate evidence.
+The production fitter remains unchanged.

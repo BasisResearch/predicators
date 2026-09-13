@@ -82,3 +82,37 @@ Their position RMSEs are 11.441 and 11.399 mm, and their toppling Brier errors a
 See the [initial-state ablation](initial-state-ablation.md) for its approximation, cost and source reports.
 The local-only pair remains incomplete in this snapshot.
 The next [budget comparison](domino-budget-sensitivity.md) tests each completed target at twice the particle count; no production use is approved by this initial screen.
+
+## Completed matched local-proposal controls
+
+Both local fits and their reserved-action forecasts have completed, so summary `22675143` now contains all six populations and all three within-protocol pairs.
+The two local fits use 14,365 and 14,429 target evaluations and retain one initial ancestor each.
+Their four-CPU allocation times are 5,075 and 4,279 seconds; forecasts require 86 and 70 allocation seconds and 10,465 native actions each.
+The completed report verifies all 384 positive-weight complete histories across the six populations.
+
+For each numerical seed, an additional source check confirms that the local and mixed fits have identical complete inference identities, priors and seeds.
+Their numerical configurations differ only in full-range block-refresh probability: zero for the local arm and 0.5 for the mixed arm.
+This closes the earlier matched-control gap; the evidence comes from two numerical replicas of one target, not repeated datasets or agent seeds.
+
+| Forecast | Conditional position RMSE | Toppling Brier error | Final probability for domino 1 to topple |
+| --- | ---: | ---: | ---: |
+| Legacy point forecast | 11.062 mm | 0.0034364 | 0 |
+| Local proposals, numerical seed 100 | 11.848 mm | 0.0032677 | 0.95746 |
+| Local proposals, numerical seed 101 | 12.320 mm | 0.0189003 | 0 |
+| Mixed proposals, numerical seed 100 | 10.906 mm | 0.0001380 | 0.93750 |
+| Mixed proposals, numerical seed 101 | 10.854 mm | 0.0000596 | 0.95395 |
+
+The local seed-101 population predicts no final toppling for any of the six objects, while the recorded final state has four toppled objects.
+It assigns much larger rolling friction than the other local replica; its empirical median is 0.06193 versus 0.00326.
+This is an observed association, not an isolated causal diagnosis of the prediction error.
+
+| Replica agreement check | Local proposals | Mixed proposals | Screen limit |
+| --- | ---: | ---: | ---: |
+| RMS difference across conditional position means | 7.954 mm | 3.038 mm | 2.5 mm |
+| Largest toppling probability gap | 1.0 | 0.18385 | 0.20 |
+| Largest final-frame toppling probability gap | 1.0 | 0.01645 | 0.15 |
+
+The local pair fails all three predeclared exploratory checks; the mixed pair passes the two toppling checks but still fails the position-mean check.
+The proposal change reduces disagreement and prediction errors on this matched recording, yet does not establish numerical adequacy or justify deployment.
+The ongoing 128-particle mixed and fixed-initial-state comparisons remain the next budget-sensitivity evidence.
+The matching checks and source summary hash are retained in `completed-local-matching-verification.json` in the summary bundle.

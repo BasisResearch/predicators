@@ -8,56 +8,31 @@ The incumbent estimator remains the production default.
 
 Stage 0 interface preservation is complete, with scripted behavior parity checked.
 Stage A has implemented probability and replay components, but physical support and numerical validation remain incomplete.
-The active work is Stage B offline comparison; Stage C live posterior use and Stage E retirement are not yet approved by the evidence.
+The active work is Stage B offline comparison; Stage C live posterior use and Stage E retirement have not passed their evidence requirements.
 Stage D execution smoothing remains optional and deferred.
-The full plan remains incomplete.
+The full plan remains incomplete, and the incumbent estimator remains the production default.
 
-The [Fan prefix comparison](fan-prefix-comparison.md) now has a completed compute support audit, `22674026`.
-It removes the 68-action suffix before scene construction and scoring and does not reuse the full-recording proposal guide.
-Eight of 48 sampled rest scenes have valid geometry and finite prefix likelihood, and the first supported trajectory repeats exactly.
-All 16 median-scene probes instead have an initial penetration, ruling out that unmodified point-state baseline.
-This prepares a comparison against the completed 64-action legacy fit while the existing full-recording fits continue unchanged.
-The next prefix inference preflight, `22674192`, exactly matches 12 retained native targets and the complete initial population across serial and four-process execution.
-It finds 11 supported initial particles with weight effective sample size 9.10 and verifies a roughly fourfold initialization speedup.
-Two full-prior prefix fits are submitted as `22674242_0` and `_1`, with numerical seeds 302 and 303 and unchanged original support for moving and resting states.
-These are offline inference replicas; completed prediction comparisons and numerical assessment remain pending.
-The Fan reserved-suffix forecast path now passes complete-checkpoint recovery, per-particle prefix-factor equality and checks on all 64 saved complete histories using an explicitly unassessed short fixture.
-It retains every positive-weight particle even though all fixture future densities are zero.
-Both full Fan prefix fits and their forecast follow-ups have completed; the two populations retain one and two initial ancestors.
-The paired Fan report now passes compute validation `22676293`, reconstructing all 64 fixture histories and rejecting six corrupted-output cases, including removal of zero future density.
-The completed paired report gives lower position error than legacy on this recording, but a maximum 0.33212 geometric-goal probability disagreement and only one nonzero full-future-density particle per replica.
-Corrected summary `22676681` also reconstructs and verifies the two parameter-quantile reports; the first summary omitted their Fan-specific field.
-A 128-particle comparison is queued as array `22676775`, gated by native preflight `22676726` and validation finalizer `22676770`; no posterior is approved by the current evidence.
-Its same-suffix forecasts `22677013_0` and `22677014_1` are now queued behind their individual fits and a checked plan-preparation gate.
-The cross-budget reader passes compute validation `22677052`, reproducing 128 complete baseline histories and rejecting seven incomparable or corrupted inputs; summary `22677060` will retain all six replica pairs and their incomplete states.
-The larger native preflight has now completed with exact target and 128-particle serial/parallel equality, 24 finite initial particles and weight effective sample size 20.19; its prior and target identity match the 64-particle reference.
-The separate [carried-center comparison](carried-center-comparison.md) submits four paired legacy tasks as `22674821`, covering Fan and Domino with carrying off/on.
-Its 64/96/96/full prefix schedule tests both accumulating experience and refitting identical evidence while holding the other legacy mechanisms fixed.
-It explicitly records whether carrying is ever active, rather than treating unchanged results with empty carried history as evidence about removing active carrying.
-The Fan pair has now completed: all four stages retain speed 0.0846, report an anchored verdict and produce identical predictions across arms, including the repeated-data stage.
-No accepted center was carried, so this is an inactive-policy control.
-The Domino pair has also completed with identical predictions and no active carrying; active-policy coverage remains open.
-A separate repeated-data pair now uses the earlier saved Domino program, whose declared friction is 0.3 instead of the already learned 0.674.
-Historical training logs identify an accepted fit and later carrying at that earlier starting point; the new controlled reproduction has three identical 161-action fits and requires exact first-fit agreement between arms.
-The first off-arm fit selects friction 0.6739569, then its second-fit guard detects that applying fitted values to the reused subclass reference also changes registry defaults.
-Native audit `22676108` confirms that this can shift prior centers with explicit carrying off.
-The corrected isolated pair `22676127` keeps an unfitted registry reference and uses fresh selected-parameter worlds for predictions; both arms must reproduce that first fit exactly before repeated-data comparisons.
-Its paired summary `22676128` is queued; the interrupted original comparison remains separate and is not an agent outcome.
-The original reused-reference carrying arm has completed: selected values and predictions stay identical, while friction width grows from 0.34494 to 0.49270 on the first repeated fit, then stays stable.
-The [combined Domino assessment](domino-comparison-summary.md) reproduces prior diagnostics, verifies complete weighted histories and rejects dropped particles, altered samples and altered event aggregates.
-Three finite follow-up jobs will produce comparison snapshots as the individual forecast pairs terminate; the new posterior comparisons remain incomplete.
-Both mixed-proposal Domino fits have now completed all 32 stages, retaining two and one initial ancestors respectively.
-Seed 101 places more than 97% empirical mass at a single value for each of four physical parameters, so its coincident central quantiles cannot establish precise identification.
-Matched local controls are starting; numerical adequacy remains unresolved.
-Those two forecasts have now completed: both toppling-agreement checks pass, but the 3.038 mm difference between position means fails the 2.5 mm screen.
-Their descriptive reserved-action errors are lower than the legacy point forecast on this recording; matched local controls, budget sensitivity and numerical adequacy remain unresolved.
-The local conditional-scale audit has completed with exact saved-reference replay.
-It finds rough target changes with no uniformly successful smaller step scale; no new scale heuristic is selected.
-The point-start fits and forecasts have also completed, passing all three exploratory agreement screens while showing worse position error and better toppling error than legacy on this recording.
-Four [population-size comparison fits](domino-budget-sensitivity.md) are running at 128 particles, two numerical seeds for each state treatment, with unchanged priors, likelihoods and proposal rules.
-The population-size report passes compute validation `22675912`, reproducing all four completed forecasts and 256 histories while rejecting six incomparable-input cases.
-It records all twelve within-target replica pairs, including eight cross-budget pairs, and independently checks empirical parameter quantiles and repeated-value mass.
-Its first snapshot retains ten incomplete pairs; finite follow-up summaries `22675954` and `22675955` depend on the larger forecasts.
+The [combined Domino assessment](domino-comparison-summary.md) now has all six completed 64-particle populations, their reserved-action forecasts and verified complete weighted histories.
+Matched local-only proposals fail all three initial stability screens; mixed local/full-range proposals reduce disagreement and pass both toppling screens, but still fail the position-mean screen.
+The fixed-initial-state approximation passes all three screens while showing worse position error and better toppling error than legacy on this recording.
+These are numerical replicas on one development recording, not agent seeds or evidence of calibrated uncertainty across tasks.
+Four [larger Domino fits](domino-budget-sensitivity.md) are running at 128 particles with unchanged target priors and proposal rules, with forecast and comparison follow-ups already queued.
+
+The [Fan prefix comparison](fan-prefix-comparison.md) has two completed 64-particle fits and causal forecasts on 68 reserved actions.
+Position errors are lower than legacy on this recording, but goal-probability curves disagree by up to 0.33212, and each empirical full-future density depends on only one supported particle.
+The larger native preflight `22676726` matches the original prior and target identity and verifies exact serial/parallel initialization at 128 particles.
+Both larger fits `22676775_0` and `_1` are running, with same-suffix forecasts `22677013_0` and `22677014_1` queued behind their individual fits.
+The cross-budget reader passes compute validation `22677052`, reproducing 128 complete baseline histories and rejecting seven incomparable or corrupted inputs; finite summary `22677060` will retain all six replica pairs.
+
+The [isolated carried-center comparison](carried-center-comparison.md) has completed both arms and report `22676128`.
+All six fits on identical data select the same parameters and produce exactly identical complete predictions.
+Fixed centers preserve every diagnostic report across all three repetitions; carrying changes friction, restitution and mass widths after the first fit, then remains stable.
+This supplies active-carry repeated-data coverage and supports an immutable original prior, but does not establish unchanged future predictions or planning decisions.
+The original harness reproduction also confirms that applying fitted values to a reused subclass reference can change registry defaults even with explicit carrying off; the corrected comparison isolates that effect without changing production behavior.
+
+The existing long-prefix Balloons and full-recording Fan fits remain separate ongoing diagnostics.
+The next gate is trustworthy decision-relevant prediction within the declared computation budget, followed by saved-decision shadow comparisons and matched live use.
+No current physical posterior has been approved for the acting agent.
 
 ## Recent evidence
 
