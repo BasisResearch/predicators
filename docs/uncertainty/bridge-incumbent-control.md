@@ -27,10 +27,10 @@ Selected-point predictions are not the incumbent's full interval or planning ens
 
 ## Compute pipeline
 
-| Job | Purpose | Submission state |
+| Job | Purpose | Verified state on September 13 |
 | --- | --- | --- |
-| `22696941` | Check full-prefix preparation and helper/manual native parity at default dwell, dwell 20 and dwell 40. | Queued for resources. |
-| `22697046` | Run the complete incumbent fitter, then two complete causal forecasts. | Depends on successful preflight. |
+| `22696941` | Check full-prefix preparation and helper/manual native parity at default dwell, dwell 20 and dwell 40. | Completed; all three pairs exact, 7,116 native actions. |
+| `22697046` | Run the complete incumbent fitter, then two complete causal forecasts. | Running. |
 | `22697048` | Independently reproduce the selected forecast and assess the 586-action suffix. | Depends on successful fitting. |
 
 The preflight compares three pairs of full trajectories and checks that changing bond dwell changes predictions.
@@ -40,13 +40,15 @@ Infrastructure failures remain separate from model prediction failures.
 
 All jobs use `mit_preemptable` on the previously audited `node1412`.
 The incumbent fitting implementation is explicitly serial, so its allocation requests one CPU, 20 GB and an eight-hour limit.
-The preflight was confirmed pending because all 64 CPUs on that node were allocated; dependent jobs have not begun fitting.
-These scheduler states are dated submission observations, not permanent status claims.
+The preflight initially waited because all 64 CPUs on that node were allocated; it subsequently completed and released the dependent fit.
+These scheduler states are dated observations, not permanent status claims.
 The frozen bundle is `logs/uncertainty_bridge_incumbent_prefix600_20260913/`.
 
 ## Remaining comparison requirements
 
 The revised subclass's geometry, attachments and other exact observations still need a complete joint probability target before the replacement arm can be fitted.
+The [new initial-scene construction](bridge-initial-scene.md) supplies a declared reset law and verified 600-action native continuations, including moving bodies and robot joints.
+Those trajectories repeat exactly but still contradict exact recorded outputs, so replay support does not establish a usable conditional target.
 The exact-rate reference supplies only one component of that target.
 The physical initial-state inventory, supported geometry and remaining continuous exact-output representations must stay explicit.
 Use the same fixed program and 600-action prefix for both estimator arms, and separately identify any new transition-discrepancy assumptions or state-inference approximations.

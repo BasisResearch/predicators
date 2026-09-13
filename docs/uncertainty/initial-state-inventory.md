@@ -71,6 +71,9 @@ Similarly, `rollout_states` starting a simulated trial at rest is a legacy fitti
 ## Bridge
 
 The recording contains five blocks, one bottle, two site markers, and the robot.
+The rows below retain the frozen no-op program's original inventory.
+The later [revised Bridge root inventory](bridge-initial-scene.md#declared-reset-law-and-information-boundary) separately specifies the parameterized subclass's body/site/robot priors and declared reset-memory scope.
+Its short native root audit is complete, but full-prefix probability support and inference remain unvalidated.
 The [environment source](../../predicators/envs/pybullet_bridge.py) separates partially observed block features from hidden curing counters and attached partners.
 Its hidden task generator and evaluator restoration code are diagnostic sources, not an agent prior.
 
