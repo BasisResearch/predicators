@@ -24,13 +24,16 @@ Both treatments remain unassessed, with inference exploration and cost unresolve
 The [coupled-direction audit](domino-coupled-directions.md) reproduces 16 archived point-state anchors exactly and evaluates 384 matched joint/scalar proposals.
 Broad donor-difference moves usually have very low acceptance; all 50 supported restitution-only moves leave the likelihood unchanged, exposing a misleading source of aggregate parameter movement.
 Smaller steps improve joint movement in one population while the other barely moves; removing jitter reverses which population benefits, so the three completed audits do not establish a general sampler repair.
-All 1,152 proposals and native replay checks are verified; likelihood-factor attribution is the next diagnostic before selecting another inference change.
+All 1,152 proposals and native replay checks are verified.
+The [factor attribution](domino-factor-attribution.md) now reproduces 48 matched cases: joint channel 6 dominates 15 of 16 selected score changes, with median 96.8% of absolute channel changes coming from robot observations.
+All sampled boundary contact-pair sets match between those pairs, and an independent Gaussian calculation verifies 93,600 scalar time factors.
+The subsequent 124-case local-sensitivity test also completes: non-restitution joint-response derivatives vary strongly across 1e-6 to 1e-4 parameter changes, while 241,800 additional scalar factors verify independently; a simple gradient proposal is not supported.
 
 The [Fan prefix comparison](fan-prefix-comparison.md) has two completed 64-particle fits and causal forecasts on 68 reserved actions.
 Position errors are lower than legacy on this recording, but goal-probability curves disagree by up to 0.33212, and each empirical full-future density depends on only one supported particle.
 The larger native preflight `22676726` matches the original prior and target identity and verifies exact serial/parallel initialization at 128 particles.
-Both larger fits `22676775_0` and `_1` are running, with same-suffix forecasts `22677013_0` and `22677014_1` queued behind their individual fits.
-The cross-budget reader passes compute validation `22677052`, reproducing 128 complete baseline histories and rejecting seven incomparable or corrupted inputs; finite summary `22677060` will retain all six replica pairs.
+Both larger fits, forecasts and cross-budget summary `22677060` are complete, verifying 384 complete histories and all six pairs.
+The larger pair still differs by 5.043 mm in position means and up to 0.298481 in goal-probability curves, with cross-budget goal gaps as large as 0.549676; numerical adequacy remains unestablished.
 
 The [isolated carried-center comparison](carried-center-comparison.md) has completed both arms and report `22676128`.
 All six fits on identical data select the same parameters and produce exactly identical complete predictions.
@@ -47,12 +50,14 @@ The new [constant-output guide calculation](constant-output-guides.md) passes 33
 A prefix-only saved-history audit verifies the 30 fixture coordinates and a 3.312 mm Gaussian guide scale.
 The guided proposal subsequently passed density correction, original physical target and serial/parallel initialization checks.
 Two guided 64-particle fits and gated reserved-future forecasts are submitted, with the original prior, program and observation model retained.
-The first guided fit `22678810_0` and forecast `22679493_1` have completed; archived source hashes and the forecast's exact checkpoint/coordinate checks are verified.
-That fit retains one initial ancestor, and its paired fit and final comparison remain unfinished.
+Both guided fits, forecasts and the four-population summary `22679496` are complete, with all 256 positive-weight histories verified.
+The guided pair lowers position errors but retains a 0.3125 maximum goal-curve disagreement and very different empirical fan-speed quantiles; posterior adequacy remains unestablished.
 Initial weight effective sample size is worse than the original proposal, so this guide remains an exploratory comparison rather than an improvement claim.
 The [guided-tempering reference](guided-tempering.md) completed 16 exact Gaussian fits; annealing the finite mixture correction reduces error in these references while preserving the final target.
-Its native Fan preflight preserves the target and serial/parallel state, with initial effective sample size 15 instead of 2.010; two matched alternative-bridge fits are running.
-The short native tempered forecast and independent raw-factor/coordinate verification now pass, with full forecasts and a six-population comparison gated on the completed fits.
+Its native Fan preflight preserves the target and serial/parallel state, with initial effective sample size 15 instead of 2.010.
+Both alternative-bridge fits and forecasts are now complete: summary `22680197` verifies all six populations and 15 pairs, but the tempered pair differs by 6.656 mm in position means and up to 0.371003 in goal curves.
+The tempered seed-302 empirical complete-future density has zero supported particles; this is retained as a failure of that density estimate, not converted to a finite value.
+The completed Fan budget, guide and tempering comparisons do not close Stage B.
 The first guided forecast snapshot failed before native actions because it lacked the future-likelihood method.
 The corrected snapshot reuses the completed fixture and passes full native replay.
 A controlled same-node audit attributes the 1.11e-16 cross-machine coordinate mismatch to NumPy instruction dispatch; disabling the extra AVX-512 dispatch options restores exact coordinates for the saved fixture.
