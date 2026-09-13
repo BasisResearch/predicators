@@ -171,6 +171,17 @@ Both larger fits have now completed all 32 temperatures.
 Seed 100 used 31,921 evaluations in a 3:39:43 allocation and retained 15 initial ancestors; seed 101 used 31,959 evaluations in 3:40:32 and retained 10.
 Each recorded five resampling events.
 Their complete sample populations and weights match the checksummed checkpoints exactly.
-The dependent native forecast/verifier jobs `22689058_0` and `22689059_1` are running, with the budget comparison `22689095` still queued behind them.
-Completion and ancestor counts do not establish that the previously observed toppling-prediction disagreement has been resolved.
+The dependent native forecast/verifier jobs `22689058_0` and `22689059_1` completed in 22:35 and 22:47, and budget comparison `22689095` completed in three seconds.
+Both forecast source hashes match their independent verification reports.
+Each report checks 1,152 histories and 1,669,248 joint factors, preserves original weights and rejects all six corruption classes.
+The 128-particle pair passes its three replication screens: position-mean RMS disagreement is 0.200 mm and maximum toppling-curve/final-toppling disagreement is 0.127143.
+That is an improvement in same-budget agreement, but one cross-budget pair still differs by 0.192756 in final toppling probability and fails the 0.15 screen.
+Four of the six retained comparisons pass all three screens; the failed 64-particle pair and failed cross-budget pair remain part of the assessment.
+
+| Numerical seed, 128 particles | Position RMSE (m) | Toppling Brier score | Final-toppling Brier score | Forecast native actions |
+| --- | ---: | ---: | ---: | ---: |
+| 100 | 0.0113284 | 0.000045175 | 0.004373531 | 185,794 |
+| 101 | 0.0113363 | 0.000162052 | 0.013933829 | 185,794 |
+
+The larger budget does not uniformly improve event predictions, and same-budget agreement does not resolve the remaining sensitivity to numerical budget.
 All results remain a fixed-initial-state ablation and do not close Stage B.

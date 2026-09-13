@@ -27,13 +27,24 @@ The [revised Bridge subclass](bridge-subclass-inference.md) now matches all obse
 The exact-rate component also passes: 600 actual-rule latch cases reproduce the analytic conditional support and retained rate-prior density, with 1,812 rule steps and no native rollout.
 That component assumes an eligible deposition schedule; full latent geometry, remaining exact-output constraints and a complete Bridge inference target are still required.
 The [revised Bridge incumbent control](bridge-incumbent-control.md) now freezes a 600-action fitting prefix containing the first bond and reserves the remaining 586 actions, including the second bond.
-Preflight `22696941` has started on the audited node, followed by the queued full serial incumbent fit `22697046` and independent forecast verification `22697048`.
+Preflight `22696941` completed all 7,116 native actions with exact helper/manual agreement; the full serial incumbent fit `22697046` is running, with independent forecast verification `22697048` dependent on completion.
 The new Bridge probability-model arm remains unfinished; this pipeline does not substitute a point fit for the planned posterior comparison.
+The [Bridge initial-scene construction](bridge-initial-scene.md) now declares the six-face rest/moving body cases, uncertain fixed-site mounting, all robot joints and the revised program's reset-memory boundary.
+Its 140 augmented proposal coordinates represent 30 through 101 continuous physical root coordinates across cases, before parameters and trajectory discrepancies.
+Native geometry audits verify the rounded-box support formula for blocks and the bottle, while retaining the failed ideal-contact assumption for thin site markers.
+Corrected root audit `22698304` completes sixteen cases: one is feasible and repeats all 64 actions exactly; fifteen retain collision rejections.
+Independent reader `22698424` verifies 182 proposal-density ratios, 384 guided coordinates, all root support charts and stored rejection witnesses.
+Geometry-aware moving-height guidance `22698483` and independent reader `22698502` have completed, with the original prior and full density corrections retained.
+Five of sixteen stratified roots are now feasible, including moving-body and moving-robot cases; all five repeat exactly over 64 actions, totaling 640 native actions.
+Long-prefix job `22698641` and reader `22698656` also completed: all five roots repeat 600 actions exactly, totaling 6,000 native actions.
+All five still contradict exact recorded outputs, starting at actions 1-34 depending on the root; this leaves full-prefix conditional support and the Bridge posterior target open.
 
 The [Balloons population forecast adapter](balloons-prefix-forecasts.md#complete-population-forecast-adapter) now passes native replay, nonuniform weighted-summary, zero-density and no-refit checkpoint checks, including twelve malformed-result rejections.
-Both prefix fits have completed, and forecast jobs `22693026` and `22693027` are running; each is followed by independent artifact verification, then paired report `22693044`.
+Both prefix fits, forecast/verifier jobs `22693026` and `22693027`, and paired report `22693044` have completed.
 Every positive-weight particle keeps its original weight, receives eight generated suffixes and eight separate conditional-density draws, and must reproduce its saved prefix likelihood.
 The [Balloons incumbent control](balloons-incumbent-control.md) completed its full fit as `22693806` in 39:11 and its independent complete-trajectory verification as `22693822` in 17 seconds; the comparison remains queued.
+The new populations disagree by 0.21909 m RMS in box height and up to 0.59913 in an individual burst probability, with large density-bank disagreements as well.
+Both assign zero empirical probability to the final win among generated futures; finite forecast completion does not establish reliable uncertainty.
 All three segments survived, but the incumbent's publication rules retained the original applied parameters.
 Its selected-point forecast reproduces reserved tie/burst/clip indicators but misses the final goal event; this is a recorded-action prediction result, not an agent failure.
 Its overlapping windows and rest-averaged starts remain intact; the comparison driver now verifies those averages after correcting its initial overly strict raw-frame check.
@@ -49,7 +60,8 @@ The [canonical Boil forecast path](boil-canonical-forecasts.md) now passes its n
 The verifier checks twelve histories and 28,512 joint-transition factors, and rejects eight corrupted records.
 The adapter independently checks weighted moments, zero future support and exact checkpoint recovery, rejects nine additional corruptions, and repeats generated and density-evaluation paths exactly.
 Both Boil fits completed all 32 stages: numerical seeds410/411 used 7,455/7,317 target evaluations, respectively.
-Their reserved-132-action forecast/verifier jobs `22690858_0` and `22690863_1` are running, followed by queued paired report `22690864`.
+Reserved-132-action forecast/verifier `22690863_1` has completed, including independent checks of 288 histories, 684,288 joint factors and 4,224 native reference actions.
+The other forecast/verifier, `22690858_0`, and paired report `22690864` have also completed.
 Both completed populations descend from one initial ancestor, so completion alone does not establish adequate exploration.
 Forecast generation cannot read future observations, and the original fitted weights remain unchanged.
 These are mechanical and offline comparison gates, not evidence of improved agent performance or permission to advance to live posterior use.
@@ -59,7 +71,9 @@ Four complete 264-action trajectories and all model memory match the archived li
 The incumbent full fitter ran as `22691175` on the same 132-action prefix, with interval belief, fit-side noise handling and fit evidence enabled.
 The fit completed in 8:49, and independent literal-program verifier `22691200` completed in 19 seconds with every predicted frame and model-memory value matching exactly.
 The selected-point forecast matches the task-goal predicate on all 132 reserved frames, while the boiled predicate differs on one frame.
-The combined comparison `22691239` remains queued behind the posterior forecasts.
+The combined comparison `22691239` has completed and shows substantially worse motion and heating predictions from the new model on this recording.
+Its two jug-x RMSEs are 0.12922/0.12632 m versus 0.00170 m for the incumbent; boiled Brier scores are 0.25314/0.22527 versus 0.00758.
+Both new populations also retain one initial ancestor, so state/discrepancy assumptions and numerical exploration must be isolated before larger-budget fits or live use.
 This compares selected-point and posterior-mean predictions while retaining the explicit differences in initial-state treatment and discrepancy model; it is not an estimator-only ablation or an agent performance result.
 
 The separate [Balloons prefix experiment](balloons-prefix-inference.md) now fits only 64 actions and reserves 171 for later forecasts.
@@ -93,7 +107,9 @@ The new pair agrees to 0.215 mm in position means but differs by 0.166830 in fin
 Future-bank variability is much smaller than fitted-replica disagreement, and the new model has worse toppling scores than the matched older model on this recording despite slightly better position error.
 The complete artifacts retain original weights, separate generation from conditioned density evaluation and reject six deliberately corrupted inputs.
 Matched 128-particle follow-ups `22688869_0` and `_1` completed all 32 temperatures with 31,921/31,959 evaluations, retaining 15/10 initial ancestors.
-Complete populations and weights match their checksummed checkpoints; forecast/verifier jobs `22689058_0` and `22689059_1` are running, with six-pair budget report `22689095` still dependent.
+Complete populations and weights match their checksummed checkpoints; forecast/verifier jobs `22689058_0` and `22689059_1` and six-pair budget report `22689095` have completed.
+The 128-particle pair passes all three screens, with 0.200 mm position disagreement and a 0.127143 final-toppling gap, but one cross-budget pair still fails at a 0.192756 final-toppling gap.
+Four of six comparisons pass all screens; this does not establish budget-stable inference or close the uncertain-initial-state requirement.
 These remain offline diagnostics; neither the short fixture nor a completed sampler is an approved posterior.
 
 The [Fan prefix comparison](fan-prefix-comparison.md) has two completed 64-particle fits and causal forecasts on 68 reserved actions.

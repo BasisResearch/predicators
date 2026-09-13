@@ -120,3 +120,21 @@ The certificate is `adapter-22692938.json`; `posterior-submitted.json` identifie
 
 The [incumbent control](balloons-incumbent-control.md) runs the existing fitter on the same supplied prefix and compares its selected-point forecast with these population forecasts.
 That comparison retains the differences in initial-state treatment, segmentation and discrepancy assumptions explicitly.
+
+## Completed paired forecasts
+
+Jobs `22693026` and `22693027` completed with their independent verifiers in 54:41 and 53:29 allocation time.
+Each population forecast uses 241,110 native actions.
+Paired report `22693044` completed, and both forecast files match their independent verification and frozen identity records.
+
+The replicas disagree by 0.21909 m RMS in predicted box height and 0.58361 m/s RMS in predicted speed.
+Their maximum band-event probability gap is 0.51132, and the maximum individual burst-probability gap is 0.59913.
+Box-height RMSE against the clean public future is 0.16170 m for numerical seed 620 and 0.09725 m for 621.
+Both assign zero empirical probability to the final evaluator-win event among their generated futures.
+That finite-sample result is not a proof that the model's true win probability is zero.
+
+Future-density integration is also unstable: seed 620's two density banks have log means approximately -290,981 and -434,259, while seed 621's are approximately -50,634 and -52,053.
+Retain those bank discrepancies rather than treating a finite mixture density as a converged likelihood estimate.
+Both fitting populations descend from one initial ancestor, so neither the fitting nor the future integration is established as adequate.
+The scheduled incumbent comparison `22693842` is still waiting for resources at this update.
+These outcomes require diagnosis of state/transition assumptions and numerical exploration, not promotion to live planning.

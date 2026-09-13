@@ -88,3 +88,26 @@ Both fits were still running at submission, so there is no completed-population 
 The separate [incumbent control](boil-incumbent-control.md) supplies the same literal program through a verified subclass conversion and fits the identical recorded prefix with the existing full fitter.
 Its selected-point forecast will be compared with the two posterior means after independent replay verification.
 The control keeps its existing initial-state and objective assumptions, so this comparison alone does not isolate the estimator from the explicit posterior discrepancy extension.
+
+## Completed forecasts and incumbent comparison
+
+Forecast/verifier jobs `22690858_0` and `22690863_1` completed in 1:34:28 and 1:31:38 allocation time.
+Each forecast uses 93,456 native actions; each independent verifier checks 288 histories, 684,288 joint factors and 4,224 additional native reference actions.
+Paired report `22690864` and incumbent comparison `22691239` completed, with all source and verification hashes checked.
+
+| Forecast | Jug x RMSE against clean public future (m) | Jug y RMSE (m) | Bubbling RMSE | Boiled Brier score | Final task-goal prediction |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Incumbent selected point | 0.00170 | 0.00594 | 0.01915 | 0.00758 | True |
+| New joint model, numerical seed 410 | 0.12922 | 0.08599 | 0.48328 | 0.25314 | 0.22319 |
+| New joint model, numerical seed 411 | 0.12632 | 0.08671 | 0.45393 | 0.22527 | 0.30614 |
+
+The new forecasts are substantially worse on these motion and heating metrics on this development recording.
+The two new populations agree more closely with each other than with the recorded jug path; small replica disagreement would therefore not establish predictive adequacy.
+Each fit also retains only one initial ancestor, leaving numerical exploration unresolved.
+The final goal actually holds in the reference, but the averaged goal Brier scores dilute that final error across 132 frames; retain both temporal and final-event metrics.
+The current estimator remains preferable on this comparison, although the changed initial-state treatment and explicit joint/output discrepancy mean this is not a clean estimator-only attribution.
+
+Before larger-budget fits, separate the effects of uncertain initial state, per-step stochastic joint transitions and posterior exploration on these same frozen inputs.
+In particular, a finite likelihood under joint conditioning does not establish that unconditioned future motor perturbations preserve contact and grasp behavior.
+Matched physical forecasts and a separately declared output-discrepancy control can test that mechanism without changing sensor noise or hiding the failed results.
+No live replacement or retirement gate has passed.
