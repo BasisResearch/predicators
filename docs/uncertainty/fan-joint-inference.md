@@ -179,3 +179,10 @@ The initial report correctly remains incomplete while both source fits are runni
 This validates the marginal calculations and incomplete-report path; completed-checkpoint recovery will be exercised when completed source fits exist.
 Finite report `22678058` depends on successful validation and termination of both recovery runs.
 It requests one CPU, 4 GB and ten minutes on `mit_preemptable`, without sending notifications or modifying the fits.
+
+The full-recording seed-201 recovery `22650787_1` has completed at 15,092 target evaluations, using 30,790 allocation seconds and 30,769.80 worker seconds in this recovery attempt.
+It records 1,983,960 native actions in the recovery and retains one initial ancestor.
+Report `22678127` now exercises complete-checkpoint recovery successfully and independently verifies its fan-speed quantiles: [0.09034013, 0.09036351, 0.09053017].
+There are eight distinct positive-weight speeds, with 0.75 of empirical mass at one exact speed value.
+This concentration does not establish precise identification; the paired result remains incomplete until seed 200 finishes.
+Including the original 28,812-second timeout, this seed has consumed 59,602 allocation CPU-seconds across the two attempts.

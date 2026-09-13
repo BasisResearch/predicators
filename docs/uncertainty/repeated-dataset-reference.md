@@ -74,3 +74,32 @@ Every group correctly retained its planned denominator of 128 and withheld cover
 The report remained incomplete, and the guard verified that partial successful fits cannot produce a full-group coverage result.
 The frozen report and validation are `partial-summary-22677945.json` and `partial-validation-22677945.json` in the study bundle.
 This checks the reporting path on real sampler outputs; it does not establish the study's eventual coverage or numerical accuracy.
+
+## Completed repeated-dataset study
+
+All eight array tasks and final report `22677409` have completed, with all 512 planned fits numerically complete.
+Every case/budget group contains all 128 independently generated datasets; no failed or missing fits are excluded.
+The report verifies the full saved weighted populations and paired data/reference identities.
+
+| Case and coordinate | Particles | Central 90% interval coverage | Mean absolute CDF error | 95th percentile CDF error | Numerical screen |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Stationary position | 256 | 115/128 (89.84%) | 0.02288 | 0.05267 | Pass |
+| Stationary position | 2,048 | 116/128 (90.63%) | 0.00807 | 0.02146 | Pass |
+| Linear initial position | 256 | 114/128 (89.06%) | 0.02977 | 0.07698 | Fail |
+| Linear velocity | 256 | 115/128 (89.84%) | 0.02750 | 0.07630 | Fail |
+| Linear initial position | 2,048 | 118/128 (92.19%) | 0.00933 | 0.02194 | Pass |
+| Linear velocity | 2,048 | 117/128 (91.41%) | 0.00915 | 0.02156 | Pass |
+
+The exact posterior covers the generating truth in 114/128 stationary-position cases, 118/128 linear-position cases and 116/128 velocity cases.
+Neither candidate nor exact-reference coverage triggers the predeclared adjusted binomial diagnostic.
+The intervals are too broad to claim tight calibration: the adjusted coverage interval for the first row, for example, is approximately [0.7843, 0.9652].
+
+All three coordinate groups pass the numerical CDF-error screens at 2,048 particles.
+At 256 particles, both correlated-coordinate groups fail those screens despite coverage close to 90%.
+This directly demonstrates that apparently plausible interval coverage can conceal numerical posterior errors and supports retaining separate numerical checks.
+These are successful synthetic prior-predictive reference checks at the larger budget, not calibration of the chosen physical scene priors or permission to use a physical posterior in planning.
+
+The eight shard allocations use 902, 682, 342, 351, 807, 384, 594 and 854 seconds respectively on one CPU each, with a concurrency limit of four.
+Different compute-node hardware is retained in the job accounting; no hardware speedup is inferred.
+The final reporting job uses six allocation seconds and performs no native simulation.
+The full report checksum is `93f9c28813c2892a3404cd03907947cb8d97c972acd27ed6341edd6198d9f895`.
