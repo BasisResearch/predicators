@@ -48,3 +48,28 @@ Each snapshot includes whichever other protocols have completed by then and mark
 | Fixed initial state | `22675144` |
 
 This is a finite dependency chain for offline analysis, not a restored MB/MF notification monitor.
+
+## Completed mixed-proposal prediction pair
+
+Both mixed-proposal forecasts completed, and summary `22675142` verified all 128 positive-weight histories across the two replicas.
+The local-proposal and fixed-initial-state comparisons remain incomplete in this snapshot.
+
+| Forecast | Position RMSE to noisy readings | Toppling Brier error | Final probability for domino 1 to topple |
+| --- | ---: | ---: | ---: |
+| Legacy point forecast | 11.062 mm | 0.0034364 | 0 |
+| Mixed proposals, numerical seed 100 | 10.906 mm | 0.0001380 | 0.9375 |
+| Mixed proposals, numerical seed 101 | 10.854 mm | 0.0000596 | 0.9539 |
+
+The recorded final outcome for domino 1 is toppled.
+Position errors for the particle forecasts use their prefix-conditioned output means; the reports also retain native simulator mean errors separately.
+These are descriptive results for one reserved action sequence, not agent performance or independent-dataset calibration.
+
+| Replica agreement check | Observed difference | Threshold | Result |
+| --- | ---: | ---: | --- |
+| RMS across mean xyz coordinates | 3.038 mm | 2.5 mm | Fails |
+| Largest toppling probability gap | 0.18385 | 0.20 | Passes |
+| Largest final toppling probability gap | 0.01645 | 0.15 | Passes |
+
+The pair still fails the complete predeclared screen.
+The improved agreement relative to the earlier populations does not isolate the proposal change because the matched local controls have not completed.
+The concentrated parameter values, budget sensitivity and substantial inference cost also remain unresolved.

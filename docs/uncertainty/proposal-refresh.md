@@ -98,4 +98,19 @@ This concentration must not be presented as evidence of precise physical identif
 Seed 100 has substantially less concentration and different uncertainty summaries for those parameters.
 The mass diagnostics, source hashes and complete fit reports are retained in `completed-refresh-mass-diagnostic.json` and the source reports in the comparison bundle.
 The broader moves have not yet established reliable joint inference; the reserved-action predictions and matched local controls remain necessary, followed by budget sensitivity.
-The two forecast jobs are queued for the specified compute node.
+The two forecast jobs have completed and pass both toppling-agreement checks, while their 3.038 mm coordinate-mean difference misses the 2.5 mm screen.
+See the [combined prediction assessment](domino-comparison-summary.md) for the matched reserved-action metrics and remaining limitations.
+
+## Local-scale diagnostic
+
+A separate audit now probes the final target near the first maximum-weight particle from each completed replica.
+It varies one parameter coordinate at a time while keeping every initial-state coordinate fixed.
+The signed displacements range from 0.0001 to 0.1 in the original unit proposal coordinates, including the current local scale 0.05.
+The audit repeats each source point, checks its exact saved target factors and computes symmetric Metropolis acceptance probabilities from the target differences.
+These conditional slices can diagnose inappropriate local step scales, but they are not marginal posterior widths or a test of global mode coverage.
+No candidate from the audit replaces a fitted particle or changes a forecast.
+
+The frozen bundle is `logs/uncertainty_domino_local_scale_audit_20260913`.
+The first attempt, `22675376`, failed before evaluating targets because its instrumentation expected a factory entry absent from the Domino worker.
+The corrected audit instruments the actual candidate initializer and is queued as `22675469` on `mit_preemptable`, with four CPUs and a 20-minute limit on node1412.
+Its results remain pending.

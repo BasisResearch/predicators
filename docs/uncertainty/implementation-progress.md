@@ -24,7 +24,7 @@ These are offline inference replicas; completed prediction comparisons and numer
 The Fan reserved-suffix forecast path now passes complete-checkpoint recovery, per-particle prefix-factor equality and checks on all 64 saved complete histories using an explicitly unassessed short fixture.
 It retains every positive-weight particle even though all fixture future densities are zero.
 Two forecast follow-ups are submitted with dependencies on successful completion of their individual full prefix fits; no full-fit Fan prediction result is available yet.
-The separate [carried-center comparison](carried-center-comparison.md) now has four paired legacy tasks queued as `22674821`, covering Fan and Domino with carrying off/on.
+The separate [carried-center comparison](carried-center-comparison.md) submits four paired legacy tasks as `22674821`, covering Fan and Domino with carrying off/on.
 Its 64/96/96/full prefix schedule tests both accumulating experience and refitting identical evidence while holding the other legacy mechanisms fixed.
 It explicitly records whether carrying is ever active, rather than treating unchanged results with empty carried history as evidence about removing active carrying.
 The Fan pair has now completed: all four stages retain speed 0.0846, report an anchored verdict and produce identical predictions across arms, including the repeated-data stage.
@@ -33,7 +33,10 @@ The [combined Domino assessment](domino-comparison-summary.md) reproduces prior 
 Three finite follow-up jobs will produce comparison snapshots as the individual forecast pairs terminate; the new posterior comparisons remain incomplete.
 Both mixed-proposal Domino fits have now completed all 32 stages, retaining two and one initial ancestors respectively.
 Seed 101 places more than 97% empirical mass at a single value for each of four physical parameters, so its coincident central quantiles cannot establish precise identification.
-Their reserved-action forecasts are queued, and matched local controls are starting; numerical adequacy remains unresolved.
+Matched local controls are starting; numerical adequacy remains unresolved.
+Those two forecasts have now completed: both toppling-agreement checks pass, but the 3.038 mm difference between position means fails the 2.5 mm screen.
+Their descriptive reserved-action errors are lower than the legacy point forecast on this recording; matched local controls, budget sensitivity and numerical adequacy remain unresolved.
+A local conditional-scale audit is queued to investigate the concentrated parameter values before making another sampler change.
 
 ## Recent evidence
 
@@ -64,13 +67,13 @@ The subsequent [conditional-parameter slices and mixed proposals](proposal-refre
 A mixed local/full-range block proposal now preserves the same fixed conditional target while allowing larger numerical moves.
 Forty-one functional tests, thirty-two disabled-refresh compatibility comparisons and final focused type/lint/format checks pass.
 The native mixed-proposal check also matches target values and sampler output exactly between synchronous and four-process execution.
-The two refresh-arm Domino fits are running; two matched local-only controls await the array concurrency limit, and no new posterior is yet available.
+Both mixed-proposal Domino fits and forecasts have completed; matched local-only controls are running, and numerical adequacy remains unresolved.
 
 The [initial-state ablation](initial-state-ablation.md) now supplies a first-observation-only point-start comparison while retaining the original parameter prior and output model.
 Its selected scene is feasible, repeats exactly and yields finite full-prefix likelihoods at 39 of 64 random parameter settings.
 Two parameter-only fits are running alongside the joint fits; this is an explicitly labeled approximation, not an exact state observation.
 The [checkpoint-driven forecast follow-up](checkpoint-forecasts.md) now reproduces every complete history and aggregate metric from the earlier 64-row forecast exactly.
-Six follow-up jobs are submitted with dependencies on successful completion of their individual source fits; no new prediction comparisons are complete yet.
+Six follow-up jobs are submitted with dependencies on successful completion of their individual source fits; the mixed-proposal forecast pair is complete, while the local and fixed-initial-state comparisons remain pending.
 
 The latest [likelihood cost reduction](likelihood-cost.md) preserves all 2,560 archived orientation densities and five complete Fan likelihoods exactly on the checked runtimes.
 It removes array reductions from two-term quadrature sums, making the measured density evaluations about four times faster while retaining the statistical model and numerical acceptance checks.
