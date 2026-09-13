@@ -8,7 +8,8 @@ Agent-written dynamics fitting is confirmed in Boil seeds 0, 1, 2 and Balloons s
 The frozen prompt originally discouraged custom fitting; the narrower interpretation was adopted after observing those calls.
 See the [protocol audit](/home/ycliang/predicators/logs/continual_comparisons_20260912/no-fitting-protocol-audit.json).
 This note interprets the completed groups; the [live comparison table](/home/ycliang/predicators/docs/comparisons/continual-results.md) remains authoritative for later outcomes, per-seed steps, resets, and source paths.
-There are 68 finished non-Bridge comparison seeds, including 60 whole-run successes.
+There are 70 finished non-Bridge comparison seeds, including 60 whole-run successes.
+Bridge oracle-scene seed 2 is also finalized at 2/2 levels, 2,916 steps and zero resets, bringing the full sweep to 71/90 finalized seeds.
 The separate primary Bridge MB/MF comparison is complete across three distinct seeds per arm; the 18 replacement Bridge baseline/ablation seeds have begun running.
 The experiments are still incomplete.
 
@@ -32,7 +33,9 @@ Fan standalone is now complete at 3/3 whole-run successes, 724 mean steps (n=3),
 Fan seeds 0 and 2 saved no world_model.py and their play transcripts contain no sim.run/refine/score calls, despite the prompt requesting executable modeling.
 Real actions were not gated on writing or using a model, so these are assigned-arm outcomes rather than evidence that those seeds used the standalone prediction interface.
 See the [final Fan audit](/home/ycliang/predicators/logs/continual_comparisons_20260912/fan-standalone-final-20260913.json).
-Domino standalone seed 2 gave up with 1/2 levels won, 459 steps and zero resets.
+Domino standalone is complete with 0/3 whole-run successes: each seed won training and gave up on test.
+Seeds 0, 1, and 2 used 702, 484, and 459 total steps respectively, all with zero resets; mean successful steps is unavailable (n=0).
+The [final Domino standalone audit](/home/ycliang/predicators/logs/continual_comparisons_20260912/domino-standalone-final-20260913.json) separates the verified failures from the agents' unverified mechanical explanations.
 Standalone results use the original stricter prompt that prohibited physics-engine imports; the engine-permitted replacement has not been launched.
 The full table reports per-seed outcomes and resets; infrastructure interruptions do not enter any agent average.
 
@@ -68,7 +71,7 @@ MB and MF each solve 1/3 whole runs, so this variant shows no observed solve-rat
 Mean successful steps are 2,939 for MB and 2,634 for MF, each based on only one qualifying seed; mean resets across all three finalized seeds are zero and one respectively.
 The unnecessary additional MF seed-0 failure (3,131 steps, zero resets) is disclosed separately and does not replace its successful pilot or count as another independent seed.
 See the [primary per-seed table](bridge-span-mb-mf-results.md) and [comparison conclusion](bridge-span-comparison-conclusion.md).
-The 18 Bridge baseline/ablation seeds remain incomplete, with oracle-scene seed 2 now running and the other 17 queued.
+Bridge oracle-scene seed 2 has finished successfully; the 17 other Bridge baseline/ablation seeds remain running or queued.
 
 The [fixed Balloons MF cohort](/home/ycliang/predicators/docs/comparisons/bridge-balloons-integrity-results.md) requires sustained hovering and is also separate.
 Its three successes cannot be substituted for an MF control under the original instantaneous goal used in the table above.
@@ -76,7 +79,7 @@ No MB run under that changed goal was requested.
 
 ## Remaining evidence
 
-Finish the standalone-program groups in original Balloons and Domino, and all six comparison methods on the new Bridge variant.
+Finish the two remaining standalone-program seeds in original Balloons and the 17 remaining comparison seeds on the new Bridge variant.
 The no-explicit-uncertainty arm is complete in the four non-Bridge domains, but its interpretation remains unresolved because three seeds used custom uncertainty checks, including both successful Domino seeds.
 Keep the no-harness-fitting interpretation and agent-written-fitting disclosure in the final report.
 Only then can the full six-method sweep be reported as complete.
