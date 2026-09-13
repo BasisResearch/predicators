@@ -12,6 +12,8 @@ A native factor audit reproduces ten selected paths exactly and attributes their
 The subsequent offline sequential integrator retains complete histories and block density normalizers, with explicit ancestry diagnostics.
 Forty-four functional tests and focused static checks pass.
 All four native sequential integrations completed with exact replay and factor accounting, but both independent-run comparisons fail the declared density-stability diagnostic and retain only one or two original ancestors.
+The next offline proposal mixes original and position-guided velocity directions while retaining the full mixture correction, so it targets the same probability model.
+Fifty-one functional tests and focused static checks pass; its matched native Balloons pilot is submitted for numerical evaluation.
 The two [Domino conditioned-base pilots](domino-joint-inference.md#completed-numerical-pilots-september-13) also completed, with strongly different parameter summaries and one original ancestor each; numerical adequacy remains unestablished.
 Fan recovery jobs are active after confirmed allocation timeouts, and the two Balloons fits have been submitted for continuation from their saved complete-stage checkpoints under the same numerical budgets.
 

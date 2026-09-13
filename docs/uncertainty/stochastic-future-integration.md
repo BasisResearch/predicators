@@ -142,3 +142,47 @@ The four jobs took approximately 6.5, 10.2, 8.6 and 6.6 allocated minutes and pe
 This pilot uses more replay work per integration than the earlier whole-path diagnostic; it does not demonstrate either accuracy or cost superiority.
 Verified outputs and a repeatable artifact checker are in the native bundle's `verification.json` and `verify_report.py`.
 Position-guided proposals or another demonstrated variance reduction remain necessary before claiming a reliable stochastic forecast score.
+
+## Defensive position guidance
+
+The offline `inference_guidance` component proposes a velocity direction conditional on the same exact speed using a mixture of the original direction law and a guided law.
+Both components are normalized conditional Gaussian direction distributions on the speed sphere.
+The guide changes the proposal mean, not the original velocity model or its discrepancy scale.
+
+For original radial density `p(s)`, original conditional direction density `p(d | s)`, guided density `g(d | s)` and guide probability `a`, the retained factor is:
+
+```text
+p(s) * p(d | s) / ((1 - a) * p(d | s) + a * g(d | s))
+```
+
+The denominator is the complete mixture density, including both components regardless of which generated the draw.
+The original component has positive probability, so the directional importance ratio cannot exceed `1 / (1 - a)`.
+This bounds a single direction correction; it does not bound the variance of a complete history or establish adequate sampling.
+Zero observed speed retains the original rest atom and does not introduce direction coordinates.
+Disabled guidance and identical proposal means preserve the original conditional draw and radial factor exactly.
+
+The native proposal uses the next noisy Cartesian readings of the box and currently attached, unpopped balloons.
+For each axis it adds `velocity_sigma² * action_dt * sum((next_reading - current_prediction) / sensor_variance)` to the predicted box velocity.
+This is the direction proposal obtained from an approximate rigid translation over one action with isotropic position sensors.
+Contacts, rotation and forces can invalidate that approximation, so the native transition and complete observation model still determine the corrected target weight.
+The declared action duration comes from the simulator's actual fixed time step and configured substeps.
+The pilot uses guide probability 0.8 and disables guidance at the last evaluated step, which has no subsequent position reading.
+
+Guidance is only used while evaluating the density of an observed future.
+Its observation-guided paths must never enter unconditional forecast generation, prefix parameter fitting or the acting agent's state.
+The scored future is already fixed when the proposal is constructed, and every proposal factor is retained exactly once.
+Three independent uniform coordinates per moving extension preserve both the component selection and direction for deterministic history reconstruction.
+
+The density calculation uses a centered Gaussian log ratio and a compensated sum of radial terms.
+A direct API reproduction exposed cancellation in the first draft: with equal-strength opposite means, large common radial terms erased the direction correction.
+The corrected implementation matches the independently derived direction ratio for both selected components in those cases.
+The old behavior, corrected values and reference values are retained in `logs/uncertainty_guidance_checks_v2_20260913/cancellation-reproduction.json`.
+Component tests also compare mixture corrections with independent Gaussian and noncentral-chi densities, and compare guided downstream observation integrals with one-dimensional integration under the original sphere law.
+
+Compute job `22671599` passed 51 functional tests, focused type and lint checks, and pinned formatting checks.
+Source hashes and verification artifacts are retained in `logs/uncertainty_guidance_checks_v2_20260913`.
+Native array `22671657` uses the same two evaluated futures, independent seeds 911 and 912, 32 histories and eight four-action blocks as the preceding sequential pilot.
+Its frozen plan and worker are in `logs/uncertainty_balloons_guided_future_20260913`.
+Each moving extension retains its component selector, direction coordinates, proposal mean, correction and separately recomputed original speed factor.
+The worker verifies their density decomposition and preserves the full-reference, prefix and terminal replay checks.
+These checks establish accounting and replay consistency; numerical stability of the complete density estimate remains to be evaluated from the pilot results.
