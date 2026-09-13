@@ -42,6 +42,7 @@ Two guided 64-particle fits and gated reserved-future forecasts are submitted, w
 Initial weight effective sample size is worse than the original proposal, so this guide remains an exploratory comparison rather than an improvement claim.
 The [guided-tempering reference](guided-tempering.md) completed 16 exact Gaussian fits; annealing the finite mixture correction reduces error in these references while preserving the final target.
 Its native Fan preflight preserves the target and serial/parallel state, with initial effective sample size 15 instead of 2.010; two matched alternative-bridge fits are running.
+The short native tempered forecast and independent raw-factor/coordinate verification now pass, with full forecasts and a six-population comparison gated on the completed fits.
 The first guided forecast snapshot failed before native actions because it lacked the future-likelihood method.
 The corrected snapshot reuses the completed fixture and passes full native replay; strict coordinate verification is pinned to the source node while a cross-machine mismatch remains under investigation.
 The next gate is trustworthy decision-relevant prediction within the declared computation budget, followed by saved-decision shadow comparisons and matched live use.

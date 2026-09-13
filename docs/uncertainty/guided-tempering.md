@@ -61,5 +61,32 @@ Array `22679393` runs the alternative bridge with sampler seeds 302 and 303, mat
 Each fit uses four CPUs on `mit_preemptable`.
 The original guided fits remain frozen as the comparison arm.
 The native bundle is `logs/uncertainty_fan_tempered_guide_20260913`, with complete-stage checkpoints and a launch manifest that pins the passed preflight and exact-reference verification.
-Reserved-future forecasts still need an adapter that accounts for the correction in the annealed factor.
+The reserved-future adapter below accounts for the correction in the annealed factor.
 Neither bridge is used by the acting agent.
+
+
+## Reserved-future forecast validation
+
+The forecast bundle is `logs/uncertainty_fan_tempered_forecast_20260913`.
+It uses the verified forecast-only observation extension, preserving the original density methods and fitting data.
+The short numerical fixture `22680058` completed in 79 allocation seconds on four CPUs, evaluating 7,808 native actions.
+Its full-trajectory forecast `22680068_0` completed in 72 allocation seconds, evaluating 8,580 native actions across all 64 positive-weight scenes and one repeated history.
+This fixture validates the adapter and is not an assessed posterior or agent seed.
+
+For every scene, the native replay checks the original initial factor against the stored base and the remaining prefix likelihood minus the complete mixture correction against the stored annealed factor.
+The report retains the raw prefix likelihood, initial likelihood and canonical prior/proposal ratio separately.
+The independent reader reconstructs these factors from the saved report and checkpoint while also checking original weights, complete histories, native events and goals.
+Its first attempt `22680091` failed because it compared numeric factors directly with their checkpoint string encoding.
+The corrected reader decodes those values and reuses the completed native artifacts; no simulator work was repeated to fix this reporting error.
+
+Final comparison validation `22680173` passed in 19 allocation seconds on one CPU, verifying 128 original histories and rejecting eight incompatible comparison contracts.
+Final native-artifact validation `22680174` passed in 20 seconds on the source node, verifying all 64 tempered histories and rejecting nine corruptions, including changed raw likelihood and initial density factors.
+The corrected source hashes match both validation reports.
+Incomplete-report validation `22680175` passed in nine seconds, retaining all six planned populations while only the two original forecasts are available.
+
+Full tempered forecasts `22680182_1` and `22680183_2` depend on the passed checks and their respective completed fits.
+Summary `22680197` also waits for the original guided forecasts `22679493_1` and `22679494_2`.
+It compares two original, two base-corrected guided and two tempered-correction populations, retaining all 15 pairwise comparisons when available.
+Original physical prior, data, program and output law remain fixed; the reader explicitly verifies the algebraic factorization change instead of requiring the numerical bridge identities to be identical.
+The reporting bundle is `logs/uncertainty_fan_tempered_summary_20260913`.
+No completed tempered posterior forecast or live-agent acceptance result is available yet.
