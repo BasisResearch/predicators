@@ -116,3 +116,24 @@ The two full-fit forecast jobs are submitted with dependencies on this successfu
 | --- | --- | --- |
 | 302 | `22674242_0` | `22674579_1` |
 | 303 | `22674242_1` | `22674580_2` |
+
+## Paired forecast report
+
+The report in `logs/uncertainty_fan_prefix_summary_20260913` verifies the two full prefix-fit forecasts before comparing them.
+It checks their frozen script and plan hashes, complete source fits, identical prior and inference identities, numerical configurations and expected numerical seeds.
+It reconstructs native ball-position means, fan/switch/target event probabilities, geometric goal probabilities and cumulative goal probabilities from every positive-weight complete history.
+Original samples, weights, first-goal timing and zero-weight exclusions must match the stored artifacts exactly.
+Future mixture density is reconstructed from the original weighted per-history scores, retaining zero-density predictions explicitly.
+
+The two rows report position errors, event and goal Brier errors, parameter quantiles, ancestry, target evaluations, native actions and allocation/attempt costs alongside the matched legacy prediction.
+The pair reports differences between conditional and native position means, event curves, geometric goal curves and probability of reaching the goal within the suffix.
+These are descriptive comparisons on one recording, not a new acceptance threshold, calibrated posterior claim or agent solve-rate comparison.
+The learned target-hit readout and native geometric goal remain separate predictions.
+The real environment's recorded target-hit feature uses that geometric goal condition; the source implementation is an axis-wise distance check with tolerance `pos_gap / 2`.
+
+Compute validation `22676293` completed with one CPU and 22 allocation seconds, performing no native simulation.
+It verifies all 64 complete fixture histories and exactly reconstructs positions, events, geometric goals and timing while retaining all 64 zero-future-density particles.
+It rejects dropped particles, altered weights, changed native means, changed event probabilities, changed goal probabilities and an altered zero-density mixture.
+The initial summary is explicitly incomplete because the full inference forecasts are still pending.
+Finite summary `22676382` depends on successful validation and termination of both full forecast jobs.
+This does not re-enable the MB/MF notification monitor.
