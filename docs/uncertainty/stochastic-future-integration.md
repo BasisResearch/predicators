@@ -92,3 +92,37 @@ Evaluate a position-guided or sequential integration method with explicit densit
 Any proposed method must preserve the joint future law, exact observations, native replay contract and numerical failure reporting.
 A reliable conditional-path integral still needs integration over an assessed joint parameter and prefix-state posterior.
 Matched legacy predictions, initial-state and prior ablations, saved planning decisions and the live-agent validation gates remain required before replacing the incumbent.
+
+## Sequential history integration
+
+The offline `inference_sequential` component extends complete histories through fixed observation blocks and performs multinomial resampling between blocks.
+Each extension samples a normalized conditional proposal and returns the incremental target/proposal factor for that block, including its exact-observation density factors.
+The product of block-average weights estimates the complete future density.
+This retains temporal dependence; it is not a product of separately fitted marginal forecasts.
+No resampling is performed after the last block, so the terminal histories retain their normalized weights.
+
+The implementation records every block normalizer, effective contribution count and surviving original ancestry count.
+Resampled terminal histories are correlated, so their spread cannot be used as an iid error estimate of the normalizer.
+A high terminal effective count does not undo earlier ancestry loss.
+Independent complete integrations and budget comparisons remain necessary for numerical assessment.
+Zero-support extensions retain zero weight, and complete sampled-support loss returns an explicit unavailable result.
+Replay exceptions and nonfinite factors abort the computation instead of deleting or retrying individual extensions.
+
+Callbacks receive private copies of their parent histories, and returned histories are copied before retention to avoid mutation across siblings.
+History payloads describe reconstructible paths; they must not contain live simulator handles.
+The Balloons adapter reconstructs a fresh native world from the same validated prefix for every extension, preserving hidden dynamics and the cached-link observation phase.
+This has a substantial cost which must be measured rather than hidden by counting only newly extended actions.
+
+The component reference enumerates all histories of a two-state Markov model to check both the joint observation density and terminal posterior probability across independent integration runs.
+Additional tests check an observation-guided proposal with its retained density correction, exact-event zero weights, mutable-parent isolation, ancestry collapse, numerical overflow and interrupted replay.
+
+Compute job `22654085` passed all 44 functional tests, focused mypy and pylint, and pinned formatter checks.
+The initial check found missing type annotations and a reused variable name; the next found three test-only lint issues.
+All attempts and final source hashes are retained in `logs/uncertainty_sequential_checks_v3_20260912` and its preceding check bundles.
+
+Native array `22654086` evaluates both the generated701 and recorded 32-action futures with independent seeds 911 and 912, using 32 histories and eight four-action blocks.
+The plan, worker and overlays are frozen in `logs/uncertainty_balloons_sequential_future_20260912`.
+Each run first reproduces the full 235-action reference factor, and every path extension must reproduce the original 64-action prefix exactly.
+The terminal audit repeats one retained full history and checks that its sum of block factors equals its direct whole-future factor.
+Each completed run requires 21,419 native actions, including reconstruction and terminal checks, rather than just its 1,024 newly sampled future actions.
+These pilots remain numerical diagnostics of a fixed full-training-selected witness, not prefix-only inference, new agent results or a comparison of model quality.

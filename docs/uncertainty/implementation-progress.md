@@ -9,6 +9,8 @@ Forty functional tests and focused static checks pass.
 Its first native Balloons diagnostic reproduces the reference trajectory but fails all four numerical comparisons: eight and 64 complete paths remain dominated by a single contribution.
 This is an unresolved integration problem, so these scores are not used to compare estimators or change agent behavior.
 A native factor audit reproduces ten selected paths exactly and attributes their output-score variation to the box and attached balloon positions; robot factors remain invariant.
+The subsequent offline sequential integrator retains complete histories and block density normalizers, with explicit ancestry diagnostics.
+Forty-four functional tests and focused static checks pass; four native Balloons integrations are running on compute nodes to assess whether it reduces the observed concentration.
 
 The latest [likelihood cost reduction](likelihood-cost.md) preserves all 2,560 archived orientation densities and five complete Fan likelihoods exactly on the checked runtimes.
 It removes array reductions from two-term quadrature sums, making the measured density evaluations about four times faster while retaining the statistical model and numerical acceptance checks.
