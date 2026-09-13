@@ -28,3 +28,15 @@ An immutable copy of the extended test module was run against each cohort's exis
 The runner checks the imported package path and test-file digest before executing the tests.
 No frozen experiment code was edited and no agent run was restarted for this validation.
 The source paths, digests, job records, and verified pass summaries are recorded in `/home/ycliang/predicators/logs/comparison_domain_contracts_20260912/validated.json` and its adjacent validation manifest.
+
+
+## Standalone package access
+
+The experiment environment includes PyBullet, NumPy, and SciPy.
+The standalone approach omits base-simulator reference files, removes the engine-backed evaluator, and routes supplied predictions through the learned skill-transition program.
+Its prompt forbids importing an environment or physics engine inside a prediction.
+The import guard screens hidden `predicators.envs` and `predicators.ground_truth_models` modules; it does not prohibit the `pybullet` package itself.
+Thus the implemented isolation covers the supplied prediction interface, not all physics packages accessible to arbitrary agent code.
+A scan of the two started Boil standalone runs on 2026-09-13 found PyBullet import matches in copied skill-controller references and a transcript displaying one such reference.
+That scan did not find an agent-written PyBullet simulator, but it is not an exhaustive proof of engine-free behavior or import isolation.
+No experiment runtime or package installation was changed for this audit.
