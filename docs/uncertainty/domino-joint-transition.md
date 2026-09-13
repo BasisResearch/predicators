@@ -161,7 +161,9 @@ Each requests four CPUs for at most one hour and checks all generated artifacts 
 The expected cost with 128 positive weights is 185,794 native actions per forecast, including two repeats.
 
 The budget report `22689095` retains all six within-budget and cross-budget comparisons among the four new-model populations.
-Its reader checks matching prior, complete inference identity and all sampler settings except particle/evaluation budgets.
+Its reader checks matching prior, data, sensor and program identities and all sampler settings except particle/evaluation budgets.
+The runtime identities legitimately differ because they include the budget-specific plan; each is independently checked against its frozen plan, scripts and preflight rather than requiring the two runtime hashes to match.
+Follow-up reader check `22689407` passes, and both live 128-particle reports match their independently reconstructed expected runtime identity.
 Reader test `22689104` passes identical-summary, injected-regression and misaligned-coordinate controls and correctly reports the current two-population comparison as incomplete.
 The follow-up forecast/report bundle is `logs/uncertainty_domino_transition_128_forecast_20260913/`.
 All results remain a fixed-initial-state ablation and do not close Stage B.
