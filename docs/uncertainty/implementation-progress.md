@@ -44,6 +44,9 @@ The local conditional-scale audit has completed with exact saved-reference repla
 It finds rough target changes with no uniformly successful smaller step scale; no new scale heuristic is selected.
 The point-start fits and forecasts have also completed, passing all three exploratory agreement screens while showing worse position error and better toppling error than legacy on this recording.
 Four [population-size comparison fits](domino-budget-sensitivity.md) are running at 128 particles, two numerical seeds for each state treatment, with unchanged priors, likelihoods and proposal rules.
+The population-size report passes compute validation `22675912`, reproducing all four completed forecasts and 256 histories while rejecting six incomparable-input cases.
+It records all twelve within-target replica pairs, including eight cross-budget pairs, and independently checks empirical parameter quantiles and repeated-value mass.
+Its first snapshot retains ten incomplete pairs; finite follow-up summaries `22675954` and `22675955` depend on the larger forecasts.
 
 ## Recent evidence
 

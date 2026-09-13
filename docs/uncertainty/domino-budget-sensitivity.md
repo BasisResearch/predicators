@@ -57,3 +57,33 @@ The production agent is unchanged.
 
 Frozen bundles and submission hashes are in `logs/uncertainty_domino_budget_joint_20260913`, `logs/uncertainty_domino_budget_point_20260913` and `logs/uncertainty_domino_budget_forecast_20260913`.
 These finite inference and prediction jobs do not re-enable the MB/MF notification monitor.
+
+## Report validation and follow-up
+
+The comparison report is prepared in `logs/uncertainty_domino_budget_summary_20260913`.
+It enumerates all six pairs among the two 64-particle and two 128-particle replicas for each state treatment, producing twelve pairs total, including eight cross-budget pairs.
+Missing or unsuccessful forecasts remain explicit and cannot produce a completed pair or a passed screen.
+The paired checks require the same complete inference identity and prior, allowing only the declared particle-count and evaluation-budget differences in sampler configuration.
+Joint-state and point-state targets are never compared as estimates of the same distribution.
+
+Each completed row verifies its source fit, numerical configuration, numerical seed, complete checkpoint provenance, unchanged weights and all saved positive-weight histories using the previously validated history checker.
+Its parameter report independently reconstructs the saved empirical 5th, 50th and 95th percentiles and records the largest mass at any exact retained value.
+This prevents coincident quantiles from silently being described as precise parameter identification.
+Cost fields retain scheduler accounting, latest-attempt fitting seconds and forecast native actions separately, with interrupted-work limitations explicit.
+
+Compute job `22675912` tests reproduction of the four completed 64-particle forecasts and both existing replica screens before the new results arrive.
+It also exercises rejection of mismatched priors, runtimes, proposal settings, state treatments, actual fit data identities and a 64-particle population merely relabeled as 128 particles.
+These are analysis checks, not new physical fits or agent results.
+
+The validation completed successfully in job `22675912`, using one CPU and nine allocation seconds with no native simulation.
+All four reference forecasts, both existing replica comparisons and 256 complete saved histories reproduce exactly; all six deliberately incomparable inputs are rejected.
+The initial summary is explicitly incomplete, with four completed rows and two completed pairs; ten pairs still require the larger fits and forecasts.
+Finite snapshot jobs `22675954` and `22675955` depend on validated reporting and termination of the joint and point-state forecast pairs, respectively.
+Each snapshot reports every available result while retaining missing or failed inputs explicitly.
+These analysis dependencies do not create result notifications in this task.
+
+The baseline parameter diagnostics also show why prediction agreement alone is insufficient.
+For the point-start replicas, median lateral friction is 0.2734 versus 0.4649 and median rolling friction is 0.003994 versus 0.001571, despite passing the reserved-sequence prediction screens.
+Their largest exact-value masses reach 33.84% and 56.02%, respectively, across the five reported parameters.
+This does not prove that the parameter distributions are wrong, but it prevents interpreting agreement on one action sequence as established uncertainty over other plans.
+The comparison retains all empirical quantiles and concentration measures for the larger-population check.
