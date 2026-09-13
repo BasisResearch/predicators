@@ -8,10 +8,11 @@ Agent-written dynamics fitting is confirmed in Boil seeds 0, 1, 2 and Balloons s
 The frozen prompt originally discouraged custom fitting; the narrower interpretation was adopted after observing those calls.
 See the [protocol audit](/home/ycliang/predicators/logs/continual_comparisons_20260912/no-fitting-protocol-audit.json).
 This note interprets the completed groups; the [live comparison table](/home/ycliang/predicators/docs/comparisons/continual-results.md) remains authoritative for later outcomes, per-seed steps, resets, and source paths.
-There are 71 finished non-Bridge comparison seeds, including 60 whole-run successes.
-Bridge oracle-scene seed 2 is also finalized at 2/2 levels, 2,916 steps and zero resets, bringing the full sweep to 72/90 finalized seeds.
+All 72 non-Bridge comparison seeds are finalized, including 60 whole-run successes.
+Their source identities, terminal outcomes, and step/reset totals are verified in the [complete non-Bridge audit](/home/ycliang/predicators/logs/continual_comparisons_20260912/non-bridge-final-audit-20260913.json).
+Bridge oracle-scene seed 2 is also finalized at 2/2 levels, 2,916 steps and zero resets, bringing the full sweep to 73/90 finalized seeds.
 The separate primary Bridge MB/MF comparison is complete across three distinct seeds per arm; one replacement Bridge baseline seed is complete and the other 17 are held pending the domain-variant decision.
-The experiments are still incomplete.
+The full five-domain sweep remains incomplete because 17 Bridge comparisons are held pending the variant decision.
 
 ## Completed comparison groups
 
@@ -20,6 +21,7 @@ Whole-run success requires every training and test level to be won.
 
 | Method | Fan | Domino | Boil | Original Balloons |
 |---|---|---|---|---|
+| Standalone program (protocol caveats) | 3/3; 724 (n=3) | 0/3; unavailable (n=0) | 3/3; 1,838 (n=3) | 1/3; 403 (n=1) |
 | Oracle dynamics | 3/3; 408.7 (n=3) | 2/3; 345 (n=2) | 3/3; 549.3 (n=3) | 3/3; 379 (n=3) |
 | Oracle scene | 3/3; 513.7 (n=3) | 3/3; 319 (n=3) | 3/3; 945.7 (n=3) | 1/3; 335 (n=1) |
 | Zero-shot model | 3/3; 451 (n=3) | 3/3; 425.7 (n=3) | 3/3; 724 (n=3) | 2/3; 388.5 (n=2) |
@@ -27,23 +29,21 @@ Whole-run success requires every training and test level to be won.
 | No explicit uncertainty (protocol caveats) | 3/3; 312.3 (n=3) | 2/3; 328 (n=2) | 3/3; 735 (n=3) | 3/3; 260.7 (n=3) |
 
 The table above contains methods with all four non-Bridge domains complete.
-Additional completed domain groups are Boil standalone (3/3 whole-run successes, 1,838 mean steps, n=3), and the no-explicit-uncertainty arm in Fan (3/3, 312.3 steps, n=3), Boil (3/3, 735 steps, n=3), and original Balloons (3/3, 260.7 steps, n=3).
-The latter Balloons result includes a confirmed custom uncertainty sweep and cannot establish strict point-estimate performance; see the protocol audit below.
 Fan standalone is now complete at 3/3 whole-run successes, 724 mean steps (n=3), and zero resets; per-seed steps are 735, 890, and 547.
 Fan seeds 0 and 2 and Boil seeds 1 and 2 saved no world_model.py, and their play transcripts contain no sim.run/refine/score call mentions, despite the prompt requesting executable modeling.
 Real actions were not gated on writing or using a model, so these are assigned-arm outcomes rather than evidence that those seeds used the standalone prediction interface.
 These four seeds all succeeded, so this qualification affects both the Fan and Boil standalone success rates.
-The completed-run audit covers all eleven finalized standalone seeds; it excludes the unfinished Balloons seed 1.
+The completed-run audit covers all twelve finalized standalone seeds.
 File presence and interface-call mentions alone do not establish predictive accuracy or whether decisions used predictions.
 A zero sim_rollouts counter also does not exclude scoring calls or direct analytical code.
 See the [standalone model-use audit](/home/ycliang/predicators/logs/continual_comparisons_20260912/standalone-model-use-audit-20260913.json).
 Domino standalone is complete with 0/3 whole-run successes: each seed won training and gave up on test.
 Seeds 0, 1, and 2 used 702, 484, and 459 total steps respectively, all with zero resets; mean successful steps is unavailable (n=0).
 The [final Domino standalone audit](/home/ycliang/predicators/logs/continual_comparisons_20260912/domino-standalone-final-20260913.json) separates the verified failures from the agents' unverified mechanical explanations.
-Balloons standalone seed 2 has finalized at 2/3 levels, 788 steps and zero resets, with an explicit give-up on the test after training wins in 157 and 137 steps.
-Its 494 test steps do not enter the mean over whole-run successes.
-Seed 0 remains the only completed whole-run success (403 steps, one reset); seed 1 is unfinished.
-The [seed-2 final audit](/home/ycliang/predicators/logs/continual_comparisons_20260912/balloons-standalone-seed2-final-20260913.json) verifies the outcome and treats the agent's physical explanation as unconfirmed.
+Balloons standalone is complete at 1/3 whole-run successes: seed 0 won 3/3 levels in 403 steps with one reset, seed 1 won 2/3 in 558 steps with one reset, and seed 2 won 2/3 in 788 steps with zero resets.
+Both failed seeds explicitly gave up on the test level after winning training; neither is an infrastructure failure.
+Mean successful steps is 403 (n=1), and mean resets over all three finalized seeds is 0.667.
+The [final Balloons standalone audit](/home/ycliang/predicators/logs/continual_comparisons_20260912/balloons-standalone-final-20260913.json) verifies each outcome and treats the agents' physical explanations as unconfirmed.
 Standalone results use the original stricter prompt that prohibited physics-engine imports; the engine-permitted replacement has not been launched.
 The full table reports per-seed outcomes and resets; infrastructure interruptions do not enter any agent average.
 
@@ -87,7 +87,8 @@ No MB run under that changed goal was requested.
 
 ## Remaining evidence
 
-Finish the remaining running standalone-program seed 1 in original Balloons.
+All original non-Bridge comparison outcomes are complete.
+No further non-Bridge experiment is needed to finish this frozen r1 cohort.
 Keep the 17 unfinished Bridge comparison seeds held until the user decides which domain variant to use.
 Their previous automatic dependency-release plan is superseded; three interrupted runs retain saved checkpoints for later replay-verified resumption.
 The no-explicit-uncertainty arm is complete in the four non-Bridge domains, but its interpretation remains unresolved because three seeds used custom uncertainty checks, including both successful Domino seeds.
