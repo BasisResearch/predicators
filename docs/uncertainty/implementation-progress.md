@@ -31,8 +31,11 @@ This supplies active-carry repeated-data coverage and supports an immutable orig
 The original harness reproduction also confirms that applying fitted values to a reused subclass reference can change registry defaults even with explicit carrying off; the corrected comparison isolates that effect without changing production behavior.
 
 The existing long-prefix Balloons and full-recording Fan fits remain separate ongoing diagnostics.
-The [repeated-dataset Gaussian reference](repeated-dataset-reference.md) now has a validated exact-posterior preflight and a queued 512-fit coverage study across two cases and particle budgets.
-It addresses statistical behavior across independent synthetic datasets while keeping physical-domain calibration and live-agent acceptance separate.
+The [repeated-dataset Gaussian reference](repeated-dataset-reference.md) has completed all 512 fits.
+All three parameter-coordinate groups pass the declared CDF-error screens at 2,048 particles; both correlated coordinates fail at 256 particles despite apparently plausible coverage.
+This supplies larger-budget synthetic prior-predictive reference evidence, while physical-domain calibration and live-agent acceptance remain separate.
+The new [constant-output guide calculation](constant-output-guides.md) passes 33 tests and focused static checks, and matches all checked Fan fixture likelihoods while retaining correlated discrepancy.
+A prefix-only saved-history audit verifies the 30 fixture coordinates and a 3.312 mm Gaussian guide scale; proposal-density and identical-target checks are required before any guided physical fit.
 The next gate is trustworthy decision-relevant prediction within the declared computation budget, followed by saved-decision shadow comparisons and matched live use.
 No current physical posterior has been approved for the acting agent.
 

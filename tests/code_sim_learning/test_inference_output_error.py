@@ -8,7 +8,8 @@ import pytest
 from predicators.code_sim_learning.inference_conditioning import \
     ConditioningNumericalError
 from predicators.code_sim_learning.inference_output_error import \
-    GaussianOutputError, output_error_likelihood
+    ConstantOutputLikelihood, GaussianOutputError, \
+    constant_output_likelihood, output_error_likelihood
 
 
 @pytest.mark.parametrize("persistence", [0., -.4, .8, 1.])
@@ -104,3 +105,79 @@ def test_invalid_inputs_and_numeric_overflow_are_explicit() -> None:
         output_error_likelihood(process, (-1e308, ), (1e308, ), .1)
     assert process.digest != GaussianOutputError(.7, .1).digest
     assert process.digest != GaussianOutputError(.8, .2).digest
+
+
+@pytest.mark.parametrize("persistence", [-1., 0., .9, 1.])
+@pytest.mark.parametrize("initial_sigma", [0., .12])
+def test_constant_output_matches_dense_gaussian(persistence: float,
+                                                initial_sigma: float) -> None:
+    """Unknown static location has the independently integrated GLS density."""
+    process = GaussianOutputError(persistence, .08, initial_sigma)
+    readings = (None, .7, .8, None, .6, 1.)
+    sensor_sigma = .05
+    size = len(readings)
+    transition = np.array(
+        [[persistence**(t - k) if k <= t else 0. for k in range(size)]
+         for t in range(size)])
+    covariance = transition @ np.diag([initial_sigma**2] + [.08**2] *
+                                      (size - 1)) @ transition.T
+    indices = [i for i, v in enumerate(readings) if v is not None]
+    observed = np.array([readings[i] for i in indices], dtype=float)
+    covariance = covariance[np.ix_(indices, indices)] + \
+        sensor_sigma**2 * np.eye(len(indices))
+    ones = np.ones(len(indices))
+    precision = ones @ np.linalg.solve(covariance, ones)
+    center = ones @ np.linalg.solve(covariance, observed) / precision
+    result = constant_output_likelihood(process, readings, sensor_sigma)
+    assert result.center == pytest.approx(center, abs=1e-12)
+    assert result.sigma == pytest.approx(precision**-.5, abs=1e-12)
+    for location in (-.2, result.center, 1.3):
+        residual = observed - location
+        expected = -.5 * (len(indices) * math.log(2 * math.pi) +
+                          np.linalg.slogdet(covariance)[1] +
+                          residual @ np.linalg.solve(covariance, residual))
+        assert result.log_likelihood(location) == pytest.approx(expected,
+                                                                abs=1e-10)
+        original = output_error_likelihood(process, (location, ) * size,
+                                           readings, sensor_sigma)
+        assert result.log_likelihood(location) == pytest.approx(
+            original.log_likelihood, abs=1e-10)
+
+
+def test_constant_output_independent_readings_and_translation() -> None:
+    """The independent special case is an average; offsets preserve its law."""
+    readings = (.9, 1.1, 1., 1.2)
+    process = GaussianOutputError(.9, 0., 0.)
+    result = constant_output_likelihood(process, readings, .2)
+    assert result.center == pytest.approx(1.05)
+    assert result.sigma == pytest.approx(.1)
+    shifted = constant_output_likelihood(process,
+                                         tuple(v + 1e6 for v in readings), .2)
+    assert shifted.center - 1e6 == pytest.approx(result.center, abs=1e-10)
+    assert shifted.sigma == result.sigma
+    assert shifted.log_peak == pytest.approx(result.log_peak, abs=1e-8)
+    correlated = constant_output_likelihood(GaussianOutputError(.9, .2, 0.),
+                                            readings, .2)
+    assert correlated.sigma > result.sigma
+
+
+def test_constant_output_requires_usable_noisy_evidence() -> None:
+    """Exact constraints and unsupported numeric scales get explicit errors."""
+    process = GaussianOutputError(.9, .005, 0.)
+    for readings in ((), (None, None), (float("nan"), )):
+        with pytest.raises(ValueError):
+            constant_output_likelihood(process, readings, .005)
+    for sigma in (0., -.1, float("inf")):
+        with pytest.raises(ValueError):
+            constant_output_likelihood(process, (1., ), sigma)
+    for sigma in (1e-300, 1e300):
+        with pytest.raises(ConditioningNumericalError):
+            constant_output_likelihood(process, (1., ), sigma)
+    with pytest.raises(ConditioningNumericalError):
+        constant_output_likelihood(process, (1e308, -1e308), .005)
+    with pytest.raises(ValueError):
+        ConstantOutputLikelihood(0., 0., 1.)
+    with pytest.raises(ValueError):
+        ConstantOutputLikelihood(0., 1., 0.).log_likelihood(float("inf"))
+    with pytest.raises(ConditioningNumericalError):
+        ConstantOutputLikelihood(0., 1e-300, 0.).log_likelihood(1e300)
