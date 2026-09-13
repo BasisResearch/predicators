@@ -25,6 +25,13 @@ The incumbent full fitter is running as `22691175` on the same 132-action prefix
 Its independent literal-program verifier `22691200` and comparison against the two posterior forecasts `22691239` are queued behind their inputs.
 This compares selected-point and posterior-mean predictions while retaining the explicit differences in initial-state treatment and discrepancy model; it is not an estimator-only ablation or an agent performance result.
 
+The separate [Balloons prefix experiment](balloons-prefix-inference.md) now fits only 64 actions and reserves 171 for later forecasts.
+Its guide does not reuse a center or population selected from the complete recording.
+Thirty-two candidate prefixes repeat exactly, with fifteen finite targets; independent verification confirms the future-data boundary, complete saved replays and exact serial/parallel targets.
+Continuous transition normalizers are annealed with the output likelihood while preserving the same final conditional target and exact-observation representation.
+The gated numerical pilots `22691680_0` and `_1` use seeds 620/621 and remain separate from the full-recording 300/301 pair.
+Their posterior adequacy and reserved-action forecasts remain unassessed.
+
 The [combined Domino assessment](domino-comparison-summary.md) now has all six completed 64-particle populations, their reserved-action forecasts and verified complete weighted histories.
 Matched local-only proposals fail all three initial stability screens; mixed local/full-range proposals reduce disagreement and pass both toppling screens, but still fail the position-mean screen.
 The fixed-initial-state approximation passes all three screens while showing worse position error and better toppling error than legacy on this recording.

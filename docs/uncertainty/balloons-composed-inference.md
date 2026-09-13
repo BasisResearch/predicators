@@ -5,6 +5,9 @@ This joins the previously tested [conditional velocity transition](transition-di
 It is an explicit stochastic model extension beside the deterministic reference and the production agent.
 It changes neither the sensor variances nor the exact tie, pop and clip observations.
 
+The later [prefix-only inference experiment](balloons-prefix-inference.md) fits 64 actions and reserves 171 for prediction assessment without reusing the full-recording guide center.
+Its results remain separate from the complete-recording support and inference results below.
+
 ## Accounting for each observation
 
 After each native action, the existing transition diagnostic conditions Gaussian joint-position corrections on the nine exact current-joint readings.
