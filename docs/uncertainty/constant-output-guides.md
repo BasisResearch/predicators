@@ -87,3 +87,11 @@ The launch manifest pins the tested preflight, scripts, model and data/proposal 
 These runs are separate from the unchanged 128-particle budget comparison.
 Final population diversity, independent-run agreement, reserved-future predictions and total inference cost remain required before judging this guide.
 The forecast adapter must replay saved canonical scene samples while verifying the proposal correction against the augmented sampler coordinates; the original forecast driver assumes these two coordinate arrays are identical and cannot be reused unchanged.
+
+
+The adapted forecast validation bundle is `logs/uncertainty_fan_guided_forecast_20260913`.
+Short sampler fixture `22678838` is queued, followed on successful completion by forecast validation `22678841_0`.
+The adapter first restores the completed augmented-coordinate checkpoint without additional target evaluations.
+It transforms each positive-weight proposal into the saved original scene coordinates, then checks the original native prefix likelihood and the fully corrected base density during full-trajectory replay.
+The first positive-weight history is repeated, and every history is saved with its unchanged population weight.
+These jobs validate the adapter only; full guided-fit forecasts have not yet been submitted.
