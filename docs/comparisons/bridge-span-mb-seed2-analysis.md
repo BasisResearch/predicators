@@ -22,3 +22,20 @@ The missing executable mechanism prevents this run from demonstrating successful
 
 The [audit artifact](/home/ycliang/predicators/logs/bridge_mb_extension_20260913/seed2-final-20260913.json) records source identity, model hashes, outcome evidence, and these causal limits.
 Keep this result in the original cohort; any future agent correction should use a separately identified comparison.
+
+## Matched seed-2 scene evidence
+
+A later audit compared MB seed 2 with the completed oracle-scene seed 2.
+Every recorded initial object feature matches exactly on both training and test levels.
+Their Bridge environment, base environment, and continual runner files have identical SHA-256 hashes.
+Of 53 checked task, noise, and controller configuration values, 52 match literally; the remaining displayed value differs only in a process-specific function address.
+The oracle-scene run solved both levels in 2,916 steps with zero resets, including 1,606 test steps.
+This is strong evidence that this four-block layout admits a successful execution under the same task mechanics.
+It does not prove robust solvability across all layouts or explain why MB's particular construction failed.
+The oracle-scene arm is an agent with fixed scene-only predictions, not an oracle action policy, and its Bridge simulator also omits curing and weld dynamics.
+Its success therefore also prevents attributing MB's failure solely to the absent residual mechanism.
+The recorded states omit privileged state, and this audit did not replay either trajectory.
+The full comparison is saved in `/home/ycliang/predicators/logs/bridge_mb_extension_20260913/seed2-task-match-20260913.json`.
+
+A separate code review found that the final 60-substep certificate bypasses ordinary domain updates, including weld relaxation intended to suppress numerical creep.
+Testing that difference against normal waiting remains necessary before treating it as a cause or changing the success rule.
