@@ -151,3 +151,31 @@ The recovery allocations are twelve hours each, and original-attempt costs remai
 They are not additional independent fits or agent outcomes.
 The earlier descriptions of live original jobs and pending recoveries above record the state when the safeguards were implemented.
 No completed or numerically assessed Fan posterior is claimed by this update.
+
+## Complete-population report preparation
+
+The two full-recording recovery runs have reached saved stages 30 and 31 of 32, with their target-evaluation counters advancing.
+Their configuration has 64 particles and uses all 132 recorded actions.
+They are distinct from the newer prefix-only fits and the 128-particle prefix budget comparison.
+
+The report bundle `logs/uncertainty_fan_full_fit_summary_20260913` pins the recovery plan, original runtime overlay and worker scripts.
+A completed source report must have a complete sampler at temperature one, the expected seed and numerical configuration, and matching prior and inference identities.
+The reporter restores the complete sampler checkpoint under the frozen implementation and requires the entire recovered result to match the source report without requesting another target evaluation.
+Weighted fan-speed quantiles are independently reconstructed and must match the saved values.
+The report also retains mean, standard deviation, distinct positive-weight values, largest exact-value mass, ancestry and evaluation counts.
+
+The paired comparison requires identical complete target identities, priors, numerical configurations and recorded runtimes.
+It reports the maximum difference between weighted empirical CDFs and their one-dimensional Wasserstein distance.
+These are descriptive distances between dependent numerical populations, not an independent-sample hypothesis test or an automatic adequacy decision.
+There are no reserved observations in this full-recording study, so marginal agreement cannot substitute for the separate prefix forecast comparison.
+
+Original timeout and recovery allocation costs are reported separately and combined only when both accounting records are available.
+Latest-attempt worker time and native actions remain separate from sampler evaluations carried in the checkpoint.
+Missing or noncomplete fits remain explicit; neither is interpreted as an agent outcome.
+
+Compute validation `22678043` completed in eleven allocation seconds on one CPU and performed no native simulation.
+Known discrete distributions verify the weighted quantile convention, zero-weight exclusions, CDF distance and Wasserstein distance; invalid weights, lost mass and nonfinite values are rejected.
+The initial report correctly remains incomplete while both source fits are running.
+This validates the marginal calculations and incomplete-report path; completed-checkpoint recovery will be exercised when completed source fits exist.
+Finite report `22678058` depends on successful validation and termination of both recovery runs.
+It requests one CPU, 4 GB and ten minutes on `mit_preemptable`, without sending notifications or modifying the fits.
