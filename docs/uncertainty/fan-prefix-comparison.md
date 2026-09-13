@@ -181,6 +181,40 @@ The preflight action count scales with the actual population size.
 
 Finite gate `22676770` validates that evidence and pins the run inputs before array `22676775` can start.
 The two full fits request four CPUs, 20 GB and six hours each on node1412 in `mit_preemptable`, with complete-stage checkpoints and at most two simultaneous tasks.
-Their same-suffix forecasts will be prepared from the validated larger configuration.
+Their same-suffix forecasts are prepared as dependent jobs under the validated larger configuration, as detailed below.
 Compare both larger replicas and all four cross-budget replica pairs, preserving zero-density outcomes and actual computation costs.
 These jobs do not change the production estimator or restore result notifications.
+
+## Cross-budget forecast pipeline
+
+The frozen forecast bundle is `logs/uncertainty_fan_budget_forecast_20260913`.
+Its simulator mapping, model, prediction worker, checkpoint recovery driver and runtime preparation are byte-for-byte copies of the validated 64-particle forecast implementation.
+The forecast plan is finalized only after the successful larger-fit preflight is available, with exact checks on the original target identity, prior and permitted numerical differences.
+Contract validation rejects changed identities, priors, proposal configurations, incomplete native equality checks and a mismatched initial population size.
+This is a manifest validation, not a new native inference result.
+
+Finite preparation job `22677008` depends on successful fit gate `22676770`.
+Forecast `22677013_0` depends on that preparation and fit `22676775_0`; forecast `22677014_1` depends on that preparation and fit `22676775_1`.
+Each forecast requests four CPUs, 20 GB and 30 minutes on node1412 in `mit_preemptable`.
+Every positive-weight particle retains its original weight, complete 133-frame history and future-density outcome.
+The 68 forecast actions remain excluded from scene construction and parameter fitting.
+
+The budget report in `logs/uncertainty_fan_budget_summary_20260913` compares all four populations and all six pairs: one within each budget and four across budgets.
+It imports the checksum-pinned complete-history verifier used by the corrected 64-particle report.
+Each row must match its own validated configuration, expected numerical seed and source artifact hashes; pairs must have identical target identities and priors, allowing only particle count and the proportional evaluation limit to differ.
+It reports the original weighted position, event and goal predictions, zero future densities, parameter quantiles, retained-value concentration, ancestry and computation costs.
+No acceptance threshold or posterior publication is introduced by this report.
+
+Compute validation `22677052` completed on one CPU in eight allocation seconds with zero native simulation.
+It exactly reproduced both completed baseline rows and their pair comparison from 128 saved histories.
+It rejected seven mismatches: target identity, prior, proposal, mislabeled particle count, dropped history, altered weight and discarded zero-density outcome.
+The first summary correctly contains two completed rows, one completed pair and five incomplete pairs.
+Finite summary `22677060` depends on successful report validation and termination of both larger forecasts.
+These finite analysis jobs do not send notifications or re-enable the disabled MB/MF monitor.
+
+The larger native preflight `22676726` has now completed in 268 allocation seconds, using four CPUs and 17,920 native actions.
+All retained target factors and the complete 128-particle initial state match exactly across serial and four-process execution.
+Independent comparison confirms the original prior and target identity are unchanged and only the two declared numerical configuration fields differ.
+The initial population contains 24 finite particles with weight effective sample size 20.19; these are initialization diagnostics, not a completed posterior.
+Serial initialization takes 170.43 seconds and parallel initialization 44.72 seconds, excluding the separate fixed-row comparisons and startup.
+The validated preflight checksum is `1d90e36965fff29d925e87fe93717f50586720cc598175836c80593c31090b11`.

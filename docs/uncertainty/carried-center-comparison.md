@@ -174,4 +174,7 @@ The verification and source hashes are retained in `reused-reference-diagnostic.
 The corrected isolated pair remains necessary.
 
 Both corrected tasks have now completed their first fit and passed the exact saved-reference check, with entering friction anchor 0.3 and width 0.3449425.
-Their repeated-data stages are running; the isolated paired outcome is not yet complete.
+Both corrected tasks have also completed their second fit: the off arm retains the declared friction anchor 0.3, while the on arm enters with the accepted 0.6739569.
+The isolated carrying arm `22676127_1` has completed all three repetitions in 1,141 allocation seconds and 1,125.42 worker seconds with 100,803 native actions.
+Its selected parameters and complete predictions remain exactly unchanged; friction width changes from 0.3449425 to 0.4926973 and then remains stable.
+The fixed-center arm is still running, so the isolated paired outcome is not yet complete.

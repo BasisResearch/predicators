@@ -28,6 +28,9 @@ The paired Fan report now passes compute validation `22676293`, reconstructing a
 The completed paired report gives lower position error than legacy on this recording, but a maximum 0.33212 geometric-goal probability disagreement and only one nonzero full-future-density particle per replica.
 Corrected summary `22676681` also reconstructs and verifies the two parameter-quantile reports; the first summary omitted their Fan-specific field.
 A 128-particle comparison is queued as array `22676775`, gated by native preflight `22676726` and validation finalizer `22676770`; no posterior is approved by the current evidence.
+Its same-suffix forecasts `22677013_0` and `22677014_1` are now queued behind their individual fits and a checked plan-preparation gate.
+The cross-budget reader passes compute validation `22677052`, reproducing 128 complete baseline histories and rejecting seven incomparable or corrupted inputs; summary `22677060` will retain all six replica pairs and their incomplete states.
+The larger native preflight has now completed with exact target and 128-particle serial/parallel equality, 24 finite initial particles and weight effective sample size 20.19; its prior and target identity match the 64-particle reference.
 The separate [carried-center comparison](carried-center-comparison.md) submits four paired legacy tasks as `22674821`, covering Fan and Domino with carrying off/on.
 Its 64/96/96/full prefix schedule tests both accumulating experience and refitting identical evidence while holding the other legacy mechanisms fixed.
 It explicitly records whether carrying is ever active, rather than treating unchanged results with empty carried history as evidence about removing active carrying.
