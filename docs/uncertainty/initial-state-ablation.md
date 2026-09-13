@@ -42,7 +42,7 @@ Array `22673316` runs numerical seeds 100 and 101 under the point-state approxim
 Both use the tested 50/50 local/full-range proposal mixture, 64 particles, 32 cubic-spaced temperatures, eight moves, local scale 0.05 and a maximum of 16,448 evaluations.
 Each requests four CPUs, 20 GB and four hours on the same declared AMD worker node, with complete-stage checkpoints and at most two simultaneous tasks.
 The worker first reproduces the frozen preflight target and verifies the output-model identity.
-Both tasks have started and passed their preflights.
+Both tasks completed all 32 stages and passed their preflights.
 
 There are five active proposal coordinates, one for each physical parameter, rather than the joint arm's 95-coordinate representation.
 The complete output rows retain the constant initial-state coordinates for unambiguous replay.
@@ -52,3 +52,21 @@ The ablation does not isolate the legacy carried-prior policy, whose sequential 
 
 Frozen source, runtime identities, submission hashes, stage summaries and checkpoints are in `logs/uncertainty_domino_point_start_fit_20260913`.
 The production agent remains unchanged, and incomplete fits are not usable posterior results.
+
+## Completed point-start comparison
+
+Fits `22673316_0` and `_1` completed in 5,751 and 5,580 allocation seconds on four CPUs, using 15,927 and 15,952 target evaluations.
+They retained five and six initial ancestors, respectively.
+Forecasts `22673722_5` and `22673723_6` completed, and summary `22675144` verified all 128 positive-weight complete histories and unchanged source weights.
+
+| Numerical seed | Conditional position RMSE to noisy readings | Toppling Brier error | Final toppling probability for domino 1 |
+| --- | ---: | ---: | ---: |
+| 100 | 11.441 mm | 0.0000028704 | 0.97016 |
+| 101 | 11.399 mm | 0.0000038637 | 0.95801 |
+
+The two replicas differ by 0.880 mm in their conditional position means and by at most 0.01215 in their toppling probabilities, including at the final frame.
+All three predeclared exploratory agreement screens pass.
+The point-state forecasts have greater position error than the legacy forecast (11.062 mm) and the two mixed joint forecasts (10.906 and 10.854 mm), while their toppling Brier errors are smaller on this reserved sequence.
+Neither result establishes an agent advantage or adequate parameter uncertainty.
+The comparison is one recording with different numerical difficulty between the state treatments.
+A [population-size comparison](domino-budget-sensitivity.md) now tests both targets at 128 particles before interpreting agreement at 64 particles as stability.

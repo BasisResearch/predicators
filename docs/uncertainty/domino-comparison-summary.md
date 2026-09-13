@@ -73,3 +73,12 @@ These are descriptive results for one reserved action sequence, not agent perfor
 The pair still fails the complete predeclared screen.
 The improved agreement relative to the earlier populations does not isolate the proposal change because the matched local controls have not completed.
 The concentrated parameter values, budget sensitivity and substantial inference cost also remain unresolved.
+
+## Completed fixed-initial-state pair
+
+Summary `22675144` additionally verifies the two complete point-start forecasts, including every positive-weight history.
+Their 0.880 mm position-mean difference, 0.01215 maximum toppling-curve gap and 0.01215 final gap pass all three exploratory screens.
+Their position RMSEs are 11.441 and 11.399 mm, and their toppling Brier errors are 0.0000028704 and 0.0000038637.
+See the [initial-state ablation](initial-state-ablation.md) for its approximation, cost and source reports.
+The local-only pair remains incomplete in this snapshot.
+The next [budget comparison](domino-budget-sensitivity.md) tests each completed target at twice the particle count; no production use is approved by this initial screen.

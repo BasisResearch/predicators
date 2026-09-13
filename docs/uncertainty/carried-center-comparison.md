@@ -51,7 +51,7 @@ Array `22674821` is submitted to `mit_preemptable`, with six CPUs, 16 GB and a t
 The preceding array `22674643` failed its configuration guard before fitting because the guard compared runtime tuples with JSON lists.
 The serialized configurations were verified identical; the corrected guard normalizes representation before comparison.
 The failed reports and original driver are retained, and those setup outcomes are not agent failures.
-The Fan pair has completed successfully; the Domino pair is running.
+Both Fan and Domino pairs have completed successfully.
 
 ## Completed Fan control
 
@@ -69,3 +69,16 @@ The repeated 96-action fits change neither the selected value nor the prediction
 Each arm uses 11,332 recorded native simulator actions across the four fits and their predictions.
 The paired comparison and source hashes are retained in `fan-comparison.json` in the bundle.
 This is an inactive-policy control and does not establish that removing active carrying preserves performance.
+
+## Completed Domino control
+
+Both Domino arms reproduce their archived cold fit exactly and produce identical selected values, diagnostic widths and complete prediction histories at all four stages.
+No accepted center is carried into a later fit.
+Selected lateral friction remains 0.674, restitution 0.02, rolling friction 0.006, spinning friction 0.5 and mass 0.1.
+The repeated 96-action stage changes neither selected values, widths nor predictions in either arm.
+Each arm records 59,252 native actions across the four fits and predictions.
+The paired report and source hashes are retained in `domino-comparison.json` in the frozen bundle.
+
+Together, these two recordings cover only inactive carrying.
+They do not establish whether removing accepted-center feedback changes fitting or repeated-data confidence when the policy is active.
+That comparison requires additional development experience with an accepted fitted center, retaining this inactive result instead of replacing it.

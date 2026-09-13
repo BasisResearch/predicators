@@ -112,5 +112,14 @@ No candidate from the audit replaces a fitted particle or changes a forecast.
 
 The frozen bundle is `logs/uncertainty_domino_local_scale_audit_20260913`.
 The first attempt, `22675376`, failed before evaluating targets because its instrumentation expected a factory entry absent from the Domino worker.
-The corrected audit instruments the actual candidate initializer and is queued as `22675469` on `mit_preemptable`, with four CPUs and a 20-minute limit on node1412.
-Its results remain pending.
+The corrected audit instruments the actual candidate initializer and completed as `22675469` on `mit_preemptable`.
+It used 10,048 native actions, 76.98 worker seconds and 82 allocation seconds on four CPUs.
+Both complete checkpoints recover exactly, and the two repeats of each selected reference reproduce their saved joint values and both target factors exactly.
+Seven out-of-box proposals remain explicit; the other 157 evaluations include the four reference repeats.
+
+Restitution has zero target difference at all 16 tested offsets for both selected scenes.
+For seed 101, even the best tested lateral-friction and mass moves have acceptance probabilities only 0.00498 and 0.01855; rolling friction reaches only 0.000743.
+Smaller changes do not uniformly improve acceptance: at seed 101, spinning friction shifted by -0.03 has acceptance 0.297, compared with 0.0311 at -0.0001.
+These fixed-state slices show a rough conditional target and do not justify declaring one smaller proposal scale sufficient.
+They neither establish global identifiability nor measure marginal widths.
+The next experiment therefore checks [population-size sensitivity](domino-budget-sensitivity.md) under the unchanged proposal kernel, rather than choosing another scale from these two selected states.

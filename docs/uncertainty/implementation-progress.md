@@ -28,7 +28,8 @@ The separate [carried-center comparison](carried-center-comparison.md) submits f
 Its 64/96/96/full prefix schedule tests both accumulating experience and refitting identical evidence while holding the other legacy mechanisms fixed.
 It explicitly records whether carrying is ever active, rather than treating unchanged results with empty carried history as evidence about removing active carrying.
 The Fan pair has now completed: all four stages retain speed 0.0846, report an anchored verdict and produce identical predictions across arms, including the repeated-data stage.
-No accepted center was carried, so this is an inactive-policy control; the Domino pair is running.
+No accepted center was carried, so this is an inactive-policy control.
+The Domino pair has also completed with identical predictions and no active carrying; active-policy coverage remains open.
 The [combined Domino assessment](domino-comparison-summary.md) reproduces prior diagnostics, verifies complete weighted histories and rejects dropped particles, altered samples and altered event aggregates.
 Three finite follow-up jobs will produce comparison snapshots as the individual forecast pairs terminate; the new posterior comparisons remain incomplete.
 Both mixed-proposal Domino fits have now completed all 32 stages, retaining two and one initial ancestors respectively.
@@ -36,7 +37,10 @@ Seed 101 places more than 97% empirical mass at a single value for each of four 
 Matched local controls are starting; numerical adequacy remains unresolved.
 Those two forecasts have now completed: both toppling-agreement checks pass, but the 3.038 mm difference between position means fails the 2.5 mm screen.
 Their descriptive reserved-action errors are lower than the legacy point forecast on this recording; matched local controls, budget sensitivity and numerical adequacy remain unresolved.
-A local conditional-scale audit is queued to investigate the concentrated parameter values before making another sampler change.
+The local conditional-scale audit has completed with exact saved-reference replay.
+It finds rough target changes with no uniformly successful smaller step scale; no new scale heuristic is selected.
+The point-start fits and forecasts have also completed, passing all three exploratory agreement screens while showing worse position error and better toppling error than legacy on this recording.
+Four [population-size comparison fits](domino-budget-sensitivity.md) are running at 128 particles, two numerical seeds for each state treatment, with unchanged priors, likelihoods and proposal rules.
 
 ## Recent evidence
 
@@ -71,9 +75,9 @@ Both mixed-proposal Domino fits and forecasts have completed; matched local-only
 
 The [initial-state ablation](initial-state-ablation.md) now supplies a first-observation-only point-start comparison while retaining the original parameter prior and output model.
 Its selected scene is feasible, repeats exactly and yields finite full-prefix likelihoods at 39 of 64 random parameter settings.
-Two parameter-only fits are running alongside the joint fits; this is an explicitly labeled approximation, not an exact state observation.
+Two parameter-only fits have completed; this is an explicitly labeled approximation, not an exact state observation.
 The [checkpoint-driven forecast follow-up](checkpoint-forecasts.md) now reproduces every complete history and aggregate metric from the earlier 64-row forecast exactly.
-Six follow-up jobs are submitted with dependencies on successful completion of their individual source fits; the mixed-proposal forecast pair is complete, while the local and fixed-initial-state comparisons remain pending.
+Six follow-up jobs are submitted with dependencies on successful completion of their individual source fits; the mixed-proposal and fixed-initial-state pairs are complete, while the local comparison remains pending.
 
 The latest [likelihood cost reduction](likelihood-cost.md) preserves all 2,560 archived orientation densities and five complete Fan likelihoods exactly on the checked runtimes.
 It removes array reductions from two-term quadrature sums, making the measured density evaluations about four times faster while retaining the statistical model and numerical acceptance checks.
