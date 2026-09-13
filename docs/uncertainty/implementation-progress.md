@@ -26,6 +26,9 @@ This is a development program revision, not an estimator comparison or agent res
 The [revised Bridge subclass](bridge-subclass-inference.md) now matches all observations, learned memory and attachment-command counts/types over four complete native trajectories, totaling 4,744 actions.
 The exact-rate component also passes: 600 actual-rule latch cases reproduce the analytic conditional support and retained rate-prior density, with 1,812 rule steps and no native rollout.
 That component assumes an eligible deposition schedule; full latent geometry, remaining exact-output constraints and a complete Bridge inference target are still required.
+The [revised Bridge incumbent control](bridge-incumbent-control.md) now freezes a 600-action fitting prefix containing the first bond and reserves the remaining 586 actions, including the second bond.
+Preflight `22696941` is queued for resources on the audited node, followed by the full serial incumbent fit `22697046` and independent forecast verification `22697048`.
+The new Bridge probability-model arm remains unfinished; this pipeline does not substitute a point fit for the planned posterior comparison.
 
 The [Balloons population forecast adapter](balloons-prefix-forecasts.md#complete-population-forecast-adapter) now passes native replay, nonuniform weighted-summary, zero-density and no-refit checkpoint checks, including twelve malformed-result rejections.
 Both prefix fits have completed, and forecast jobs `22693026` and `22693027` are running; each is followed by independent artifact verification, then paired report `22693044`.
