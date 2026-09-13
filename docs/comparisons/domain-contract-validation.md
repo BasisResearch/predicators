@@ -34,9 +34,22 @@ The source paths, digests, job records, and verified pass summaries are recorded
 
 The experiment environment includes PyBullet, NumPy, and SciPy.
 The standalone approach omits base-simulator reference files, removes the engine-backed evaluator, and routes supplied predictions through the learned skill-transition program.
-Its prompt forbids importing an environment or physics engine inside a prediction.
+The original frozen experiment prompt forbids importing an environment or physics engine inside a prediction.
 The import guard screens hidden `predicators.envs` and `predicators.ground_truth_models` modules; it does not prohibit the `pybullet` package itself.
 Thus the implemented isolation covers the supplied prediction interface, not all physics packages accessible to arbitrary agent code.
 A scan of the two started Boil standalone runs on 2026-09-13 found PyBullet import matches in copied skill-controller references and a transcript displaying one such reference.
 That scan did not find an agent-written PyBullet simulator, but it is not an exhaustive proof of engine-free behavior or import isolation.
 No experiment runtime or package installation was changed for this audit.
+
+
+## Physics libraries permitted, 2026-09-13
+
+The user clarified that the standalone agent may use PyBullet or other available simulation libraries.
+The intended comparison withholds a prepared scene and base simulator, while allowing the agent to construct its own predictive world from public observations and recorded interactions.
+The development prompt now states this explicitly and retains the prohibition on inspecting the task environment, ground-truth mechanisms, or live simulator state.
+The original frozen experiments retain their stricter prompt and must not be presented as a cohort run under the revised instruction.
+Replacement configurations cover twelve original non-Bridge seeds and three Bridge span-transfer seeds, keeping their respective domain runtimes and task settings.
+Whether to replace the existing standalone cohort or retain it as the stricter comparison is pending the user's preference; no replacement experiment has been submitted.
+Compute array 22672397 passed all ten domain checks for agent-owned PyBullet predictions, live-environment isolation, and ordinary program predictions.
+Static job 22672446 passed mypy and pylint for both changed Python files after correcting a test type annotation reported by 22672398.
+Their manifests and outputs are under `/home/ycliang/predicators/logs/standalone_engine_contract_20260913/`; these are mechanical checks, not agent solve-rate seeds.

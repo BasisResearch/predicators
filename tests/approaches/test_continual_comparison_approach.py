@@ -10,6 +10,7 @@ from predicators import utils
 from predicators.agent_sdk.belief_probe import BeliefProbe
 from predicators.approaches import create_approach
 from predicators.envs import create_new_env
+from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.ground_truth_models import get_gt_options
 from predicators.run.continual import ContinualRun
 from predicators.run.level_players import create_level_player
@@ -176,10 +177,11 @@ def _configure_domain_comparison(tmp_path: Any, domain: str,
 
 @pytest.mark.parametrize("domain",
                          ["boil", "bridge", "fan", "domino", "balloons"])
+@pytest.mark.parametrize("backend", ["program", "pybullet"])
 def test_standalone_model_is_live_without_engine(tmp_path: Any,
-                                                 monkeypatch: Any,
-                                                 domain: str) -> None:
-    """A program edit changes predictions inside the acting conversation."""
+                                                 monkeypatch: Any, domain: str,
+                                                 backend: str) -> None:
+    """Agent-owned predictions work without a supplied physical scene."""
     from pathlib import Path  # pylint: disable=import-outside-toplevel
 
     from predicators.code_sim_learning.program_world_model import \
@@ -203,6 +205,29 @@ def test_standalone_model_is_live_without_engine(tmp_path: Any,
                 'def initial_latent(obs, rng):\n    return {}\n'
                 'def transition(obs, latent, option, rng):\n'
                 '    return obs.copy(), dict(latent), COUNT\n')
+        if backend == "pybullet":
+            code = '''import pybullet as physics
+LATENT_FEATURES = {}
+def initial_latent(obs, rng):
+    return {}
+def transition(obs, latent, option, rng):
+    client = physics.connect(physics.DIRECT)
+    try:
+        physics.setGravity(0, 0, -10, physicsClientId=client)
+        physics.setTimeStep(0.1, physicsClientId=client)
+        body = physics.createMultiBody(baseMass=1, basePosition=[0, 0, 1],
+                                       physicsClientId=client)
+        for _ in range(COUNT):
+            physics.stepSimulation(physicsClientId=client)
+        position, _ = physics.getBasePositionAndOrientation(
+            body, physicsClientId=client)
+        return obs.copy(), {"fall_height": position[2]}, COUNT
+    finally:
+        physics.disconnect(client)
+'''
+        prompt = agent._play_system_prompt()  # pylint: disable=protected-access
+        assert "You may use PyBullet" in prompt
+        assert "Do not import an environment or a physics engine" not in prompt
         path.parent.mkdir(parents=True, exist_ok=True)
         for count in (2, 3):
             path.write_text(code.replace("COUNT", str(count)),
@@ -222,12 +247,28 @@ def test_standalone_model_is_live_without_engine(tmp_path: Any,
         import numpy as np  # pylint: disable=import-outside-toplevel
         params = np.zeros(wait.params_space.shape, dtype=np.float32)
         grounded = wait.ground(objects, params)
-        _, steps = calls[-1].get_next_state_and_num_actions(current, grounded)
+        assert isinstance(env, PyBulletEnv)
+        client = env._physics_client_id  # pylint: disable=protected-access
+
+        def live_bodies() -> Any:
+            return [(p.getBasePositionAndOrientation(body,
+                                                     physicsClientId=client),
+                     p.getBaseVelocity(body, physicsClientId=client))
+                    for body in (p.getBodyUniqueId(i, physicsClientId=client)
+                                 for i in range(p.getNumBodies(client)))]
+
+        before = live_bodies()
+        predicted, steps = calls[-1].get_next_state_and_num_actions(
+            current, grounded)
         assert steps == 3
+        if backend == "pybullet":
+            assert predicted.latent is not None
+            assert 0 < predicted.latent["fall_height"] < 1
         plan = ("Wait(" + ", ".join(str(obj) for obj in objects) + ")[" +
                 ", ".join(str(float(value)) for value in params) + "]")
         result = probe.run(plan, render=False)
         assert result is not None
+        assert live_bodies() == before
         for kwargs in ({
                 "solved": True
         }, {

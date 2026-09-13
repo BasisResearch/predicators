@@ -7,7 +7,7 @@ It must not be launched until all six arm contracts and their end-to-end tests p
 
 | Item | Arm | Continual adaptation | Required validation |
 | --- | --- | --- | --- |
-| 3 | Standalone learned simulator | Reuse the executable option transition model, with live recorded data and model edits inside the play conversation; no engine predictions | Model edits and recorded skill transitions reach planning, memory and resume; no supplied engine bypass |
+| 3 | Standalone learned simulator | Reuse the executable option transition model, with live recorded data and model edits inside the play conversation; no supplied engine predictions | Model edits and recorded skill transitions reach planning, memory and resume; no supplied engine bypass |
 | 4 | Oracle dynamics | Supply fixed correct mechanisms and parameters, with noisy observations and inferred memory | Recorded-action parity in each domain; model remains fixed across action, reset and resume |
 | 5 | Oracle scene reconstruction | Supply true geometry, articulation and base physics, omit mechanisms, freeze model | Disclose calibration; missing mechanisms stay absent and true current poses remain hidden |
 | 6 | Zero-shot synthesis | Synthesize before the first real interaction, then freeze dynamics and parameter values | Refuse first action without a valid model; seal before charging it; prevent later edits/refits including after resume |
@@ -126,3 +126,14 @@ This removes the supplied fitting API, not all numerical estimation by the codin
 The frozen prompt originally discouraged custom fitting, so this is a disclosed post hoc interpretation of the existing runs.
 Runtime identifiers and configuration filenames retain `no_fitting` for continuity; frozen runtimes, queued jobs, and scorecards are unchanged.
 See the [audit](/home/ycliang/predicators/logs/continual_comparisons_20260912/no-fitting-protocol-audit.json) and [current results](/home/ycliang/predicators/docs/comparisons/continual-results.md).
+
+
+## Standalone physics-library clarification, 2026-09-13
+
+The user permits the standalone model to use PyBullet or another available engine to build its own simulator.
+The development prompt now allows this, while withholding our prepared scene, base-simulator references, and engine-backed evaluator.
+The existing frozen r1 experiments used a stricter prompt prohibiting physics-engine imports; they remain labeled separately from the proposed engine-permitted cohort.
+Prepared replacement configs are `protocol_continual_standalone_engine_noisy_r2.yaml` in the original comparison development checkout and `protocol_continual_bridge_span_standalone_engine_r2.yaml` in the Bridge follow-up checkout.
+They preserve every prior run flag, with twelve non-Bridge seeds and three Bridge transfer seeds.
+Whether to replace the existing standalone cohort is pending the user's preference; no replacement agent runs have been submitted.
+Validation artifacts are in `/home/ycliang/predicators/logs/standalone_engine_contract_20260913/`.

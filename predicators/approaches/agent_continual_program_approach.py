@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
 class AgentContinualProgramWorldModelApproach(ContinualPlayMixin,
                                               AgentProgramWorldModelApproach):
-    """Learn skill transitions without engine-backed planning predictions."""
+    """Learn skill transitions without a supplied physics simulator."""
 
     _save_suffix = "AgentContinualProgramWM"
 
