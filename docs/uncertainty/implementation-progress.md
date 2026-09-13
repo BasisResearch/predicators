@@ -545,6 +545,14 @@ Independent density and coordinate checks pass, including 66,528 transition fact
 Literal rule evaluation also reproduces all 7,392 frames and model-memory states exactly across both parameter settings without additional native actions.
 This validates a fixed-program reuse boundary for future inference, while remaining a prior/support audit rather than a posterior or agent result.
 
+The [Boil prefix-inference integration](boil-joint-inference.md) implements a cache for parameter-independent physical histories and separates the first 132 fitting actions from 132 reserved actions.
+The archived-history reference verifies all factored targets against direct likelihoods to 1.456e-11, but native integration exposes initialization-order dependence in three tested contact trajectories.
+Restoring the old intermediate operation sequence restores exact agreement; this leaves an observation-derived numeric initialization path that must be removed before treating the scene construction as a generative prior.
+The fixed-template initializer passes full sixteen-scene preflight `22690049`, including fresh repeats, serial/parallel target equality, unchanged initial geometry and likelihood factorization.
+Three sampled candidates have finite fitting-prefix targets, and the maximum finite factorization discrepancy is 1.456e-11.
+Both gated canonical Boil posterior pilots, `22690118_0` and `_1`, are running with initialization checkpoints and eleven/seven finite targets out of 32 respectively.
+Their numerical adequacy and held-out predictions remain unassessed.
+
 ## Next gate
 
 The [parameter consumer boundary](parameter-consumers.md) now derives parameter quantiles and weighted or resampled ensembles from the same assessed joint approximation.

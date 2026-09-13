@@ -98,3 +98,11 @@ The next experiment must cover the original scene and parameter law, preserve al
 Cached physical histories may reduce repeated work only under the fixed program's verified parameter-independence boundary.
 No arbitrary reuse across physical parameters, state changes, different programs or different observation phases is justified.
 Stage A closure, Stage B acceptance and live-agent non-regression remain unproven.
+
+## Subsequent runtime-closure finding
+
+The [prefix-inference integration](boil-joint-inference.md#initialization-order-obstruction-and-correction) exposes an additional limitation of this audit.
+Removing its intermediate initialization operations changes some contact-rich continuations despite exact agreement in initial public state and saved scene geometry.
+The original operation sequence still repeats exactly, and its density, geometry and literal-rule checks remain valid for that sequence.
+Those checks do not establish that the final physical coordinates alone define an observation-independent generative initialization.
+The subsequent fixed-template experiment removes the observation-derived intermediate numeric anchor and is being validated as a separately identified runtime before posterior fitting.
