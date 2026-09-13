@@ -4,6 +4,12 @@ Updated September 12, 2026.
 This tracks implementation of the [simplification proposal](simplification-proposal.md).
 The incumbent estimator remains the production default.
 
+The new offline [stochastic future integration component](stochastic-future-integration.md) retains exact joint/speed density factors and reports Monte Carlo concentration explicitly.
+Forty functional tests and focused static checks pass.
+Its first native Balloons diagnostic reproduces the reference trajectory but fails all four numerical comparisons: eight and 64 complete paths remain dominated by a single contribution.
+This is an unresolved integration problem, so these scores are not used to compare estimators or change agent behavior.
+A native factor audit reproduces ten selected paths exactly and attributes their output-score variation to the box and attached balloon positions; robot factors remain invariant.
+
 The latest [likelihood cost reduction](likelihood-cost.md) preserves all 2,560 archived orientation densities and five complete Fan likelihoods exactly on the checked runtimes.
 It removes array reductions from two-term quadrature sums, making the measured density evaluations about four times faster while retaining the statistical model and numerical acceptance checks.
 Twenty-three functional tests and focused type/lint/format checks pass; running fits retain their existing frozen source.

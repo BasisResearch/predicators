@@ -142,12 +142,15 @@ class OutputObservationModel:
                                                                 ...]) -> float:
         """Score a future history conditional on its supported observed prefix.
 
-        Predictions cover the entire history and must be generated
-        without future readings. Future observations enter only this
-        evaluation, never the physical replay or prefix fit. Temporal
-        error factors condition on earlier readings through the chain
-        rule, retaining the joint future density. Summing future factors
-        directly avoids subtracting two large full-history log scores.
+        This is the output factor conditional on a supplied physical
+        history, not an integral over uncertain physical transitions.
+        For generated forecasts that history must not use future
+        readings. A conditional integration caller may supply an
+        observation-guided path, but must account for its transition
+        densities and proposal correction separately. Prefix fitting
+        must never use future readings. Temporal output errors condition
+        on earlier readings through the chain rule. Summing suffix
+        factors directly avoids subtracting large full-history scores.
 
         An impossible prefix has no conditional distribution and raises;
         an impossible future has zero density and returns negative

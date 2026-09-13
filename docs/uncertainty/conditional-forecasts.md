@@ -98,6 +98,7 @@ Parameter and initial-state coordinates are never sampled from separate marginal
 This adapter currently covers deterministic physical continuation under joint parameter/initial-state rows.
 It does not integrate unobserved future physical transitions for the Balloons stochastic extension.
 Passing one stochastic rollout per particle through this adapter would omit that additional integration and must not be presented as the complete forecast law.
+The separate [conditional-path integration diagnostic](stochastic-future-integration.md) implements the required density accounting but currently fails its native numerical checks.
 The existing execution estimator and all acting-agent behavior remain unchanged.
 
 ## Numerical and native checks
