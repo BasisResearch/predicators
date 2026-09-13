@@ -21,6 +21,9 @@ The next prefix inference preflight, `22674192`, exactly matches 12 retained nat
 It finds 11 supported initial particles with weight effective sample size 9.10 and verifies a roughly fourfold initialization speedup.
 Two full-prior prefix fits are submitted as `22674242_0` and `_1`, with numerical seeds 302 and 303 and unchanged original support for moving and resting states.
 These are offline inference replicas; completed prediction comparisons and numerical assessment remain pending.
+The Fan reserved-suffix forecast path now passes complete-checkpoint recovery, per-particle prefix-factor equality and checks on all 64 saved complete histories using an explicitly unassessed short fixture.
+It retains every positive-weight particle even though all fixture future densities are zero.
+Two forecast follow-ups are submitted with dependencies on successful completion of their individual full prefix fits; no full-fit Fan prediction result is available yet.
 
 ## Recent evidence
 

@@ -80,3 +80,39 @@ The corrected attempt changes only summary decoding and adds the initial weight 
 The launch manifest pins the successful preflight, target scripts and configuration before any fit starts.
 Array `22674242` submits task 0 for numerical seed 302 and task 1 for numerical seed 303, each with four CPUs, 20 GB and a four-hour allocation limit on `mit_preemptable`.
 Neither has a completed posterior or prediction comparison yet.
+
+## Reserved-suffix forecast validation
+
+The separate bundle `logs/uncertainty_fan_prefix_forecast_20260913` prepares comparisons on the 68 actions reserved from fitting.
+Its source guard requires a complete fit report and a matching, complete checksum-verified checkpoint.
+Resuming that checkpoint must reproduce the entire saved sampler result without requesting any new target evaluation.
+The source prior, inference identity and configuration must also match the validated fitting protocol.
+
+Prediction uses a separately identified observation module with conditional future scoring; the running fit snapshots remain unchanged.
+Every positive-weight particle reconstructs its saved native scene directly from its original proposal coordinates.
+Its physical fan speed, model digest and both prefix target factors must match the fitting checkpoint exactly.
+Zero-weight rows are identified explicitly, and poor future likelihood never removes a positive-weight row or changes its weight.
+Each trajectory runs all 132 actions from its initial scene, preserving the physical state through the fit/prediction boundary.
+The first positive-weight trajectory is repeated, and compressed complete histories are retained with checksums.
+
+Ball-position predictions include both the native simulator mean and the output-error mean conditioned only on the prefix.
+Reported events include switch/fan activation and the learned target-hit readout.
+The native geometric goal predicate is evaluated separately using the frozen environment's axis tolerances, so a learned target-hit field cannot silently substitute for goal geometry.
+The comparison reports goal probability, first goal occurrence within the suffix, event Brier errors and native computation cost alongside position error.
+The legacy report must use the identical prefix data and candidate program, with predictions aligned by their primitive step indices.
+
+A short native fixture, `22674287`, completed one temperature stage and one move using the original fitting runtime, with 7,872 native actions and 66.08 worker seconds.
+It has one surviving initial ancestor and is explicitly unassessed.
+It exists only to exercise complete-checkpoint recovery and forecast comparison before the two full fits finish.
+
+Forecast validation `22674541_0` completed successfully in 71 allocation seconds and 64.73 worker seconds, with 8,580 native actions.
+It recovered the complete checkpoint exactly and verified the saved prefix factors for every positive-weight particle under the forecast runtime.
+Independent artifact checks verify all 64 complete 133-frame histories, their hashes, original physical samples and unchanged fitting weights.
+All 64 fixture particles assign zero density to the observed future; they remain included in the trajectory, event and goal summaries, and the empirical mixture density is reported as zero.
+This is useful coverage of the evaluator's failure handling, not evidence of a reliable posterior or an estimator advantage.
+The two full-fit forecast jobs are submitted with dependencies on this successful validation and their individual source fits.
+
+| Numerical seed | Prefix fit | Dependent forecast |
+| --- | --- | --- |
+| 302 | `22674242_0` | `22674579_1` |
+| 303 | `22674242_1` | `22674580_2` |
