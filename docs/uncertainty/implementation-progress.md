@@ -28,6 +28,9 @@ All 1,152 proposals and native replay checks are verified.
 The [factor attribution](domino-factor-attribution.md) now reproduces 48 matched cases: joint channel 6 dominates 15 of 16 selected score changes, with median 96.8% of absolute channel changes coming from robot observations.
 All sampled boundary contact-pair sets match between those pairs, and an independent Gaussian calculation verifies 93,600 scalar time factors.
 The subsequent 124-case local-sensitivity test also completes: non-restitution joint-response derivatives vary strongly across 1e-6 to 1e-4 parameter changes, while 241,800 additional scalar factors verify independently; a simple gradient proposal is not supported.
+The separate [joint-transition model comparison](domino-joint-transition.md) now passes 124-case probability/replay checks and full 97-action future-generation/density validation.
+It retains every joint transition density and cached-link observation timing while removing only the former joint AR output factors as an explicit model change.
+Two fresh 64-particle point-start inference replicas, `22683118_0` and `_1`, are running under the original prior and unchanged sampler settings; their posterior prediction comparison remains pending.
 
 The [Fan prefix comparison](fan-prefix-comparison.md) has two completed 64-particle fits and causal forecasts on 68 reserved actions.
 Position errors are lower than legacy on this recording, but goal-probability curves disagree by up to 0.33212, and each empirical full-future density depends on only one supported particle.
