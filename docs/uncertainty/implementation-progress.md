@@ -27,6 +27,12 @@ Its scalar path retains the original random schedule, while batch mode uses a se
 Thirty-two functional tests, sixteen exact comparisons against the original scalar implementation and final focused type/lint/format checks pass.
 The native Domino check reproduces all target values and complete sampler output exactly across one and four processes, with a measured 3.76-fold sampler speedup; numerical adequacy remains unestablished.
 
+The subsequent [conditional-parameter slices and mixed proposals](proposal-refresh.md) identify a concrete exploration issue: restitution changes leave the complete fitting history unchanged at two checked scenes, yet the two populations retain narrow, different restitution ranges.
+A mixed local/full-range block proposal now preserves the same fixed conditional target while allowing larger numerical moves.
+Forty-one functional tests, thirty-two disabled-refresh compatibility comparisons and final focused type/lint/format checks pass.
+The native mixed-proposal check also matches target values and sampler output exactly between synchronous and four-process execution.
+The two refresh-arm Domino fits are running; two matched local-only controls await the array concurrency limit, and no new posterior is yet available.
+
 The latest [likelihood cost reduction](likelihood-cost.md) preserves all 2,560 archived orientation densities and five complete Fan likelihoods exactly on the checked runtimes.
 It removes array reductions from two-term quadrature sums, making the measured density evaluations about four times faster while retaining the statistical model and numerical acceptance checks.
 Twenty-three functional tests and focused type/lint/format checks pass; running fits retain their existing frozen source.

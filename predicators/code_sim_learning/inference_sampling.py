@@ -69,7 +69,10 @@ class SamplerConfig:
     Nonempty blocks partition the proposal coordinates and are selected
     uniformly for symmetric moves. Empty blocks preserve full-vector
     moves. An explicit increasing schedule may replace equally spaced
-    temperatures, with the same stage count and final target.
+    temperatures, with the same stage count and final target. A fixed
+    refresh probability mixes in independent uniform proposals within
+    the selected block. Zero preserves the original random-walk
+    schedule.
     """
     particles: int = 512
     temperatures: int = 32
@@ -79,6 +82,7 @@ class SamplerConfig:
     resample_ess_fraction: float = 0.5
     proposal_blocks: Tuple[Tuple[int, ...], ...] = ()
     temperature_schedule: Tuple[float, ...] = ()
+    refresh_probability: float = 0.
 
     def __post_init__(self) -> None:
         for value in (self.particles, self.temperatures, self.moves,
@@ -89,6 +93,9 @@ class SamplerConfig:
             raise ValueError("Proposal scale must be finite and positive")
         if not 0 < self.resample_ess_fraction <= 1:
             raise ValueError("Resampling ESS fraction must lie in (0, 1]")
+        if not math.isfinite(self.refresh_probability) or not \
+                0 <= self.refresh_probability <= 1:
+            raise ValueError("Refresh probability must lie in [0, 1]")
         blocks = tuple(tuple(block) for block in self.proposal_blocks)
         members = [index for block in blocks for index in block]
         if any(not block for block in blocks) or any(
@@ -282,7 +289,12 @@ def sample_batch(prior: Union[BoxPrior, ConditionedPrior],
     uniform for every proposal, including rejected ones, so worker scheduling
     cannot change the random stream. Its separately identified checkpoint
     kernel cannot resume scalar-mode checkpoints. Scalar calls preserve the
-    original draw schedule. Both modes target the same declared distribution;
+    original draw schedule. A nonzero refresh probability mixes independent
+    uniform proposals within the selected block into either execution mode.
+    Both proposal components are symmetric on the declared box, so the same
+    conditional-base and likelihood Metropolis ratio applies. Refreshing is
+    a numerical move, not resampling parameters from a new inference prior.
+    Both modes target the same declared distribution;
     their random streams and resulting finite populations can differ.
     """
     if identity.prior != prior.digest:
@@ -319,6 +331,10 @@ def sample_batch(prior: Union[BoxPrior, ConditionedPrior],
     accepted = 0
     attempted = 0
     completed_stage = 0
+    signature_config = asdict(config)
+    if config.refresh_probability == 0.:
+        # Keep default checkpoints compatible with the original schedule.
+        del signature_config["refresh_probability"]
     signature = content_digest(
         json.dumps(
             {
@@ -326,7 +342,7 @@ def sample_batch(prior: Union[BoxPrior, ConditionedPrior],
                 if batched else "tempered_smc_stage_checkpoint_v1",
                 "identity": identity.digest,
                 "prior": prior.digest,
-                "config": asdict(config),
+                "config": signature_config,
                 "seed": seed,
                 "numpy": np.__version__
             },
@@ -461,9 +477,16 @@ def sample_batch(prior: Union[BoxPrior, ConditionedPrior],
             block = list(config.proposal_blocks[int(
                 rng.integers(len(config.proposal_blocks)))])
             proposal = particles[index].copy()
-            proposal[block] += rng.normal(size=len(block)) * \
-                (upper[block] - lower[block]) * config.proposal_scale
+            if config.refresh_probability > 0 and \
+                    rng.random() < config.refresh_probability:
+                proposal[block] = rng.uniform(lower[block], upper[block])
+            else:
+                proposal[block] += rng.normal(size=len(block)) * \
+                    (upper[block] - lower[block]) * config.proposal_scale
             return proposal
+        if config.refresh_probability > 0 and \
+                rng.random() < config.refresh_probability:
+            return rng.uniform(lower, upper)
         return particles[index] + rng.normal(
             size=len(proposal_prior.names)) * \
             (upper - lower) * config.proposal_scale
