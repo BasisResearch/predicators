@@ -64,3 +64,13 @@ No array was created by the rejected submission.
 Finite summary `22677409` waits for report validation and termination of the array, retaining any incomplete outcomes.
 These jobs perform no native physics simulation and send no MB/MF notifications.
 The production estimator and the ongoing physical-domain comparisons remain unchanged.
+
+## Partial-report execution check
+
+Compute job `22677945` completed in six allocation seconds on one CPU, performing no new inference trials or native simulation.
+It ran the complete report path on 221 actual fitted populations from the running study, verifying their saved weights, samples, quantiles, data identities and exact references.
+The four case/budget groups contained 57, 55, 55 and 54 available datasets respectively.
+Every group correctly retained its planned denominator of 128 and withheld coverage estimates while incomplete.
+The report remained incomplete, and the guard verified that partial successful fits cannot produce a full-group coverage result.
+The frozen report and validation are `partial-summary-22677945.json` and `partial-validation-22677945.json` in the study bundle.
+This checks the reporting path on real sampler outputs; it does not establish the study's eventual coverage or numerical accuracy.
