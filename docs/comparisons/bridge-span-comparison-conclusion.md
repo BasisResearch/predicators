@@ -21,5 +21,6 @@ The [seed-2 analysis](bridge-span-mb-seed2-analysis.md) documents its unchanged 
 
 The [per-seed table](bridge-span-mb-mf-results.md) and [final audit](/home/ycliang/predicators/logs/bridge_mb_extension_20260913/final-comparison-20260913.json) contain the underlying scorecards.
 Under the user's conditional plan, the MF comparison on this variant is now complete and the six baseline/ablation methods remain to finish.
-All 18 Bridge baseline/ablation seeds were already submitted and remain queued behind the current comparison jobs; this result does not trigger another MB or MF rerun.
+All 18 Bridge baseline/ablation seeds were already submitted; oracle-scene seed 2 started at approximately 11:43 UTC, with the remaining 17 queued behind their comparison predecessors.
+This result does not trigger another MB or MF rerun.
 The broader comparison sweep remains incomplete.

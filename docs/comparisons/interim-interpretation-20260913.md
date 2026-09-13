@@ -1,6 +1,6 @@
 # Continual comparison interpretation, 2026-09-13
 
-Snapshot checked at 08:17 UTC against final scorecards and terminal experiment logs.
+Snapshot updated at 11:43 UTC against final scorecards, terminal experiment logs, and current scheduler state.
 
 **The user approved retaining this arm as No harness fitting, disclosing agent-written numerical dynamics fitting.**
 The harness fitting API is disabled, but this does not remove all numerical estimation.
@@ -8,7 +8,8 @@ Agent-written dynamics fitting is confirmed in Boil seeds 0, 1, 2 and Balloons s
 The frozen prompt originally discouraged custom fitting; the narrower interpretation was adopted after observing those calls.
 See the [protocol audit](/home/ycliang/predicators/logs/continual_comparisons_20260912/no-fitting-protocol-audit.json).
 This note interprets the completed groups; the [live comparison table](/home/ycliang/predicators/docs/comparisons/continual-results.md) remains authoritative for later outcomes, per-seed steps, resets, and source paths.
-There are 50 finished non-Bridge comparison seeds, including 44 whole-run successes, and three finished Bridge MF follow-up seeds.
+There are 63 finished non-Bridge comparison seeds, including 56 whole-run successes.
+The separate primary Bridge MB/MF comparison is complete across three distinct seeds per arm; the 18 replacement Bridge baseline/ablation seeds have begun running.
 The experiments are still incomplete.
 
 ## Completed comparison groups
@@ -23,8 +24,12 @@ Whole-run success requires every training and test level to be won.
 | Zero-shot model | 3/3; 451 (n=3) | 3/3; 425.7 (n=3) | 3/3; 724 (n=3) | 2/3; 388.5 (n=2) |
 | No harness fitting | 3/3; 344 (n=3) | 2/3; 455.5 (n=2) | 3/3; 791.3 (n=3) | 2/3; 609.5 (n=2) |
 
-The standalone-program and no-explicit-uncertainty groups are incomplete and excluded from this completed-group table.
-The full table also reports resets; infrastructure interruptions do not enter any agent average.
+The table above contains methods with all four non-Bridge domains complete.
+Additional completed domain groups are Boil standalone (3/3 whole-run successes, 1,838 mean steps, n=3), and the no-explicit-uncertainty arm in Fan (3/3, 312.3 steps, n=3), Boil (3/3, 735 steps, n=3), and original Balloons (3/3, 260.7 steps, n=3).
+The latter Balloons result includes a confirmed custom uncertainty sweep and cannot establish strict point-estimate performance; see the protocol audit below.
+Fan standalone has two successful finished seeds and one still running; Domino standalone seed 2 gave up with 1/2 levels won, 459 steps and zero resets.
+Standalone results use the original stricter prompt that prohibited physics-engine imports; the engine-permitted replacement has not been launched.
+The full table reports per-seed outcomes and resets; infrastructure interruptions do not enter any agent average.
 
 ## What these results support so far
 
@@ -53,10 +58,12 @@ The comparison runtime restored the original task selection and action capabilit
 These are useful reference results, not proof that every observed difference is caused solely by the named ablation.
 
 The [new Bridge follow-up](/home/ycliang/predicators/docs/comparisons/bridge-span-followup-results.md) changes training-to-test span size from three to four blocks.
-Its three fresh MF seeds each win training and fail test, with total steps 3131, 4654, and 4507 and resets 0, 3, and 0.
-There are no successful whole runs, so mean successful steps is unavailable (n=0).
-The earlier pilot has one successful MB run and one successful MF run; it stays separate from these fresh seeds.
-That pilot is insufficient to establish a reliable MB advantage, and the 18 Bridge comparison seeds are still pending.
+The primary distinct-seed comparison reuses the original successful pilot seed 0 for both arms and adds unique seeds 1 and 2.
+MB and MF each solve 1/3 whole runs, so this variant shows no observed solve-rate advantage for MB.
+Mean successful steps are 2,939 for MB and 2,634 for MF, each based on only one qualifying seed; mean resets across all three finalized seeds are zero and one respectively.
+The unnecessary additional MF seed-0 failure (3,131 steps, zero resets) is disclosed separately and does not replace its successful pilot or count as another independent seed.
+See the [primary per-seed table](bridge-span-mb-mf-results.md) and [comparison conclusion](bridge-span-comparison-conclusion.md).
+The 18 Bridge baseline/ablation seeds remain incomplete, with oracle-scene seed 2 now running and the other 17 queued.
 
 The [fixed Balloons MF cohort](/home/ycliang/predicators/docs/comparisons/bridge-balloons-integrity-results.md) requires sustained hovering and is also separate.
 Its three successes cannot be substituted for an MF control under the original instantaneous goal used in the table above.
