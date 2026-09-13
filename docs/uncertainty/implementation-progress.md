@@ -21,6 +21,10 @@ The 128-particle joint pair fails the position and toppling-curve screens; none 
 The 128-particle fixed-state pair fails the final-toppling screen, and two cross-budget comparisons show final-probability gaps above 0.25.
 The earlier fixed-state agreement did not persist across budgets, so removing initial-state uncertainty is not a validated shortcut.
 Both treatments remain unassessed, with inference exploration and cost unresolved.
+The [coupled-direction audit](domino-coupled-directions.md) reproduces 16 archived point-state anchors exactly and evaluates 384 matched joint/scalar proposals.
+Broad donor-difference moves usually have very low acceptance; all 50 supported restitution-only moves leave the likelihood unchanged, exposing a misleading source of aggregate parameter movement.
+Smaller steps improve joint movement in one population while the other barely moves; removing jitter reverses which population benefits, so the three completed audits do not establish a general sampler repair.
+All 1,152 proposals and native replay checks are verified; likelihood-factor attribution is the next diagnostic before selecting another inference change.
 
 The [Fan prefix comparison](fan-prefix-comparison.md) has two completed 64-particle fits and causal forecasts on 68 reserved actions.
 Position errors are lower than legacy on this recording, but goal-probability curves disagree by up to 0.33212, and each empirical full-future density depends on only one supported particle.
