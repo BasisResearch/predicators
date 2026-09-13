@@ -12,6 +12,13 @@ The active work is Stage B offline comparison; Stage C live posterior use and St
 Stage D execution smoothing remains optional and deferred.
 The full plan remains incomplete, and the incumbent estimator remains the production default.
 
+The [canonical Boil forecast path](boil-canonical-forecasts.md) now passes its native fixture, independent full-history verifier and completed-population adapter checks.
+The verifier checks twelve histories and 28,512 joint-transition factors, and rejects eight corrupted records.
+The adapter independently checks weighted moments, zero future support and exact checkpoint recovery, rejects nine additional corruptions, and repeats generated and density-evaluation paths exactly.
+The two Boil fits remain running; their reserved-132-action forecasts and independent verifiers are queued as `22690858_0` and `22690863_1`, followed by paired report `22690864`.
+Forecast generation cannot read future observations, and the original fitted weights remain unchanged.
+These are mechanical and offline comparison gates, not evidence of improved agent performance or permission to advance to live posterior use.
+
 The [combined Domino assessment](domino-comparison-summary.md) now has all six completed 64-particle populations, their reserved-action forecasts and verified complete weighted histories.
 Matched local-only proposals fail all three initial stability screens; mixed local/full-range proposals reduce disagreement and pass both toppling screens, but still fail the position-mean screen.
 The fixed-initial-state approximation passes all three screens while showing worse position error and better toppling error than legacy on this recording.

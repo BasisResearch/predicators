@@ -115,3 +115,8 @@ Posterior numerical adequacy and the 132-action reserved suffix remain unevaluat
 Both pilots are running and have written their initialization checkpoints.
 Of 32 initial particles, seed 410 has eleven finite targets and seed 411 has seven.
 These initialization counts establish that sampling started with support; they do not establish adequate posterior exploration.
+
+The [canonical forecast continuation](boil-canonical-forecasts.md) now verifies fresh whole-history generation, separate future-conditioned density evaluation and literal memory across the fitting boundary.
+Its completed-population adapter preserves original checkpoint weights and has passed native and mixture checks.
+Full forecast/verifier jobs are queued behind the two fits, with a dependent paired stability report.
+No completed-population prediction result is available yet.
