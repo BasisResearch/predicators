@@ -23,6 +23,9 @@ Nearest-eligible-face scoring plus a progress latch reduces glue mismatches from
 Independent readers verify 5,704 grid scores, 9,488 rule steps, all five native artifacts, archived no-op parity and exact repetition of the revised default.
 The remaining default glue errors are three delayed deposition readings and two bond-consumption events delayed five actions; 22 exact channels still disagree overall.
 This is a development program revision, not an estimator comparison or agent result; subclass parity and the conditional probability target remain next.
+The [revised Bridge subclass](bridge-subclass-inference.md) now matches all observations, learned memory and attachment-command counts/types over four complete native trajectories, totaling 4,744 actions.
+The exact-rate component also passes: 600 actual-rule latch cases reproduce the analytic conditional support and retained rate-prior density, with 1,812 rule steps and no native rollout.
+That component assumes an eligible deposition schedule; full latent geometry, remaining exact-output constraints and a complete Bridge inference target are still required.
 
 The [Balloons population forecast adapter](balloons-prefix-forecasts.md#complete-population-forecast-adapter) now passes native replay, nonuniform weighted-summary, zero-density and no-refit checkpoint checks, including twelve malformed-result rejections.
 Both prefix fits have completed, and forecast jobs `22693026` and `22693027` are running; each is followed by independent artifact verification, then paired report `22693044`.
