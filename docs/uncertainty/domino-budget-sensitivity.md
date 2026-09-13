@@ -87,3 +87,57 @@ For the point-start replicas, median lateral friction is 0.2734 versus 0.4649 an
 Their largest exact-value masses reach 33.84% and 56.02%, respectively, across the five reported parameters.
 This does not prove that the parameter distributions are wrong, but it prevents interpreting agreement on one action sequence as established uncertainty over other plans.
 The comparison retains all empirical quantiles and concentration measures for the larger-population check.
+
+
+## Completed 128-particle results
+
+All four fits and their forecasts have completed.
+The final report `logs/uncertainty_domino_budget_summary_20260913/summary-22675955.json` retains all eight populations and all twelve within-target pairs.
+Its existing history verifier checks all 768 positive-weight saved histories across the 64- and 128-particle settings.
+Independent scalar verification `22680987` recomputes every reported parameter quantile, exact-value concentration and pairwise prediction difference from the saved populations and forecasts.
+It confirms the report checksum `74b778eae972534e83bb9397951f8ef82dc25fa84b7604516f5a7f9937a67612`.
+The initial joint-only snapshot and verification remain archived separately.
+
+| State treatment | Numerical seed | Conditional position RMSE | Toppling Brier error | Final domino 1 toppling probability | Surviving initial ancestors | Target evaluations |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Joint, 128 particles | 100 | 11.534 mm | 0.001360 | 0.8944 | 1 | 30,889 |
+| Joint, 128 particles | 101 | 10.953 mm | 0.001072 | 0.8899 | 1 | 30,760 |
+| Point start, 128 particles | 100 | 11.401 mm | 0.0002245 | 0.6981 | 10 | 31,907 |
+| Point start, 128 particles | 101 | 11.427 mm | 0.00003125 | 0.8672 | 14 | 31,910 |
+
+These are predictions on the fixed 97-action suffix, not solve rates or additional agent seeds.
+The reference suffix records domino 1 as toppled at its final frame.
+Individual forecast errors on this one suffix do not determine which approximation is closer to the full posterior.
+
+| Replica pair | Position-mean RMS difference | Maximum toppling-curve gap | Maximum final toppling gap | Passed screens |
+| --- | ---: | ---: | ---: | --- |
+| Joint, 64 particles | 3.038 mm | 0.18385 | 0.01645 | Curve and final |
+| Joint, 128 particles | 4.580 mm | 0.20429 | 0.02236 | Final only |
+| Point start, 64 particles | 0.880 mm | 0.01215 | 0.01215 | All three |
+| Point start, 128 particles | 0.353 mm | 0.17530 | 0.16910 | Position and curve |
+
+None of the six joint-state replica pairs passes all three screens.
+Of the four joint cross-budget pairs, position-mean differences range from 1.631 to 5.102 mm and toppling-curve gaps range from 0.19493 to 0.37369.
+Every joint pair passes the final-toppling screen, but agreement at the last frame does not remove the disagreement in preceding predictions.
+
+Three of the six point-state pairs pass all screens: the original 64-particle pair and its two comparisons with 128-particle seed 101.
+Both comparisons with 128-particle seed 100 fail the toppling-curve and final-toppling screens, with final gaps of 0.27208 and 0.25993.
+The 128-particle point-state pair itself fails the final-toppling screen.
+The smaller-budget point-state agreement therefore does not justify treating its uncertainty as numerically established.
+Removing uncertain initial states is not a validated shortcut around the sampling problem.
+
+Parameter concentration remains material in the joint fits.
+Their median lateral frictions are 0.34490 and 0.08197, and the second fit places 97.72% of rolling-friction mass on one retained value.
+Its rolling-friction 5th, 50th and 95th percentiles all coincide at 0.00343717.
+These empirical quantiles must not be interpreted as precise identification without numerical validation.
+The point-state fits retain more ancestry and distinct parameter values, but their decision-relevant probabilities still change across numerical budgets.
+
+The joint fits used 3:01:04 and 3:00:02 of allocation time on four CPUs; the point-state fits used 3:06:44 and 3:08:55 on four CPUs.
+Each forecast evaluated 20,769 native actions, including the repeated first history, and used 129-133 allocation seconds on four CPUs.
+The final existing report took 31 seconds on one CPU; the independent scalar check took two seconds and zero native actions.
+Accounting includes the fit allocation rather than only the last sampling stage.
+
+This closes the planned 64-versus-128 comparison, not Stage B.
+Doubling population size did not resolve the declared stability failures, and the evidence does not support publishing either state treatment as an assessed physical posterior.
+The next numerical investigation must address exploration of parameter and state tradeoffs, rather than assume initial-state uncertainty alone explains the problem or that another population increase will suffice.
+The incumbent agent remains unchanged.

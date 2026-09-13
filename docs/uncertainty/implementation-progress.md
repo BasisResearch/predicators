@@ -16,7 +16,11 @@ The [combined Domino assessment](domino-comparison-summary.md) now has all six c
 Matched local-only proposals fail all three initial stability screens; mixed local/full-range proposals reduce disagreement and pass both toppling screens, but still fail the position-mean screen.
 The fixed-initial-state approximation passes all three screens while showing worse position error and better toppling error than legacy on this recording.
 These are numerical replicas on one development recording, not agent seeds or evidence of calibrated uncertainty across tasks.
-Four [larger Domino fits](domino-budget-sensitivity.md) are running at 128 particles with unchanged target priors and proposal rules, with forecast and comparison follow-ups already queued.
+All four [larger Domino fits](domino-budget-sensitivity.md), their forecasts and the eight-population comparison have completed.
+The 128-particle joint pair fails the position and toppling-curve screens; none of its six within-target comparisons across budgets passes all screens.
+The 128-particle fixed-state pair fails the final-toppling screen, and two cross-budget comparisons show final-probability gaps above 0.25.
+The earlier fixed-state agreement did not persist across budgets, so removing initial-state uncertainty is not a validated shortcut.
+Both treatments remain unassessed, with inference exploration and cost unresolved.
 
 The [Fan prefix comparison](fan-prefix-comparison.md) has two completed 64-particle fits and causal forecasts on 68 reserved actions.
 Position errors are lower than legacy on this recording, but goal-probability curves disagree by up to 0.33212, and each empirical full-future density depends on only one supported particle.
