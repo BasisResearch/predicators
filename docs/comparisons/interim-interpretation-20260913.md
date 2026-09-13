@@ -1,6 +1,6 @@
 # Continual comparison interpretation, 2026-09-13
 
-Snapshot updated at 12:31 UTC against final scorecards, terminal experiment logs, and current scheduler state.
+Results are checked against final scorecards and terminal experiment logs; the live table tracks subsequent outcomes and scheduler state.
 
 **The user approved retaining this arm as No harness fitting, disclosing agent-written numerical dynamics fitting.**
 The harness fitting API is disabled, but this does not remove all numerical estimation.
@@ -10,7 +10,7 @@ See the [protocol audit](/home/ycliang/predicators/logs/continual_comparisons_20
 This note interprets the completed groups; the [live comparison table](/home/ycliang/predicators/docs/comparisons/continual-results.md) remains authoritative for later outcomes, per-seed steps, resets, and source paths.
 There are 70 finished non-Bridge comparison seeds, including 60 whole-run successes.
 Bridge oracle-scene seed 2 is also finalized at 2/2 levels, 2,916 steps and zero resets, bringing the full sweep to 71/90 finalized seeds.
-The separate primary Bridge MB/MF comparison is complete across three distinct seeds per arm; the 18 replacement Bridge baseline/ablation seeds have begun running.
+The separate primary Bridge MB/MF comparison is complete across three distinct seeds per arm; one replacement Bridge baseline seed is complete and the other 17 are held pending the domain-variant decision.
 The experiments are still incomplete.
 
 ## Completed comparison groups

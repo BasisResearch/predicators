@@ -50,6 +50,18 @@ Matching the original environment cache setup in the second array did not elimin
 The replayed MB layout already fails the geometric goal before certification, whereas the recorded run reached the certificate with a candidate goal layout.
 Consequently, neither replay can establish the cause of the original settling rejection.
 The replayed oracle-scene layout survives both checks, but this does not validate the MB counterfactual.
-The next reproduction should include the public skill-controller calls and their simulator side effects, rather than assuming recorded joint commands alone reconstruct the original execution.
+The public skill-controller follow-up below tests whether invoking the controller resolves the replay discrepancy.
 No experiment runtime or success rule was changed, and all unfinished Bridge baselines remain held.
 The assessment and per-mode artifacts are under `/home/ycliang/predicators/logs/bridge_mb_extension_20260913/settling-audit-assessment.json`.
+
+## Public pickup-controller reproduction
+
+Compute job `22678333` repeated the first 51-step PickBottle invocation using the public controller.
+One mode invoked the controller but applied recorded actions; the other applied the controller's generated actions.
+Both began from exactly matching observed states and still first diverged at action 38, where the generated command exactly matched the recorded command.
+Generated commands first differed at action 46, after the state discrepancy had already appeared.
+Thus invoking the controller does not resolve the replay discrepancy, and omitted policy calls are not established as its cause.
+The recorded observations and action commands are insufficient for this diagnostic to reproduce the original trajectory under the tested fresh-process setup.
+A difference in unrecorded simulator state or execution history remains possible, but its cause has not been isolated.
+Neither this reproduction nor the previous settling comparison justifies changing the Bridge task or attributing its failed seed to a task bug.
+The detailed stepwise action/state comparisons are in `/home/ycliang/predicators/logs/bridge_mb_extension_20260913/seed2-pick-controller.json`.
