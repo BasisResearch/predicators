@@ -71,6 +71,10 @@ The first guided forecast snapshot failed before native actions because it lacke
 The corrected snapshot reuses the completed fixture and passes full native replay.
 A controlled same-node audit attributes the 1.11e-16 cross-machine coordinate mismatch to NumPy instruction dispatch; disabling the extra AVX-512 dispatch options restores exact coordinates for the saved fixture.
 Strict physical verification remains pinned to the validated source runtime; this does not certify general cross-hardware trajectory replay.
+The [historical Bridge/Boil model audit](historical-model-controls.md) now expands the incomplete-model analysis beyond the original parameter-free artifacts.
+All thirteen saved version files across the six original sweep runs remain parameter-free; two earlier learned programs are therefore tested as separate frozen transfer controls.
+Boil's transferred filling/heating dynamics improve scalar errors, while Bridge's transferred glue dynamics produce more exact glue-reading mismatches than its no-op control.
+Both complete replays retain exact-output contradictions, so neither is an approved complete probability model or a replacement posterior.
 The next gate is trustworthy decision-relevant prediction within the declared computation budget, followed by saved-decision shadow comparisons and matched live use.
 No current physical posterior has been approved for the acting agent.
 
