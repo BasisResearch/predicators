@@ -84,3 +84,7 @@ Forecast/verifier jobs `22690858_0` and `22690863_1` wait for successful complet
 Each requests four CPUs, 20 GB and at most two hours in `mit_preemptable`.
 The paired report `22690864` waits for both forecast/verifier jobs to succeed.
 Both fits were still running at submission, so there is no completed-population forecast result yet.
+
+The separate [incumbent control](boil-incumbent-control.md) supplies the same literal program through a verified subclass conversion and fits the identical recorded prefix with the existing full fitter.
+Its selected-point forecast will be compared with the two posterior means after independent replay verification.
+The control keeps its existing initial-state and objective assumptions, so this comparison alone does not isolate the estimator from the explicit posterior discrepancy extension.

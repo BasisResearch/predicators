@@ -19,6 +19,12 @@ The two Boil fits remain running; their reserved-132-action forecasts and indepe
 Forecast generation cannot read future observations, and the original fitted weights remain unchanged.
 These are mechanical and offline comparison gates, not evidence of improved agent performance or permission to advance to live posterior use.
 
+The [Boil incumbent control](boil-incumbent-control.md) now represents the same historical filling/heating program through the current subclass interface.
+Four complete 264-action trajectories and all model memory match the archived literal-rule program exactly.
+The incumbent full fitter is running as `22691175` on the same 132-action prefix, with interval belief, fit-side noise handling and fit evidence enabled.
+Its independent literal-program verifier `22691200` and comparison against the two posterior forecasts `22691239` are queued behind their inputs.
+This compares selected-point and posterior-mean predictions while retaining the explicit differences in initial-state treatment and discrepancy model; it is not an estimator-only ablation or an agent performance result.
+
 The [combined Domino assessment](domino-comparison-summary.md) now has all six completed 64-particle populations, their reserved-action forecasts and verified complete weighted histories.
 Matched local-only proposals fail all three initial stability screens; mixed local/full-range proposals reduce disagreement and pass both toppling screens, but still fail the position-mean screen.
 The fixed-initial-state approximation passes all three screens while showing worse position error and better toppling error than legacy on this recording.
