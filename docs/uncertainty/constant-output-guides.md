@@ -114,7 +114,7 @@ It checks every canonical scene and full-mixture correction, then tests rejectio
 Full guided forecasts `22678925_1` and `22678926_2` were initially queued behind that verifier and their respective completed fits.
 Summary `22678943` was initially dependent on the validation jobs and both forecast terminal states; this first chain was cancelled after the setup failure below.
 The summary reports both original and both guided populations, all available pairwise prediction disagreements, parameter mass concentration and inference/forecast costs.
-No guided prediction result or adequacy conclusion is available yet.
+The completed v2 prediction results are recorded below; numerical adequacy remains unestablished.
 
 
 ## Forecast validation recovery
@@ -143,4 +143,32 @@ The replacement full forecasts are `22679493_1` and `22679494_2`, gated on those
 Summary `22679496` retains all planned populations and waits for the forecast terminal states.
 The v2 reader and submission records are in `logs/uncertainty_fan_guided_summary_v2_20260913`.
 These validations establish forecast reconstruction, not numerical adequacy of a completed guided posterior.
-The separate [tempering comparison](guided-tempering.md) tests the initial-weight concentration problem without changing these running fits.
+The separate [tempering comparison](guided-tempering.md) tests the initial-weight concentration problem without changing these fits.
+
+## Completed matched prediction results
+
+Both guided fits and their reserved-action forecasts have completed.
+Summary `22679496` completed in 11 allocation seconds on one CPU and verifies all 256 positive-weight histories from the four populations, unchanged weights, native predictions and the intended physical-target contract.
+The summary's plan and comparison-script hashes match the final files.
+These numerical seeds use one development recording, not independent agent tasks.
+
+| Proposal | Numerical seed | Conditional position RMSE (m) | Goal Brier score | Fan-speed 5%, 50%, 95% quantiles | Fit allocation seconds (4 CPUs) |
+| --- | ---: | ---: | ---: | --- | ---: |
+| Original | 302 | 0.00631118 | 0.0424194 | 0.0662, 0.0835, 0.9137 | 5,521 |
+| Original | 303 | 0.00612967 | 0.0207869 | 0.0773, 0.1099, 0.9324 | 5,568 |
+| Guided | 302 | 0.00557643 | 0.0120993 | 0.8924, 0.9021, 0.9220 | 5,407 |
+| Guided | 303 | 0.00540711 | 0.0300042 | 0.0728, 0.0959, 0.8316 | 5,265 |
+
+The guided pair has lower conditional position RMSE in both replicas, while the goal Brier score improves in one and worsens in the other.
+Between the original replicas, position means differ by 2.866 mm RMS and goal-probability curves by up to 0.332124.
+Between the guided replicas, those disagreements are 1.340 mm and 0.3125.
+Across the four original-versus-guided pairs, position-mean disagreements range from 1.962 to 4.528 mm, and maximum goal-curve gaps range from 0.255093 to 0.5.
+The substantial goal disagreement and very different empirical speed quantiles remain unresolved.
+Lower position error on this suffix does not establish posterior calibration or a reliable planning improvement.
+
+The original empirical full-future densities each have only one supported particle; the guided densities have only two and three respectively.
+All other positive-weight particles retain their weights and contribute zero to that complete-future density.
+This limited support is reported separately from the position and goal summaries.
+Each guided forecast performs 8,580 native actions, taking 73 and 72 allocation seconds on four CPUs.
+No result in this comparison approves the physical posterior for the acting agent.
+The separate [alternative-tempering comparison](guided-tempering.md#completed-six-population-comparison) is also complete and does not resolve the physical prediction instability.

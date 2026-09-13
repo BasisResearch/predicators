@@ -218,3 +218,28 @@ Independent comparison confirms the original prior and target identity are uncha
 The initial population contains 24 finite particles with weight effective sample size 20.19; these are initialization diagnostics, not a completed posterior.
 Serial initialization takes 170.43 seconds and parallel initialization 44.72 seconds, excluding the separate fixed-row comparisons and startup.
 The validated preflight checksum is `1d90e36965fff29d925e87fe93717f50586720cc598175836c80593c31090b11`.
+
+## Completed population-size comparison
+
+Both 128-particle fits, their forecasts and summary `22677060` have completed under the same original target as the 64-particle pair.
+The summary verifies all 384 positive-weight histories across four populations, their unchanged weights and all six pairwise comparisons.
+Its plan and comparison-script hashes match the report, and all four forecast hashes were checked against their current files.
+
+| Particles | Numerical seed | Conditional position RMSE (m) | Goal Brier score | Surviving initial ancestors | Fit allocation seconds (4 CPUs) |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 64 | 302 | 0.00631118 | 0.0424194 | 1 | 5,521 |
+| 64 | 303 | 0.00612967 | 0.0207869 | 2 | 5,568 |
+| 128 | 302 | 0.00685677 | 0.0493406 | 2 | 10,854 |
+| 128 | 303 | 0.00546470 | 0.0399988 | 1 | 11,087 |
+
+The 128-particle pair differs by 5.043 mm RMS in conditional position means and by up to 0.298481 in its native goal-probability curves.
+The corresponding 64-particle disagreements are 2.866 mm and 0.332124.
+Across budgets, position-mean disagreements range from 2.077 to 7.317 mm and maximum goal-curve gaps range from 0.269680 to 0.549676.
+Doubling the population therefore does not establish stable, budget-insensitive predictions.
+
+The 128-particle seed-302 empirical fan-speed distribution places 50.77% of its weight at one exact value, 0.9168676.
+Its 50% and 95% quantiles consequently coincide; this is not evidence of precise identification.
+The two larger populations retain five and two particles with positive complete-future density; the remaining 123 and 126 particles contribute zero without having their population weights discarded.
+The larger forecasts each use 17,028 native actions, taking 110 and 114 allocation seconds on four CPUs.
+The final summary takes nine seconds on one CPU without native actions.
+These remain offline numerical experiments, not new agent seeds or an accepted posterior replacement.

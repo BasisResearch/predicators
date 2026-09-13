@@ -89,4 +89,30 @@ Summary `22680197` also waits for the original guided forecasts `22679493_1` and
 It compares two original, two base-corrected guided and two tempered-correction populations, retaining all 15 pairwise comparisons when available.
 Original physical prior, data, program and output law remain fixed; the reader explicitly verifies the algebraic factorization change instead of requiring the numerical bridge identities to be identical.
 The reporting bundle is `logs/uncertainty_fan_tempered_summary_20260913`.
-No completed tempered posterior forecast or live-agent acceptance result is available yet.
+The completed physical comparison is recorded below; no live-agent acceptance result is established.
+
+## Completed six-population comparison
+
+Both alternative-tempering fits, both forecasts and summary `22680197` have completed.
+The summary verifies the unchanged physical target, all 384 positive-weight histories, and all 15 pairwise comparisons across the original, base-corrected guided and tempered-correction proposals.
+Its final plan and comparison-script hashes match the saved report.
+
+| Tempered numerical seed | Conditional position RMSE (m) | Goal Brier score | Fan-speed 5%, 50%, 95% quantiles | Fit allocation seconds (4 CPUs) |
+| --- | ---: | ---: | --- | ---: |
+| 302 | 0.00527377 | 0.0170186 | 0.0849, 0.9138, 0.9157 | 5,415 |
+| 303 | 0.00870651 | 0.0644868 | 0.0803, 0.0869, 0.1037 | 5,387 |
+
+| Replica pair | Position-mean disagreement (mm RMS) | Maximum goal-probability curve gap |
+| --- | ---: | ---: |
+| Original proposal | 2.866 | 0.332124 |
+| Base-corrected guide | 1.340 | 0.312500 |
+| Tempered correction | 6.656 | 0.371003 |
+
+The tempered pair disagrees more than either earlier pair on these prediction summaries.
+Its empirical full-future density has no supported particle in seed 302 and one in seed 303; the zero density in seed 302 is retained, not replaced with a finite value.
+Each forecast uses 8,580 native actions and 76 allocation seconds on four CPUs.
+The final summary takes 16 seconds on one CPU with no native actions.
+
+Better initial effective sample size and the successful exact Gaussian references did not translate into stable physical forecasts in this comparison.
+The alternative bridge is not accepted for posterior use or deployment.
+These are numerical replicas on one development recording, not agent solve-rate results.
