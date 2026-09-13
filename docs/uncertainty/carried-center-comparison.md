@@ -110,5 +110,47 @@ A finite report job, `22675822`, depends on both fits completing successfully.
 The paired validator passes a repetition fixture derived from the previous inactive reports and rejects altered first-fit values, an altered first-fit verdict and changed repeated data.
 That fixture validates report guards only; it is not another physical fit or evidence of active carrying.
 The run, source-selection rationale, AST comparison, validation report and submission hashes are frozen in `logs/uncertainty_carried_prior_active_20260913`.
-Actual accepted-center coverage and any effects remain pending these runs.
+The initial fit now reproduces an accepted friction estimate, but the first comparison exposed an additional reference-lifetime effect described below.
 The earlier inactive controls are retained separately, and the production estimator is unchanged.
+
+## Mutable reference defaults and the corrected isolated comparison
+
+Task `22675807_0` completes its first fit and selects friction 0.6739569455671225 with a weakly identified verdict.
+It then fails the entering-anchor guard before the second fit.
+This is a diagnostic harness failure, not an agent failure or a completed repeated-data comparison.
+The completed first-stage report is retained; the paired summary `22675822` was cancelled because its required off-arm success can no longer occur.
+Task `22675807_1` retains the original reference-lifetime protocol and remains a separate diagnostic, not the on arm of the corrected pair.
+
+The failure is caused by a concrete behavior of the frozen subclass interface.
+`PyBulletEnv._agent_param_info()` returns current `_agent_param_values` as the registry defaults.
+Applying selected parameters to the reused reference changes those defaults, and `physical_param_anchors()` reads them on the next fit.
+Explicit carrying can therefore be disabled while this reference-lifetime path still feeds fitted values into later prior centers.
+The prior inactive controls did not expose the distinction because their selected values stayed at their initial defaults.
+
+Direct compute audit `22676108` reproduces this through the actual frozen subclass, `physical_param_anchors()` and `fit_prior_anchors()` methods.
+With the carry flag off, the anchor changes from 0.3 to 0.6739569455671225 after applying the first fit to that reference.
+A separate unfitted reference retains exactly the original anchors.
+The audit uses zero native actions and completes in 26 allocation seconds on one CPU.
+Its preceding attempt `22676089` failed during setup because a local list reused the factory's counter name; the original script and error remain preserved separately.
+
+The corrected comparison keeps the reference used to obtain registry centers at its original declared values.
+Predictions still use fresh rollout worlds with explicitly selected parameters, and both arms retain their normal previously applied held values.
+Only the carrying-enabled arm can replace a prior center through the actual accepted-center policy.
+This isolates explicit carrying; it does not assert that simply turning off the historical flag reproduces fixed-prior fitting in every production path.
+It also leaves the historical production registry behavior unchanged while the replacement remains under evaluation.
+
+| Corrected arm | Task | Reference policy |
+| --- | --- | --- |
+| Fixed centers | `22676127_0` | Unfitted reference, no carried centers |
+| Explicit carrying | `22676127_1` | Unfitted reference, accepted centers overlaid by the existing carry method |
+
+Both tasks repeat the same 161-action recording three times with the earlier frozen program.
+Each must reproduce the saved completed first fit exactly before advancing, including its data, anchors, fitted values, applied values and diagnostic report.
+The paired report additionally requires exact first-fit agreement between arms and unchanged data across every repetition.
+Its validator accepts the declared repetition fixture and rejects changed reference policies, failed first-fit reference checks and changed first-fit values.
+These report checks are not physical inference results.
+
+Array `22676127` depends on successful native metadata validation and requests six CPUs, 16 GB and two hours per task on node1412 in `mit_preemptable`.
+Finite report `22676128` depends on successful completion of both tasks.
+The corrected frozen bundle is `logs/uncertainty_carried_prior_isolated_20260913`; source hashes, setup failures and the original-reference diagnostic remain separate.
+The probability model for the new inference method already uses an explicit immutable prior identity; this experiment checks the legacy feedback mechanisms it is meant to replace.

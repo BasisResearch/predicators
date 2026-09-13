@@ -32,7 +32,10 @@ No accepted center was carried, so this is an inactive-policy control.
 The Domino pair has also completed with identical predictions and no active carrying; active-policy coverage remains open.
 A separate repeated-data pair now uses the earlier saved Domino program, whose declared friction is 0.3 instead of the already learned 0.674.
 Historical training logs identify an accepted fit and later carrying at that earlier starting point; the new controlled reproduction has three identical 161-action fits and requires exact first-fit agreement between arms.
-Tasks `22675807_0` and `_1` and their dependent comparison `22675822` are submitted; active-policy results remain pending.
+The first off-arm fit selects friction 0.6739569, then its second-fit guard detects that applying fitted values to the reused subclass reference also changes registry defaults.
+Native audit `22676108` confirms that this can shift prior centers with explicit carrying off.
+The corrected isolated pair `22676127` keeps an unfitted registry reference and uses fresh selected-parameter worlds for predictions; both arms must reproduce that first fit exactly before repeated-data comparisons.
+Its paired summary `22676128` is queued; the interrupted original comparison remains separate and is not an agent outcome.
 The [combined Domino assessment](domino-comparison-summary.md) reproduces prior diagnostics, verifies complete weighted histories and rejects dropped particles, altered samples and altered event aggregates.
 Three finite follow-up jobs will produce comparison snapshots as the individual forecast pairs terminate; the new posterior comparisons remain incomplete.
 Both mixed-proposal Domino fits have now completed all 32 stages, retaining two and one initial ancestors respectively.
