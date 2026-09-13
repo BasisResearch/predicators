@@ -152,3 +152,38 @@ The runtime-source difference and its earlier exact likelihood parity checks rem
 Completion does not resolve the disagreement or establish trustworthy posterior coverage.
 Predictive stability and a defensible exploration of the joint parameter/initial-state distribution remain required before any posterior publication or legacy comparison claim.
 The source hashes and completion checks are retained in `logs/uncertainty_domino_conditioned_checkpoint_20260912/completion-comparison-20260913.json`.
+
+### Future predictions from the completed populations
+
+Array `22671823` replays every complete weighted row of each unassessed population through the 97-action suffix following the fitted 64-action prefix.
+It uses the retained physical parameter values directly, avoiding a lossy inverse transform back into prior coordinates, while preserving each row's state coordinates and correlations.
+Before evaluating the population, each worker reconstructs the archived best candidate exactly, repeats its full 161-action history, and reproduces its original fitting log likelihood exactly.
+The first retained row is also repeated exactly, every fitting prefix has finite likelihood, and no row is dropped or reweighted using future observations.
+
+For Cartesian readings, conditional output means and variances follow the declared scalar error process filtered on the fitting prefix, with the original future sensor variance retained.
+Native toppling indicators use the frozen domain threshold; they describe model predictions, not achieved task outcomes.
+These diagnostics consume unassessed populations to investigate their disagreement and do not bypass the production posterior-assessment boundary.
+
+Both jobs completed and all 128 compressed history artifacts passed their hash checks.
+Each job performed 10,787 native actions, including its reconstruction checks, and took approximately 3.5 minutes.
+
+| Quantity | Numerical seed 100 | Numerical seed 101 |
+| --- | ---: | ---: |
+| Future Cartesian conditional-mean RMSE | 0.011585 m | 0.012130 m |
+| Future native-mean RMSE | 0.011688 m | 0.012354 m |
+| Whole-future mixture log density | 14105.63278 | 14434.93358 |
+| Final predicted toppling probability, domino_1 | 0.96875 | 0.32628 |
+
+Across all future Cartesian readings, the two conditional means differ by 0.006934 m RMS, with a maximum difference of 0.052394 m.
+Their predicted standard deviations differ by 0.001694 m RMS.
+These apparently similar averaged errors do not imply equivalent decisions.
+At primitive step 158, the two populations predict `domino_3` toppling with probabilities 0.90625 and 0, respectively.
+Their final `domino_1` predictions also differ by more than 0.64.
+
+The full future log-density estimates differ by 329.30080, and each is dominated by roughly one weighted contribution among the 64 rows.
+An informative future can concentrate those contributions even under a valid prefix posterior, so this alone is not proof that the probability model is wrong.
+Together with the replica differences, it leaves the present finite-population predictive calculation unsuitable for numerical acceptance.
+A low average position error on one suffix cannot establish posterior coverage, toppling/timing stability, or unchanged agent performance.
+
+The source populations, reconstruction code, full histories, per-row scores, complete forecast curves and comparison checks are retained in `logs/uncertainty_domino_population_forecast_20260913`.
+This is a population-stability diagnostic; a completed matched comparison against the incumbent predictions and the broader validation gates remain required.

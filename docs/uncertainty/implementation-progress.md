@@ -13,8 +13,10 @@ The subsequent offline sequential integrator retains complete histories and bloc
 Forty-four functional tests and focused static checks pass.
 All four native sequential integrations completed with exact replay and factor accounting, but both independent-run comparisons fail the declared density-stability diagnostic and retain only one or two original ancestors.
 The next offline proposal mixes original and position-guided velocity directions while retaining the full mixture correction, so it targets the same probability model.
-Fifty-one functional tests and focused static checks pass; its matched native Balloons pilot is submitted for numerical evaluation.
+Fifty-one functional tests and focused static checks pass; all four guided native pilots completed, but both whole-history density comparisons still fail the declared consistency diagnostic.
 The two [Domino conditioned-base pilots](domino-joint-inference.md#completed-numerical-pilots-september-13) also completed, with strongly different parameter summaries and one original ancestor each; numerical adequacy remains unestablished.
+The completed Domino population replay gives similar mean Cartesian errors (1.16 and 1.21 cm), but predicted toppling differs by as much as 0.90625 at the same frame.
+The disagreement therefore affects goal-relevant predictions despite similar averaged feature errors.
 Fan recovery jobs are active after confirmed allocation timeouts, and the two Balloons fits have been submitted for continuation from their saved complete-stage checkpoints under the same numerical budgets.
 
 The latest [likelihood cost reduction](likelihood-cost.md) preserves all 2,560 archived orientation densities and five complete Fan likelihoods exactly on the checked runtimes.

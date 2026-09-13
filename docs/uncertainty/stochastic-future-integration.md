@@ -186,3 +186,18 @@ Its frozen plan and worker are in `logs/uncertainty_balloons_guided_future_20260
 Each moving extension retains its component selector, direction coordinates, proposal mean, correction and separately recomputed original speed factor.
 The worker verifies their density decomposition and preserves the full-reference, prefix and terminal replay checks.
 These checks establish accounting and replay consistency; numerical stability of the complete density estimate remains to be evaluated from the pilot results.
+
+All four guided tasks completed with verified density decomposition, exact prefix/terminal replay and valid artifact hashes.
+The numerical consistency result remains negative:
+
+| Evaluated future | Seed 911 log density | Seed 912 log density | Between-seed difference | Final original ancestors, seeds 911 / 912 |
+| --- | ---: | ---: | ---: | --- |
+| Generated701 | 4963.60727 | 4959.95918 | 3.64809 | 1 / 1 |
+| Recorded | -2548.06723 | -2527.55554 | 20.51169 | 2 / 1 |
+
+Both differences exceed the predeclared 0.2 diagnostic limit.
+Some individual block effective counts increased, but that does not establish accurate complete-history integration.
+With only two replicas, smaller gaps than the preceding pilot are not evidence of a reliable variance reduction or calibrated prediction.
+The jobs took approximately 10 minutes each and again performed 85,676 native actions in total.
+The full results and artifact checker are retained in the guided bundle's `verification.json` and `verify_report.py`.
+Guidance preserves the intended probability model, but this budget and proposal do not pass the numerical gate.
