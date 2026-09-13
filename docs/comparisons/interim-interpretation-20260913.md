@@ -70,3 +70,13 @@ Only then can the full six-method sweep be reported as complete.
 The current partial uncertainty-ablation results do not establish whether explicit uncertainty improves success or sample efficiency.
 
 Scorecard and terminal-log verification for this snapshot is saved in the [outcome audit](/home/ycliang/predicators/logs/continual_comparisons_20260912/outcome-audit-20260913T081745Z.json).
+
+
+## Uncertainty protocol audit
+
+A later audit confirmed that original Balloons seed1 in the no-explicit-uncertainty arm executed an agent-written parameter sweep.
+It evaluated release choices over 4001 red-lift values at each of three possible mass ratios and printed intervals that would reach the goal.
+The supplied uncertainty tools were disabled, but the run does not establish strictly point-estimate reasoning.
+The user has been asked whether to retain a narrower no-harness-uncertainty-tools interpretation or pursue a stricter implementation and rerun.
+Point fitting, observation averaging, and controller-parameter searches are not themselves evidence of a violation.
+See the [executed-code evidence](/home/ycliang/predicators/logs/continual_comparisons_20260912/no-uncertainty-protocol-audit.json).
