@@ -31,6 +31,9 @@ The Fan pair has now completed: all four stages retain speed 0.0846, report an a
 No accepted center was carried, so this is an inactive-policy control; the Domino pair is running.
 The [combined Domino assessment](domino-comparison-summary.md) reproduces prior diagnostics, verifies complete weighted histories and rejects dropped particles, altered samples and altered event aggregates.
 Three finite follow-up jobs will produce comparison snapshots as the individual forecast pairs terminate; the new posterior comparisons remain incomplete.
+Both mixed-proposal Domino fits have now completed all 32 stages, retaining two and one initial ancestors respectively.
+Seed 101 places more than 97% empirical mass at a single value for each of four physical parameters, so its coincident central quantiles cannot establish precise identification.
+Their reserved-action forecasts are queued, and matched local controls are starting; numerical adequacy remains unresolved.
 
 ## Recent evidence
 

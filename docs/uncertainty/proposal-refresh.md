@@ -81,4 +81,21 @@ Native validation `22672945` completed successfully with a 50/50 proposal mixtur
 All 32 fixed target evaluations and the subsequent 95-evaluation sampler result match exactly between synchronous and four-process execution.
 The sampler portion took 96.91 seconds synchronously and 25.40 seconds in parallel.
 This short run retains one ancestor and remains a kernel-equivalence check, not a numerically adequate physical posterior.
-The validation dependency is satisfied, and comparison tasks 0 and 1 have started; the local-only controls await the two-task concurrency limit.
+The validation dependency is satisfied, and comparison tasks 0 and 1 have now completed; the local-only controls are starting as resources become available.
+
+## Completed mixed-proposal fits
+
+Both numerical replicas finish all 32 temperature stages, but they remain unassessed.
+
+| Numerical seed | Target evaluations | Allocation seconds, four CPUs | Surviving initial ancestors |
+| --- | ---: | ---: | ---: |
+| 100 | 15,420 | 5,295 | 2 |
+| 101 | 15,384 | 5,212 | 1 |
+
+Seed 101 assigns 97.65%-99.71% of its empirical mass to one retained value for each of lateral friction, rolling friction, spinning friction and mass.
+For each of those four parameters, its 5th, 50th and 95th empirical percentiles therefore coincide.
+This concentration must not be presented as evidence of precise physical identification.
+Seed 100 has substantially less concentration and different uncertainty summaries for those parameters.
+The mass diagnostics, source hashes and complete fit reports are retained in `completed-refresh-mass-diagnostic.json` and the source reports in the comparison bundle.
+The broader moves have not yet established reliable joint inference; the reserved-action predictions and matched local controls remain necessary, followed by budget sensitivity.
+The two forecast jobs are queued for the specified compute node.
