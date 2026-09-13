@@ -41,7 +41,11 @@ The initial fitting attempt `22693556` stopped before fitting because the new co
 Its dependent verifier and comparison jobs were cancelled by the scheduler.
 This was a comparison-harness failure, not an agent outcome.
 The corrected driver verifies raw successor frames and actions separately from the intended rest-window averages.
-Those checks pass, and fitting job `22693806` is running on a compute node.
+Those checks pass, and fitting job `22693806` completed in 39:11 of allocation time.
+The driver recorded 157,664 native actions, including fitting and repeated predictions.
+All three prepared segments survived.
+The full incumbent's publication rules retained the original applied parameters: several were insensitive or anchored, and the fitted drag value at its upper bound was not applied.
+This is the verified outcome of the complete incumbent fitter, not a shortcut that skipped fitting.
 
 | Job | Purpose |
 | --- | --- |
@@ -52,3 +56,9 @@ Those checks pass, and fitting job `22693806` is running on a compute node.
 The future metrics match the posterior reports: thirteen position/speed features and fourteen event indicators.
 The control reports selected-point predictions, not the incumbent's complete interval or planning ensemble.
 Final comparisons must retain numerical-stability warnings and cannot be treated as agent solve-rate or sample-efficiency results.
+
+Independent verifier `22693822` completed in 17 allocation seconds and reproduced every frame of the complete 235-action selected forecast using the manual native lifecycle.
+The selected-point forecast reproduces all reserved tie, burst and clip indicators, but misses the final `InBand`/evaluator-win event.
+Each of those two indicators has one error across the 171 reserved frames; the rest indicator differs on 67 frames.
+These are prediction errors on recorded actions, not a failed agent seed.
+Both posterior fits have completed and their population forecasts are now running; comparison `22693842` remains dependent on their independently verified paired report.

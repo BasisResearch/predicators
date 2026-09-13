@@ -76,6 +76,10 @@ The launcher checks the independent certificate, source hashes and fitting bound
 
 These are numerical inference replicas on one development recording, not agent seeds.
 They remain separate from seeds 300/301, hatch experiments and the MB/MF performance sweep.
+Both pilots have completed all 32 temperatures: seed 620 used 12,487 evaluations in a 1:30:55 allocation, and seed 621 used 13,439 in 1:36:43.
+Their complete reports match the checksummed checkpoints' joint populations and weights exactly.
+Both retain only one initial ancestor, with 19 and 15 resampling events respectively, so completion does not establish adequate exploration.
+Full-population forecast jobs `22693026` and `22693027` are running, followed by independent verification and the paired comparison.
 The 171-action causal forecast path, prediction stability, inference cost and comparison against the incumbent remain unfinished.
 No posterior is approved for planning merely because a pilot completes.
 

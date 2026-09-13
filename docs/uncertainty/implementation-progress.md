@@ -25,9 +25,11 @@ The remaining default glue errors are three delayed deposition readings and two 
 This is a development program revision, not an estimator comparison or agent result; subclass parity and the conditional probability target remain next.
 
 The [Balloons population forecast adapter](balloons-prefix-forecasts.md#complete-population-forecast-adapter) now passes native replay, nonuniform weighted-summary, zero-density and no-refit checkpoint checks, including twelve malformed-result rejections.
-Forecast jobs `22693026` and `22693027` are gated behind the two live prefix fits; each is followed by independent artifact verification, then paired report `22693044`.
+Both prefix fits have completed, and forecast jobs `22693026` and `22693027` are running; each is followed by independent artifact verification, then paired report `22693044`.
 Every positive-weight particle keeps its original weight, receives eight generated suffixes and eight separate conditional-density draws, and must reproduce its saved prefix likelihood.
-The [Balloons incumbent control](balloons-incumbent-control.md) passes three complete native lifecycle comparisons and is fitting as `22693806`, with independent verification and comparison queued.
+The [Balloons incumbent control](balloons-incumbent-control.md) completed its full fit as `22693806` in 39:11 and its independent complete-trajectory verification as `22693822` in 17 seconds; the comparison remains queued.
+All three segments survived, but the incumbent's publication rules retained the original applied parameters.
+Its selected-point forecast reproduces reserved tie/burst/clip indicators but misses the final goal event; this is a recorded-action prediction result, not an agent failure.
 Its overlapping windows and rest-averaged starts remain intact; the comparison driver now verifies those averages after correcting its initial overly strict raw-frame check.
 
 The [Balloons prefix forecast fixture](balloons-prefix-forecasts.md) now covers all 171 reserved actions using a candidate selected only from the 64-action prefix.
@@ -59,6 +61,7 @@ Its guide does not reuse a center or population selected from the complete recor
 Thirty-two candidate prefixes repeat exactly, with fifteen finite targets; independent verification confirms the future-data boundary, complete saved replays and exact serial/parallel targets.
 Continuous transition normalizers are annealed with the output likelihood while preserving the same final conditional target and exact-observation representation.
 The gated numerical pilots `22691680_0` and `_1` use seeds 620/621 and remain separate from the full-recording 300/301 pair.
+Both completed all 32 temperatures with 12,487/13,439 evaluations; checksummed checkpoints match the complete reports exactly, but each population retains only one initial ancestor.
 Their posterior adequacy and reserved-action forecasts remain unassessed.
 
 The [combined Domino assessment](domino-comparison-summary.md) now has all six completed 64-particle populations, their reserved-action forecasts and verified complete weighted histories.
