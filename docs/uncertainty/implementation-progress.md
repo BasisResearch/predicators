@@ -50,7 +50,8 @@ The original harness reproduction also confirms that applying fitted values to a
 
 The long-prefix Balloons fits remain ongoing.
 After Slurm confirmed `22671041_0` timed out, its seed-300 fit continued as `22684078_0` from completed stage 28 and 15,107 evaluations under the same frozen runtime, prior and numerical budget.
-Its two previous eight-hour allocations remain part of the cost; seed 301 continues in its existing allocation.
+Its two previous eight-hour allocations remain part of the cost.
+Seed 301 subsequently reached a confirmed allocation timeout and continued as `22686274_1` from completed stage 24 and 13,819 evaluations, preserving its existing numerical budget and prior sixteen allocation hours.
 Both full-recording Fan fits and their verified report have completed, but their narrow empirical speed distributions do not overlap and each retains one initial ancestor; they remain unassessed.
 The [repeated-dataset Gaussian reference](repeated-dataset-reference.md) has completed all 512 fits.
 All three parameter-coordinate groups pass the declared CDF-error screens at 2,048 particles; both correlated coordinates fail at 256 particles despite apparently plausible coverage.
@@ -75,6 +76,9 @@ The [historical Bridge/Boil model audit](historical-model-controls.md) now expan
 All thirteen saved version files across the six original sweep runs remain parameter-free; two earlier learned programs are therefore tested as separate frozen transfer controls.
 Boil's transferred filling/heating dynamics improve scalar errors, while Bridge's transferred glue dynamics produce more exact glue-reading mismatches than its no-op control.
 Both complete replays retain exact-output contradictions, so neither is an approved complete probability model or a replacement posterior.
+The subsequent [Boil transition/initial-state audit](boil-transition-and-initial-state.md) verifies that joint corrections alone worsen the fixed-point switch history, while cache refresh and identity joint resets preserve every predicted frame.
+Ten initial-slider candidates retain the failure, but estimating static fixture x/y positions from the first 65 observations yields two supported complete conditional histories with the same learned dynamics and exact switch checks.
+These point-state cases are independently verified and supply candidates for explicit initial-state inference; they are not posterior forecasts or Stage B acceptance.
 The next gate is trustworthy decision-relevant prediction within the declared computation budget, followed by saved-decision shadow comparisons and matched live use.
 No current physical posterior has been approved for the acting agent.
 
