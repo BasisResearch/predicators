@@ -51,11 +51,39 @@ The correlated guide's center differs from the first reading by as much as 6.067
 Using the independent-reading formula would substantially overstate the information under the current output model.
 The new calculation retains the correlation instead of introducing a new noise assumption.
 
-## Next comparison
+## Guided proposal validation
 
 The audit bundle is `logs/uncertainty_fan_constant_guide_audit_20260913`, with report checksum `5e0298336461e9ea09639a7828abbb20dd91ae4d7c17b06db3151051388b10a0`.
 Before launching a guided fit, verify its complete proposal density, retain original support and demonstrate target equality at identical physical candidates.
 A mixture with the original proposal can preserve support while the guide focuses fixture locations.
 Keep the original canonical scene coordinates in saved joint samples, so proposal changes do not silently change their meanings.
 Any new fit must retain the same fitting prefix, original scene prior, physical program and output model, and remain separate from the ongoing particle-count comparison.
-No guided physical inference run has been launched by this change, and no production fitter or planning rule uses the helper yet.
+The guided comparison below is offline; no production fitter or planning rule uses the helper.
+
+The isolated implementation is in `logs/uncertainty_fan_fixture_guide_20260913`.
+It samples a mixture with 10% original proposal mass and 90% fixture-guided mass, changing only the 30 fixture position coordinates.
+Both components map into the same original 120-coordinate scene representation; an additional proposal-only coordinate selects the component.
+The target subtracts the log density of the complete mixture in the original coordinate representation, regardless of the selected component.
+The physical simulator program, original scene prior, sensor/output law and 64-action fitting prefix remain fixed.
+The additional 68 actions remain reserved for future prediction assessment.
+
+Compute reference `22678659` verified proposal normalization, corrected zeroth/first/second moments and component-independent correction for identical represented points.
+The normalization integral was 1.0000000000006977, and the corrected moments matched 1, 1/2 and 1/3 within 3.2e-10.
+These are analytic proposal checks with zero native simulator actions, not a physical posterior result.
+Native preflight `22678746` completed in 198 allocation seconds on four compute CPUs, evaluating 10,240 native actions.
+It preserved all 12 original support/target witnesses and checked four guided candidates, including two supported and two unsupported cases.
+Their original physical target factors were unchanged apart from the declared full-mixture correction.
+The complete 64-particle serial and parallel initial sampler states were exactly equal.
+Serial initialization took 99.88 seconds and parallel initialization took 24.61 seconds within this same allocation.
+
+Initialization is a caution, not a success claim: 15 of 64 candidates had finite support, but their weight effective sample size was only 2.010, compared with approximately 9.1 for the original proposal.
+A proposal informed by the entire prefix can concentrate on locations that receive little mass at the initial tempered stage.
+The correction preserves the target mathematically but does not ensure efficient initialization or later exploration.
+Do not use supported-candidate counts alone to claim improvement.
+
+Array `22678810` launches two exploratory guided fits with sampler seeds 302 and 303, matching the original 64-particle Fan prefix pair.
+Each uses four compute CPUs on `mit_preemptable`, with 32 temperatures, eight moves, the original 16,448-evaluation limit and a four-hour allocation limit.
+The launch manifest pins the tested preflight, scripts, model and data/proposal plan.
+These runs are separate from the unchanged 128-particle budget comparison.
+Final population diversity, independent-run agreement, reserved-future predictions and total inference cost remain required before judging this guide.
+The forecast adapter must replay saved canonical scene samples while verifying the proposal correction against the augmented sampler coordinates; the original forecast driver assumes these two coordinate arrays are identical and cannot be reused unchanged.
