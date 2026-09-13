@@ -79,6 +79,10 @@ Both complete replays retain exact-output contradictions, so neither is an appro
 The subsequent [Boil transition/initial-state audit](boil-transition-and-initial-state.md) verifies that joint corrections alone worsen the fixed-point switch history, while cache refresh and identity joint resets preserve every predicted frame.
 Ten initial-slider candidates retain the failure, but estimating static fixture x/y positions from the first 65 observations yields two supported complete conditional histories with the same learned dynamics and exact switch checks.
 These point-state cases are independently verified and supply candidates for explicit initial-state inference; they are not posterior forecasts or Stage B acceptance.
+The [Boil fixture proposal](boil-fixture-proposal.md) now separates an explicit uniform fixture-position prior from a first-65-observation Gaussian guide, retaining the complete prior/proposal density correction.
+Independent quadrature checks recover original-prior moments and posterior reference integrals under different guides.
+Twenty-seven functional tests and focused static/format checks pass; the native 29-history audit and independent reader are queued.
+Full initial-state composition and posterior adequacy remain open.
 The next gate is trustworthy decision-relevant prediction within the declared computation budget, followed by saved-decision shadow comparisons and matched live use.
 No current physical posterior has been approved for the acting agent.
 
