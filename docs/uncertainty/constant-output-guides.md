@@ -111,7 +111,32 @@ This establishes comparison checks, not guided prediction quality.
 The guided saved-artifact verifier `22678924` remains dependent on the native forecast fixture.
 It checks every canonical scene and full-mixture correction, then tests rejection of altered or missing coordinate checks, corrections, weights, predictions, particles and checkpoint identities.
 
-Full guided forecasts `22678925_1` and `22678926_2` are queued behind that verifier and their respective completed fits.
-Summary `22678943` waits for the validation jobs and both forecast terminal states, retaining missing or unavailable outcomes explicitly.
+Full guided forecasts `22678925_1` and `22678926_2` were initially queued behind that verifier and their respective completed fits.
+Summary `22678943` was initially dependent on the validation jobs and both forecast terminal states; this first chain was cancelled after the setup failure below.
 The summary reports both original and both guided populations, all available pairwise prediction disagreements, parameter mass concentration and inference/forecast costs.
 No guided prediction result or adequacy conclusion is available yet.
+
+
+## Forecast validation recovery
+
+The short sampler fixture `22678838` completed in 84 allocation seconds, evaluating 7,808 native actions.
+The first forecast `22678841_0` failed during setup because its fit-only snapshot omitted `log_future_likelihood`; it performed zero native forecast actions.
+Its dependent artifact verifier, full forecasts and summary were cancelled without starting.
+This is a setup failure, not a posterior or agent failure.
+
+The corrected bundle `logs/uncertainty_fan_guided_forecast_v2_20260913` reuses the completed fixture checkpoint.
+Its observation module retains every original density method unchanged and adds the three future-scoring/sampling methods from the previously validated forecast implementation.
+The comparison checks verify the original syntax tree after removing only those explicit additions and their imports.
+Native forecast `22679381_0` completed in 69 allocation seconds on four CPUs, reconstructing all 64 positive-weight histories plus the repeated first history in 8,580 native actions.
+
+An independent reader on node3103 failed strict coordinate reconstruction, while the same reader passed every coordinate and density correction on the source node1412 in `22679467`.
+A separate audit on node1459 found no coordinate mismatch; the diagnostic on node3103 remains queued as `22679468`.
+The cross-machine discrepancy is not yet explained.
+The strict verifier now explicitly requires the recorded source node, and its validation and final-summary allocations are pinned to that node.
+Final checks `22679489` and `22679490` passed in 8 and 16 allocation seconds, verifying the updated comparison reader and all 64 native artifacts while rejecting eight comparison mismatches and seven artifact corruptions.
+
+The replacement full forecasts are `22679493_1` and `22679494_2`, gated on those checks and their respective completed fits.
+Summary `22679496` retains all planned populations and waits for the forecast terminal states.
+The v2 reader and submission records are in `logs/uncertainty_fan_guided_summary_v2_20260913`.
+These validations establish forecast reconstruction, not numerical adequacy of a completed guided posterior.
+The separate [tempering comparison](guided-tempering.md) tests the initial-weight concentration problem without changing these running fits.

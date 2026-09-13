@@ -36,7 +36,14 @@ The [repeated-dataset Gaussian reference](repeated-dataset-reference.md) has com
 All three parameter-coordinate groups pass the declared CDF-error screens at 2,048 particles; both correlated coordinates fail at 256 particles despite apparently plausible coverage.
 This supplies larger-budget synthetic prior-predictive reference evidence, while physical-domain calibration and live-agent acceptance remain separate.
 The new [constant-output guide calculation](constant-output-guides.md) passes 33 tests and focused static checks, and matches all checked Fan fixture likelihoods while retaining correlated discrepancy.
-A prefix-only saved-history audit verifies the 30 fixture coordinates and a 3.312 mm Gaussian guide scale; proposal-density and identical-target checks are required before any guided physical fit.
+A prefix-only saved-history audit verifies the 30 fixture coordinates and a 3.312 mm Gaussian guide scale.
+The guided proposal subsequently passed density correction, original physical target and serial/parallel initialization checks.
+Two guided 64-particle fits and gated reserved-future forecasts are submitted, with the original prior, program and observation model retained.
+Initial weight effective sample size is worse than the original proposal, so this guide remains an exploratory comparison rather than an improvement claim.
+The [guided-tempering reference](guided-tempering.md) completed 16 exact Gaussian fits; annealing the finite mixture correction reduces error in these references while preserving the final target.
+Its native Fan preflight preserves the target and serial/parallel state, with initial effective sample size 15 instead of 2.010; two matched alternative-bridge fits are running.
+The first guided forecast snapshot failed before native actions because it lacked the future-likelihood method.
+The corrected snapshot reuses the completed fixture and passes full native replay; strict coordinate verification is pinned to the source node while a cross-machine mismatch remains under investigation.
 The next gate is trustworthy decision-relevant prediction within the declared computation budget, followed by saved-decision shadow comparisons and matched live use.
 No current physical posterior has been approved for the acting agent.
 
