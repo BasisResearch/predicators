@@ -31,6 +31,10 @@ The subsequent 124-case local-sensitivity test also completes: non-restitution j
 The separate [joint-transition model comparison](domino-joint-transition.md) now passes 124-case probability/replay checks and full 97-action future-generation/density validation.
 It retains every joint transition density and cached-link observation timing while removing only the former joint AR output factors as an explicit model change.
 Two fresh 64-particle point-start inference replicas, `22683118_0` and `_1`, are running under the original prior and unchanged sampler settings; their posterior prediction comparison remains pending.
+The checkpoint-driven forecast adapter now passes a native 16-particle integration fixture and an independent reader over all 144 saved histories.
+The reader verifies original weights, separates unconditional generation from future-conditioned density evaluation, and rejects six deliberately corrupted inputs.
+Full forecasts `22684522_1` and `22684523_2` are queued behind their respective fits, with fixture validation required before execution and complete artifact verification afterward.
+These remain offline diagnostics; neither the short fixture nor a completed sampler is an approved posterior.
 
 The [Fan prefix comparison](fan-prefix-comparison.md) has two completed 64-particle fits and causal forecasts on 68 reserved actions.
 Position errors are lower than legacy on this recording, but goal-probability curves disagree by up to 0.33212, and each empirical full-future density depends on only one supported particle.
@@ -45,6 +49,8 @@ This supplies active-carry repeated-data coverage and supports an immutable orig
 The original harness reproduction also confirms that applying fitted values to a reused subclass reference can change registry defaults even with explicit carrying off; the corrected comparison isolates that effect without changing production behavior.
 
 The long-prefix Balloons fits remain ongoing.
+After Slurm confirmed `22671041_0` timed out, its seed-300 fit continued as `22684078_0` from completed stage 28 and 15,107 evaluations under the same frozen runtime, prior and numerical budget.
+Its two previous eight-hour allocations remain part of the cost; seed 301 continues in its existing allocation.
 Both full-recording Fan fits and their verified report have completed, but their narrow empirical speed distributions do not overlap and each retains one initial ancestor; they remain unassessed.
 The [repeated-dataset Gaussian reference](repeated-dataset-reference.md) has completed all 512 fits.
 All three parameter-coordinate groups pass the declared CDF-error screens at 2,048 particles; both correlated coordinates fail at 256 particles despite apparently plausible coverage.

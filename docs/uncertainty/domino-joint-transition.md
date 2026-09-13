@@ -93,3 +93,40 @@ This establishes a supported, reproducible full-suffix calculation for those can
 
 After the fits complete, their forecasts must preserve original posterior weights, separate unconditional predictions from conditioned density trajectories, and assess numerical replication and simulator cost.
 No fit or forecast in this experiment has been approved for planning or deployment.
+
+## Checkpoint-driven posterior forecasts
+
+The posterior forecast adapter is implemented in `logs/uncertainty_domino_transition_posterior_forecast_20260913/`.
+A short native sampler fixture, `22683423_0`, completed with 16 particles, two temperatures and at most 48 evaluations.
+It is a checkpoint and forecast integration fixture, not an assessed posterior or a new agent seed.
+Restoring its completed checkpoint reproduces the complete saved sampler result without another target evaluation.
+
+For each positive-weight fitted particle, the adapter generates four unconditional futures in each of two independent random-number banks.
+It retains the original particle weight, divided only by the number of draws within each bank.
+Position means and variances integrate the scalar output-error process conditional on the fitting prefix; native toppling events come from the generated physical trajectories.
+A separate history conditions on the actual future joint readings solely to evaluate the recorded suffix density.
+Those future-conditioned histories never contribute to unconditional position or toppling predictions, and suffix observations never reweight the fitted particles.
+Zero particle weights and zero predictive densities remain explicit.
+
+Forecast fixture `22684064_0` completed in 150 allocation seconds on four CPUs, with 23,506 native actions including two exact complete-history repeats.
+Independent verification `22684436` completed in 31 allocation seconds on one CPU.
+It reads all 144 saved histories, checks the complete checkpoint population and original weights, reconstructs the scalar Gaussian filtering and forecast moments, and recomputes all weighted summaries.
+It independently checks 208,656 Gaussian joint factors, with maximum absolute log-factor discrepancy 8.882e-16.
+Deliberately changed weights, generation/density roles, prefix values, forecast moments, future joints and joint-density factors are all rejected.
+These checks establish artifact consistency and arithmetic for the fixture, not statistical adequacy of its short fit.
+
+The two full forecasts are queued as `22684522_1` and `22684523_2`, each dependent on successful completion of its corresponding fit.
+Each checks the frozen fixture-validation gate before generating predictions and runs the independent artifact verifier after finishing.
+The declared forecast budget is two banks of four draws per positive-weight particle plus one separate density history per particle, using four CPUs for at most 45 minutes.
+With all 64 weights positive, this requires 93,058 native actions including the two complete-history repeats.
+Between-bank disagreement measures future-simulation Monte Carlo variability; it does not measure posterior uncertainty or establish convergence of parameter inference.
+
+The paired report retains the earlier exploratory screens: 2.5 mm RMS disagreement in conditional position means, 0.20 maximum toppling-curve gap and 0.15 maximum final toppling gap.
+It compares the new replicas against the original 64-particle point-start replicas while requiring identical prior, fitting data, program and sampler settings.
+The joint-discrepancy law is explicitly required to differ.
+Missing forecasts or verification reports leave the comparison incomplete.
+Uncertain initial-state inference, wider development coverage, acceptable inference cost and closed-loop acceptance remain separate requirements.
+
+Comparison-reader validation `22684684` reproduces identical fixture summaries, detects injected position and event regressions, rejects misaligned coordinates and preserves an incomplete status when either new forecast is missing.
+Finite report job `22684725` is queued after both full forecast jobs reach terminal states; it is not a notification monitor.
+The bundle's `verified-inputs.json` pins the tested scripts, fixture reports and job mapping.
