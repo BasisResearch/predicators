@@ -30,7 +30,8 @@ Fixed centers preserve every diagnostic report across all three repetitions; car
 This supplies active-carry repeated-data coverage and supports an immutable original prior, but does not establish unchanged future predictions or planning decisions.
 The original harness reproduction also confirms that applying fitted values to a reused subclass reference can change registry defaults even with explicit carrying off; the corrected comparison isolates that effect without changing production behavior.
 
-The existing long-prefix Balloons and full-recording Fan fits remain separate ongoing diagnostics.
+The long-prefix Balloons fits remain ongoing.
+Both full-recording Fan fits and their verified report have completed, but their narrow empirical speed distributions do not overlap and each retains one initial ancestor; they remain unassessed.
 The [repeated-dataset Gaussian reference](repeated-dataset-reference.md) has completed all 512 fits.
 All three parameter-coordinate groups pass the declared CDF-error screens at 2,048 particles; both correlated coordinates fail at 256 particles despite apparently plausible coverage.
 This supplies larger-budget synthetic prior-predictive reference evidence, while physical-domain calibration and live-agent acceptance remain separate.

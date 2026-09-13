@@ -186,3 +186,25 @@ Report `22678127` now exercises complete-checkpoint recovery successfully and in
 There are eight distinct positive-weight speeds, with 0.75 of empirical mass at one exact speed value.
 This concentration does not establish precise identification; the paired result remains incomplete until seed 200 finishes.
 Including the original 28,812-second timeout, this seed has consumed 59,602 allocation CPU-seconds across the two attempts.
+
+## Completed full-recording pair
+
+Both recoveries and final report `22678058` have completed.
+The report verifies exact complete-checkpoint recovery for both fits, independently reconstructs their fan-speed summaries, and checks identical full target identities, priors, configurations and recorded runtimes.
+
+| Numerical seed | Fan-speed 5th / 50th / 95th percentiles | Retained ancestors | Largest exact-value mass | Target evaluations | Recovery allocation seconds |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 200 | 0.08994192 / 0.08996900 / 0.08999337 | 1 | 0.859375 | 15,116 | 31,612 |
+| 201 | 0.09034013 / 0.09036351 / 0.09053017 | 1 | 0.750000 | 15,092 | 30,790 |
+
+The two weighted empirical CDFs differ by 1.0 at their maximum, and their one-dimensional Wasserstein distance is 0.00040176.
+Their means differ by approximately 0.000402, while their empirical standard deviations are only 0.0000148 and 0.0000439.
+The small absolute mean separation does not validate these much narrower, nonoverlapping empirical uncertainty distributions.
+Both populations remain numerically unassessed.
+No independent-sample p-value or post-hoc acceptance threshold is attached to these distances.
+
+The recovery attempts record 1,987,128 and 1,983,960 native actions and 31,591.27 and 30,769.80 worker seconds.
+Including each original timeout, the per-seed allocation costs are 60,424 and 59,602 CPU-seconds.
+The final report uses four allocation seconds on one CPU and no native simulation.
+There is no reserved future in this full-recording study, so these results do not establish predictive improvement or an agent advantage.
+The separate prefix budget comparisons remain active; the [constant-output guide](constant-output-guides.md) prepares a density-corrected proposal investigation without changing their target models or running configurations.
