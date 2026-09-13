@@ -30,8 +30,8 @@ Selected-point predictions are not the incumbent's full interval or planning ens
 | Job | Purpose | Verified state on September 13 |
 | --- | --- | --- |
 | `22696941` | Check full-prefix preparation and helper/manual native parity at default dwell, dwell 20 and dwell 40. | Completed; all three pairs exact, 7,116 native actions. |
-| `22697046` | Run the complete incumbent fitter, then two complete causal forecasts. | Running. |
-| `22697048` | Independently reproduce the selected forecast and assess the 586-action suffix. | Depends on successful fitting. |
+| `22697046` | Run the complete incumbent fitter, then two complete causal forecasts. | Completed in 1:11:39; 304,172 native actions including fitting and forecast repetitions. |
+| `22697048` | Independently reproduce the selected forecast and assess the 586-action suffix. | Completed in 44 seconds; all 1,186 native actions reproduce the selected forecast exactly. |
 
 The preflight compares three pairs of full trajectories and checks that changing bond dwell changes predictions.
 The fitting driver requires that certificate, preserves all six declared parameters, and records fitted versus actually applied values separately.
@@ -44,6 +44,16 @@ The preflight initially waited because all 64 CPUs on that node were allocated; 
 These scheduler states are dated observations, not permanent status claims.
 The frozen bundle is `logs/uncertainty_bridge_incumbent_prefix600_20260913/`.
 
+## Completed selected-point control
+
+The complete 600-action segment survives the incumbent preparation and fitting pipeline.
+The parameters actually used for prediction retain `glue_latch=0.6`, `drip_r=0.0175`, `drip_h=0.0125`, `glue_rate=0.2` and `bond_dist=0.022`, while `bond_dwell` is approximately 25.9896.
+The report preserves the optimizer notes and publication decisions separately from those applied values.
+Both complete causal predictions repeat exactly, and the independent manual native reconstruction reproduces every saved predicted observation.
+The 586-action suffix contains two mismatched glue readings against both the clean and noisy reference channels.
+Other exact observations still disagree, including joint positions and some holding and orientation fields; this control does not satisfy the new probability model's exact-output constraints.
+These are offline prediction measurements on the revised fixed program, not an agent solve-rate result or a comparison with a completed replacement posterior.
+
 ## Remaining comparison requirements
 
 The revised subclass's geometry, attachments and other exact observations still need a complete joint probability target before the replacement arm can be fitted.
@@ -52,5 +62,5 @@ Those trajectories repeat exactly but still contradict exact recorded outputs, s
 The exact-rate reference supplies only one component of that target.
 The physical initial-state inventory, supported geometry and remaining continuous exact-output representations must stay explicit.
 Use the same fixed program and 600-action prefix for both estimator arms, and separately identify any new transition-discrepancy assumptions or state-inference approximations.
-There is no estimator advantage, posterior adequacy or agent-performance result to report from a queued incumbent control.
+The completed incumbent control supplies one comparison arm; it does not establish estimator advantage, posterior adequacy or agent performance.
 The incumbent remains the production default while Stage A/B validation continues.

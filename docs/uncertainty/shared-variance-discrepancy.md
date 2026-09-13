@@ -82,7 +82,24 @@ Both generated histories repeat exactly and reproduce their full physical trajec
 Independent Student-t calculations differ from the recorded per-step factors by at most 2.354e-13, and complete future joint densities agree with direct gamma-integral calculations.
 Separate artifact reader `22699757` completed in 20 seconds, checking four saved histories and 9,504 joint factors, future joint-output alignment, native predicates, scalar moments and literal memory.
 It rejects altered shared variances, future joint readings and density factors.
-Full-population forecasts still need the completed replacement fits and the corresponding verified adapter.
+Completed-population adapter check `22699944` passed in 3:54, including 2,376 native actions.
+It preserves the entire completed checkpoint and original particle weights without reevaluating the fitting target during checkpoint recovery.
+Independent mixture calculations reproduce weighted observation means, variances, native means and event probabilities, including retained zero-density mass.
+Native generated and observed-future density trajectories repeat exactly through the adapter.
+Twelve deliberate corruption cases are rejected: missing and duplicate histories, changed weights, incorrect roles and banks, negative variances, inconsistent shared-variance draws, changed future joints and joint factors, unfinished checkpoints, changed checkpoint weights and changed identities.
+
+The complete forecast plan reconstructs the changed statistical and runtime identities from frozen inputs and checks the unchanged data, program, physical prior, scene map and sampler settings against the previous fits.
+It records expected final report and checkpoint locations without hashing a mutable running report as though it were complete.
+Forecast jobs `22700066_0` and `22700067_1` are queued behind their respective fit jobs.
+Each retains every positive-weight particle and generates two banks of four 132-action futures, plus a separate conditional-density trajectory for the recorded future.
+The same numerical and forecast seeds are retained from the fixed-variance comparison.
+An independent reader reconstructs all weighted summaries from complete saved histories before the forecast job can succeed.
+
+Dependent comparison `22700111` will assess differences between replicas, the previous fixed-variance populations and the incumbent selected-point forecast.
+Independent headline metric reconstruction already matches both previous verified forecast reports.
+The comparison retains numerical collapse and simulation cost alongside prediction errors; a completed forecast alone is not numerical acceptance.
+The fixed/shared-variance comparison changes the discrepancy law, while the incumbent comparison additionally changes initial-state treatment and output discrepancy.
+Neither comparison is a new live-agent seed or establishes solve-rate non-regression.
 Reducing perturbation scale alone does not resolve the remaining heating errors or establish agent non-regression.
 
 Frozen component checks are in `logs/uncertainty_shared_variance_20260913/`, fitting/preflight artifacts in `logs/uncertainty_boil_shared_variance_20260913/`, and future checks in `logs/uncertainty_boil_shared_variance_forecast_20260913/`.

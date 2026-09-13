@@ -121,6 +121,28 @@ These are selected candidate failures, not proof that the full conditional suppo
 The next target must represent the remaining continuous exact trajectory constraints and retain the geometry-dependent discrete glue likelihood.
 Neither a completed replay nor a mismatch count is a continuous exact-conditioning method.
 
+## Conditional robot-joint trajectory audit
+
+The next isolated audit preserves all five feasible initial roots and compares their native continuations with a declared conditional joint-transition model on the same 600-action prefix.
+After each native base step and before the learned model-memory update, it conditions the nine controlled joint positions on their exact observations, retaining native joint velocities and existing physical constraints.
+It never restores a later recorded scene or imports private model memory.
+One independent inverse-gamma variance per controlled joint is shared across the entire prefix, using the [tested variance component](shared-variance-discrepancy.md) with `alpha=2` and `beta=1e-6` in native squared units.
+Every conditional correction retains its normalized Student-t factor; these factors alone are not the complete likelihood of the remaining outputs.
+
+Compute job `22700282` completed ten trajectories and their fresh-world repetitions in 3:48, totaling 12,000 native actions.
+All five native controls reproduce the previously saved failures exactly, including every prediction and learned-memory value.
+Both modes repeat exactly for every root.
+The conditional paths remove all controlled-joint mismatches and the exact finger-readout mismatches, while retaining other contradictions.
+The all-rest root drops from eighteen mismatching channels to eight, with the same sixteen glue-reading mismatches.
+Its remaining channels are the six robot pose/orientation fields and two glue fields.
+The four moving roots each retain twelve mismatching channels, including holding and glue discrepancies.
+Thus exact joint conditioning supplies one valid trajectory component but does not resolve the Bridge support problem.
+Independent reader `22700337` completed in fifteen allocation seconds, checking all 27,000 causal Student-t factors against separate gamma-function calculations, the full shared-variance integral, posterior sufficient statistics and alignment of exact joints with the observed and predicted histories.
+The maximum per-factor discrepancy is 6.8301e-13.
+It also reconstructed every remaining mismatch count and rejected corrupted joint values, factors, variance statistics and missing transitions.
+The remaining work is an explicit representation for the other continuous exact robot outputs and supported geometry-dependent glue/holding histories, while preserving this same fitting split and root prior.
+Artifacts are in `logs/uncertainty_bridge_joint_conditioning_20260913/`.
+
 Full 600-action exact-output support, independent density verification, the complete conditional inference target and posterior adequacy remain required.
 In particular, the exact-rate component assumes an eligible deposition schedule and cannot simply replace the full geometry-dependent glue likelihood.
 This root construction alone supplies neither a usable posterior nor evidence of improved agent performance.
