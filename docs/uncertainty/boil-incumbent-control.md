@@ -70,3 +70,30 @@ The matched ablations and later planning experiments remain requirements of the 
 
 Artifacts and frozen scripts are in `logs/uncertainty_boil_legacy_subclass_control_20260913/`.
 At submission, the incumbent fit and both canonical posterior fits were running; no final comparison result was available.
+
+## Completed incumbent control
+
+Fit `22691175` completed in 8:49 of allocation time.
+The driver reports 515.05 seconds and 44,352 native actions including its two full prediction repeats.
+The single complete fitting segment survives trimming.
+Only the selected fill rate moves, from 0.0151 to 0.014247993659283687; the other selected parameters retain their declared values.
+The fitting objective changes from 0.850290 to 0.814498 on the same surviving segment.
+
+Independent reader `22691200` completed in 19 seconds of allocation time, using another 264 native actions.
+The original literal-rule replay matches every selected-point prediction and model-memory value exactly.
+The saved source and verifier hashes were checked after completion.
+
+| Reserved-future reading | RMSE against noisy readings | RMSE against clean public readings |
+| --- | ---: | ---: |
+| Jug x, metres | 0.011978 | 0.001698 |
+| Jug y, metres | 0.012859 | 0.005936 |
+| Jug z, metres | 0.014010 | 0.006976 |
+| Water volume | 0.071350 | 0.005384 |
+| Bubbling level | 0.065171 | 0.019151 |
+| Spilled level | 0.071813 | 0 |
+
+The filled, no-spill, burner-off and task-goal predicate predictions match all 132 reserved frames.
+The boiled predicate differs on one frame, giving a Brier score of 1/132 for that deterministic prediction.
+All five final predicates are predicted true and match the recorded final state.
+These are forecast results, not a new solved agent seed.
+The posterior fits and combined comparison remain unfinished, so no improvement claim follows from this control alone.

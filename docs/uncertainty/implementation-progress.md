@@ -21,8 +21,10 @@ These are mechanical and offline comparison gates, not evidence of improved agen
 
 The [Boil incumbent control](boil-incumbent-control.md) now represents the same historical filling/heating program through the current subclass interface.
 Four complete 264-action trajectories and all model memory match the archived literal-rule program exactly.
-The incumbent full fitter is running as `22691175` on the same 132-action prefix, with interval belief, fit-side noise handling and fit evidence enabled.
-Its independent literal-program verifier `22691200` and comparison against the two posterior forecasts `22691239` are queued behind their inputs.
+The incumbent full fitter ran as `22691175` on the same 132-action prefix, with interval belief, fit-side noise handling and fit evidence enabled.
+The fit completed in 8:49, and independent literal-program verifier `22691200` completed in 19 seconds with every predicted frame and model-memory value matching exactly.
+The selected-point forecast matches the task-goal predicate on all 132 reserved frames, while the boiled predicate differs on one frame.
+The combined comparison `22691239` remains queued behind the posterior forecasts.
 This compares selected-point and posterior-mean predictions while retaining the explicit differences in initial-state treatment and discrepancy model; it is not an estimator-only ablation or an agent performance result.
 
 The separate [Balloons prefix experiment](balloons-prefix-inference.md) now fits only 64 actions and reserves 171 for later forecasts.
