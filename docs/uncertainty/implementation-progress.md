@@ -18,6 +18,11 @@ Six geometry-conditioned development cases and an independent 7,116-step direct-
 The follow-up nearest-face hypothesis identifies the observed face at all thirteen positive clean-geometry transitions, but a single proximity threshold fails the fitting-prefix labels in all four geometry/phase cases.
 An independent rotation and scalar-loss reader verifies 16,320 distances and 148 tested thresholds; face choice and deposition eligibility need separate treatment before causal replay.
 This identifies model revision as the next Bridge action; these conditional diagnostics are not causal forecasts or an accepted posterior.
+The next [Bridge eligibility and native revision](bridge-glue-attribution.md#nearest-eligible-face-with-the-historical-drip-conditions) now completes eight conditional grid cases and five full causal native trajectories.
+Nearest-eligible-face scoring plus a progress latch reduces glue mismatches from 3,695 in the transferred historical program to 23 with noisy-prefix geometry parameters, on the same 1,186-action recording and public noisy initial state.
+Independent readers verify 5,704 grid scores, 9,488 rule steps, all five native artifacts, archived no-op parity and exact repetition of the revised default.
+The remaining default glue errors are three delayed deposition readings and two bond-consumption events delayed five actions; 22 exact channels still disagree overall.
+This is a development program revision, not an estimator comparison or agent result; subclass parity and the conditional probability target remain next.
 
 The [Balloons population forecast adapter](balloons-prefix-forecasts.md#complete-population-forecast-adapter) now passes native replay, nonuniform weighted-summary, zero-density and no-refit checkpoint checks, including twelve malformed-result rejections.
 Forecast jobs `22693026` and `22693027` are gated behind the two live prefix fits; each is followed by independent artifact verification, then paired report `22693044`.
