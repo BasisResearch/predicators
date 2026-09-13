@@ -130,8 +130,12 @@ The comparison checks verify the original syntax tree after removing only those 
 Native forecast `22679381_0` completed in 69 allocation seconds on four CPUs, reconstructing all 64 positive-weight histories plus the repeated first history in 8,580 native actions.
 
 An independent reader on node3103 failed strict coordinate reconstruction, while the same reader passed every coordinate and density correction on the source node1412 in `22679467`.
-A separate audit on node1459 found no coordinate mismatch; the diagnostic on node3103 remains queued as `22679468`.
-The cross-machine discrepancy is not yet explained.
+A separate audit on node1459 found no coordinate mismatch.
+The targeted node3103 audit `22679468` completed in four seconds and reproduced mismatches in all 64 stored rows, with maximum absolute difference 1.1102230246251565e-16 in canonical unit coordinates.
+The controlled follow-up `22680353` ran the same script on node3103 with the additional NumPy AVX-512 dispatch options disabled and reproduced all canonical coordinates exactly.
+Both runs use the same saved fixture and source-runtime metadata, with zero native simulator actions.
+This identifies a numerical-dispatch cause for the coordinate check failure; it does not establish cross-hardware native trajectory parity or change the prior, observation noise, or posterior target.
+The checked artifacts and feature-mask configuration are recorded in `dispatch-verification.json` in the v2 summary bundle.
 The strict verifier now explicitly requires the recorded source node, and its validation and final-summary allocations are pinned to that node.
 Final checks `22679489` and `22679490` passed in 8 and 16 allocation seconds, verifying the updated comparison reader and all 64 native artifacts while rejecting eight comparison mismatches and seven artifact corruptions.
 

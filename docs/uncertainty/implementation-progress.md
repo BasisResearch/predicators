@@ -44,7 +44,9 @@ The [guided-tempering reference](guided-tempering.md) completed 16 exact Gaussia
 Its native Fan preflight preserves the target and serial/parallel state, with initial effective sample size 15 instead of 2.010; two matched alternative-bridge fits are running.
 The short native tempered forecast and independent raw-factor/coordinate verification now pass, with full forecasts and a six-population comparison gated on the completed fits.
 The first guided forecast snapshot failed before native actions because it lacked the future-likelihood method.
-The corrected snapshot reuses the completed fixture and passes full native replay; strict coordinate verification is pinned to the source node while a cross-machine mismatch remains under investigation.
+The corrected snapshot reuses the completed fixture and passes full native replay.
+A controlled same-node audit attributes the 1.11e-16 cross-machine coordinate mismatch to NumPy instruction dispatch; disabling the extra AVX-512 dispatch options restores exact coordinates for the saved fixture.
+Strict physical verification remains pinned to the validated source runtime; this does not certify general cross-hardware trajectory replay.
 The next gate is trustworthy decision-relevant prediction within the declared computation budget, followed by saved-decision shadow comparisons and matched live use.
 No current physical posterior has been approved for the acting agent.
 
