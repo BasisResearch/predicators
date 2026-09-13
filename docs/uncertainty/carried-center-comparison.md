@@ -82,3 +82,33 @@ The paired report and source hashes are retained in `domino-comparison.json` in 
 Together, these two recordings cover only inactive carrying.
 They do not establish whether removing accepted-center feedback changes fitting or repeated-data confidence when the policy is active.
 That comparison requires additional development experience with an accepted fitted center, retaining this inactive result instead of replacing it.
+
+## Earlier-program repeated-data comparison
+
+A targeted inspection of the existing Domino seed-0 training log identifies an accepted fit followed by carrying: the first full 161-action fit moves lateral friction from its declared 0.3 starting value, and the subsequent fit carries 0.674.
+The saved `cycle_000_vers_001_simulator.py` has declared friction 0.3, whereas the latest `cycle_000_vers_002_simulator.py` used above already declares 0.674.
+An AST comparison confirms that the only executable difference between those two saved artifacts is this declared initial value; documentation strings also differ.
+The saved files are used unchanged, including their original generated declarations.
+This selects a candidate active-policy case from training experience, not from test-level outcomes.
+It does not guarantee that every historical fit detail will reproduce on the controlled runtime.
+
+The earlier-program comparison uses the same complete 161-action training recording three times, starting both arms with empty carried history.
+Both arms retain the fixed earlier program, same data, parameter bounds, optimizer configuration, preparation, ordinary held-value policy and prediction path.
+Only accepted-center carrying is toggled.
+The first full-data fits must match exactly across arms in entering anchors, fitted and selected values, diagnostic reports and complete predictions before a difference in later fits can be attributed to carrying.
+All three stages must have identical data identities.
+There are no held-out actions in this repeated-data diagnostic, so its predictions are in-sample replay and cannot establish predictive improvement.
+Legacy widths remain diagnostic quantities, not newly validated credible intervals.
+
+| Arm | Compute task | Initial declared friction | Fitting actions by stage |
+| --- | --- | ---: | --- |
+| Fixed registry centers | `22675807_0` | 0.3 | 161, 161, 161 |
+| Carry accepted centers | `22675807_1` | 0.3 | 161, 161, 161 |
+
+The array requests six CPUs, 16 GB and two hours per task on node1412 in `mit_preemptable`.
+A finite report job, `22675822`, depends on both fits completing successfully.
+The paired validator passes a repetition fixture derived from the previous inactive reports and rejects altered first-fit values, an altered first-fit verdict and changed repeated data.
+That fixture validates report guards only; it is not another physical fit or evidence of active carrying.
+The run, source-selection rationale, AST comparison, validation report and submission hashes are frozen in `logs/uncertainty_carried_prior_active_20260913`.
+Actual accepted-center coverage and any effects remain pending these runs.
+The earlier inactive controls are retained separately, and the production estimator is unchanged.

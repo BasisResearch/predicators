@@ -30,6 +30,9 @@ It explicitly records whether carrying is ever active, rather than treating unch
 The Fan pair has now completed: all four stages retain speed 0.0846, report an anchored verdict and produce identical predictions across arms, including the repeated-data stage.
 No accepted center was carried, so this is an inactive-policy control.
 The Domino pair has also completed with identical predictions and no active carrying; active-policy coverage remains open.
+A separate repeated-data pair now uses the earlier saved Domino program, whose declared friction is 0.3 instead of the already learned 0.674.
+Historical training logs identify an accepted fit and later carrying at that earlier starting point; the new controlled reproduction has three identical 161-action fits and requires exact first-fit agreement between arms.
+Tasks `22675807_0` and `_1` and their dependent comparison `22675822` are submitted; active-policy results remain pending.
 The [combined Domino assessment](domino-comparison-summary.md) reproduces prior diagnostics, verifies complete weighted histories and rejects dropped particles, altered samples and altered event aggregates.
 Three finite follow-up jobs will produce comparison snapshots as the individual forecast pairs terminate; the new posterior comparisons remain incomplete.
 Both mixed-proposal Domino fits have now completed all 32 stages, retaining two and one initial ancestors respectively.
