@@ -91,3 +91,32 @@ The first attempt, `22692619`, failed during imports because the fitting directo
 
 The fixture, independent reader, initialization audit and finite-density certificate are indexed by `verification-manifest.json` in the experiment bundle.
 The full plan remains at Stage B, with Stage A physical-support and numerical gates still open.
+
+## Complete-population forecast adapter
+
+The adapter now recovers a completed fitting checkpoint without evaluating the target again, and requires its entire returned result to match the saved fit.
+It preserves each original particle weight and maps the 207 proposal coordinates back to the 206-dimensional joint chart, checking the stored physical parameters and proposal correction.
+Every forecast must reproduce the particle's saved 64-action likelihood before its future predictions are used.
+The independent population reader additionally reconstructs a native prefix for each positive-weight particle and verifies all saved histories and summaries.
+
+Each positive-weight particle receives two independent banks of four generated suffixes and eight separate conditional-density draws.
+The generated histories determine predictive means, variances, event probabilities and first-occurrence curves.
+The density histories only estimate future likelihood, retaining all zero contributions and the original particle weights.
+The report covers box position and speed, each balloon's position, the five global event predicates, individual attachment/burst events and clip states.
+It reports within-population bank disagreement and a separate comparison between the two numerical fitting seeds.
+These finite budgets do not automatically establish numerical adequacy.
+
+Adapter preflight `22692938` completed in 34 seconds, with 1,004 native actions.
+It independently checks the nonuniform weighted mean and variance, event probabilities and first-occurrence curves, zero-density and mixed-density denominators, and completed-checkpoint recovery on an explicitly synthetic target.
+It also repeats native generation and conditional-density adapter paths against the previously verified fixture.
+Twelve malformed cases are rejected, including missing or duplicated histories, changed weights, invalid densities, incorrect event curves and inconsistent checkpoints.
+The certificate is `adapter-22692938.json`; `posterior-submitted.json` identifies the submitted scripts and inputs.
+
+| Job | Dependency and purpose |
+| --- | --- |
+| `22693026` | After fit `22691680_0`: forecast seed620's completed population, then independently verify it. |
+| `22693027` | After fit `22691680_1`: forecast seed621's completed population, then independently verify it. |
+| `22693044` | After both forecast/verifier jobs: compare the two numerical populations. |
+
+The [incumbent control](balloons-incumbent-control.md) runs the existing fitter on the same supplied prefix and compares its selected-point forecast with these population forecasts.
+That comparison retains the differences in initial-state treatment, segmentation and discrepancy assumptions explicitly.

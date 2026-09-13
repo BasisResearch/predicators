@@ -12,6 +12,12 @@ The active work is Stage B offline comparison; Stage C live posterior use and St
 Stage D execution smoothing remains optional and deferred.
 The full plan remains incomplete, and the incumbent estimator remains the production default.
 
+The [Balloons population forecast adapter](balloons-prefix-forecasts.md#complete-population-forecast-adapter) now passes native replay, nonuniform weighted-summary, zero-density and no-refit checkpoint checks, including twelve malformed-result rejections.
+Forecast jobs `22693026` and `22693027` are gated behind the two live prefix fits; each is followed by independent artifact verification, then paired report `22693044`.
+Every positive-weight particle keeps its original weight, receives eight generated suffixes and eight separate conditional-density draws, and must reproduce its saved prefix likelihood.
+The [Balloons incumbent control](balloons-incumbent-control.md) passes three complete native lifecycle comparisons and is fitting as `22693806`, with independent verification and comparison queued.
+Its overlapping windows and rest-averaged starts remain intact; the comparison driver now verifies those averages after correcting its initial overly strict raw-frame check.
+
 The [Balloons prefix forecast fixture](balloons-prefix-forecasts.md) now covers all 171 reserved actions using a candidate selected only from the 64-action prefix.
 Twelve native histories reproduce that prefix exactly, and the independent reader verifies 25,380 joint factors or draws, 2,136 radial-density evaluations, full native replay and eight corruption rejections.
 Generation has no future-observation lookup; density evaluation separately averages conditional-history contributions while retaining zero-support draws.
@@ -22,7 +28,9 @@ The next step is to apply the verified forecast mechanics to completed prefix po
 The [canonical Boil forecast path](boil-canonical-forecasts.md) now passes its native fixture, independent full-history verifier and completed-population adapter checks.
 The verifier checks twelve histories and 28,512 joint-transition factors, and rejects eight corrupted records.
 The adapter independently checks weighted moments, zero future support and exact checkpoint recovery, rejects nine additional corruptions, and repeats generated and density-evaluation paths exactly.
-The two Boil fits remain running; their reserved-132-action forecasts and independent verifiers are queued as `22690858_0` and `22690863_1`, followed by paired report `22690864`.
+Both Boil fits completed all 32 stages: numerical seeds410/411 used 7,455/7,317 target evaluations, respectively.
+Their reserved-132-action forecast/verifier jobs `22690858_0` and `22690863_1` are running, followed by queued paired report `22690864`.
+Both completed populations descend from one initial ancestor, so completion alone does not establish adequate exploration.
 Forecast generation cannot read future observations, and the original fitted weights remain unchanged.
 These are mechanical and offline comparison gates, not evidence of improved agent performance or permission to advance to live posterior use.
 
