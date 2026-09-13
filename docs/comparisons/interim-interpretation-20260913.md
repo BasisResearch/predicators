@@ -8,7 +8,7 @@ Agent-written dynamics fitting is confirmed in Boil seeds 0, 1, 2 and Balloons s
 The frozen prompt originally discouraged custom fitting; the narrower interpretation was adopted after observing those calls.
 See the [protocol audit](/home/ycliang/predicators/logs/continual_comparisons_20260912/no-fitting-protocol-audit.json).
 This note interprets the completed groups; the [live comparison table](/home/ycliang/predicators/docs/comparisons/continual-results.md) remains authoritative for later outcomes, per-seed steps, resets, and source paths.
-There are 65 finished non-Bridge comparison seeds, including 57 whole-run successes.
+There are 66 finished non-Bridge comparison seeds, including 58 whole-run successes.
 The separate primary Bridge MB/MF comparison is complete across three distinct seeds per arm; the 18 replacement Bridge baseline/ablation seeds have begun running.
 The experiments are still incomplete.
 
@@ -92,7 +92,10 @@ Before observing a real push, it evaluated future cascades at five friction valu
 It later varied friction jointly with push controls to compare future outcomes.
 These are sensitivity checks for future decisions, rather than parameter fitting against recorded transitions.
 The supplied uncertainty tools were disabled, but these runs do not establish strictly point-estimate reasoning.
-The Domino finding is a protocol caveat while the run is unfinished, not a final solve-rate result.
+The Domino seed-1 finding remains a protocol caveat while that run is unfinished.
+Domino seed 2 subsequently finished successfully at 2/2 levels, 384 steps and zero resets, but its executed code also tested the same push across 14 nominal/perturbed layout states and later scored placement candidates across 11 pose perturbations.
+Those pose perturbations and all-variants success checks form explicit state-uncertainty robustness validation, so this seed also does not establish strictly point-estimate performance.
+Its separate friction search against recorded transitions is point fitting and is not the reason for this finding.
 The user has been asked whether to retain a narrower no-harness-uncertainty-tools interpretation or pursue a stricter implementation and rerun.
 Point fitting, observation averaging, and controller-parameter searches at fixed dynamics are not themselves evidence of a violation.
 See the [executed-code evidence](/home/ycliang/predicators/logs/continual_comparisons_20260912/no-uncertainty-protocol-audit.json).
