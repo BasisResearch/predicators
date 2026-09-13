@@ -1,0 +1,54 @@
+# Isolating carried prior centers
+
+The [Stage B plan](simplification-proposal.md) requires separating the effects of fixed-prior fitting and uncertain initial-state inference.
+The existing cold legacy comparisons contain no previous fit, so they cannot exercise carrying.
+This experiment isolates carrying within the legacy fitter, separately from the new joint sampler and the initial-state ablation.
+
+The implemented legacy policy carries accepted fitted parameter values into subsequent prior centers.
+It does not carry a full posterior density or its covariance.
+An anchored fallback does not update the stored center, and an earlier accepted center can remain stored across later fits that do not replace it.
+The experiment calls the actual `fit_prior_anchors` and `note_carried_posterior` methods to preserve these semantics.
+
+## Paired protocol
+
+Use the same frozen Fan and Domino programs, latest parameter declarations, physical runtime, noise settings, trajectory preparation and legacy width/selection rules as the completed cold comparisons.
+One arm retains registry prior centers; the other enables `code_sim_learning_carry_posterior`.
+Both begin without carried history.
+The fitting prefix grows from 64 to 96 actions, repeats the identical 96-action fit, then uses the complete recording.
+Full recordings contain 132 Fan actions and 161 Domino actions.
+Predictions after each fit use its selected values, and actions beyond that fit's prefix remain unused by fitting.
+The final full-recording fit has no reserved suffix.
+
+Both arms use fixed declared optimizer initial values and pass their own previously selected values to the same hold policy, with no parameter declaration edits.
+Neither uses a fit cache or explainability cache, so the repeated-data stage actually reruns fitting.
+Neither adds a cross-cycle consistency adjustment.
+These choices isolate the carried-center policy; they are not a reconstruction of a complete agent conversation or every production publication path.
+The parameter prior family and initial-state treatment remain those of the legacy fitter.
+In particular, the fixed-center arm is not the new fixed-prior Bayesian estimator.
+
+The first 64-action fit must exactly reproduce the archived cold fit's fitted values, selected values and diagnostic report before later stages proceed.
+The original observed frames must remain unchanged across preparation, fitting and prediction.
+Each stage records its data identity, entering anchors, carried values before and after fitting, selected parameters, legacy widths, full predictions and native computation cost.
+The repeated 96-action stages share an identical data identity.
+
+## Interpretation and execution
+
+The comparison checks whether carrying changes applied parameters, diagnostic widths or predictions, including after a repeated fit with no new evidence.
+Legacy diagnostic widths are not newly asserted to be credible intervals.
+If neither domain carries an accepted center into a later fit, retain that result as an inactive-policy control; it cannot establish that removing active carrying is harmless.
+Active-policy coverage and the remaining five-domain inference comparisons would still be needed.
+
+The frozen bundle is `logs/uncertainty_carried_prior_comparison_20260913`.
+Array `22674821` is submitted to `mit_preemptable`, with six CPUs, 16 GB and a two-hour allocation limit per task on node1412, allowing two concurrent tasks.
+
+| Task | Domain | Carry accepted centers |
+| --- | --- | --- |
+| `22674821_0` | Fan | Off |
+| `22674821_1` | Fan | On |
+| `22674821_2` | Domino | Off |
+| `22674821_3` | Domino | On |
+
+The preceding array `22674643` failed its configuration guard before fitting because the guard compared runtime tuples with JSON lists.
+The serialized configurations were verified identical; the corrected guard normalizes representation before comparison.
+The failed reports and original driver are retained, and those setup outcomes are not agent failures.
+The replacement array is currently queued for resources; no paired outcome is available yet.

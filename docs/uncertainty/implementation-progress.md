@@ -24,6 +24,9 @@ These are offline inference replicas; completed prediction comparisons and numer
 The Fan reserved-suffix forecast path now passes complete-checkpoint recovery, per-particle prefix-factor equality and checks on all 64 saved complete histories using an explicitly unassessed short fixture.
 It retains every positive-weight particle even though all fixture future densities are zero.
 Two forecast follow-ups are submitted with dependencies on successful completion of their individual full prefix fits; no full-fit Fan prediction result is available yet.
+The separate [carried-center comparison](carried-center-comparison.md) now has four paired legacy tasks queued as `22674821`, covering Fan and Domino with carrying off/on.
+Its 64/96/96/full prefix schedule tests both accumulating experience and refitting identical evidence while holding the other legacy mechanisms fixed.
+It explicitly records whether carrying is ever active, rather than treating unchanged results with empty carried history as evidence about removing active carrying.
 
 ## Recent evidence
 
