@@ -90,3 +90,16 @@ This removes the supplied fitting API, not all numerical estimation by the codin
 The frozen prompt originally discouraged custom fitting, so this is a disclosed post hoc interpretation of the existing runs.
 Runtime identifiers and configuration filenames retain `no_fitting` for continuity; frozen runtimes, queued jobs, and scorecards are unchanged.
 See the [audit](/home/ycliang/predicators/logs/continual_comparisons_20260912/no-fitting-protocol-audit.json) and [current results](/home/ycliang/predicators/docs/comparisons/continual-results.md).
+
+
+## Reuse the pilot and extend MB, 2026-09-13
+
+The initial follow-up unnecessarily reran MF seed 0 rather than reusing the successful pilot.
+Inspection confirmed that pilot and follow-up MF flags, arguments, and all `predicators/` runtime files are identical.
+Differences between their commits are documentation, configuration, and tests; there was no agent or environment change requiring a new seed-0 run.
+At the user's request, the primary distinct-seed comparison now uses the original MB/MF seed-0 pilots plus seeds 1 and 2.
+MF therefore has one whole-run success out of three distinct seeds, while the additional seed-0 failure remains separately disclosed.
+MB seeds 1 and 2 are submitted as array `22672483` on `mit_preemptable`, account b, using the exact frozen pilot runtime `3e95b1798c6fc7b6e24dccf0fd0b6702c8801d94` and the original experiment identifier.
+The new configuration is `scripts/configs/predicatorv3/protocol_continual_bridge_span_mb_extension_r1.yaml`.
+Live results are `/home/ycliang/predicators/docs/comparisons/bridge-span-mb-mf-results.md`, refreshed by the adjacent operational reporter on each new MB job's exit.
+If both additional MB seeds succeed, the distinct-seed result will be MB 3/3 versus MF 1/3, a promising small-sample difference rather than a conclusive estimate.
