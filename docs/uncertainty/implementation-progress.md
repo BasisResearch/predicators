@@ -12,6 +12,13 @@ The active work is Stage B offline comparison; Stage C live posterior use and St
 Stage D execution smoothing remains optional and deferred.
 The full plan remains incomplete, and the incumbent estimator remains the production default.
 
+The [Balloons prefix forecast fixture](balloons-prefix-forecasts.md) now covers all 171 reserved actions using a candidate selected only from the 64-action prefix.
+Twelve native histories reproduce that prefix exactly, and the independent reader verifies 25,380 joint factors or draws, 2,136 radial-density evaluations, full native replay and eight corruption rejections.
+Generation has no future-observation lookup; density evaluation separately averages conditional-history contributions while retaining zero-support draws.
+All eight density histories for this preliminary candidate contradict a recorded burst event, so their likelihood contributions are zero; this does not assess the running fitted populations or prove that conditional support is empty.
+Five small initialization-readout perturbations preserve the complete prefix exactly, while a deliberately inconsistent orientation is rejected by the reconstruction guard.
+The next step is to apply the verified forecast mechanics to completed prefix populations with their original weights and assess numerical stability and incumbent prediction differences.
+
 The [canonical Boil forecast path](boil-canonical-forecasts.md) now passes its native fixture, independent full-history verifier and completed-population adapter checks.
 The verifier checks twelve histories and 28,512 joint-transition factors, and rejects eight corrupted records.
 The adapter independently checks weighted moments, zero future support and exact checkpoint recovery, rejects nine additional corruptions, and repeats generated and density-evaluation paths exactly.
