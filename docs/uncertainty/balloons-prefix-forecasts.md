@@ -136,5 +136,8 @@ That finite-sample result is not a proof that the model's true win probability i
 Future-density integration is also unstable: seed 620's two density banks have log means approximately -290,981 and -434,259, while seed 621's are approximately -50,634 and -52,053.
 Retain those bank discrepancies rather than treating a finite mixture density as a converged likelihood estimate.
 Both fitting populations descend from one initial ancestor, so neither the fitting nor the future integration is established as adequate.
-The scheduled incumbent comparison `22693842` is still waiting for resources at this update.
+The scheduled incumbent comparison `22693842` has now completed, with matching source and verification identities.
+The incumbent's box-height RMSE is approximately 0.01000 m and speed RMSE 0.04805 m/s, versus 0.16170/0.09725 m and 0.60338/0.34613 m/s for the two new populations.
+The incumbent also predicts the final win incorrectly; the new populations do not recover it in their generated banks and additionally predict spurious bursts.
+Some individual balloon-coordinate errors improve, so retain the complete feature table rather than describing every metric as worse.
 These outcomes require diagnosis of state/transition assumptions and numerical exploration, not promotion to live planning.

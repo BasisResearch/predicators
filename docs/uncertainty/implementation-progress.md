@@ -42,7 +42,8 @@ All five still contradict exact recorded outputs, starting at actions 1-34 depen
 The [Balloons population forecast adapter](balloons-prefix-forecasts.md#complete-population-forecast-adapter) now passes native replay, nonuniform weighted-summary, zero-density and no-refit checkpoint checks, including twelve malformed-result rejections.
 Both prefix fits, forecast/verifier jobs `22693026` and `22693027`, and paired report `22693044` have completed.
 Every positive-weight particle keeps its original weight, receives eight generated suffixes and eight separate conditional-density draws, and must reproduce its saved prefix likelihood.
-The [Balloons incumbent control](balloons-incumbent-control.md) completed its full fit as `22693806` in 39:11 and its independent complete-trajectory verification as `22693822` in 17 seconds; the comparison remains queued.
+The [Balloons incumbent control](balloons-incumbent-control.md) completed its full fit as `22693806` in 39:11 and its independent complete-trajectory verification as `22693822` in 17 seconds; comparison `22693842` has also completed.
+The incumbent has lower box-height and speed errors than both new populations on this recording, although it also misses the final goal.
 The new populations disagree by 0.21909 m RMS in box height and up to 0.59913 in an individual burst probability, with large density-bank disagreements as well.
 Both assign zero empirical probability to the final win among generated futures; finite forecast completion does not establish reliable uncertainty.
 All three segments survived, but the incumbent's publication rules retained the original applied parameters.
@@ -74,6 +75,14 @@ The selected-point forecast matches the task-goal predicate on all 132 reserved 
 The combined comparison `22691239` has completed and shows substantially worse motion and heating predictions from the new model on this recording.
 Its two jug-x RMSEs are 0.12922/0.12632 m versus 0.00170 m for the incumbent; boiled Brier scores are 0.25314/0.22527 versus 0.00758.
 Both new populations also retain one initial ancestor, so state/discrepancy assumptions and numerical exploration must be isolated before larger-budget fits or live use.
+The [Boil future-joint intervention](boil-joint-noise-attribution.md) now isolates one major motion failure: suppressing future perturbations reduces jug-x errors from tens of centimetres to millimetres on eight preselected fixed candidates, while holding their entire fitting prefixes and parameters constant.
+Both finger and arm perturbations can be harmful, and substantial heating errors remain after removing them.
+The native audit and independent reader completed all 32 intervention histories, eight additional repeats, mask/RNG checks and deliberate corruption rejections.
+The [shared-variance discrepancy](shared-variance-discrepancy.md) therefore replaces a fixed transition scale in a separate offline model with a normalized inverse-gamma variance per joint, integrated during fitting and shared across each generated future.
+Thirteen component tests, focused type/lint/format checks, eight native-prefix comparisons and 2,112 native actions pass; complete target factors agree with independent integration within 3.638e-12.
+Matched 32-particle Boil refits `22699492_0` and `_1` are running with the original physical priors, program, data, sampler configuration and seeds retained.
+The corresponding future fixture completed 1,848 native actions with exact generation/density round trips; independent reader `22699757` also passed, verifying four histories and 9,504 joint factors and rejecting three corruption classes.
+This is a model alternative under evaluation, not a validated posterior or a deployed replacement.
 This compares selected-point and posterior-mean predictions while retaining the explicit differences in initial-state treatment and discrepancy model; it is not an estimator-only ablation or an agent performance result.
 
 The separate [Balloons prefix experiment](balloons-prefix-inference.md) now fits only 64 actions and reserves 171 for later forecasts.
