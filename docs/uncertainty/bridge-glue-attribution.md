@@ -62,6 +62,41 @@ Its first deposition on `span0.glue_end_a` starts at step 57, one step before th
 Consequently, neither denoising the geometry nor fixing the saturation progression is sufficient for this transferred program.
 The diagnosed face-selection and timing errors do not, by themselves, prove that all geometric parameter settings fail.
 
+## Separating face choice from deposition eligibility
+
+A follow-up tests choosing the face whose center is nearest to the bottle tip, followed by a single distance threshold for deposition.
+It uses the historical bottle-tip offset and block-face geometry, without reading private domain mechanics.
+The threshold is chosen by exhaustive search over prediction change points within 10 cm, using only actions 1-124 and minimizing incorrect deposition labels.
+Already saturated faces are excluded from that label loss because another deposition would be invisible in their glue reading.
+No later glue levels enter threshold selection.
+Each geometry source is evaluated separately using either its post-action or pre-action frame.
+
+On clean post-action geometry, the nearest face matches the observed face at all thirteen positive glue transitions across the recording.
+This resolves the face-choice ambiguity at those positive examples, but does not establish a correct deposition trigger.
+The one-distance trigger cannot reproduce the fitting-prefix labels in any of the four cases.
+
+| Supplied geometry | Frame phase | Selected radius | Prefix TP / FP / FN | Suffix TP / FP / FN |
+| --- | --- | ---: | --- | --- |
+| Noisy | Post-action | 0.040166 m | 7 / 6 / 0 | 3 / 1 / 3 |
+| Noisy | Pre-action | 0 m | 0 / 0 / 7 | 0 / 0 / 6 |
+| Clean | Post-action | 0 m | 0 / 0 / 7 | 0 / 0 / 6 |
+| Clean | Pre-action | 0 m | 0 / 0 / 7 | 0 / 0 / 6 |
+
+TP counts correctly predicted positive transitions, FP counts spurious deposition labels, and FN counts missed positive transitions.
+The prefix has 1,825 informative face readings and seven positive transitions; the suffix has 13,702 informative readings and six positive transitions.
+The zero-radius solutions predict no deposition and miss every positive transition; they are failures, not acceptable low-error models.
+All later geometry remains supplied from the recording, and the suffix had already been inspected during prior development diagnostics, so this is neither a causal prediction test nor an untouched validation set.
+The failures do not prove that uncertain latent geometry or a richer physical deposition model has no support.
+
+Compute job `22695397` completed in 16 allocation seconds, followed by independent verifier `22695437` in 17 seconds, both on `node1412` under `mit_preemptable`.
+The verifier uses an independent rotation implementation to check 16,320 finite face distances, agreeing within `2.23e-16` m.
+It independently scores all 148 tested thresholds, verifies that only prefix labels select them, and checks all four candidates' predicted labels and confusion counts.
+The frozen bundle is `logs/uncertainty_bridge_deposition_geometry_20260913/`.
+
+The next geometry hypothesis should preserve the distinction between choosing a face and determining whether a drip reaches it, including height and side-of-plane eligibility.
+A scalar distance alone is insufficient on these supplied trajectories.
+Any revised program still requires causal native replay and a separately frozen estimator comparison.
+
 ## Verification and next work
 
 The frozen bundle is `logs/uncertainty_bridge_glue_attribution_20260913/`.

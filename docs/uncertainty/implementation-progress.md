@@ -15,6 +15,8 @@ The full plan remains incomplete, and the incumbent estimator remains the produc
 The [Bridge glue attribution](bridge-glue-attribution.md) now proves a structural contradiction in the transferred parameterized program, beyond the original no-op control.
 Four exact `0, 0.2, 0.4, 1` progressions cannot arise from its constant-increment deposition law for any parameter setting under the preserved memory contract.
 Six geometry-conditioned development cases and an independent 7,116-step direct-rule verifier complete; clean recorded geometry still exposes wrong face selection and timing, and a saturation correction alone is insufficient.
+The follow-up nearest-face hypothesis identifies the observed face at all thirteen positive clean-geometry transitions, but a single proximity threshold fails the fitting-prefix labels in all four geometry/phase cases.
+An independent rotation and scalar-loss reader verifies 16,320 distances and 148 tested thresholds; face choice and deposition eligibility need separate treatment before causal replay.
 This identifies model revision as the next Bridge action; these conditional diagnostics are not causal forecasts or an accepted posterior.
 
 The [Balloons population forecast adapter](balloons-prefix-forecasts.md#complete-population-forecast-adapter) now passes native replay, nonuniform weighted-summary, zero-density and no-refit checkpoint checks, including twelve malformed-result rejections.
