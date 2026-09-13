@@ -69,8 +69,8 @@ The component checks therefore justify a labeled inference experiment, not a cla
 
 ## Bounded inference comparison
 
-Array `22683118` runs two new replicas, seeds 100 and 101, from the original prior.
-Both startup checks pass and both runs have initialized their 64-particle populations.
+Array `22683118` completed both new replicas, seeds 100 and 101, from the original prior.
+Their allocations took 1:50:43 and 1:50:29 respectively on four CPUs.
 Each uses the same 32 cubic-spaced temperatures, eight moves per temperature, five single-coordinate blocks, scale 0.05, 50/50 local/full-range proposal mixture and 16,448-evaluation budget as the earlier 64-particle point-start comparison.
 The only intended statistical change is the explicitly identified joint-transition model.
 Each allocation requests four CPUs, 20 GB and four hours on node1412 in `mit_preemptable`.
@@ -115,7 +115,7 @@ It independently checks 208,656 Gaussian joint factors, with maximum absolute lo
 Deliberately changed weights, generation/density roles, prefix values, forecast moments, future joints and joint-density factors are all rejected.
 These checks establish artifact consistency and arithmetic for the fixture, not statistical adequacy of its short fit.
 
-The two full forecasts are queued as `22684522_1` and `22684523_2`, each dependent on successful completion of its corresponding fit.
+The two full forecasts, `22684522_1` and `22684523_2`, completed together with their independent verifiers in 11:50 and 11:49 respectively on four CPUs.
 Each checks the frozen fixture-validation gate before generating predictions and runs the independent artifact verifier after finishing.
 The declared forecast budget is two banks of four draws per positive-weight particle plus one separate density history per particle, using four CPUs for at most 45 minutes.
 With all 64 weights positive, this requires 93,058 native actions including the two complete-history repeats.
@@ -128,5 +128,40 @@ Missing forecasts or verification reports leave the comparison incomplete.
 Uncertain initial-state inference, wider development coverage, acceptable inference cost and closed-loop acceptance remain separate requirements.
 
 Comparison-reader validation `22684684` reproduces identical fixture summaries, detects injected position and event regressions, rejects misaligned coordinates and preserves an incomplete status when either new forecast is missing.
-Finite report job `22684725` is queued after both full forecast jobs reach terminal states; it is not a notification monitor.
+Finite report job `22684725` completed after both full forecasts and verifiers; it is not a notification monitor.
 The bundle's `verified-inputs.json` pins the tested scripts, fixture reports and job mapping.
+
+## Completed comparison and larger-budget follow-up
+
+The new replicas agree to 0.215 mm in position means, but their maximum toppling-curve and final-toppling gaps are both 0.166830.
+The final gap exceeds the predeclared 0.15 limit, so the alternative still fails its numerical replication screen.
+The older joint-output model's matched 64-particle pair has 0.880 mm position disagreement and a 0.012149 toppling gap; its separate larger-budget failures remain recorded in the earlier comparison.
+Agreement at this single budget does not approve either model.
+
+| Model and numerical seed | Position RMSE (m) | Toppling Brier score | Final-toppling Brier score | Forecast native actions |
+| --- | ---: | ---: | ---: | ---: |
+| Joint output error, 100 | 0.0114410 | 0.000002870 | 0.000148375 | 10,465 |
+| Joint output error, 101 | 0.0113989 | 0.000003864 | 0.000293803 | 10,465 |
+| Joint transition, 100 | 0.0113551 | 0.000119152 | 0.011549145 | 93,058 |
+| Joint transition, 101 | 0.0113573 | 0.000018461 | 0.001548140 | 93,058 |
+
+These are held-out suffix predictions on one development recording, not solve rates or agent seeds.
+The new model's lower position error accompanies worse toppling scores on this recording.
+Its two future banks differ by 0.084 and 0.158 mm in position means and by 0.013326 and 0.006608 in toppling curves, substantially less than the disagreement between fitted replicas.
+The two full verifiers each check 834,624 joint factors with maximum error 8.882e-16, preserve original weights and reject all six corruption classes.
+
+The new fits retain only six and five initial ancestors.
+Mass medians differ, approximately 0.176 versus 0.113, as do spinning-friction medians, approximately 1.263 versus 0.614.
+The next experiment tests budget sensitivity rather than assuming that more accepted proposals imply reliable uncertainty.
+
+Array `22688869`, in `logs/uncertainty_domino_joint_transition_128_20260913/`, runs matched seeds 100 and 101 with 128 particles and a 32,896-evaluation cap.
+The original prior, law, program, data, temperature schedule and proposal settings are retained.
+Forecast jobs `22689058_0` and `22689059_1` depend on their respective successful fits and reuse the exact verified forecast and reader implementations.
+Each requests four CPUs for at most one hour and checks all generated artifacts after completion.
+The expected cost with 128 positive weights is 185,794 native actions per forecast, including two repeats.
+
+The budget report `22689095` retains all six within-budget and cross-budget comparisons among the four new-model populations.
+Its reader checks matching prior, complete inference identity and all sampler settings except particle/evaluation budgets.
+Reader test `22689104` passes identical-summary, injected-regression and misaligned-coordinate controls and correctly reports the current two-population comparison as incomplete.
+The follow-up forecast/report bundle is `logs/uncertainty_domino_transition_128_forecast_20260913/`.
+All results remain a fixed-initial-state ablation and do not close Stage B.
