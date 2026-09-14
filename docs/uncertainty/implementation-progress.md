@@ -84,6 +84,15 @@ Both new fits remain worse than the incumbent on bubbling prediction, and their 
 Supported initialization improves the initial population but has not established adequate final inference or prediction.
 The validation and forecast work uses a second matching-CPU compute node with exact prefix/replay checks; the frozen fitting inputs are unchanged.
 
+The [Boil heating investigation](boil-unobserved-heating.md) now identifies an information limitation in that 132-action prefix: its exact burner observations are all off, so the frozen model cannot constrain burner radius, heating onset or heating width.
+Forty verified fixed-history interventions preserve the full fitting score; changing only onset and width to the incumbent defaults removes the bubbling error on all eight selected future paths.
+The incumbent itself reports these parameters as unconstrained and retains their defaults.
+An explicit conditional-prior integration now covers all three heating parameters across all 512 weighted generated histories, with independent order-statistic and integral verification over 67,584 future frames.
+It uses no additional native actions, improves bubbling RMSE from 0.3386/0.3164 to 0.2873/0.2965, and reduces between-fit final-goal disagreement from 0.2054 to 0.0247.
+These moment calculations preserve the other fitted coordinates and weights; they neither establish full numerical adequacy nor supply a new future-density estimate.
+This motivates an explicitly factorized inference representation and an additional informative-heating prefix, while retaining the original extrapolation case and incumbent default.
+
+
 The [Bridge causal future generator](bridge-causal-futures.md) now passes four complete native histories and an independent joint/reach/memory reader, totaling 4,744 actions.
 It preserves the checked 600-action prefix and generates the 586-action suffix without future observations, retaining one sampled variance per joint throughout each continuation.
 The [complete Bridge joint target](bridge-joint-inference.md) now composes the original parameter/scene priors, exact-rate/latch factors and corrected scene/parameter proposals.
