@@ -131,3 +131,22 @@ Their assessments correctly remain `unevaluated`, with no usable assessed poster
 Independent native readers `22762491`, `22762503` and `22762497` and their complete forecasts remain pending.
 The final guided fit and complete verified forecasts are still required for the planned comparison.
 Artifact consistency and sampler completion do not establish numerical adequacy, predictive improvement or an agent result.
+
+### Where ancestry is lost
+
+The saved stage records begin with 32 supported initial lineages in each completed fit.
+They reach a single lineage during tempering, rather than starting with only one supported initialization.
+Here beta is the exponent on the remaining likelihood, reaching one at the final stage.
+
+| Proposal and numerical seed | First single-lineage stage | Beta at that stage | Minimum pre-resampling ESS, out of 32 | Final-stage move acceptance |
+| --- | ---: | ---: | ---: | ---: |
+| Uniform 410 | 47 | 0.02404 | 1.0013 | 40.23% |
+| Guided 410 | 55 | 0.13895 | 1.6079 | 42.97% |
+| Uniform 411 | 44 | 0.01245 | 7.3005 | 37.11% |
+
+These values are reconstructed from the completed reports' stage records, with final-stage acceptance computed from the increment in accepted and attempted moves.
+Guided seed 410 retains multiple original lineages farther into tempering than its uniform counterpart, but the unfinished second guided fit and missing verified forecasts prevent a general improvement claim.
+Ancestry records descent from initialization, not the number of current modes: later invariant moves can change states without creating new ancestor labels.
+The nonzero acceptance rates therefore neither remove the ancestry warning nor prove adequate exploration of every parameter and state block.
+They aggregate heterogeneous proposal blocks and are not per-parameter mixing diagnostics.
+Native replay verification, independent fits, budget sensitivity and prediction checks remain necessary.
