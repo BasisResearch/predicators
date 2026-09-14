@@ -35,12 +35,36 @@ The noisy observations do not satisfy it at any reserved step.
 Task-outcome predictions must therefore be assessed against the clean reference, while noisy observation errors are reported separately.
 An earlier preparation attempt rejected equivalent tuple/list feature-key representations; the corrected comparison normalizes the key containers without altering measurements.
 
-## Remaining population comparison
+## Weighted population driver and checks
 
-After the adapter reader passes, the complete-population driver must retain every positive-weight fitted candidate, its original weight and one complete joint state throughout each generated future.
-Repeated future draws should be separated into independent banks so forecast sampling variability can be distinguished from differences between the two fitted populations.
-The recorded-future density must retain zero-support contributions and combine candidates using their original weights.
-Final assessment must include block-position errors, glue-state events, geometric goal probabilities, numerical replica differences and actual inference/forecast cost, alongside the existing incumbent comparison.
-Neither completed simulation nor a finite future density is sufficient for predictive acceptance.
+The complete-population driver retains every positive-weight fitted candidate with its original weight and complete joint state throughout each generated future.
+It checks that the fit and checkpoint are complete, that their weights and samples agree, and that data, program and probability-model identities match the reserved assessment.
+Its source guard rejects ten malformed or unfinished input cases before generating a future.
+These forecasts assess raw completed numerical pilots; they do not bypass the production interface's requirement for an assessed posterior.
+
+Each positive-weight candidate receives two independent banks of four complete generated futures and one separate conditional-density evaluation of the recorded suffix.
+Generated tasks receive no reserved observations.
+All candidate preparation and future simulation steps are counted.
+Zero-density contributions remain in the weighted density mixture, with no removal or renormalization of their source mass.
+The summaries include block-position errors, glue predicate probabilities, geometric goal probabilities, forecast-bank differences and complete recorded-future density.
+
+A finite-mixture reference verifies unequal weights and a zero-density contribution; eight corruption cases reject missing, duplicated, relabeled or reweighted histories.
+Native fixture `22707973` completed in 2:47 with 13,060 simulator actions, using two fixed support points with weights 0.25 and 0.75 and two draws per bank.
+These chosen weights are test inputs, not posterior estimates.
+Independent readers `22708064` and `22708157` completed in 3:01 and 3:02, checking every history's factors and weighted sums and repeating a generated and recorded-future path in fresh simulators.
+The second reader additionally checks original checkpoint weights for full-population inputs, all reported glue metrics and a roundoff-tolerant final probability comparison.
+Separate check `22708224` reconstructs the bank-difference metrics through an independent dense weighted calculation.
+
+## Queued full comparison
+
+Forecast jobs `22708283` and `22708284` are queued behind the corresponding full-fit verifiers `22707128` and `22707130`.
+They will be followed by forecast readers `22708285` and `22708286`, including bank checks, then comparison `22708287` against the existing incumbent forecast.
+Each forecast and reader has a 16-CPU, 64-GB, three-hour allocation on `node1412` in `mit_preemptable`.
+The final comparison also reports fitting cost, forecast cost, lineage loss and differences between the numerical replicas.
+
+The full fitted-population forecasts are not yet complete.
+Neither completed simulation nor finite future density is sufficient for predictive acceptance.
 
 Adapter artifacts are in `logs/uncertainty_bridge_forecast_adapter_20260913/`, its reader in `logs/uncertainty_bridge_forecast_adapter_verification_20260913/`, and reserved assessment inputs in `logs/uncertainty_bridge_forecast_assessment_20260913/`.
+
+The weighted driver is in `logs/uncertainty_bridge_population_forecast_20260913/`; full verification and comparison use `logs/uncertainty_bridge_population_forecast_verification_v2_20260913/`.

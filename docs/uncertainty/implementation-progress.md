@@ -26,6 +26,9 @@ Paired full fitting pilots `22706932` are running with 64 temperatures, blocked 
 Both have completed their first two temperature steps with all 32 initial lineages retained; these very early diagnostics do not establish adequate exploration.
 The [generalized forecast adapter](bridge-posterior-forecasts.md) passes native checks on two complete joint candidates, with 10,688 actions and exact generated/density histories; the independent reader also passes for both candidates.
 The reserved assessment is prepared: the clean geometric bridge goal is true only at the final step, while direct evaluation of noisy observations misses it throughout the suffix.
+The weighted population driver now passes a 13,060-action native fixture, independent per-history and mixture checks, ten source guards, eight malformed-history rejections and separate forecast-bank checks.
+Full forecasts `22708283` and `22708284`, their readers `22708285` and `22708286`, and incumbent comparison `22708287` are queued behind the live fit verifiers.
+No full-population prediction result or replacement acceptance is available yet.
 The Bridge fixture separately tempers all finite reduced-target factors while keeping exact support hard and preserving the final target.
 The [conditional future-density audit](bridge-future-density.md) also passes, with 8,318 native actions and independent variance, reach and output-factor checks.
 The generated histories reproduce exactly, but the fixed starting candidate gives very low likelihood to the recorded suffix, dominated by continuous output disagreement.
