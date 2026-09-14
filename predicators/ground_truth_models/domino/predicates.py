@@ -6,7 +6,9 @@ InFrontDirection, InFront, AdjacentTo) are defined canonically by
 single source of truth.
 """
 
-from typing import Dict, Sequence, Set
+from typing import Dict, Sequence, Set, Tuple
+
+import numpy as np
 
 from predicators.ground_truth_models import GroundTruthPredicateFactory
 from predicators.settings import CFG
@@ -22,7 +24,8 @@ class PyBulletDominoGroundTruthPredicateFactory(GroundTruthPredicateFactory):
             "pybullet_domino", "pybullet_domino_real",
             "pybullet_domino_real_geometry", "pybullet_domino_fan",
             "pybullet_domino_declare",
-            "pybullet_domino_blow"
+            "pybullet_domino_blow",
+            "pybullet_domino_blow_real"
         }
 
     @classmethod
@@ -34,7 +37,7 @@ class PyBulletDominoGroundTruthPredicateFactory(GroundTruthPredicateFactory):
         grid predicates. Only oracle / process-planning approaches
         consume these helpers; agent approaches run grid-free.
         """
-        if env_name == "pybullet_domino_blow":
+        if env_name in BLOW_ENVS:
             return _blow_helper_predicates(types)
 
         from predicators.envs.pybullet_domino.components.grid_component import \
@@ -43,6 +46,29 @@ class PyBulletDominoGroundTruthPredicateFactory(GroundTruthPredicateFactory):
 
 
 # ── Blow task: the one thing the oracle knows and a learner must not ──
+
+# The generated blow task and its real-bench twin share one model: the
+# same block, the same gust, the same patch. They differ in where the fan
+# stands and which way it blows, which every reader below takes from the
+# fan object rather than assuming +x.
+BLOW_ENVS = frozenset({"pybullet_domino_blow", "pybullet_domino_blow_real"})
+
+
+def blow_wind_dir(state: State) -> Tuple[float, float]:
+    """Unit vector the blow task's fan blows along, in world xy.
+
+    Read off the fan's ``rot``, which is the heading the wind force is
+    applied along (``FanComponent._apply_wind_force`` rotates local +x
+    by the fan body's orientation, and the body is posed at ``rot``).
+    The generated task's fan has rot 0 and blows +x; the real bench's
+    blows wherever the cameras saw it pointing. Falls back to +x when
+    the state has no fan, which only a unit test's stub state does.
+    """
+    fans = [o for o in state if o.type.name == "fan"]
+    if not fans:
+        return (1.0, 0.0)
+    yaw = float(state.get(fans[0], "rot"))
+    return (float(np.cos(yaw)), float(np.sin(yaw)))
 
 
 def _blow_slide_distance() -> float:
@@ -96,17 +122,20 @@ def _blow_helper_predicates(types: Dict[str, Type]) -> Set[Predicate]:
         domino, region = objects
         if state.get(domino, "is_held") > 0.5:
             return False
-        gx = float(state.get(region, "x"))
         half_x = float(state.get(region, "half_x"))
         half_y = float(state.get(region, "half_y"))
-        # The fan blows +x, so the block travels from upwind toward the
-        # patch. Half a patch of slack at the upwind end is the
-        # placement tolerance; the far edge closes the corridor.
-        lo = gx - _blow_slide_distance() - half_x
-        hi = gx + half_x
-        x = float(state.get(domino, "x"))
-        dy = abs(float(state.get(domino, "y")) - float(state.get(region, "y")))
-        return lo <= x <= hi and dy <= half_y
+        # The block travels from upwind toward the patch, along the
+        # fan's axis: ``along`` is its offset from the patch centre in
+        # that direction, ``across`` the offset off the axis. Half a
+        # patch of slack at the upwind end is the placement tolerance;
+        # the far edge closes the corridor.
+        dx, dy = blow_wind_dir(state)
+        rx = float(state.get(domino, "x")) - float(state.get(region, "x"))
+        ry = float(state.get(domino, "y")) - float(state.get(region, "y"))
+        along = rx * dx + ry * dy
+        across = abs(-rx * dy + ry * dx)
+        lo = -_blow_slide_distance() - half_x
+        return lo <= along <= half_x and across <= half_y
 
     return {
         Predicate("ReadyToBlow", [domino_type, region_type], _ready_holds)

@@ -139,7 +139,7 @@ class DominoTaskGenerator(TaskGenerator):
         straight-only. Ignored on the min-block path, which fills its
         own quota from the same ratio.
         """
-        if CFG.env == "pybullet_domino_blow":
+        if getattr(CFG, "env", "") == "pybullet_domino_blow":
             return self._generate_blow_task(task_idx, rng)
         if CFG.domino_min_block_tasks:
             return self._generate_min_block_task(task_idx, rng)

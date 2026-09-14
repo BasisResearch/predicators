@@ -7,6 +7,8 @@ import torch
 
 from predicators.ground_truth_models import GroundTruthProcessFactory, \
     GroundTruthSamplerFactory
+from predicators.ground_truth_models.domino.predicates import \
+    BLOW_ENVS
 from predicators.settings import CFG
 from predicators.structs import Array, CausalProcess, EndogenousProcess, \
     ExogenousProcess, GroundAtom, LiftedAtom, Object, ParameterizedOption, \
@@ -202,7 +204,8 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
             "pybullet_domino_grid", "pybullet_domino", "pybullet_domino_real",
             "pybullet_domino_real_geometry", "pybullet_domino_fan",
             "pybullet_domino_declare",
-            "pybullet_domino_blow"
+            "pybullet_domino_blow",
+            "pybullet_domino_blow_real"
         }
 
     @classmethod
@@ -211,7 +214,7 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
                                             Type], predicates: Dict[str,
                                                                     Predicate],
             options: Dict[str, ParameterizedOption]) -> Set[CausalProcess]:
-        if env_name == "pybullet_domino_blow":
+        if env_name in BLOW_ENVS:
             # A different task, so a different model rather than the
             # cascade one with pieces disabled: no chain, no topple, no
             # grid. One block, one gust, one patch to land it in.
@@ -795,7 +798,8 @@ class PyBulletDominoGroundTruthSamplerFactory(GroundTruthSamplerFactory):
             "pybullet_domino_grid", "pybullet_domino", "pybullet_domino_real",
             "pybullet_domino_real_geometry", "pybullet_domino_fan",
             "pybullet_domino_declare",
-            "pybullet_domino_blow"
+            "pybullet_domino_blow",
+            "pybullet_domino_blow_real"
         }
 
     @classmethod
@@ -823,7 +827,7 @@ def _blow_place_sampler(state: State, subgoal_atoms: Set[GroundAtom],
     del subgoal_atoms, objects
     # pylint: disable-next=import-outside-toplevel
     from predicators.ground_truth_models.domino.predicates import \
-        _blow_slide_distance
+        _blow_slide_distance, blow_wind_dir
     regions = [o for o in state if o.type.name == "region"]
     held = [
         o for o in state
@@ -832,23 +836,28 @@ def _blow_place_sampler(state: State, subgoal_atoms: Set[GroundAtom],
     if not regions or len(held) != 1:
         raise ValueError("blow place sampler: need a region and a held block")
     region = regions[0]
-    x = float(state.get(region, "x")) - _blow_slide_distance()
-    y = float(state.get(region, "y"))
+    # One slide-length UPWIND of the patch, along the fan's axis.
+    dx, dy = blow_wind_dir(state)
+    back = _blow_slide_distance()
     # A hair of jitter so backtracking can re-draw rather than retrying
     # an identical pose, kept well inside the patch's own tolerance.
-    x += float(rng.uniform(-0.005, 0.005))
+    back += float(rng.uniform(-0.005, 0.005))
+    x = float(state.get(region, "x")) - back * dx
+    y = float(state.get(region, "y")) - back * dy
     # The canonical release height, NOT the held block's current z: the
     # Place option's release_z is where the GRIPPER opens (its declared
     # range is 0.5-0.6), and the block's carried z is neither that nor
     # inside it, so every refinement was asking for a drop the skill
     # could not make.
-    # yaw pi/2 puts the block's WIDE face into the wind. Dropping it at
-    # yaw 0 leaves the narrow edge facing the gust, which the wind
-    # creeps along without ever tipping: measured 5.0 cm and roll 0.000
-    # where the same force on a turned block gives 14.4 cm and flat.
-    # The generator stages the block turned; the placement has to keep
-    # it that way.
-    return np.array([x, y, _DOMINO_DROP_Z, np.pi / 2], dtype=np.float32)
+    # The block's WIDE face into the wind. Dropping it edge-on leaves
+    # the narrow edge facing the gust, which the wind creeps along
+    # without ever tipping: measured 5.0 cm and roll 0.000 where the
+    # same force on a turned block gives 14.4 cm and flat. A domino's
+    # yaw is the heading of its width axis, so facing the wind means the
+    # width axis lies ACROSS it: wind yaw + pi/2 (pi/2 for the generated
+    # task's +x fan, which is what its generator stages).
+    yaw = float(np.arctan2(dy, dx)) + np.pi / 2
+    return np.array([x, y, _DOMINO_DROP_Z, yaw], dtype=np.float32)
 
 
 def _get_blow_processes(
@@ -919,6 +928,14 @@ def _get_blow_processes(
     # PickBlock, <trigger>, PlaceUpwind - which blows the gust across an
     # empty table while the arm is still carrying the thing it was
     # supposed to move.
+    # On the real bench the trigger is a momentary button pressed from
+    # above; the process is the same, the skill under it is Press and it
+    # takes no parameters.
+    if "Press" in options:
+        trigger_option, trigger_sampler = options["Press"], null_sampler
+    else:
+        trigger_option, trigger_sampler = (options["TurnFanOn"],
+                                           _switch_push_sampler)
     processes.add(
         EndogenousProcess(
             "TurnFanOn", [robot, fan, block, region], {
@@ -934,8 +951,8 @@ def _get_blow_processes(
             {LiftedAtom(FanOff, [fan])},
             DiscreteGaussianDelay(mu=torch.tensor(1.0),
                                   sigma=torch.tensor(0.1)),
-            torch.tensor(1.0), options["TurnFanOn"], [robot, fan],
-            _switch_push_sampler, incidental))
+            torch.tensor(1.0), trigger_option, [robot, fan],
+            trigger_sampler, incidental))
 
     # The gust. Exogenous: the robot never carries the block in.
     # condition_overall as well as condition_at_start: the gust only

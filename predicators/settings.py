@@ -932,6 +932,35 @@ class GlobalSettings:
     # plan is the one case that wants it (the plan was written against those
     # poses), which is why replay_plan turns it on.
     real_robot_allow_captured_scene_task = False
+    # -- the blow task on the real bench (pybullet_domino_blow_real) ---------
+    # The scene comes from domino_real_scene, in the shape
+    # BabyRobotPredicator's real_skills/fan_scene_export.py writes: one
+    # block plus the fan, button and goal patch under "fixtures".
+    #
+    # How long the robot holds the button, in seconds. The button is
+    # momentary, so this IS the gust: it is the number the fan
+    # calibration (captures/fan_calibration.jsonl) is taken against, and
+    # the executor ships it on the press segment. The SIM's hold is
+    # domino_blow_wind_steps policy steps, so the twin's gust is the one
+    # its slide curve was measured over; the two are reconciled by the
+    # fit, which turns a measured slide into domino_blow_wind_force.
+    domino_blow_real_hold_s = 4.0
+    # Press geometry. The transit to the button crosses at hover +
+    # approach; on the bench the fan stands 13.5 cm from the button and a
+    # 5 cm crossing skimmed it, so the approach is high. The pad (the
+    # closed fingertips' bottom edge) sits below the EE's control point by
+    # pad_below_tcp; measured 10.7 mm on this hand
+    # (press_calibration.json). The sim descends the plunger's full 4 mm
+    # travel; on the bench the guarded press stops itself.
+    domino_blow_real_press_approach_m = 0.12
+    domino_blow_real_press_hover_m = 0.01
+    domino_blow_real_press_depth_m = 0.004
+    domino_blow_real_pad_below_tcp_m = 0.0107
+    # Where the guarded press's triggers come from. "" reads the
+    # calibration beside the button asset in BabyRobotPredicator
+    # (markerless_estimation/assets/button_arcade60_proxy/
+    # press_calibration.json); a path overrides it.
+    real_robot_press_calibration_json = ""
     # Reach-limited "minimum-blocks" task mode: generate start/target pairs
     # spaced so that toppling requires bridging near the reach limit, and
     # attach each task a ``DominoEvaluator``. Success = toppling the target

@@ -535,7 +535,7 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
                     stop_when_toppled=True,
                     force=CFG.domino_fan_wind_force)
                 return
-        if CFG.env == "pybullet_domino_blow":
+        if self._blows_a_plain_block():
             # Expected, not a fault: the blow task has one plain block
             # and no chain, so there is no green start block to aim at
             # and PyBulletDominoBlowEnv re-aims the wind itself right
@@ -545,6 +545,12 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
         logging.warning(
             "Fan env has no start (green) domino in this task; leaving the "
             "wind target unchanged.")
+
+    def _blows_a_plain_block(self) -> bool:
+        """Whether this env's wind targets a plain block rather than a
+        chain's green start (see PyBulletDominoBlowEnv). Overridden there;
+        a class test here would need a forward reference."""
+        return False
 
     def _domain_specific_step(self) -> None:
         """Run component physics updates (e.g., fan wind simulation)."""
@@ -1230,6 +1236,9 @@ class PyBulletDominoBlowEnv(PyBulletDominoFanEnv):
     @classmethod
     def get_name(cls) -> str:
         return "pybullet_domino_blow"
+
+    def _blows_a_plain_block(self) -> bool:
+        return True
 
     def _set_domain_specific_state(self, state: State) -> None:
         super()._set_domain_specific_state(state)

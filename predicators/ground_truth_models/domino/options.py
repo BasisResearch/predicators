@@ -12,8 +12,9 @@ from predicators.envs.pybullet_domino import PyBulletDominoEnv
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
 from predicators.ground_truth_models.skill_factories import SkillConfig, \
-    create_pick_skill, create_place_skill, create_push_skill, \
-    create_wait_option, shared_skill_robot, shared_skill_simulator
+    create_pick_skill, create_place_skill, create_press_skill, \
+    create_push_skill, create_wait_option, shared_skill_robot, \
+    shared_skill_simulator
 from predicators.ground_truth_models.skill_factories.declare import \
     create_declare_option
 from predicators.ground_truth_models.skill_factories.pick import _PICK_PARAMS
@@ -54,10 +55,18 @@ _DECLARE_TRIGGER_ENVS = frozenset({
     "pybullet_domino_declare",
 })
 
+# Envs where the fan's switch is a momentary BUTTON the robot presses from
+# above and holds -- the real bench. The option is Press, not TurnFanOn:
+# the fan runs while the button is held and stops when it is let go.
+_PRESS_TRIGGER_ENVS = frozenset({
+    "pybullet_domino_blow_real",
+})
+
 _WIND_STARTED_ENVS = frozenset({
     "pybullet_domino_fan",
     "pybullet_domino_declare",
     "pybullet_domino_blow",
+    "pybullet_domino_blow_real",
 })
 
 
@@ -83,7 +92,8 @@ class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
             "pybullet_domino_grid", "pybullet_domino", "pybullet_domino_real",
             "pybullet_domino_real_geometry", "pybullet_domino_fan",
             "pybullet_domino_declare",
-            "pybullet_domino_blow"
+            "pybullet_domino_blow",
+            "pybullet_domino_blow_real"
         }
 
     @classmethod
@@ -154,6 +164,10 @@ class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
             if CFG.env in _DECLARE_TRIGGER_ENVS:
                 options.add(
                     create_declare_option("DeclareFinished", cfg, robot_type))
+            elif CFG.env in _PRESS_TRIGGER_ENVS:
+                options.add(
+                    cls._create_sf_press(cfg, robot_type, types["switch"],
+                                         types.get("fan")))
             else:
                 options |= cls._create_sf_switch_options(
                     cfg, robot_type, types["switch"], types.get("fan"))
@@ -228,6 +242,54 @@ class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
                               config=push_cfg,
                               get_target_pose_fn=_off_pose),
         }
+
+    @classmethod
+    def _create_sf_press(cls, cfg: SkillConfig, robot_type: Type,
+                         switch_type: Type,
+                         fan_type: Optional[Type]) -> ParameterizedOption:
+        """Press the fan's button from above and hold it.
+
+        The real bench's fan is on a momentary arcade button: the press
+        IS the gust, held for ``CFG.domino_blow_real_hold_s`` on the arm
+        and ``CFG.domino_blow_wind_steps`` in the twin. The button is the
+        env's ``switch`` object, whose ``z`` is the plunger's top. Under
+        ``fan_known_controls_relation`` the option's second argument is
+        the FAN, as for TurnFanOn, and the button is found from it.
+        """
+        known = CFG.fan_known_controls_relation and fan_type is not None
+        control_type = fan_type if known else switch_type
+        assert control_type is not None
+
+        def _button_top(state: State, objects: Sequence[Object],
+                        params: Array,
+                        config: SkillConfig) -> Tuple[float, float, float]:
+            del params, config
+            _, control = objects
+            if known:
+                button = next(
+                    (sw for sw in state.get_objects(switch_type)
+                     if state.get(sw, "controls_fan") == state.get(
+                         control, "facing_side")), None)
+                if button is None:
+                    raise utils.OptionExecutionFailure(
+                        "No button found for fan (controls_fan mismatch)")
+            else:
+                button = control
+            return (state.get(button, "x"), state.get(button, "y"),
+                    state.get(button, "z"))
+
+        return create_press_skill(
+            name="Press",
+            types=[robot_type, control_type],
+            config=cfg,
+            get_button_top_fn=_button_top,
+            hold_steps=CFG.domino_blow_wind_steps,
+            hold_seconds=CFG.domino_blow_real_hold_s,
+            approach_above_m=CFG.domino_blow_real_press_approach_m,
+            hover_above_m=CFG.domino_blow_real_press_hover_m,
+            press_depth_m=CFG.domino_blow_real_press_depth_m,
+            pad_below_tcp_m=CFG.domino_blow_real_pad_below_tcp_m,
+            ee_yaw=cfg.robot_init_wrist)
 
     @classmethod
     def _build_skill_config(
