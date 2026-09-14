@@ -12,6 +12,16 @@ The active work is Stage B offline comparison; Stage C live posterior use and St
 Stage D execution smoothing remains optional and deferred.
 The full plan remains incomplete, and the incumbent estimator remains the production default.
 
+The [Boil supported-inference diagnostic](boil-supported-inference.md) now reproduces the original first-update concentration on both shared-variance seeds.
+The original base weights already have effective sample sizes 2.264 and 1.074 before the remaining trajectory likelihood is introduced.
+Whole-joint rejection collects 32 finite candidates in 132 and 128 evaluations; placing all finite factors under tempering preserves the final target and gives initial-temperature effective sample sizes 31.700 and 31.815 on those same retained populations.
+Both corrected independent readers pass all retained native targets, rejection/RNG and checkpoint checks, scalar ESS references, and six corruption controls.
+The initial diagnostic performs 29,304 native actions across both seeds, and fresh reader verification adds 8,448.
+The original reader's report-field naming error is preserved separately; it is a checker failure rather than a model or agent outcome.
+Both small fitting fixtures and their numerical/native readers have now passed, including exact complete proposal/target/checkpoint traces and every final native target.
+Full paired fits `22709091` and `22709092` are running on the compute node, with full-fit readers `22709093` and `22709094` dependent afterward.
+These compare the same original Boil target under supported initialization and a 64-stage finite-factor tempering path; stable final inference and reserved-future prediction improvement remain unproven.
+
 The [Bridge causal future generator](bridge-causal-futures.md) now passes four complete native histories and an independent joint/reach/memory reader, totaling 4,744 actions.
 It preserves the checked 600-action prefix and generates the 586-action suffix without future observations, retaining one sampled variance per joint throughout each continuation.
 The [complete Bridge joint target](bridge-joint-inference.md) now composes the original parameter/scene priors, exact-rate/latch factors and corrected scene/parameter proposals.
