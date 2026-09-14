@@ -2,9 +2,9 @@
 
 September 14, 2026.
 All four short joint-inference fits are complete and independently verified.
-Replacement full fits are running, with remaining work queued for resources or prerequisite verification.
+The first replacement full fit has completed; the other three remain running, with subsequent work queued for resources or prerequisite verification.
 All four forecast fixtures have completed with successful independent readers.
-All four full fits are now running.
+Its independent native reader and complete forecast remain pending.
 The incumbent selected-point control is also complete and independently verified.
 Stage B numerical and predictive acceptance remains open.
 
@@ -77,7 +77,7 @@ These fixture checks establish implementation consistency, not posterior adequac
 
 ## Pending-check allocation and completed partial comparison
 
-All four full fits occupy `node1411`.
+The four full fits were allocated on `node1411`.
 Pending fixture `22762514`, its reader `22762515` and partial report check `22762655` were moved to the idle, previously audited matching-CPU `node1412`.
 The CPU match and earlier exact-replay requirements are documented in the [supported-inference validation](boil-supported-inference.md).
 These are scheduler node-assignment changes only: the job IDs, restart counts, dependencies, resource budgets and frozen input hashes were checked unchanged.
@@ -104,3 +104,17 @@ The clean positional RMSE values are approximately 0.041 mm, 6.502 mm and 8.005 
 
 This is the incumbent's selected-point prediction on one development recording, not a new agent solve-rate seed or a test of its full planning ensemble.
 There is still no completed matched posterior performance comparison.
+
+## First full fit completed
+
+Uniform-proposal numerical seed 410, job `22762490`, completed all 64 temperatures in a 2:16:13 allocation on four CPUs.
+It used 14,870 target evaluations and recorded 2,619,904 native actions across 11,822 physical evaluations.
+The saved 32-particle, 84-coordinate population and weights match the checksummed final checkpoint exactly.
+The frozen plan, driver and complete evaluation-ledger hashes also match their report references.
+The result checksum is `a56b070e92ab1e8ad4aef55d1f823fe7d4713e346a0d8c2c2dfd0775ed193822`.
+
+The fit retains one initial lineage after fifteen resampling events.
+That warns about exploration, but does not independently determine the accuracy of every posterior quantity.
+Its assessment correctly remains `unevaluated`, with no usable assessed posterior published.
+Independent native reader `22762491` and full forecast `22762494` remain pending, as do the comparisons with the other three full fits.
+Artifact consistency and sampler completion do not establish numerical adequacy, predictive improvement or an agent result.
