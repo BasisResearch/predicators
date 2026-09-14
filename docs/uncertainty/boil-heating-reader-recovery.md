@@ -3,7 +3,7 @@
 September 14, 2026.
 All four short joint-inference fits are complete and independently verified.
 Replacement full fits are running, with remaining work queued for resources or prerequisite verification.
-Both uniform-arm forecast fixtures and the first guided fixture have completed with successful independent readers.
+All four forecast fixtures have completed with successful independent readers.
 All four full fits are now running.
 The incumbent selected-point control is also complete and independently verified.
 Stage B numerical and predictive acceptance remains open.
@@ -69,6 +69,9 @@ Each checks all 96 generated or density histories, 228,096 joint factors, the in
 The readers use 9,712 and 5,904 native steps for numerical seeds 410 and 411 respectively.
 Guided seed 410 reader `22762509` also passes all 96 histories and 228,096 joint factors, including two fresh histories and an independently computed weighted summary.
 It uses 9,936 native steps.
+Guided seed 411 reader `22762515` also passes the same checks on the previously audited matching-CPU `node1412`, using 5,904 native steps.
+All four readers together verify 384 histories and 912,384 joint factors, including eight fresh complete histories, with 31,456 native steps.
+The final reader completed in 2:28, and its source and checker hashes were checked after completion.
 The full posterior comparisons still depend on the full fitting and forecast results.
 These fixture checks establish implementation consistency, not posterior adequacy.
 
@@ -85,7 +88,7 @@ Report check `22762655` then completed in nineteen seconds.
 Its `legacy-partial.json` correctly reads the completed incumbent, verifies the saved feature and event scores, and retains the posterior comparison as pending with no differences assigned.
 All four referenced source hashes and its script and plan hashes were checked after completion.
 This exercises the actual completed-incumbent branch that the earlier pending-input fixture could not exercise.
-The final guided forecast fixture is now running on `node1412` and remains subject to its independent reader.
+The final guided forecast fixture and its independent reader subsequently completed on `node1412`, retaining the complete numerical, mapping and native replay checks.
 
 ## Verified incumbent result
 
