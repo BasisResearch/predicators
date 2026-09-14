@@ -146,13 +146,12 @@ class RealBenchFanComponent(FanComponent):
             c * _BUTTON_HOLDER_HALF_M,
             self._button_top_z - _BUTTON_PLUNGER_TOP_M,
         ])
-        button_id = p.loadURDF(
-            urdf,
-            basePosition=corner.tolist(),
-            baseOrientation=p.getQuaternionFromEuler([0.0, 0.0,
-                                                      self._button_yaw]),
-            useFixedBase=True,
-            physicsClientId=physics_client_id)
+        button_id = p.loadURDF(urdf,
+                               basePosition=corner.tolist(),
+                               baseOrientation=p.getQuaternionFromEuler(
+                                   [0.0, 0.0, self._button_yaw]),
+                               useFixedBase=True,
+                               physicsClientId=physics_client_id)
         self._button_joint_id = self._get_joint_id(button_id, _BUTTON_JOINT)
         assert self._button_joint_id >= 0, \
             f"button URDF {urdf} has no joint {_BUTTON_JOINT!r}"
@@ -192,8 +191,11 @@ class RealBenchFanComponent(FanComponent):
     # -- the button's bit ------------------------------------------------
 
     def _is_switch_on(self, switch_id: int) -> bool:
-        """Pressed past actuation. The button is momentary: this is true
-        only while something holds the plunger down."""
+        """Pressed past actuation.
+
+        The button is momentary: this is true only while something holds
+        the plunger down.
+        """
         if self._button_joint_id < 0:
             return False
         q = p.getJointState(switch_id,
@@ -217,9 +219,10 @@ class RealBenchFanComponent(FanComponent):
 
     # -- state -----------------------------------------------------------
 
-    def get_init_dict_entries(self,
-                              rng: "np.random.Generator",
-                              all_off: bool = True) -> Dict[Object, Dict[str, Any]]:
+    def get_init_dict_entries(
+            self,
+            rng: "np.random.Generator",
+            all_off: bool = True) -> Dict[Object, Dict[str, Any]]:
         del rng, all_off  # the bench starts with the fan off, always
         fan_obj, switch_obj = self._fans[0], self._switches[0]
         init_dict: Dict[Object, Dict[str, Any]] = {

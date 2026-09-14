@@ -412,10 +412,10 @@ class FanComponent(DominoEnvComponent):
 
         The switch joint IS the stored bit -- ``extract_feature`` reads
         a fan's ``is_on`` off the switch that controls its side -- so
-        setting the fan means setting that joint. Written for envs
-        where the fan has no reachable button and something else
-        decides (see PyBulletDominoDeclareEnv). In the button envs
-        nothing calls this and the press remains the only cause.
+        setting the fan means setting that joint. Written for envs where
+        the fan has no reachable button and something else decides (see
+        PyBulletDominoDeclareEnv). In the button envs nothing calls this
+        and the press remains the only cause.
         """
         for switch in self._switches:
             self._set_switch_on(switch.id, on)
@@ -489,8 +489,8 @@ class FanComponent(DominoEnvComponent):
         even if that constant moves.
         """
         # pylint: disable-next=import-outside-toplevel
-        from predicators.envs.pybullet_domino.components.domino_component \
-            import DominoComponent
+        from predicators.envs.pybullet_domino.components.domino_component import \
+            DominoComponent
         _, orn = p.getBasePositionAndOrientation(
             target_id, physicsClientId=self._physics_client_id)
         roll = p.getEulerFromQuaternion(orn)[0]

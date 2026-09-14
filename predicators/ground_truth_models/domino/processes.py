@@ -7,8 +7,7 @@ import torch
 
 from predicators.ground_truth_models import GroundTruthProcessFactory, \
     GroundTruthSamplerFactory
-from predicators.ground_truth_models.domino.predicates import \
-    BLOW_ENVS
+from predicators.ground_truth_models.domino.predicates import BLOW_ENVS
 from predicators.settings import CFG
 from predicators.structs import Array, CausalProcess, EndogenousProcess, \
     ExogenousProcess, GroundAtom, LiftedAtom, Object, ParameterizedOption, \
@@ -105,10 +104,10 @@ def _declare_sampler(state: State, goal: Set[GroundAtom],
     """No parameters: a declaration has nothing to aim.
 
     Its option's params_space is empty, so an empty array is what the
-    option expects. Written out rather than reaching for null_sampler
-    to keep the contrast with _switch_push_sampler on the page: the
-    press needs an approach distance and a contact offset because it
-    has to arrive somewhere, and this does not.
+    option expects. Written out rather than reaching for null_sampler to
+    keep the contrast with _switch_push_sampler on the page: the press
+    needs an approach distance and a contact offset because it has to
+    arrive somewhere, and this does not.
     """
     del state, goal, rng, objs
     return np.array([], dtype=np.float32)
@@ -203,8 +202,7 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         return {
             "pybullet_domino_grid", "pybullet_domino", "pybullet_domino_real",
             "pybullet_domino_real_geometry", "pybullet_domino_fan",
-            "pybullet_domino_declare",
-            "pybullet_domino_blow",
+            "pybullet_domino_declare", "pybullet_domino_blow",
             "pybullet_domino_blow_real"
         }
 
@@ -797,8 +795,7 @@ class PyBulletDominoGroundTruthSamplerFactory(GroundTruthSamplerFactory):
         return {
             "pybullet_domino_grid", "pybullet_domino", "pybullet_domino_real",
             "pybullet_domino_real_geometry", "pybullet_domino_fan",
-            "pybullet_domino_declare",
-            "pybullet_domino_blow",
+            "pybullet_domino_declare", "pybullet_domino_blow",
             "pybullet_domino_blow_real"
         }
 
@@ -905,9 +902,8 @@ def _get_blow_processes(
             set(), set(), {LiftedAtom(Holding, [robot, block])},
             {LiftedAtom(HandEmpty, [robot])},
             DiscreteGaussianDelay(mu=torch.tensor(4.0),
-                                  sigma=torch.tensor(0.1)),
-            torch.tensor(1.0), options["Pick"], [robot, block],
-            _pick_sampler, incidental))
+                                  sigma=torch.tensor(0.1)), torch.tensor(1.0),
+            options["Pick"], [robot, block], _pick_sampler, incidental))
 
     # Put it down one slide-length upwind of the patch.
     processes.add(
@@ -918,9 +914,8 @@ def _get_blow_processes(
                 LiftedAtom(ReadyToBlow, [block, region])
             }, {LiftedAtom(Holding, [robot, block])},
             DiscreteGaussianDelay(mu=torch.tensor(3.0),
-                                  sigma=torch.tensor(0.1)),
-            torch.tensor(1.0), options["Place"], [robot],
-            _blow_place_sampler, incidental))
+                                  sigma=torch.tensor(0.1)), torch.tensor(1.0),
+            options["Place"], [robot], _blow_place_sampler, incidental))
 
     # Press the switch, and the fan starts. HandEmpty is a precondition
     # and not decoration: without it the planner is free to press while
@@ -938,7 +933,9 @@ def _get_blow_processes(
                                            _switch_push_sampler)
     processes.add(
         EndogenousProcess(
-            "TurnFanOn", [robot, fan, block, region], {
+            "TurnFanOn",
+            [robot, fan, block, region],
+            {
                 LiftedAtom(FanOff, [fan]),
                 LiftedAtom(HandEmpty, [robot]),
                 # The switch is only worth pressing once the block is
@@ -947,12 +944,18 @@ def _get_blow_processes(
                 # pressed the switch before it had even picked the block
                 # up and blew the gust across an empty table.
                 LiftedAtom(ReadyToBlow, [block, region])
-            }, set(), set(), {LiftedAtom(FanOn, [fan])},
+            },
+            set(),
+            set(),
+            {LiftedAtom(FanOn, [fan])},
             {LiftedAtom(FanOff, [fan])},
             DiscreteGaussianDelay(mu=torch.tensor(1.0),
                                   sigma=torch.tensor(0.1)),
-            torch.tensor(1.0), trigger_option, [robot, fan],
-            trigger_sampler, incidental))
+            torch.tensor(1.0),
+            trigger_option,
+            [robot, fan],
+            trigger_sampler,
+            incidental))
 
     # The gust. Exogenous: the robot never carries the block in.
     # condition_overall as well as condition_at_start: the gust only
@@ -965,9 +968,13 @@ def _get_blow_processes(
     }
     processes.add(
         ExogenousProcess(
-            "WindCarriesToGoal", [fan, block, region], wind_conditions,
-            wind_conditions.copy(), set(),
-            {LiftedAtom(InGoal, [block, region])}, set(),
+            "WindCarriesToGoal",
+            [fan, block, region],
+            wind_conditions,
+            wind_conditions.copy(),
+            set(),
+            {LiftedAtom(InGoal, [block, region])},
+            set(),
             # Delay is in PROCESS steps, not simulator steps. Handing it
             # the gust's 60 simulator steps put the effect beyond the
             # planner's lookahead and every skeleton was exhausted
@@ -987,8 +994,7 @@ def _get_blow_processes(
     # is cut short by its own executor with "atom change during Wait".
     processes.add(
         EndogenousProcess("Wait", [robot], set(), set(), set(), set(), set(),
-                          ConstantDelay(1), torch.tensor(1.0),
-                          options["Wait"], [robot], null_sampler,
-                          incidental))
+                          ConstantDelay(1), torch.tensor(1.0), options["Wait"],
+                          [robot], null_sampler, incidental))
 
     return processes

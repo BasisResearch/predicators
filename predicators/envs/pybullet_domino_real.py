@@ -244,14 +244,14 @@ class PyBulletDominoRealGeometryEnv(RealSceneGeometryMixin, PyBulletDominoEnv):
 
 
 class PerceivedDominoesMixin:
-    """Reads dominoes off a captured scene or a live observation into the
-    env's slots -- the conversion every real-scene env needs, whatever its
-    task is.
+    """Reads dominoes off a captured scene or a live observation into the env's
+    slots -- the conversion every real-scene env needs, whatever its task is.
 
-    Requires the env it is mixed into to set ``self._scene_ids`` (capture
-    ids in scene order, so slot i holds ``_scene_ids[i]``) and
-    ``self._z_off`` (the base -> world z offset) before any of these run.
-    Like :class:`RealSceneGeometryMixin`, deliberately not a ``BaseEnv``.
+    Requires the env it is mixed into to set ``self._scene_ids``
+    (capture ids in scene order, so slot i holds ``_scene_ids[i]``) and
+    ``self._z_off`` (the base -> world z offset) before any of these
+    run. Like :class:`RealSceneGeometryMixin`, deliberately not a
+    ``BaseEnv``.
     """
 
     _scene_ids: List[int]

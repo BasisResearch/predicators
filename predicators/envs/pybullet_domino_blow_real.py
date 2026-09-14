@@ -36,8 +36,8 @@ from predicators.envs.pybullet_domino.components.domino_component import \
     DominoComponent
 from predicators.envs.pybullet_domino.components.goal_region_component import \
     GoalRegionComponent
-from predicators.envs.pybullet_domino.components.real_bench_fan_component \
-    import RealBenchFanComponent
+from predicators.envs.pybullet_domino.components.real_bench_fan_component import \
+    RealBenchFanComponent
 from predicators.envs.pybullet_domino.env import PyBulletDominoBlowEnv
 from predicators.envs.pybullet_domino.real_geometry import \
     DOMINO_WORLD_ROBOT_YAW, Pose6D, domino_world_z_offset, \
@@ -55,9 +55,10 @@ _FIXTURES = ("fan", "button", "goal")
 class BenchLayout:
     """The fixed part of the bench, in the env's WORLD frame.
 
-    Read once from the scene JSON's ``fixtures`` and ``wind_dir_base`` and
-    transplanted through the same base -> world transform the dominoes
-    take, so the twin's fan blows down the line the real one does.
+    Read once from the scene JSON's ``fixtures`` and ``wind_dir_base``
+    and transplanted through the same base -> world transform the
+    dominoes take, so the twin's fan blows down the line the real one
+    does.
     """
     fan_xy: Tuple[float, float]
     wind_yaw: float  # world heading the fan blows along
@@ -167,8 +168,8 @@ class PyBulletDominoBlowRealEnv(RealSceneGeometryMixin, PerceivedDominoesMixin,
                                domino_depth=thickness,
                                domino_height=length)
 
-    def _make_fan_component(self, bounds: Dict[str,
-                                               float]) -> RealBenchFanComponent:
+    def _make_fan_component(self,
+                            bounds: Dict[str, float]) -> RealBenchFanComponent:
         b = self._bench
         return RealBenchFanComponent(fan_xy=b.fan_xy,
                                      wind_yaw=b.wind_yaw,
@@ -189,8 +190,7 @@ class PyBulletDominoBlowRealEnv(RealSceneGeometryMixin, PerceivedDominoesMixin,
         # The generated task's patch is a class constant; this one is the
         # marker the cameras saw. The wind runs along the region's x in
         # the sim's convention, so along-wind is half_x.
-        region.region_half_x = b.goal_half_along
-        region.region_half_y = b.goal_half_across
+        region.set_region_half_extents(b.goal_half_along, b.goal_half_across)
         return comps
 
     # -- task generation ----------------------------------------------------
@@ -208,8 +208,8 @@ class PyBulletDominoBlowRealEnv(RealSceneGeometryMixin, PerceivedDominoesMixin,
     def task_from_observation(self,
                               obs: Any,
                               train_or_test: str = "test") -> EnvironmentTask:
-        """A task from a live look at the bench: the block where the
-        cameras found it, the fixtures where the scene file says."""
+        """A task from a live look at the bench: the block where the cameras
+        found it, the fixtures where the scene file says."""
         del train_or_test
         return self._task_from_perceived(self._perceived_from_observation(obs))
 
@@ -308,15 +308,17 @@ class PyBulletDominoBlowRealEnv(RealSceneGeometryMixin, PerceivedDominoesMixin,
         roll = float(state.get(block, "roll"))
         roll = (roll + np.pi / 2) % np.pi - np.pi / 2
         dx, dy = self._bench.wind_dir
-        along = ((float(state.get(block, "x")) - float(state.get(region, "x")))
-                 * dx +
-                 (float(state.get(block, "y")) - float(state.get(region, "y")))
-                 * dy)
+        along = (
+            (float(state.get(block, "x")) - float(state.get(region, "x"))) * dx
+            + (float(state.get(block, "y")) - float(state.get(region, "y"))) *
+            dy)
         half = float(state.get(region, "half_x"))
         logging.info(
             "[blow_real] gust over: block %.4f m along the wind from the "
             "patch centre (patch +/- %.3f), roll=%.3f | flat=%s in=%s", along,
-            half, roll, abs(roll) >= 0.087, abs(along) <= half)
+            half, roll,
+            abs(roll) >= 0.087,
+            abs(along) <= half)
 
 
 __all__ = ["BenchLayout", "PyBulletDominoBlowRealEnv"]

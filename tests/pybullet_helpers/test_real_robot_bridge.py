@@ -626,16 +626,21 @@ def _press_action(arm_value, hold=4.0):
 
 
 def test_split_actions_ships_tagged_actions_as_one_press(tmp_path):
-    """Press-tagged actions become a single press segment between the
-    approach and the retract, with the hold from the tag and the triggers
-    from the calibration file; the sim's hold (the same target repeated) is
-    de-duplicated."""
+    """Press-tagged actions become a single press segment between the approach
+    and the retract, with the hold from the tag and the triggers from the
+    calibration file; the sim's hold (the same target repeated) is de-
+    duplicated."""
     pytest.importorskip("babyrobot")
     import json
     cal = tmp_path / "press_calibration.json"
-    cal.write_text(json.dumps({"press": {"force_limit_n": 5.21,
-                                         "stall_window_s": 0.5,
-                                         "max_depth_m": 0.0275}}))
+    cal.write_text(
+        json.dumps({
+            "press": {
+                "force_limit_n": 5.21,
+                "stall_window_s": 0.5,
+                "max_depth_m": 0.0275
+            }
+        }))
     utils.reset_config({"real_robot_press_calibration_json": str(cal)})
     actions = [
         _action(0.0, 0.0),  # close, then approach
@@ -666,8 +671,8 @@ def test_split_actions_ships_tagged_actions_as_one_press(tmp_path):
 
 
 def test_press_triggers_default_to_the_button_asset_calibration():
-    """With no override, the triggers are the ones measured beside the
-    button in BabyRobotPredicator."""
+    """With no override, the triggers are the ones measured beside the button
+    in BabyRobotPredicator."""
     pytest.importorskip("babyrobot")
     pytest.importorskip("markerless_estimation")
     from predicators.pybullet_helpers.real_robot_bridge import press_triggers

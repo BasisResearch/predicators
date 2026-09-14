@@ -96,19 +96,19 @@ def create_press_skill(
         ee_yaw: The EE yaw to press with.
         extra_tag: Extra entries for the press phase's action tag.
     """
-    params_space = Box(0, 1, (0,), dtype=np.float32)
+    params_space = Box(0, 1, (0, ), dtype=np.float32)
     _empty = np.array([], dtype=np.float32)
 
     def _tcp_z(z_top: float, above: float) -> float:
         return z_top + above + pad_below_tcp_m
 
-    def _make_target(above: float) -> Callable[
-            [State, Sequence[Object], Array, SkillConfig],
-            Tuple[float, float, float, float]]:
+    def _make_target(
+        above: float
+    ) -> Callable[[State, Sequence[Object], Array, SkillConfig], Tuple[
+            float, float, float, float]]:
 
-        def _get_target(state: State, objects: Sequence[Object],
-                        params: Array, cfg: SkillConfig
-                        ) -> Tuple[float, float, float, float]:
+        def _get_target(state: State, objects: Sequence[Object], params: Array,
+                        cfg: SkillConfig) -> Tuple[float, float, float, float]:
             del params
             x, y, z_top = get_button_top_fn(state, objects, _empty, cfg)
             return x, y, _tcp_z(z_top, above), ee_yaw

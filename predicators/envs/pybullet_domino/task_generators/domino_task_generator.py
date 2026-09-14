@@ -113,9 +113,9 @@ class DominoTaskGenerator(TaskGenerator):
         both the trigger the certificate sanctions and what the goal
         text may ask for. Those two must never disagree: an agent told
         to push the green in a fan env has no Push skill to push with,
-        and every episode it runs is rejected for having no TurnFanOn
-        on the record. A ball is a second body the robot can throw at
-        the chain, so ball variants are not wind-triggered.
+        and every episode it runs is rejected for having no TurnFanOn on
+        the record. A ball is a second body the robot can throw at the
+        chain, so ball variants are not wind-triggered.
         """
         comp_names = {type(c).__name__ for c in self.additional_components}
         return bool(comp_names) and comp_names <= {"FanComponent"}
@@ -507,11 +507,11 @@ class DominoTaskGenerator(TaskGenerator):
             # pylint: disable=protected-access
             if self.domino._TargetDomino_holds(init_state, [domino_obj]):
                 goal_atoms.add(GroundAtom(self.domino.Toppled, [domino_obj]))
-        return EnvironmentTask(init_state,
-                               goal_atoms,
-                               goal_nl=(goal_text.MIN_BLOCK_WIND_GOAL_NL
-                                        if self._wind_triggered() else
-                                        goal_text.MIN_BLOCK_GOAL_NL))
+        return EnvironmentTask(
+            init_state,
+            goal_atoms,
+            goal_nl=(goal_text.MIN_BLOCK_WIND_GOAL_NL if
+                     self._wind_triggered() else goal_text.MIN_BLOCK_GOAL_NL))
 
     # A chain's travel direction is (sin rotation, cos rotation) -- see
     # _place_straight_domino -- so rotation is measured from +y, turning
@@ -1249,8 +1249,8 @@ class DominoTaskGenerator(TaskGenerator):
 
         The fixed blocks at staging time are the start block and the
         target(s); the bridge runs between them, so the two extreme
-        fixed positions bound the corridor. None when fewer than two
-        are present and there is nothing to keep clear of.
+        fixed positions bound the corridor. None when fewer than two are
+        present and there is nothing to keep clear of.
         """
         pts = [(float(d["x"]), float(d["y"])) for o, d in occupied.items()
                if o.type == self.domino.domino_type and "x" in d]

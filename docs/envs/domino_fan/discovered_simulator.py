@@ -108,8 +108,8 @@ def _fan_dir(state, fan):
 
 
 def fan_wind(observation, latent, history, updates, params, cmds):
-    """Constant wind force from every switched-on fan on the first
-    exposed upright domino downwind of it."""
+    """Constant wind force from every switched-on fan on the first exposed
+    upright domino downwind of it."""
     fans = [o for o in observation.data if o.type.name == "fan"]
     dominoes = [o for o in observation.data if o.type.name == "domino"]
     if not fans or not dominoes:

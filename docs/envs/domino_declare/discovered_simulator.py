@@ -98,8 +98,11 @@ def _fan_axis(state, fan):
 
 
 def _fan_anchor(state, fan, params):
-    """Outlet point of the fan: recorded origin + a LOCAL-frame offset
-    rotated by the fan's `rot`. Shared with predicates.InAirstream."""
+    """Outlet point of the fan: recorded origin + a LOCAL-frame offset rotated
+    by the fan's `rot`.
+
+    Shared with predicates.InAirstream.
+    """
     ux, uy = _fan_axis(state, fan)
     ox = params["fan_local_dx"] * ux - params["fan_local_dy"] * uy
     oy = params["fan_local_dx"] * uy + params["fan_local_dy"] * ux
@@ -133,9 +136,9 @@ def _beam_pick(state, fan, dominoes, params):
 
 
 def declare_rule(observation, latent, history, updates, params):
-    """Latent Pattern A: count steps of 'nothing held + arm stopped';
-    latch `declared` once the count passes the learned delay, and read
-    the latch out onto every fan / switch `is_on`."""
+    """Latent Pattern A: count steps of 'nothing held + arm stopped'; latch
+    `declared` once the count passes the learned delay, and read the latch out
+    onto every fan / switch `is_on`."""
     robots = _by_type(observation, "robot")
     dominoes = _by_type(observation, "domino")
 
@@ -174,8 +177,8 @@ def declare_rule(observation, latent, history, updates, params):
 
 
 def wind_rule(observation, latent, history, updates, params, cmds):
-    """Constant axial force on the latched start block while the fan is
-    on and that block is still standing."""
+    """Constant axial force on the latched start block while the fan is on and
+    that block is still standing."""
     del history
     if latent.get("declared", 0.0) < 0.5:
         return updates

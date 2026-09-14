@@ -23,8 +23,7 @@ class PyBulletDominoGroundTruthPredicateFactory(GroundTruthPredicateFactory):
         return {
             "pybullet_domino", "pybullet_domino_real",
             "pybullet_domino_real_geometry", "pybullet_domino_fan",
-            "pybullet_domino_declare",
-            "pybullet_domino_blow",
+            "pybullet_domino_declare", "pybullet_domino_blow",
             "pybullet_domino_blow_real"
         }
 
@@ -137,6 +136,4 @@ def _blow_helper_predicates(types: Dict[str, Type]) -> Set[Predicate]:
         lo = -_blow_slide_distance() - half_x
         return lo <= along <= half_x and across <= half_y
 
-    return {
-        Predicate("ReadyToBlow", [domino_type, region_type], _ready_holds)
-    }
+    return {Predicate("ReadyToBlow", [domino_type, region_type], _ready_holds)}

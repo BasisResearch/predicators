@@ -27,8 +27,8 @@ from gym.spaces import Box
 
 from predicators import utils
 from predicators.ground_truth_models.skill_factories.base import SkillConfig
-from predicators.structs import DECLARE_FINISHED_KEY, Action, Array, \
-    Object, ParameterizedOption, State, Type
+from predicators.structs import DECLARE_FINISHED_KEY, Action, Array, Object, \
+    ParameterizedOption, State, Type
 
 # Re-exported so a reader of this file finds the marker here too. An
 # env that does not care ignores it, so adding this skill to a domain

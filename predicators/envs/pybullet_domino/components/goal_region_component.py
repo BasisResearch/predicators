@@ -35,8 +35,10 @@ class GoalRegionComponent(DominoEnvComponent):
     # means the robot has to know how far this gust carries the block to
     # within about a quarter - loose enough to be learnable from a
     # handful of episodes, tight enough that a coarse guess misses.
-    region_half_x: ClassVar[float] = 0.04
-    region_half_y: ClassVar[float] = 0.09
+    # Plain class attributes, not ClassVars: the real-bench env sizes its
+    # region from the goal marker the cameras saw (set_region_half_extents).
+    region_half_x: float = 0.04
+    region_half_y: float = 0.09
     region_thickness: ClassVar[float] = 0.001
     region_color: ClassVar[Tuple[float, float, float,
                                  float]] = (0.2, 0.85, 0.35, 0.55)
@@ -63,17 +65,16 @@ class GoalRegionComponent(DominoEnvComponent):
         # half_x / half_y are features rather than constants so an agent
         # reading the state can see how much slack it has, and so a task
         # generator could vary the difficulty without a code change.
-        self._region_type = Type(
-            "region", ["x", "y", "z", "half_x", "half_y"],
-            sim_features=["id"])
+        self._region_type = Type("region", ["x", "y", "z", "half_x", "half_y"],
+                                 sim_features=["id"])
         self._region = Object("goal_region", self._region_type)
         self._region_id: Optional[int] = None
         self._region_xy: Tuple[float, float] = (0.0, 0.0)
 
-        self._InGoal = Predicate("InGoal",
-                                 [self._domino_type, self._region_type]
-                                 if self._domino_type is not None else
-                                 [self._region_type], self._InGoal_holds)
+        self._InGoal = Predicate(
+            "InGoal", [self._domino_type, self._region_type]
+            if self._domino_type is not None else [self._region_type],
+            self._InGoal_holds)
 
     # -- component interface ------------------------------------------
 
@@ -166,6 +167,15 @@ class GoalRegionComponent(DominoEnvComponent):
         """Put the region where the generator decided it goes."""
         self._region_xy = (x, y)
 
+    def set_region_half_extents(self, half_x: float, half_y: float) -> None:
+        """Size the patch, for a region that is a measured marker rather than
+        the class constant.
+
+        Along the wind is x.
+        """
+        self.region_half_x = float(half_x)
+        self.region_half_y = float(half_y)
+
     # -- predicate ----------------------------------------------------
 
     def _InGoal_holds(self, state: State, objects: Sequence[Object]) -> bool:
@@ -190,8 +200,8 @@ class GoalRegionComponent(DominoEnvComponent):
         # Roll is meaningful modulo pi: a box turned 180 degrees about
         # its own width axis is the same box.
         # pylint: disable-next=import-outside-toplevel
-        from predicators.envs.pybullet_domino.components.domino_component \
-            import DominoComponent
+        from predicators.envs.pybullet_domino.components.domino_component import \
+            DominoComponent
         roll = float(state.get(domino, "roll"))
         roll = (roll + np.pi / 2) % np.pi - np.pi / 2
         if abs(roll) < DominoComponent.domino_roll_threshold:

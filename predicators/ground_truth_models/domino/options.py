@@ -91,8 +91,7 @@ class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
         return {
             "pybullet_domino_grid", "pybullet_domino", "pybullet_domino_real",
             "pybullet_domino_real_geometry", "pybullet_domino_fan",
-            "pybullet_domino_declare",
-            "pybullet_domino_blow",
+            "pybullet_domino_declare", "pybullet_domino_blow",
             "pybullet_domino_blow_real"
         }
 
@@ -251,32 +250,32 @@ class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
 
         The real bench's fan is on a momentary arcade button: the press
         IS the gust, held for ``CFG.domino_blow_real_hold_s`` on the arm
-        and ``CFG.domino_blow_wind_steps`` in the twin. The button is the
-        env's ``switch`` object, whose ``z`` is the plunger's top. Under
-        ``fan_known_controls_relation`` the option's second argument is
-        the FAN, as for TurnFanOn, and the button is found from it.
+        and ``CFG.domino_blow_wind_steps`` in the twin. The button is
+        the env's ``switch`` object, whose ``z`` is the plunger's top.
+        Under ``fan_known_controls_relation`` the option's second
+        argument is the FAN, as for TurnFanOn, and the button is found
+        from it.
         """
         known = CFG.fan_known_controls_relation and fan_type is not None
         control_type = fan_type if known else switch_type
         assert control_type is not None
 
-        def _button_top(state: State, objects: Sequence[Object],
-                        params: Array,
+        def _button_top(state: State, objects: Sequence[Object], params: Array,
                         config: SkillConfig) -> Tuple[float, float, float]:
             del params, config
             _, control = objects
             if known:
-                button = next(
-                    (sw for sw in state.get_objects(switch_type)
-                     if state.get(sw, "controls_fan") == state.get(
-                         control, "facing_side")), None)
+                button = next((sw for sw in state.get_objects(switch_type)
+                               if state.get(sw, "controls_fan") == state.get(
+                                   control, "facing_side")), None)
                 if button is None:
                     raise utils.OptionExecutionFailure(
                         "No button found for fan (controls_fan mismatch)")
             else:
                 button = control
-            return (state.get(button, "x"), state.get(button, "y"),
-                    state.get(button, "z"))
+            return (state.get(button,
+                              "x"), state.get(button,
+                                              "y"), state.get(button, "z"))
 
         return create_press_skill(
             name="Press",
@@ -340,8 +339,8 @@ class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
             # and the chain then coasts on contact alone. Ten steps of
             # that reads as settled and ends the Wait mid-cascade -
             # measured at 35 steps against the ~70 the chain needs.
-            wait_quiescence_steps=(40 if CFG.env in _WIND_STARTED_ENVS
-                                   else 10),
+            wait_quiescence_steps=(40
+                                   if CFG.env in _WIND_STARTED_ENVS else 10),
         )
 
     @classmethod

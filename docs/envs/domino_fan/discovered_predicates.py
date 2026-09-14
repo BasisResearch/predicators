@@ -36,8 +36,8 @@ _DEFAULTS = {
 
 def _p(name):
     """Read a shared simulator ParamSpec, falling back to its declared
-    init_value when no fit has populated the params view yet (the
-    predicate-quality loader can run before the first fit)."""
+    init_value when no fit has populated the params view yet (the predicate-
+    quality loader can run before the first fit)."""
     try:
         return float(params[name])
     except Exception:

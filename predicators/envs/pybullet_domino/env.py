@@ -18,10 +18,10 @@ from predicators.envs.pybullet_domino.components.base_component import \
     DominoEnvComponent
 from predicators.envs.pybullet_domino.components.domino_component import \
     DominoComponent
-from predicators.envs.pybullet_domino.components.goal_region_component \
-    import GoalRegionComponent
 from predicators.envs.pybullet_domino.components.fan_component import \
     FanComponent
+from predicators.envs.pybullet_domino.components.goal_region_component import \
+    GoalRegionComponent
 from predicators.envs.pybullet_domino.components.grid_component import \
     GridComponent
 from predicators.envs.pybullet_domino.components.ramp_component import \
@@ -547,9 +547,12 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
             "wind target unchanged.")
 
     def _blows_a_plain_block(self) -> bool:
-        """Whether this env's wind targets a plain block rather than a
-        chain's green start (see PyBulletDominoBlowEnv). Overridden there;
-        a class test here would need a forward reference."""
+        """Whether this env's wind targets a plain block rather than a chain's
+        green start (see PyBulletDominoBlowEnv).
+
+        Overridden there; a class test here would need a forward
+        reference.
+        """
         return False
 
     def _domain_specific_step(self) -> None:
@@ -1098,13 +1101,19 @@ class PyBulletDominoFanEnv(PyBulletDominoComposedEnv):
 
     def _extra_components(self, bounds: Dict[str, float],
                           domino_comp: DominoComponent) -> List[Any]:
-        """Components beyond the dominoes and the fan. None by default."""
+        """Components beyond the dominoes and the fan.
+
+        None by default.
+        """
         del bounds, domino_comp
         return []
 
     def _make_fan_component(self, bounds: Dict[str, float]) -> FanComponent:
-        """The fan bank for this env. Overridden where the switch is
-        not something the robot can reach."""
+        """The fan bank for this env.
+
+        Overridden where the switch is not something the robot can
+        reach.
+        """
         return FanComponent(workspace_bounds=bounds,
                             table_height=self.table_height,
                             table_width=self.table_width,
@@ -1286,8 +1295,7 @@ class PyBulletDominoBlowEnv(PyBulletDominoFanEnv):
         if not movable:
             return
         block = movable[0]
-        self._fan_component.set_lateral_alignment(float(
-            state.get(block, "y")))
+        self._fan_component.set_lateral_alignment(float(state.get(block, "y")))
         self._fan_component.set_wind_target(
             block.id,
             z_offset=0.4 * self._domino_component.domino_height,
@@ -1309,12 +1317,11 @@ class PyBulletDominoBlowEnv(PyBulletDominoFanEnv):
                 self._fan_component.set_fans_on(False)
                 self._log_gust_outcome()
 
-
     def _log_gust_outcome(self) -> None:
         """Where the gust left the block, once per episode.
 
-        The task turns entirely on this one number, and reading it off
-        a video is not reading it. Logged at the moment the gust ends,
+        The task turns entirely on this one number, and reading it off a
+        video is not reading it. Logged at the moment the gust ends,
         which is the moment the answer is decided.
         """
         try:
@@ -1334,7 +1341,9 @@ class PyBulletDominoBlowEnv(PyBulletDominoFanEnv):
         logging.info(
             "[blow] gust over: block x=%.4f roll=%.3f | goal x=%.4f "
             "+/- %.3f | dx=%.4f | flat=%s in_x=%s", bx, roll, gx, half,
-            bx - gx, abs(roll) >= 0.087, abs(bx - gx) <= half)
+            bx - gx,
+            abs(roll) >= 0.087,
+            abs(bx - gx) <= half)
 
 
 class PyBulletDominoFanRampEnv(PyBulletDominoComposedEnv):

@@ -2076,14 +2076,14 @@ class TestCreatePressSkill:
             robot_home_pos=_EE_HOME,
             transport_z=0.8,
         )
-        return create_press_skill(
-            name="Press",
-            types=[_ROBOT_TYPE, _OBJ_TYPE],
-            config=config,
-            get_button_top_fn=lambda s, o, p_, c: (1.35, 0.75, 0.4),
-            hold_steps=kw.pop("hold_steps", 3),
-            hold_seconds=kw.pop("hold_seconds", 4.0),
-            **kw)
+        return create_press_skill(name="Press",
+                                  types=[_ROBOT_TYPE, _OBJ_TYPE],
+                                  config=config,
+                                  get_button_top_fn=lambda s, o, p_, c:
+                                  (1.35, 0.75, 0.4),
+                                  hold_steps=kw.pop("hold_steps", 3),
+                                  hold_seconds=kw.pop("hold_seconds", 4.0),
+                                  **kw)
 
     @staticmethod
     def _phases(opt):
@@ -2101,8 +2101,8 @@ class TestCreatePressSkill:
         assert opt.params_space.shape == (0, )
 
     def test_phases_in_order_and_only_the_press_is_tagged(self, robot_scene):
-        """Close, approach, hover, press, retract, open; the press phase --
-        and only it -- tags its actions for the executor, with the hold."""
+        """Close, approach, hover, press, retract, open; the press phase -- and
+        only it -- tags its actions for the executor, with the hold."""
         _, robot = robot_scene
         utils.reset_config({
             "seed": 123,
@@ -2156,8 +2156,11 @@ class TestCreatePressSkill:
         robot_obj, obj = _make_robot_obj(), _make_obj()
         opt = self._make_press(robot)
         grounded = opt.ground([robot_obj, obj], np.zeros(0, dtype=np.float32))
-        state = _build_state(robot_obj, robot, *_EE_HOME,
-                             finger_state=_OPEN_STATE, obj=obj,
+        state = _build_state(robot_obj,
+                             robot,
+                             *_EE_HOME,
+                             finger_state=_OPEN_STATE,
+                             obj=obj,
                              obj_xyz=(1.35, 0.75, 0.4))
         grounded.initiable(state)
         action = grounded.policy(state)

@@ -1,14 +1,14 @@
 """Tests for pybullet_domino_blow_real: the blow task rebuilt from a fan-bench
-scene, with the fan, the button and the goal patch where the cameras saw
-them.
+scene, with the fan, the button and the goal patch where the cameras saw them.
 
-The button proxy URDF comes from the private BabyRobotPredicator package, so
-the env tests skip without it; the layout arithmetic does not need it and
-runs everywhere.
+The button proxy URDF comes from the private BabyRobotPredicator
+package, so the env tests skip without it; the layout arithmetic does
+not need it and runs everywhere.
 """
 # pylint: disable=protected-access
 import json
 import math
+from typing import Any, Dict, Tuple
 
 import numpy as np
 import pytest
@@ -24,9 +24,12 @@ from predicators.structs import GroundAtom
 _TABLE_Z = -0.041
 
 
-def _block(xy, yaw=-math.pi / 2):
+def _block(xy: Tuple[float, float],
+           yaw: float = -math.pi / 2) -> Dict[str, Any]:
     """A standing block at base-frame ``xy``, in the exporter's format:
-    body x vertical, so the quaternion is a +90 deg pitch then the yaw."""
+
+    body x vertical, so the quaternion is a +90 deg pitch then the yaw.
+    """
     from scipy.spatial.transform import Rotation
     quat = (Rotation.from_euler("z", yaw) *
             Rotation.from_euler("y", math.pi / 2)).as_quat()
@@ -41,7 +44,10 @@ def _block(xy, yaw=-math.pi / 2):
     }
 
 
-def _fixture(xy, dims, yaw=0.0, z=0.0):
+def _fixture(xy: Tuple[float, float],
+             dims: Tuple[float, float, float],
+             yaw: float = 0.0,
+             z: float = 0.0) -> Dict[str, Any]:
     return {
         "center_base_m": [xy[0], xy[1], z],
         "dims_m": list(dims),
@@ -59,11 +65,12 @@ _SCENE = {
     "dominoes": [_block((0.456, 0.289))],
     "wind_dir_base": [0.0, 1.0],
     "fixtures": {
-        "fan": _fixture((0.597, -0.202), (0.071, 0.012, 0.068), z=0.089),
-        "button": _fixture((0.414, -0.246), (0.082, 0.052, 0.067), yaw=-0.7,
-                           z=-0.003),
-        "goal": _fixture((0.584, 0.141), (0.165, 0.121, 0.009), yaw=-1.35,
-                         z=-0.035),
+        "fan":
+        _fixture((0.597, -0.202), (0.071, 0.012, 0.068), z=0.089),
+        "button":
+        _fixture((0.414, -0.246), (0.082, 0.052, 0.067), yaw=-0.7, z=-0.003),
+        "goal":
+        _fixture((0.584, 0.141), (0.165, 0.121, 0.009), yaw=-1.35, z=-0.035),
     },
 }
 
@@ -105,7 +112,8 @@ def _reapply_config(scene_path):
 
 
 def _world_xy(base_xy):
-    """The base -> world transplant, by hand: a +90 deg turn then the offset."""
+    """The base -> world transplant, by hand: a +90 deg turn then the
+    offset."""
     x, y = base_xy
     return (DOMINO_WORLD_ROBOT_XY[0] - y, DOMINO_WORLD_ROBOT_XY[1] + x)
 
@@ -121,7 +129,8 @@ def test_layout_transplants_fixtures_and_wind_to_the_world_frame(scene_path):
     assert layout.goal_xy == pytest.approx(_world_xy((0.584, 0.141)))
     # Base +y turns into world -x.
     assert layout.wind_dir == pytest.approx((-1.0, 0.0), abs=1e-9)
-    assert layout.wind_yaw == pytest.approx(math.pi / 2 + DOMINO_WORLD_ROBOT_YAW)
+    assert layout.wind_yaw == pytest.approx(math.pi / 2 +
+                                            DOMINO_WORLD_ROBOT_YAW)
     # The button top, raised by the table offset.
     assert layout.button_top_z == pytest.approx(-0.003 + 0.067 / 2 + z_off)
 
@@ -129,7 +138,8 @@ def test_layout_transplants_fixtures_and_wind_to_the_world_frame(scene_path):
 def test_layout_projects_the_goal_patch_onto_the_wind():
     # A patch turned exactly across the wind swaps its half extents.
     scene = json.loads(json.dumps(_SCENE))
-    scene["fixtures"]["goal"]["yaw_base_rad"] = math.pi / 2  # long side along +y = the wind
+    scene["fixtures"]["goal"][
+        "yaw_base_rad"] = math.pi / 2  # long side along +y = the wind
     along = BenchLayout.from_scene(scene, 0.0)
     assert along.goal_half_along == pytest.approx(0.165 / 2)
     assert along.goal_half_across == pytest.approx(0.121 / 2)
@@ -178,8 +188,10 @@ def test_block_and_fixtures_land_at_their_transplanted_poses(env):
     region = env._goal_region_component.region
     assert (state.get(region, "x"), state.get(region, "y")) == \
         pytest.approx(env.bench.goal_xy)
-    assert state.get(region, "half_x") == pytest.approx(env.bench.goal_half_along)
-    assert state.get(region, "half_y") == pytest.approx(env.bench.goal_half_across)
+    assert state.get(region,
+                     "half_x") == pytest.approx(env.bench.goal_half_along)
+    assert state.get(region,
+                     "half_y") == pytest.approx(env.bench.goal_half_across)
 
 
 def test_fan_starts_off_and_the_button_is_momentary(env):
@@ -200,6 +212,7 @@ def test_wind_blows_the_block_down_the_measured_axis(env):
     """With the button held, the block placed upwind ends up flat and
     downwind -- the direction the scene says, not the generated task's +x."""
     import pybullet as p
+
     from predicators.structs import Action
     task = env.get_test_tasks()[0]
     state = task.init.copy()
@@ -214,9 +227,12 @@ def test_wind_blows_the_block_down_the_measured_axis(env):
     utils.reset_config({"domino_blow_wind_force": 2.0})
     env._wire_blow_target(env._get_state())
     fan = env._fan_component
-    p.setJointMotorControl2(fan.button.id, fan._button_joint_id,
-                            p.POSITION_CONTROL, targetPosition=-0.004,
-                            force=5.0, physicsClientId=env._physics_client_id)
+    p.setJointMotorControl2(fan.button.id,
+                            fan._button_joint_id,
+                            p.POSITION_CONTROL,
+                            targetPosition=-0.004,
+                            force=5.0,
+                            physicsClientId=env._physics_client_id)
     hold = Action(np.array(env._pybullet_robot.get_joints(), dtype=np.float32))
     for _ in range(40):
         env.step(hold)

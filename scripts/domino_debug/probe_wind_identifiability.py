@@ -39,6 +39,8 @@ friction, to check whether the answer has moved:
     PYTHONHASHSEED=0 python scripts/domino_debug/probe_wind_identifiability.py
 """
 
+from typing import Optional, Tuple
+
 import numpy as np
 
 from predicators import utils
@@ -59,7 +61,7 @@ def main() -> None:
         DominoComponent
     from predicators.envs.pybullet_domino.env import PyBulletDominoFanEnv
     from predicators.settings import CFG
-    from predicators.structs import Action, EnvironmentTask
+    from predicators.structs import Action, EnvironmentTask, State
 
     env = PyBulletDominoFanEnv(use_gui=False)
     base = env.get_test_tasks()[0]
@@ -72,27 +74,28 @@ def main() -> None:
     for obj in init:
         if obj.type.name in ("fan", "switch"):
             init.set(obj, "is_on", 1.0)
-    green = next(o for o in init
-                 if o.type.name == "domino" and all(
-                     abs(float(init.get(o, c)) -
-                         DominoComponent.start_domino_color[i]) < 1e-3
-                     for i, c in enumerate(("r", "g", "b"))))
+    green = next(o for o in init if o.type.name == "domino" and all(
+        abs(float(init.get(o, c)) -
+            DominoComponent.start_domino_color[i]) < 1e-3
+        for i, c in enumerate(("r", "g", "b"))))
     task = EnvironmentTask(init, base.goal)
 
-    def drift(state) -> float:
+    def drift(state: State) -> float:
         """How far the block has moved from where it started (m)."""
         return float(
-            np.hypot(state.get(green, "x") - init.get(green, "x"),
-                     state.get(green, "y") - init.get(green, "y")))
+            np.hypot(
+                state.get(green, "x") - init.get(green, "x"),
+                state.get(green, "y") - init.get(green, "y")))
 
-    def probe(force: float):
+    def probe(force: float) -> Tuple[Optional[int], float]:
         """(steps until the block topples, drift) at this wind force."""
         CFG.domino_fan_wind_force = force
         env._current_task = task  # pylint: disable=protected-access
         env._set_state(init)  # pylint: disable=protected-access
         # Hold the arm exactly where it is.
-        hold = np.array(env._pybullet_robot.get_joints(),  # pylint: disable=protected-access
-                        dtype=np.float32)
+        hold = np.array(
+            env._pybullet_robot.get_joints(),  # pylint: disable=protected-access
+            dtype=np.float32)
         state = init
         for step in range(150):
             env.step(Action(hold))

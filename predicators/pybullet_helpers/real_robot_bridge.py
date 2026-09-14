@@ -212,11 +212,12 @@ def execute_chunks(robot: "RealRobot",
 def press_triggers() -> Dict[str, float]:
     """The guarded press's triggers, from the button's measured calibration.
 
-    ``CFG.real_robot_press_calibration_json`` names the file; empty reads
-    the one beside the button asset in BabyRobotPredicator, which
-    ``real_skills/press_calibration.py analyze`` writes. Guessed triggers
-    are refused on purpose: a cap sized for the modelled gap fired in the
-    air on this bench, 2 mm above a button the model put 13 mm away.
+    ``CFG.real_robot_press_calibration_json`` names the file; empty
+    reads the one beside the button asset in BabyRobotPredicator, which
+    ``real_skills/press_calibration.py analyze`` writes. Guessed
+    triggers are refused on purpose: a cap sized for the modelled gap
+    fired in the air on this bench, 2 mm above a button the model put 13
+    mm away.
     """
     # pylint: disable=import-outside-toplevel,import-error
     path = CFG.real_robot_press_calibration_json
@@ -235,13 +236,10 @@ def press_triggers() -> Dict[str, float]:
     except ImportError as e:
         raise MissingBabyRobotError(_MISSING_BABYROBOT) from e
     cal = load_press_calibration()
-    return {k: cal[k] for k in ("force_limit_n", "stall_window_s",
-                                "max_depth_m")}
-
-
-def _is_press(action: Action) -> bool:
-    info = action.extra_info
-    return isinstance(info, dict) and info.get("segment") == PRESS_SEGMENT_TAG
+    return {
+        k: cal[k]
+        for k in ("force_limit_n", "stall_window_s", "max_depth_m")
+    }
 
 
 def _split_actions(actions: Sequence[Action],
@@ -298,7 +296,8 @@ def _split_actions(actions: Sequence[Action],
 
     for action in actions:
         arr = action.arr
-        if _is_press(action):
+        info = action.extra_info
+        if isinstance(info, dict) and info.get("segment") == PRESS_SEGMENT_TAG:
             # The fingers are already closed (the skill closes them before
             # it approaches), so no gripper transition hides in here; the
             # move so far is the approach and ends where the press starts.
@@ -308,7 +307,7 @@ def _split_actions(actions: Sequence[Action],
             wp = arm_only(arr)
             if not press or wp != press[-1]:
                 press.append(wp)
-            press_hold = float(action.extra_info.get("hold_seconds", 0.0))
+            press_hold = float(info.get("hold_seconds", 0.0))
             continue
         flush_press()
         v = float(arr[layout.left_finger_joint_idx])
