@@ -2,6 +2,7 @@
 
 September 11, 2026.
 Revised September 12, 2026 to clarify exact conditioning, inference availability, and the optional execution-filter extension.
+Implementation decisions confirmed September 14, 2026: replay from candidate initialization is the required reference, and limited simulator discrepancy is an explicitly evaluated extension after replay and program errors are diagnosed.
 This is a design proposal, not a description of an implemented or validated replacement.
 The companion [implementation explanation](explained.md) documents the current behavior and source locations.
 Implementation of the staged migration is tracked in [implementation progress](implementation-progress.md).
@@ -20,7 +21,7 @@ Keeping the existing observation estimator is a valid final choice if those exte
 This endpoint unifies parameter uncertainty; it does not claim a full joint Bayesian belief during execution.
 
 Start by preserving the current agent behind a versioned result interface, without changing its estimates, reports, or decisions.
-Verify state restoration and recorded-action replay before implementing parameter inference with uncertain initial states.
+Verify candidate initialization and recorded-action replay before implementing parameter inference with uncertain initial states.
 Evaluate that inference offline using a fixed prior and all available fitting recordings, with intervals and parameter ensembles derived from the same posterior approximation.
 Introduce it into planning only after it passes prediction checks, while preserving the existing execution estimator and decision rules.
 Replace execution state estimation last, if it independently demonstrates a benefit.
@@ -95,6 +96,10 @@ Only evaluator-only mechanical audits may use evaluator reset state or private d
 A portable candidate must include full body orientations, original command-weld frames, and commands queued for the next action, even when these quantities are absent from public observations.
 Their values must come from the candidate prior or simulated history, not privileged recording metadata.
 Arbitrary mid-trajectory restoration remains an approximation until separately validated against uninterrupted replay.
+It is not required for this migration and must not block inference or planning integration that uses full-prefix replay.
+Without a validated checkpoint, evaluate each alternative future by reconstructing its candidate and replaying the recorded low-level actions from initialization.
+For a stochastic discrepancy model, preserve or explicitly resample the candidate's latent history under the declared conditional law; an unrelated random replay does not reconstruct the same candidate.
+Checkpointing and prefix caching are optional optimizations whose identity must include the program, parameters, initial state, actions, and any latent random history.
 Numerically repeatable candidate replay, faithful evaluator reconstruction, and predictive accuracy of a learned program are three distinct acceptance claims.
 
 ### Required initial-state inventory
@@ -179,6 +184,30 @@ Keep sensor variance fixed at its declared value in these comparisons.
 Evaluate any transition-discrepancy model on held-out development interactions and event predictions, so it cannot earn acceptance merely by explaining every trajectory with extra flexibility.
 For a stochastic discrepancy extension, infer the intermediate states under its declared transition distribution; the deterministic initial-state formula above no longer suffices.
 Persistent mismatch should still inform program revision.
+
+### Discrepancy implementation decision
+
+Diagnose reconstruction bugs, parameter error, missing program logic, and residual approximation error separately before extending the probability model.
+Fix reproducible initialization or replay defects directly.
+Expose missing mechanisms and incompatible exact predictions to simulator-program revision; a discrepancy term must not silently excuse them.
+Lack of informative observations, such as an all-burners-off fitting prefix, is a separate cause of broad uncertainty and does not by itself justify discrepancy.
+
+A limited discrepancy extension may proceed when a repeatable residual pattern remains after those checks.
+Declare the affected quantities, temporal law, fixed hyperparameters or original hyperprior, and physical or output-level interpretation before running the comparison.
+An output discrepancy changes the distribution of observations around a simulated trajectory; a transition discrepancy changes physical histories and therefore can change contacts and events.
+These are distinct model changes and must not be substituted for one another.
+Keep declared sensor noise unchanged and preserve exact observations through the appropriate conditional construction.
+
+Use the same discrepancy law in fitting, future generation, and future-density evaluation.
+Select a law using fitting or designated development data, freeze it, and evaluate causal predictions on a separate suffix or recording.
+If a previously held-out suffix motivates a new law, it becomes development evidence and a new untouched evaluation is required for acceptance.
+Compare with the model without that extension where its conditional target is supported, retaining unsupported cases explicitly rather than manufacturing a posterior.
+Report numerical repeatability, prediction error, consequential event probabilities, and compute cost; better training likelihood alone is insufficient.
+Keep diagnostic interventions that suppress future noise separate from a consistently refitted model.
+
+The production implementation should not accumulate domain-specific corrections selected to make these recordings pass.
+Any domain knowledge needed for a prior or model must have an explicit source available to the agent through the task interface or learned simulator.
+Retain the existing execution estimator and decision rules during this evaluation.
 
 ## 3. Standardize the inference result, evaluate the approximation
 
@@ -376,7 +405,8 @@ Record later runtime changes separately instead of attributing every difference 
 
 ### Stage A: define and verify the probability model
 
-Implement and verify the state/restoration contract from section 1 before the new fitter consumes real recordings.
+Implement and verify the candidate-initialization and full-prefix replay contract from section 1 before the new fitter consumes real recordings.
+Arbitrary mid-trajectory restoration is not an advancement requirement.
 Complete the five domain inventories and derive the reduced conditional targets before advancing to real-recording posterior comparisons.
 Implement the observation likelihood, initial-state prior, immutable data identity, and posterior result format beside the existing fitter.
 Verify the likelihood against the noise injector, including angle handling, missing measurements, and cached observations.
