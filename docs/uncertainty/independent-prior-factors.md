@@ -65,8 +65,9 @@ Earlier check attempts exposed test typing and lint issues, which were corrected
 Native preflight `22717213` has completed: 56 parameter assignments at eight source states preserve the expected reduced target, with 792 native actions and four rejected changes to the factorization assumptions.
 Independent reader `22717214` also passes all 56 assignments, rejects a retained placeholder coordinate and performs 264 fresh native actions.
 Its verified source checksum is `7ec3f083e8a866ccad24db8242e53b6860593a73c60e010c82b5b38d7f6884de`.
-Small fitting fixtures `22717216` and `22717220` are running, with readers `22717219` and `22717221` dependent on completion.
-Full fits `22717256` and `22717258` are queued behind the corresponding successful fixture readers, with full-fit readers `22717257` and `22717259` dependent on completion.
+Small fitting fixtures `22717216` and `22717220` and readers `22717219` and `22717221` have completed successfully.
+Full fits `22717256` and `22717258` are now running, with full-fit readers `22717257` and `22717259` dependent on completion.
+The subsequent [forecast validation](reduced-boil-forecasts.md) restores the three thermal priors explicitly.
 All jobs use compute nodes on `mit_preemptable`.
 The Boil adapter and each fitting fixture require independent verification before full fitting.
 Future comparisons must restore the full heating priors when drawing parameter sets or integrate them explicitly, while preserving correlations and weights in the retained block.

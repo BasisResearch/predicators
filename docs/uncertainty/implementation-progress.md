@@ -18,7 +18,14 @@ The consumer preserves retained correlations, exact analytic quantiles, full-tar
 The reduced Boil target removes the three unobserved heating coordinates while preserving the original full target score.
 Native preflight `22717213` passes 56 assignments across eight source states, with 792 native actions and four contract guards.
 Independent reader `22717214` also passes, with 264 fresh native actions and a rejected placeholder coordinate.
-Two fresh small fitting fixtures are running; full fits `22717256` and `22717258` are dependency-queued behind their independent readers, with final-target verification also queued.
+Both small fitting fixtures and readers now pass, including 4,224 fresh native actions per reader.
+Full fits `22717256` and `22717258` are running with final-target verification queued.
+The [reduced Boil forecast adapter](reduced-boil-forecasts.md) restores independently sampled thermal priors per complete trajectory while preserving retained joint rows and weights.
+Its twelve source guards, ten malformed-history checks and nonuniform density/variance reference pass in `22717364`.
+Native forecast fixture `22717373` completed 128 histories and 40,656 native actions.
+Independent reader `22717375` also passes, checking 304,128 joint factors and using 6,864 additional native actions, including two fresh complete histories.
+Both full forecasts, their independent readers and the final comparison are dependency-queued behind successful fit and fixture verification.
+Comparison fixture `22717399` preserves all seven earlier controls while explicitly retaining both pending new outcomes.
 No full reduced fit or new agent result is available yet.
 
 The [Balloons transition diagnostic](balloons-transition-sensitivity.md) now verifies 32 paired continuations and 9,400 native actions.
@@ -31,7 +38,8 @@ Native validation `22714576` passes exact archived replay, future-data isolation
 Array `22714577` now runs the two original numerical seeds with only the parameter proposal center changed to the fixed program defaults; original priors, likelihood and sampling budgets remain unchanged.
 The default-centered seed 621 fit `22714577_1` and its reader `22714629` have completed; all 64 final native targets and the checkpoint reproduce, with one surviving original lineage.
 This does not establish mixing or prediction quality.
-The paired seed 620 fit remains running, with reader `22714628` dependent on completion.
+The paired seed 620 fit `22714577_0` and reader `22714628` have also completed, with the same final-target reproducibility and one surviving original lineage.
+Both default-centered posterior forecasts remain pending or running; their comparison is incomplete.
 The new weighted forecast adapter and independent reader `22715007`/`22715008` have passed, checking both broad and local proposal mappings, complete native prefixes, generation and density histories, and rejection of the old guide when decoding new particles.
 Full forecasts `22715115`/`22715117`, readers `22715116`/`22715118`, and comparison `22715120` are dependency-queued behind the verified completed fits.
 The comparison retains both earlier fits and the incumbent, including prediction metrics and computation costs; its fixture `22715119` passes while correctly leaving the new outcomes pending.
