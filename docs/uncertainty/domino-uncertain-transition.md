@@ -54,10 +54,25 @@ Other output-law components retain their existing validation; this reader is not
 
 Preparation checks pass for Python and shell syntax, fourteen coordinate mappings, frozen input hashes and four archived-history scalar references, including rejection of corrupted base weights.
 Those preparation checks initialize no simulator and do not establish native composition parity.
-Native job `22766058` and dependent reader `22766059` are submitted on `node1412` in `mit_preemptable`, each with four CPUs, 20 GiB and a twenty-minute limit.
+Native job `22766058` and dependent reader `22766059` are submitted on `node1412` in `mit_preemptable`, each with four CPUs and 20 GiB.
+Their initial twenty-minute requests were subsequently reduced to five minutes using the verified workload evidence below.
 Both were pending at the latest scheduler check.
 Frozen inputs, selected cases, source hashes and outputs are in `logs/uncertainty_domino_uncertain_transition_20260914`.
 
 Inspect native support, archived-control parity and the reader before deciding whether a full uncertain-state comparison is justified.
 Even a successful preflight leaves the original numerical-budget disagreement, predictive assessment and later planning gates unresolved.
 The acting agent remains unchanged.
+
+## Allocation correction
+
+Both jobs were still pending with zero elapsed time and restarts when their allocation time limits changed from twenty to five minutes.
+The requested node was already idle; the scheduler reported a priority wait, so adding another node was not justified by insufficient capacity on this node.
+Historical native preflight `22683003` completed 9,152 actions in a 91-second allocation on the same node and four CPUs.
+The new preflight has an upper bound of 3,456 native actions, including both old-target repeats, all new cases, repeated histories and four generated/density round trips.
+Earlier independent reader `22684436` completed its larger saved-history check in 31 seconds; the new reader adds four fresh 64-action replays.
+These timing references support the five-minute requests with margin; they do not guarantee a start time.
+
+Only pending allocation limits changed.
+Job IDs, dependencies, CPUs, memory, node selection, frozen sources and every scientific evaluation count were verified unchanged.
+The before/after scheduler records and input-seal verification are in the bundle's `allocation.json`.
+Both jobs remained pending after the update.
