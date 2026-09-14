@@ -11,9 +11,9 @@ Independent readers `22717219` and `22717221` replay the complete numerical ledg
 The verified source checksums are `8490860cad3bb895298296e523cb171ac3f737b56d931679107306bb322fc23f` and `e4b1360238f326cb6c990ceab3f3ac1c79d665a770da0d6739310b0ad6c826b7`.
 These deliberately small two-temperature fixtures establish implementation consistency, not posterior adequacy.
 
-Full fits `22717256` and `22717258` are running on compute node `node1411` in `mit_preemptable`.
+Full fits `22717256` and `22717258` completed on compute node `node1411` in `mit_preemptable`.
 They retain the original 32 particles, 64 temperatures, eight moves and 20,000-evaluation cap, with the three independent singleton blocks removed.
-Their independent readers `22717257` and `22717259` are dependency-queued.
+Their independent readers `22717257` and `22717259` completed successfully.
 The reports retain an unavailable numerical assessment until replication and budget-stability requirements are met.
 
 ## Restoring the independent priors in forecasts
@@ -53,9 +53,8 @@ It uses 6,864 additional native actions.
 The verified forecast source checksum is `bbbb8324640aaf3a348a6888e4e21e6de44a539c8698477b2e489c023192bd35`.
 The reader reconstructs the 81-to-84 coordinate mapping separately, regenerates thermal draws from their recorded seeds, checks every native history and readout, and repeats complete generation and density histories.
 It independently computes the thermal density average and weighted prediction summaries.
-Full forecasts `22717437` and `22717439` are dependency-queued behind the successful fixture reader and the corresponding full-fit reader.
-Their independent readers are `22717438` and `22717440`, followed by final comparison `22717441`.
-These gates precede full forecast execution.
+Full forecasts `22717437` and `22717439`, independent readers `22717438` and `22717440`, and final comparison `22717441` completed successfully.
+The [completed comparison](validation-status-20260914.md#boil-reduced-target-outcome) records the results and remaining numerical and predictive failures.
 
 ## Comparison and remaining acceptance
 
@@ -68,4 +67,5 @@ The comparison reports fitting and forecast costs, between-fit prediction differ
 Comparison fixture `22717399` completed its checks and retained all seven original rows while correctly reporting both new full comparisons as pending.
 Missing results remain pending and cannot support an improvement claim.
 A completed mechanical comparison would still require numerical and predictive adequacy before live planning integration or retirement of the incumbent.
-A separate fitting prefix containing heating remains necessary to test learning from informative data; it will not replace the original all-off extrapolation comparison.
+A separate [conditional diagnostic](boil-informative-heating.md) using a 224-action prefix containing heating completed as `22755839`, with independent reader `22755840` and higher-precision follow-up `22756314`/`22756315`.
+It holds selected physical histories and nonthermal parameters fixed and does not replace either the full-scene inference comparison or the original all-off extrapolation benchmark.

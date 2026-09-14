@@ -26,7 +26,7 @@ The failed first resume allocations and their cancelled dependent pipelines rema
 Array `22714037` resumes these checkpoints with the unchanged frozen fitter, probability model, sampler configuration, 16 ordered workers, and original evaluation budget.
 Each new allocation requests 128 GiB instead of 64 GiB on the original compute node.
 The underlying memory-growth cause has not been isolated; the larger allocation provides headroom for the remaining stages.
-Readers `22714038` and `22714039` follow the fits and will independently replay the combined pre-interruption and resumed ledgers.
+Readers `22714038` and `22714039` completed successfully, independently replaying the combined pre-interruption and resumed ledgers.
 
 The replacement forecast pipeline is frozen in `logs/uncertainty_bridge_resumed_forecasts_v2_20260914`.
 Its forecast and summary calculations are unchanged; source paths point to the resumed fits and new output directory.
@@ -37,3 +37,13 @@ The old downstream jobs cannot proceed after their failed dependencies and are t
 The resumed fit report's elapsed-time field covers only its new allocation.
 Total inference cost must also include the interrupted allocation, initialization and recovery validation; do not quote the new elapsed-time field as total cost.
 The numerical and predictive gates remain open.
+
+## Completed forecasts and comparison
+
+Both resumed fits, forecasts `22714051` and `22714054`, readers `22714052` and `22714055`, and comparison `22714056` have completed.
+All nine directly referenced comparison sources match their recorded hashes.
+The two final populations retain one initial lineage each.
+Both posterior forecasts and the incumbent selected point predict zero probability for the final clean geometric goal, which the assessment records as true.
+The small aggregate goal Brier score of 1/586 reflects that this goal occurs at only one frame.
+The maximum between-fit glue-probability gap is 0.1512; the comparison does not establish numerical or predictive acceptance.
+See the [consolidated validation status](validation-status-20260914.md#bridge-completed-recovery) for the outcome and cumulative-cost caveat.
