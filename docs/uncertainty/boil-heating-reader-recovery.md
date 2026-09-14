@@ -2,9 +2,9 @@
 
 September 14, 2026.
 All four short joint-inference fits are complete and independently verified.
-The first replacement full fit has completed; the other three remain running, with subsequent work queued for resources or prerequisite verification.
+Three full fits have completed; guided seed 411 remains running, with subsequent work queued for resources or prerequisite verification.
 All four forecast fixtures have completed with successful independent readers.
-Its independent native reader and complete forecast remain pending.
+Their independent native readers and complete forecasts remain pending.
 The incumbent selected-point control is also complete and independently verified.
 Stage B numerical and predictive acceptance remains open.
 
@@ -105,16 +105,29 @@ The clean positional RMSE values are approximately 0.041 mm, 6.502 mm and 8.005 
 This is the incumbent's selected-point prediction on one development recording, not a new agent solve-rate seed or a test of its full planning ensemble.
 There is still no completed matched posterior performance comparison.
 
-## First full fit completed
+## Completed full fits
 
-Uniform-proposal numerical seed 410, job `22762490`, completed all 64 temperatures in a 2:16:13 allocation on four CPUs.
-It used 14,870 target evaluations and recorded 2,619,904 native actions across 11,822 physical evaluations.
-The saved 32-particle, 84-coordinate population and weights match the checksummed final checkpoint exactly.
+Three full fits have completed all 64 temperatures with 32 particles and 84 retained joint coordinates.
+The final guided seed-411 fit remains running.
+
+| Proposal | Numerical seed | Job | Target evaluations | Native actions | Allocation, four CPUs | Initial lineages | Resampling events |
+| --- | ---: | --- | ---: | ---: | --- | ---: | ---: |
+| Uniform | 410 | `22762490` | 14,870 | 2,619,904 | 2:16:13 | 1 | 15 |
+| Guided | 410 | `22762502` | 14,773 | 2,621,920 | 2:19:34 | 1 | 16 |
+| Uniform | 411 | `22762496` | 14,987 | 2,606,240 | 2:25:31 | 1 | 14 |
+
+The respective physical-evaluation counts are 11,822, 11,828 and 11,781.
+For each completed fit, the complete population and original weights match the checksummed final checkpoint exactly.
 The frozen plan, driver and complete evaluation-ledger hashes also match their report references.
-The result checksum is `a56b070e92ab1e8ad4aef55d1f823fe7d4713e346a0d8c2c2dfd0775ed193822`.
+The source reports in `logs/uncertainty_boil_heating_fits_20260914` have the following checksums:
 
-The fit retains one initial lineage after fifteen resampling events.
-That warns about exploration, but does not independently determine the accuracy of every posterior quantity.
-Its assessment correctly remains `unevaluated`, with no usable assessed posterior published.
-Independent native reader `22762491` and full forecast `22762494` remain pending, as do the comparisons with the other three full fits.
+- `uniform-full-seed410.json`: `a56b070e92ab1e8ad4aef55d1f823fe7d4713e346a0d8c2c2dfd0775ed193822`.
+- `guided-full-seed410.json`: `739bd29a4a5a7f7291cdff9c02806ec06151a89cc85adbc7ffc41f74b83a4fb9`.
+- `uniform-full-seed411.json`: `4dba36534c3fe79ea1954cf41515e0a48ab3425dcc93342c28b1ca78e579defc`.
+
+All three retain one initial lineage.
+That warns about exploration, but does not independently determine the accuracy of every posterior quantity or establish agreement between fits.
+Their assessments correctly remain `unevaluated`, with no usable assessed posterior published.
+Independent native readers `22762491`, `22762503` and `22762497` and their complete forecasts remain pending.
+The final guided fit and complete verified forecasts are still required for the planned comparison.
 Artifact consistency and sampler completion do not establish numerical adequacy, predictive improvement or an agent result.
