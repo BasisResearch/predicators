@@ -73,6 +73,14 @@ class SamplerConfig:
     refresh probability mixes in independent uniform proposals within
     the selected block. Zero preserves the original random-walk
     schedule.
+
+    initialize_on_support redraws whole proposal vectors until every
+    initial particle has finite base and likelihood. This conditions the
+    proposal on the complete target support, with a common normalization
+    that cancels from normalized weights. It does not redraw state given
+    a fixed parameter or soften exact constraints. Every rejected target
+    evaluation consumes budget; an unfinished initialization publishes
+    neither a checkpoint nor posterior samples.
     """
     particles: int = 512
     temperatures: int = 32
@@ -83,8 +91,11 @@ class SamplerConfig:
     proposal_blocks: Tuple[Tuple[int, ...], ...] = ()
     temperature_schedule: Tuple[float, ...] = ()
     refresh_probability: float = 0.
+    initialize_on_support: bool = False
 
     def __post_init__(self) -> None:
+        if not isinstance(self.initialize_on_support, bool):
+            raise ValueError("Support initialization must be boolean")
         for value in (self.particles, self.temperatures, self.moves,
                       self.max_evaluations):
             if not isinstance(value, int) or value <= 0:
@@ -335,6 +346,8 @@ def sample_batch(prior: Union[BoxPrior, ConditionedPrior],
     if config.refresh_probability == 0.:
         # Keep default checkpoints compatible with the original schedule.
         del signature_config["refresh_probability"]
+    if not config.initialize_on_support:
+        del signature_config["initialize_on_support"]
     signature = content_digest(
         json.dumps(
             {
@@ -395,6 +408,11 @@ def sample_batch(prior: Union[BoxPrior, ConditionedPrior],
                     not math.isfinite(v) or v <= 0 or v > count + 1e-8
                     for v in ess_values):
             raise ValueError("Invalid checkpoint progress")
+        if config.initialize_on_support and (
+                initial_finite != count
+                or not np.all(np.isfinite(base_weights))
+                or not np.all(np.isfinite(likelihoods))):
+            raise ValueError("Invalid supported initialization checkpoint")
         completed = (config.temperature_schedule[completed_stage - 1]
                      if config.temperature_schedule else
                      completed_stage / config.temperatures) \
@@ -544,9 +562,28 @@ def sample_batch(prior: Union[BoxPrior, ConditionedPrior],
 
     try:
         if resume is None:
-            for i, trial in enumerate(evaluate_many(list(particles))):
-                likelihoods[i], base_weights[i], joints[i] = trial
-                initial_finite += int(math.isfinite(likelihoods[i]))
+            if config.initialize_on_support:
+                candidates = list(particles.copy())
+                while initial_finite < count:
+                    for candidate, trial in zip(candidates,
+                                                evaluate_many(candidates)):
+                        likelihood, base, joint = trial
+                        if math.isfinite(likelihood) and math.isfinite(base):
+                            particles[initial_finite] = candidate
+                            likelihoods[initial_finite] = likelihood
+                            base_weights[initial_finite] = base
+                            joints[initial_finite] = joint
+                            initial_finite += 1
+                    if initial_finite < count:
+                        candidates = list(
+                            rng.uniform(lower,
+                                        upper,
+                                        size=(count - initial_finite,
+                                              len(proposal_prior.names))))
+            else:
+                for i, trial in enumerate(evaluate_many(list(particles))):
+                    likelihoods[i], base_weights[i], joints[i] = trial
+                    initial_finite += int(math.isfinite(likelihoods[i]))
             if not initial_finite:
                 # Finite initialization may simply have missed valid support.
                 return result("no_particle_support")

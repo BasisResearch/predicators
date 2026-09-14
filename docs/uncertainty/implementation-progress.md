@@ -12,9 +12,22 @@ The active work is Stage B offline comparison; Stage C live posterior use and St
 Stage D execution smoothing remains optional and deferred.
 The full plan remains incomplete, and the incumbent estimator remains the production default.
 
+The [Bridge causal future generator](bridge-causal-futures.md) now passes four complete native histories and an independent joint/reach/memory reader, totaling 4,744 actions.
+It preserves the checked 600-action prefix and generates the 586-action suffix without future observations, retaining one sampled variance per joint throughout each continuation.
+The [complete Bridge joint target](bridge-joint-inference.md) now composes the original parameter/scene priors, exact-rate/latch factors and corrected scene/parameter proposals.
+Its eleven-case native preflight completed with seven finite targets, two geometry rejections and two exact-event rejections; all repeated calculations are exact.
+Independent target verification passes within 2.9104e-11, but both first 32-candidate populations have zero complete support.
+A target-preserving local mixture then finds three and twelve finite candidates; both populations still concentrate to effective sample size approximately one at the first temperature.
+Base-weight concentration is already severe, so improved initialization is required in addition to any temperature-schedule change.
+The optional [complete-support initializer](support-initialization.md) now redraws entire joint candidates with rejected evaluations charged to the same budget.
+All 35 focused functional tests and 32 exact default-path comparisons pass, together with type, lint and pinned format checks; two native initialization fixtures and independent readers are submitted.
+The Bridge fixture separately tempers all finite reduced-target factors while keeping exact support hard and preserving the final target.
+These close further integration components while leaving posterior exploration, future-density evaluation and predictive acceptance open.
+
 The shared-variance Boil forecast adapter has now completed its compute validation as `22699944`, with 2,376 native actions, exact checkpoint recovery, independent weighted summaries and twelve corruption rejections.
 Both replacement Boil fits completed all 32 stages with 7,357 and 7,293 evaluations, but each retains one initial ancestor.
-Full forecast/reader jobs `22700066_0` and `22700067_1` are now running; comparison `22700111` depends on both forecasts succeeding.
+Full forecast generation has completed for both populations, producing 288 saved histories each.
+Reader jobs within `22700066_0` and `22700067_1` are still running; comparison `22700111` depends on both passing.
 These preserve the previous fitting and forecast seeds and compare the shared-variance law with the fixed-variance law and incumbent selected point.
 The [Bridge incumbent control](bridge-incumbent-control.md) has also completed its 600-action fit and independently verified 586-action forecast assessment.
 It records two suffix glue-reading mismatches, while other exact channels still disagree and the complete replacement target remains unfinished.
