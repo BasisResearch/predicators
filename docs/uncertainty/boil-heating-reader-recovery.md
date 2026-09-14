@@ -3,7 +3,7 @@
 September 14, 2026.
 All four short joint-inference fits are complete and independently verified.
 Replacement full fits are running, with remaining work queued for resources or prerequisite verification.
-Both uniform-arm forecast fixtures have completed; their independent readers are running or queued.
+Both uniform-arm forecast fixtures and their independent readers have completed successfully.
 The incumbent selected-point control is also complete and independently verified.
 Stage B numerical and predictive acceptance remains open.
 
@@ -60,6 +60,14 @@ Posterior collector `22762518` follows all four forecast readers, and combined i
 Their original metric calculations are unchanged.
 The collection wrapper additionally validates transport provenance and appends the replacement job mapping and scheduler accounting, retaining the original failed and cancelled allocation records separately.
 The sealed submission record and allocation evidence are in `logs/uncertainty_boil_heating_pipeline_recovery_20260914`.
+
+## Verified uniform forecast fixtures
+
+Forecast readers `22762493` and `22762499` both completed successfully, and their report and checker hashes match the frozen sources.
+Each checks all 96 generated or density histories, 228,096 joint factors, the independently computed weighted summary and two fresh complete histories.
+The readers use 9,712 and 5,904 native steps for numerical seeds 410 and 411 respectively.
+The first guided forecast fixture has started; the full posterior comparisons still depend on the full fitting and forecast results.
+These fixture checks establish implementation consistency, not posterior adequacy.
 
 ## Verified incumbent result
 
