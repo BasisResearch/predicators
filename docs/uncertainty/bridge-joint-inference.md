@@ -92,3 +92,21 @@ Full sampling remains separate from numerical and predictive acceptance.
 
 Artifacts are in `logs/uncertainty_bridge_joint_inference_20260913/`.
 The corrected local proposal and its diagnostics are in `logs/uncertainty_bridge_local_proposal_20260913/`.
+
+## Complete-support initialization and paired fits
+
+The [whole-joint support initializer](support-initialization.md) now supplies 32 accepted candidates for each numerical seed, and both independent native readers pass.
+The original complete target is retained while all finite reduced factors are introduced through a geometric temperature schedule.
+Array `22706932` runs the two matched fitting pilots with 64 temperatures from 0.000001 through one, eight moves per stage, proposal scale 0.05 and a 10% within-block independent refresh probability.
+The eleven blocks separate two fixtures, the robot, six movable bodies, parameters and the outer mixture coordinate.
+Each run has a 20,000-evaluation budget and a 16-CPU, 64-GB, eight-hour allocation on `node1412` in `mit_preemptable`.
+Every stage writes a recoverable checkpoint and retains actual native-action cost alongside logical target-evaluation cost.
+
+The verified initialization evaluations are cached with exact proposal keys and original artifact checksums.
+They remain charged as logical evaluations; the stage-zero checkpoint must exactly reproduce the checked initialization's particles, factors, weights, ancestry and random-generator state before any new native evaluations begin.
+This saves repeated physical reconstruction without reusing an old posterior as a new prior.
+Subsequent proposals use fresh native worlds, and all finite target factors and rejected evaluations are logged.
+Independent readers `22707128` and `22707130` are queued behind the fits to replay complete numerical ledgers and freshly evaluate every final joint target.
+Completion, numerical diversity and held-out predictions remain separate requirements.
+
+Fitting artifacts are in `logs/uncertainty_bridge_supported_fits_20260913/`.

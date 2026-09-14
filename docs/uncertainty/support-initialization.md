@@ -46,10 +46,15 @@ The first compute check passed 35 functional tests and 32 exact default-path/che
 That test's typing is corrected; replacement check `22706421` completed in 2:09 with all 35 functional tests, 32 exact default-path/checkpoint comparisons, type checking, lint and pinned format checks passing.
 The dependent native allocations were cancelled before starting and produced no native results.
 
-Native fixture `22706430` is gated on the corrected checks and uses numerical seeds 810 and 811, 32 accepted candidates each and a maximum of 2,048 target evaluations per population.
+Native fixture `22706430` completed for numerical seeds 810 and 811, collecting 32 accepted candidates each in 209 and 123 evaluations, respectively, within the 2,048-evaluation limit.
+The allocations took 9:12 and 8:12 and executed 35,332 and 28,389 native actions.
 It stops at the completed initialization checkpoint, retaining all rejected evaluations and reporting the weight concentration implied by several temperatures.
-Independent readers `22706433` and `22706435` verify the rejection ledger, proposal inverses and mixture corrections, first-32-candidate parity with the original screen, and a fresh native target repetition per population.
-These are submitted initialization checks, not posterior fits, predictive acceptance or agent results.
+Independent readers `22706433` and `22706435` both completed in 1:02, verifying the rejection ledger, proposal inverses and mixture corrections, first-32-candidate parity with the original screen, and a fresh native target repetition per population.
+Both readers reject all four corrupted-ledger controls, with maximum inverse-coordinate discrepancy 1.222e-15.
+At temperature 0.0001, effective sample sizes are 30.06 and 31.03; at 0.001 they fall to 8.37 and 6.91, and direct weighting to temperature one concentrates on one candidate in each population.
+The artificial starting distributions now contain supported, balanced populations, but gradual weighting and rejuvenation are still necessary.
+These are completed initialization checks, not posterior fits, predictive acceptance or agent results.
+Paired full fitting pilots `22706932` are now submitted with the unchanged complete target, 64 geometrically spaced temperatures, eight blocked moves per stage and a 20,000-evaluation budget per run.
 
 The frozen native inputs and outputs are in `logs/uncertainty_bridge_supported_initialization_20260913/`.
 The separate reader is in `logs/uncertainty_bridge_supported_verification_20260913/`.

@@ -71,7 +71,8 @@ Repeated fresh replay and complete target evaluation are exact.
 The resulting conditional root-mean-square finger scales range from approximately 0.127 to 0.288 mm on these selected candidates, below the former fixed 1 mm.
 Those candidates were selected before this diagnostic; they are not samples from a newly fitted posterior.
 
-Fresh matched 32-particle fits `22699492_0` and `_1` are running on compute nodes.
+Fresh matched 32-particle fits `22699492_0` and `_1` completed all 32 temperatures, using 7,357 and 7,293 evaluations respectively.
+Both retain one initial ancestor, so their completion does not establish adequate exploration.
 Their complete model identity includes the numerical variance prior as well as the transition law.
 Both retain the original fitting-data and physical-prior definitions, while recording the changed discrepancy model separately.
 They remain unassessed until independent replicas, held-out predictions and computational cost are checked.
@@ -90,12 +91,12 @@ Twelve deliberate corruption cases are rejected: missing and duplicate histories
 
 The complete forecast plan reconstructs the changed statistical and runtime identities from frozen inputs and checks the unchanged data, program, physical prior, scene map and sampler settings against the previous fits.
 It records expected final report and checkpoint locations without hashing a mutable running report as though it were complete.
-Forecast jobs `22700066_0` and `22700067_1` are queued behind their respective fit jobs.
+Forecast jobs `22700066_0` and `22700067_1` completed generation and independent verification in 1:33:57 and 1:34:04 respectively.
 Each retains every positive-weight particle and generates two banks of four 132-action futures, plus a separate conditional-density trajectory for the recorded future.
 The same numerical and forecast seeds are retained from the fixed-variance comparison.
 An independent reader reconstructs all weighted summaries from complete saved histories before the forecast job can succeed.
 
-Dependent comparison `22700111` will assess differences between replicas, the previous fixed-variance populations and the incumbent selected-point forecast.
+Comparison `22700111` completed the replica, fixed-variance and incumbent comparisons, including checked source identities and independent metric reconstruction.
 Independent headline metric reconstruction already matches both previous verified forecast reports.
 The comparison retains numerical collapse and simulation cost alongside prediction errors; a completed forecast alone is not numerical acceptance.
 The fixed/shared-variance comparison changes the discrepancy law, while the incumbent comparison additionally changes initial-state treatment and output discrepancy.
@@ -103,3 +104,27 @@ Neither comparison is a new live-agent seed or establishes solve-rate non-regres
 Reducing perturbation scale alone does not resolve the remaining heating errors or establish agent non-regression.
 
 Frozen component checks are in `logs/uncertainty_shared_variance_20260913/`, fitting/preflight artifacts in `logs/uncertainty_boil_shared_variance_20260913/`, and future checks in `logs/uncertainty_boil_shared_variance_forecast_20260913/`.
+
+## Completed Boil forecast comparison
+
+The comparison uses one development recording, with a 132-action fitting prefix and a 132-action reserved suffix.
+The table reports individual numerical replicas, not agent seeds or solve rates.
+Pose and bubbling errors compare native predictive means with clean held-out measurements.
+The final goal probability refers to the recorded suffix's final event, which is successful in the observed trajectory.
+
+| Method | Numerical seed | Jug x RMSE (m) | Bubbling-level RMSE | Final goal probability |
+| --- | ---: | ---: | ---: | ---: |
+| Incumbent selected point | Not applicable | 0.00170 | 0.01915 | 1.000 |
+| Fixed joint variance | 410 | 0.12922 | 0.48328 | 0.223 |
+| Fixed joint variance | 411 | 0.12632 | 0.45393 | 0.306 |
+| Shared learned joint variance | 410 | 0.00911 | 0.28022 | 0.649 |
+| Shared learned joint variance | 411 | 0.05747 | 0.30312 | 0.189 |
+
+Learning the shared variance improves pose and bubbling prediction over the fixed-variance model for both numerical seeds, but neither matches the incumbent's bubbling prediction.
+The second shared-variance run assigns only 0.377 probability to the burner being off at the final step, reducing its joint goal probability despite predicting boiling more often.
+Its conditional-density evaluation also retains 23 zero-density particles, while the other shared-variance run retains none.
+The substantial replica disagreement and one-ancestor populations remain numerical concerns.
+These results support the shared-variance modeling change as a development direction, but do not pass the inference replacement gate.
+
+The next Boil work must distinguish poor exploration from remaining state/model inadequacy, preserving the current comparison as evidence rather than rerunning until favorable.
+The complete verified metrics and cost accounting are in `logs/uncertainty_boil_shared_variance_forecast_20260913/model-comparison.json`.

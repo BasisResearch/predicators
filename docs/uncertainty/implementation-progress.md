@@ -20,14 +20,21 @@ Independent target verification passes within 2.9104e-11, but both first 32-cand
 A target-preserving local mixture then finds three and twelve finite candidates; both populations still concentrate to effective sample size approximately one at the first temperature.
 Base-weight concentration is already severe, so improved initialization is required in addition to any temperature-schedule change.
 The optional [complete-support initializer](support-initialization.md) now redraws entire joint candidates with rejected evaluations charged to the same budget.
-All 35 focused functional tests and 32 exact default-path comparisons pass, together with type, lint and pinned format checks; two native initialization fixtures and independent readers are submitted.
+All 35 focused functional tests and 32 exact default-path comparisons pass, together with type, lint and pinned format checks.
+Both native fixtures and independent readers now pass: 32 supported candidates are collected in 209 and 123 evaluations, with effective sample sizes 30.06 and 31.03 at temperature 0.0001.
+Paired full fitting pilots `22706932` are running with 64 temperatures, blocked rejuvenation and a 20,000-evaluation budget per run.
 The Bridge fixture separately tempers all finite reduced-target factors while keeping exact support hard and preserving the final target.
-These close further integration components while leaving posterior exploration, future-density evaluation and predictive acceptance open.
+The [conditional future-density audit](bridge-future-density.md) also passes, with 8,318 native actions and independent variance, reach and output-factor checks.
+The generated histories reproduce exactly, but the fixed starting candidate gives very low likelihood to the recorded suffix, dominated by continuous output disagreement.
+These close further integration components while leaving posterior exploration and predictive acceptance open.
 
 The shared-variance Boil forecast adapter has now completed its compute validation as `22699944`, with 2,376 native actions, exact checkpoint recovery, independent weighted summaries and twelve corruption rejections.
 Both replacement Boil fits completed all 32 stages with 7,357 and 7,293 evaluations, but each retains one initial ancestor.
 Full forecast generation has completed for both populations, producing 288 saved histories each.
-Reader jobs within `22700066_0` and `22700067_1` are still running; comparison `22700111` depends on both passing.
+Reader jobs within `22700066_0` and `22700067_1` completed successfully in 1:33:57 and 1:34:04; comparison `22700111` has also completed.
+The [verified Boil comparison](shared-variance-discrepancy.md#completed-boil-forecast-comparison) shows improved pose and bubbling predictions relative to fixed variance, but continued regression against the incumbent.
+Shared-variance replicas predict final goal probabilities 0.649 and 0.189 for the observed successful suffix, while the incumbent predicts one; these are forecast probabilities, not agent solve rates.
+Replica disagreement and one-ancestor populations keep the replacement gate open.
 These preserve the previous fitting and forecast seeds and compare the shared-variance law with the fixed-variance law and incumbent selected point.
 The [Bridge incumbent control](bridge-incumbent-control.md) has also completed its 600-action fit and independently verified 586-action forecast assessment.
 It records two suffix glue-reading mismatches, while other exact channels still disagree and the complete replacement target remains unfinished.
