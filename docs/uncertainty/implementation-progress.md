@@ -13,7 +13,8 @@ Stage D execution smoothing remains optional and deferred.
 The full plan remains incomplete, and the incumbent estimator remains the production default.
 
 The shared-variance Boil forecast adapter has now completed its compute validation as `22699944`, with 2,376 native actions, exact checkpoint recovery, independent weighted summaries and twelve corruption rejections.
-Full forecast/reader jobs `22700066_0` and `22700067_1` are queued behind the two live replacement fits; comparison `22700111` depends on both forecasts succeeding.
+Both replacement Boil fits completed all 32 stages with 7,357 and 7,293 evaluations, but each retains one initial ancestor.
+Full forecast/reader jobs `22700066_0` and `22700067_1` are now running; comparison `22700111` depends on both forecasts succeeding.
 These preserve the previous fitting and forecast seeds and compare the shared-variance law with the fixed-variance law and incumbent selected point.
 The [Bridge incumbent control](bridge-incumbent-control.md) has also completed its 600-action fit and independently verified 586-action forecast assessment.
 It records two suffix glue-reading mismatches, while other exact channels still disagree and the complete replacement target remains unfinished.
@@ -21,6 +22,16 @@ The follow-up [Bridge joint-conditioning audit](bridge-initial-scene.md#conditio
 Independent verification passed 27,000 normalized joint factors and four corruption controls.
 Joint and finger-readout mismatches disappear, but all sixteen glue mismatches remain on the all-rest root, alongside six robot pose/orientation channels.
 The next Bridge work must resolve those remaining conditional-output and geometric constraints; more replay repetitions alone cannot supply a supported posterior.
+The [Bridge glue-support follow-up](bridge-glue-support.md) independently checked 73,082 radius/height cells across 29 repeated nearby scene trajectories, but none supplied exact deposition support.
+A separate stochastic-reach trial retains exact glue observations and their normalized transition probabilities rather than assigning them sensor noise.
+Its first native case supports all 600 glue updates with bond dwell 25; the dwell-30 control correctly rejects action 583.
+Independent verification passed all 1,471 reach intervals, literal model-memory updates and four corruption controls.
+The continuous-output composition and retained exact-rate factor now pass reader `22702562`, but the finite supported point has very poor noisy block-orientation likelihood.
+Three initial resting-face choices dominate that error, motivating a native orientation-support diagnostic before fitting.
+The initial-face scan and independent reader now cover all 36 body/face cases.
+The new prior-preserving categorical proposal passes sixteen functional tests and focused static/format checks; its Bridge adapter recovers seven native roots and verifies all 46,656 joint face weights.
+Complete conditional-trajectory and output checks for these face changes are running as `22703020` after correcting a narrow-interval probability calculation exposed by the independent reader.
+The complete inference map, adequate exploration and future-prediction assessment are still required before a usable Bridge posterior can be claimed.
 
 The [Bridge glue attribution](bridge-glue-attribution.md) now proves a structural contradiction in the transferred parameterized program, beyond the original no-op control.
 Four exact `0, 0.2, 0.4, 1` progressions cannot arise from its constant-increment deposition law for any parameter setting under the preserved memory contract.
