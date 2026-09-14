@@ -61,6 +61,8 @@ This is a matched-data selected-point prediction control.
 It does not evaluate the incumbent's complete interval or ensemble planning policy.
 The new joint inference also changes initial-state treatment and declares discrepancy laws, so a difference between these methods is not a sampler-only effect.
 The old 132-action incumbent result remains a separate historical control.
+The [combined incumbent/posterior report](boil-heating-legacy-comparison.md) is queued behind the complete independent readers and the matched posterior collector.
+It will retain all four posterior rows and omit performance differences while either side is incomplete.
 
 Frozen bundles are `logs/uncertainty_boil_heating_comparison_v2_20260914` and `logs/uncertainty_boil_heating_legacy_control_20260914`.
 The initial failed collector inputs remain in `logs/uncertainty_boil_heating_comparison_20260914`.

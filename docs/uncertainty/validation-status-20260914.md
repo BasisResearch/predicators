@@ -76,6 +76,8 @@ Predictive and numerical comparisons remain unfinished.
 The [matched collector](boil-heating-comparison.md) passes its known-error, weighted-covariance, identity and incomplete-source checks in `22761384`; collection `22761385` waits on all four complete forecast readers.
 The matched-prefix incumbent control passes native parity preflight `22761362` and is fitting in `22761363`, with reader `22761364` queued.
 Its configuration and parameter specifications are verified unchanged from the earlier control.
+The combined incumbent/posterior report check `22761575` passes all eleven rejection controls and retains the real inputs as incomplete.
+Final collector `22761576` remains queued behind the verified incumbent and complete posterior comparison.
 
 ## Bridge completed recovery
 

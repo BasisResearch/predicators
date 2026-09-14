@@ -22,6 +22,8 @@ Complete forecast fixtures, full forecasts and their readers are dependency-queu
 The [matched comparison collector](boil-heating-comparison.md) passes its ten validation controls and preserves the four pending forecasts explicitly.
 A separate full incumbent fit is running on the same 224-action prefix after four complete subclass/literal trajectory and memory comparisons pass.
 The incumbent configuration and parameter specifications match the earlier verified control; its selected-point predictions remain a separate comparison from the incumbent planning policy.
+The [combined incumbent/posterior report](boil-heating-legacy-comparison.md) passes eleven contract and incomplete-source controls in `22761575`.
+Its final collection waits for the matched posterior collector and verified incumbent result, and leaves all performance differences unset until both are complete.
 Full joint numerical agreement and the corresponding forecast comparison remain unfinished; fresh untouched predictive evaluation is still required before migration acceptance.
 
 Stage 0 interface preservation is complete, with scripted behavior parity checked.
