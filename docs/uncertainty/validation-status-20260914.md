@@ -63,6 +63,13 @@ Conditional onset and width become concentrated at means 30.12237 and 5.71475, w
 The two histories give the same conditional heating target, not independent evidence of full-scene posterior agreement.
 See the [informative-heating diagnostic](boil-informative-heating.md) for the original failed precision comparison, prior-retention control and remaining integration requirements.
 
+The subsequent [complete 224-action joint target](boil-heating-joint-target.md) passes native preflight `22757366` and independent reader `22757367`.
+It retains all 84 joint coordinates and includes every observation channel under the original priors and noise laws.
+The corrected thermal proposal also passes native preflight `22757771` and independent density and mapping reader `22757772`.
+Matched uniform and guided fitting fixtures are queued on `mit_preemptable`, with full fits and readers dependent on verified fixture completion.
+Their current scheduling obstacle is the upcoming maintenance reservation, not a failed numerical experiment.
+The 40-action forecast adapter and subsequent predictive and numerical comparisons remain unfinished.
+
 ## Bridge completed recovery
 
 The completed source is `logs/uncertainty_bridge_resumed_forecasts_v2_20260914/paired-comparison.json`.

@@ -11,7 +11,11 @@ Full-prefix replay is the required reference; arbitrary mid-trajectory restorati
 The discrepancy policy now explicitly separates replay bugs, missing program mechanisms, uninformative data and residual model error.
 The [informative-heating diagnostic](boil-informative-heating.md) preserves the thermal priors under the 132-action all-off prefix and constrains onset and width after 224 actions in two fixed candidate histories.
 Native replay, later-observation isolation, independent direct Gaussian references and a higher-precision integration comparison pass.
-This is conditional learnability evidence; a full-scene heating-aware target and held-out forecast remain separate requirements.
+The subsequent [heating-aware joint target](boil-heating-joint-target.md) includes all observations through action 224 and retains all 84 joint coordinates under the original priors and noise laws.
+Native and independent target readers pass, as do separate checks of a density-corrected thermal sampling guide.
+Matched uniform and guided fitting fixtures are queued on compute nodes, followed by full fits gated on fixture validation and independent final readers.
+The fixtures currently cannot fit their requested allocations before scheduled maintenance.
+Full joint numerical agreement and the corresponding 40-action forecast comparison remain unfinished; fresh untouched predictive evaluation is still required before migration acceptance.
 
 Stage 0 interface preservation is complete, with scripted behavior parity checked.
 Stage A has implemented probability and replay components, but physical support and numerical validation remain incomplete.
