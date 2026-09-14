@@ -76,5 +76,5 @@ These probabilities concern predictions of the recorded suffix, not agent solve 
 
 This rules out a one-step correction of speed-branch representation as a remedy for the measured forecast disagreement in these two populations.
 It does not establish adequate scene exploration, a universally prediction-equivalent parameterization, or a converged posterior.
-The next diagnostic should hold the parameter fixed and exchange groups of sampled initial-scene coordinates to locate the remaining event and goal sensitivity.
+The follow-up [fixed-parameter scene exchanges](fan-static-fixtures.md) locate the remaining event and goal sensitivity in fixture poses and evaluate a separate static-fixture discrepancy law.
 No reflection option is added to the production agent or sampler on the strength of this negative result.

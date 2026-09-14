@@ -1,6 +1,6 @@
 # Uncertainty simplification: implementation progress
 
-Updated September 13, 2026.
+Updated September 14, 2026.
 This tracks implementation of the [simplification proposal](simplification-proposal.md).
 The incumbent estimator remains the production default.
 
@@ -12,6 +12,18 @@ The active work is Stage B offline comparison; Stage C live posterior use and St
 Stage D execution smoothing remains optional and deferred.
 The full plan remains incomplete, and the incumbent estimator remains the production default.
 
+The [Fan fixture diagnostic](fan-static-fixtures.md) now isolates a practical forecast sensitivity after the speed-reflection result.
+Two verified scene-exchange audits use 4,884 native actions and retain three geometry-rejected candidates.
+At the two selected scenes, exchanging the target pad's pose transfers the final-goal difference, while switch 2's pose changes one activation-time label.
+The target heights differ by approximately 9.7 mm.
+A third verified audit uses 2,640 native actions and isolates the final-goal change to target z; switch 2 y accounts for its one-step activation difference.
+An alternative observation model removes motion-discrepancy factors only from 30 source-established fixed-fixture coordinates and retains the original sensor noise.
+Its saved-history audit and independent scalar reader pass 128 histories and 3,840 fixture factors, but importance reweighting collapses to approximately one effective sample per population.
+Fresh matched inference has passed native preflight `22712355` with 8,192 actions and exact initial-state comparisons, plus 4,096 independent target-reader actions in `22712364`.
+The two full fits are submitted as array `22712476` on compute nodes, retaining the original 64 particles, 32 temperatures, eight moves and evaluation budget.
+The new model's weighted future adapter and independent prediction comparison remain to be completed.
+This is an explicitly changed discrepancy law, not a claimed sampler-only improvement or accepted posterior replacement.
+
 The [Fan reflection diagnostic](fan-reflection-diagnostic.md) now verifies a conditional ambiguity that helps explain disagreement between independent parameter fits.
 At two fixed sampled scenes, ten tested speed pairs `v` and `1-v` per scene have exactly equal fitting-prefix likelihoods.
 The original native prefixes reproduce exactly, and all 119 other coordinates remain unchanged across the profiles.
@@ -20,7 +32,7 @@ A full-population reflection audit `22711267` and independent reader `22711276` 
 It preserves the declared target and uses only fitting-prefix data for a lazy Metropolis transition; future predictions remain a separate assessment.
 All reflected candidates have equal fitting-target scores, but representing both speed branches leaves the event and goal forecasts unchanged.
 A separate saved-history audit confirms identical event/goal curves within every pair and maximum future ball-coordinate changes of only `1.1098e-6` m.
-The practical disagreement between populations therefore remains; initial-scene and event sensitivity is the next diagnostic, rather than a speed-reflection sampler change.
+The practical disagreement between populations therefore remains; this motivated the initial-scene and event diagnostics reported above rather than a speed-reflection sampler change.
 This is a numerical diagnostic, not an accepted posterior or agent-performance result.
 
 The [Boil supported-inference diagnostic](boil-supported-inference.md) now reproduces the original first-update concentration on both shared-variance seeds.
