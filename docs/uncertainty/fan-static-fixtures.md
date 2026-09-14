@@ -110,4 +110,27 @@ Comparison `22712836` depends on both readers and on the comparison fixture `227
 The comparison fixture has passed, reproducing both earlier tempered populations and correctly preserving the two new rows as pending.
 It runs on the matching-CPU node1412 after only its pending resource request was changed; no frozen code or running fit was modified.
 The full comparison retains both original and new numerical replicas and the unchanged incumbent forecast, checking identical data, program, original physical prior and sampling budget while recording the changed discrepancy model.
-No full replacement forecast or acceptance result is available yet.
+Both fits, full forecasts, independent readers and comparison `22712836` have now completed.
+The following results supersede the pending status above.
+All new forecast hashes match their independent verification reports.
+
+## Completed static-fixture comparison
+
+| Configuration | Fitting seed | Ball-position RMSE (m) | Goal Brier score | Final goal probability | Zero-density histories |
+|---|---|---:|---:|---:|---:|
+| Incumbent selected point | N/A | 0.007072 | 0.044118 | 1.0000 | N/A |
+| Original discrepancy | 302 | 0.005348 | 0.017019 | 0.8531 | 64/64 |
+| Original discrepancy | 303 | 0.008733 | 0.064487 | 0.5456 | 63/64 |
+| Static-fixture sensor model | 302 | 0.005858 | 0.018993 | 0.9844 | 57/64 |
+| Static-fixture sensor model | 303 | 0.006059 | 0.020533 | 0.8645 | 62/64 |
+
+The new model reduces between-fit native position RMS disagreement from 0.006693 m to 0.000619 m.
+Both new goal Brier scores are better than the incumbent's on this development recording, and the formerly weaker numerical replica improves.
+However, maximum goal-probability disagreement over the future remains 0.36726, compared with 0.37100 previously.
+Most positive-weight histories still contradict at least one exact future observation, and the two fits retain one and two original lineages.
+The model change therefore improves some forecasts without closing the numerical or predictive gate.
+These are offline predictions, not agent solve-rate results.
+
+The new fits use 15,453 and 15,492 target evaluations, close to the original 15,455 and 15,550.
+Their shorter elapsed times also reflect the increase from four to sixteen compute workers and must not be attributed solely to the observation-model change.
+Each forecast uses 8,580 native actions including its repeated history, separate from fitting and reader costs.

@@ -12,6 +12,15 @@ The active work is Stage B offline comparison; Stage C live posterior use and St
 Stage D execution smoothing remains optional and deferred.
 The full plan remains incomplete, and the incumbent estimator remains the production default.
 
+The [Balloons transition diagnostic](balloons-transition-sensitivity.md) now verifies 32 paired continuations and 9,400 native actions.
+At one selected fitted state, removing future joint and velocity noise eliminates bursts in four continuations, but does not recover the goal; the other selected state does not improve.
+This isolates a contribution from the physical discrepancy model without establishing a replacement posterior or an agent improvement.
+
+The [Bridge recovery](bridge-memory-recovery.md) validates both stage-26 checkpoints after the original fits exhausted their 64 GiB allocations.
+Both complete numerical prefixes and four fresh native targets reproduce exactly.
+After fixing and checking a JSON-container comparison in the resume launcher, array `22714037` now resumes the same fits with 128 GiB per allocation, with replacement fit readers and the complete forecast/verification pipeline queued.
+This is recovery from an infrastructure interruption; the incomplete fits are not model or agent outcomes.
+
 The [Fan fixture diagnostic](fan-static-fixtures.md) now isolates a practical forecast sensitivity after the speed-reflection result.
 Two verified scene-exchange audits use 4,884 native actions and retain three geometry-rejected candidates.
 At the two selected scenes, exchanging the target pad's pose transfers the final-goal difference, while switch 2's pose changes one activation-time label.
@@ -22,8 +31,10 @@ Its saved-history audit and independent scalar reader pass 128 histories and 3,8
 Fresh matched inference has passed native preflight `22712355` with 8,192 actions and exact initial-state comparisons, plus 4,096 independent target-reader actions in `22712364`.
 The two full fits are submitted as array `22712476` on compute nodes, retaining the original 64 particles, 32 temperatures, eight moves and evaluation budget.
 The new model's weighted future adapter now passes its native fixture and independent reader: 64 full weighted histories plus one exact repeat, 8,580 native actions, full checkpoint/density/moment checks and eight corruption rejections.
-Full forecasts `22712813` and `22712819`, readers `22712820` and `22712825`, and comparison `22712836` are queued behind the fits and passed validation.
-The comparison fixture reproduces the two earlier populations and explicitly retains the new results as pending.
+Full forecasts `22712813` and `22712819`, readers `22712820` and `22712825`, and comparison `22712836` have completed.
+The revised static-fixture model reduces between-fit position disagreement from 6.69 mm to 0.619 mm, and both goal Brier scores improve over the incumbent on this recording.
+However, maximum goal-probability disagreement across the future remains 0.3673, and 57/64 and 62/64 retained histories assign zero density to the recorded future.
+The practical improvement is partial and does not establish numerical or predictive acceptance.
 This is an explicitly changed discrepancy law, not a claimed sampler-only improvement or accepted posterior replacement.
 
 The [Fan reflection diagnostic](fan-reflection-diagnostic.md) now verifies a conditional ambiguity that helps explain disagreement between independent parameter fits.
@@ -50,7 +61,9 @@ These compare the same original Boil target under supported initialization and a
 The [weighted Boil future adapter](boil-supported-inference.md#weighted-future-comparison) is implemented with exact completed-checkpoint recovery, unchanged positive weights and complete joint histories, and separate generation and future-density paths.
 All ten source guards, eight malformed-history checks and an independent nonuniform-weight reference pass.
 Its native fixture and independent reader have passed: 96 histories, 29,172 generation/check actions, 228,096 verified joint factors and 3,828 additional reader actions, including two exact fresh complete histories.
-Full forecasts `22709874` and `22709875` are running, with forecast readers `22709879` and `22709880` and comparison `22709887` dependency-queued.
+Full forecasts `22709874` and `22709875`, readers `22709879` and `22709880`, and comparison `22709887` have completed.
+Both new fits remain worse than the incumbent on bubbling prediction, and their final-goal probabilities differ by 0.2054.
+Supported initialization improves the initial population but has not established adequate final inference or prediction.
 The validation and forecast work uses a second matching-CPU compute node with exact prefix/replay checks; the frozen fitting inputs are unchanged.
 
 The [Bridge causal future generator](bridge-causal-futures.md) now passes four complete native histories and an independent joint/reach/memory reader, totaling 4,744 actions.

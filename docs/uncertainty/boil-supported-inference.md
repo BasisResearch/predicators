@@ -123,5 +123,27 @@ The final comparison retains the earlier incumbent, fixed-variance and shared-va
 Initialization native actions are reported separately from the cached full fit and must be included when assessing total fitting cost.
 The new versus previous shared-variance comparison preserves the probability model while changing initialization, tempering and numerical budget.
 The fixed-variance and incumbent controls retain their separately labelled differences in discrepancy or initial-state treatment.
-The full forecasts and comparison remain incomplete until the gated jobs finish and their reports are verified.
-The adapter and full-fit reader gates have passed; both full forecasts are now running.
+Both full forecasts, independent readers and comparison `22709887` have now completed.
+All comparison source hashes have been rechecked.
+
+## Completed reserved-future comparison
+
+These are offline forecast probabilities from two numerical fits to the same development recording, not agent solve rates.
+The original supported initialization and full-target computations have passed their checks, but this does not establish mixing or predictive adequacy.
+
+| Configuration | Fitting seed | Bubbling RMSE | Final goal probability | Surviving original lineages |
+|---|---|---:|---:|---:|
+| Incumbent selected point | N/A | 0.01915 | 1.0000 | N/A |
+| Earlier shared-variance fit | 410 | 0.28022 | 0.6488 | 1 |
+| Earlier shared-variance fit | 411 | 0.30312 | 0.1895 | 1 |
+| Supported initialization and finite-factor tempering | 410 | 0.33856 | 0.5637 | 1 |
+| Supported initialization and finite-factor tempering | 411 | 0.31636 | 0.7691 | 1 |
+
+The two new forecasts disagree by 0.2054 in final-goal probability and by up to 0.2302 on the boiled predicate over the future trajectory.
+Their future-mixture log-density estimates are -7,542.19 and 17,414.58, another substantial disagreement requiring investigation.
+Both retain one original lineage; this alone is not a proof of numerical failure, but neither independent replication nor the prediction comparison supports acceptance.
+The new initialization and tempering changes do not fix the practical bubbling-prediction regression.
+Some position coordinates improve, so retain the complete feature comparison in `logs/uncertainty_boil_supported_forecasts_20260913/model-comparison.json`.
+
+Forecasting uses 89,364 and 113,124 native actions, excluding the separately reported fit, initialization and independent verification costs.
+Stage B remains open, and the production estimator remains unchanged.
