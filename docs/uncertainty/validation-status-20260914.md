@@ -73,6 +73,9 @@ Independent reader `22759309` verifies all twelve artifacts and sixteen corrupti
 Weighted population check `22759907` also passes its proposal mapping, nonuniform moment and zero-density controls.
 The four forecast pipelines remain queued behind their fitting and fixture dependencies.
 Predictive and numerical comparisons remain unfinished.
+The [matched collector](boil-heating-comparison.md) passes its known-error, weighted-covariance, identity and incomplete-source checks in `22761384`; collection `22761385` waits on all four complete forecast readers.
+The matched-prefix incumbent control passes native parity preflight `22761362` and is fitting in `22761363`, with reader `22761364` queued.
+Its configuration and parameter specifications are verified unchanged from the earlier control.
 
 ## Bridge completed recovery
 

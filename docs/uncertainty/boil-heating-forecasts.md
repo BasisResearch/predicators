@@ -85,3 +85,4 @@ This development comparison cannot substitute for fresh untouched predictive val
 
 Frozen artifacts are in `logs/uncertainty_boil_heating_forecast_adapter_20260914` and `logs/uncertainty_boil_heating_forecasts_20260914`.
 Numerical replica agreement, budget stability and matched forecast comparisons remain open.
+The [matched comparison collector and longer-prefix incumbent control](boil-heating-comparison.md) are now queued with their validation dependencies.

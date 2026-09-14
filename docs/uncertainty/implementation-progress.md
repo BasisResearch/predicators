@@ -19,6 +19,9 @@ The [224/40-action continuation adapter](boil-heating-forecasts.md) now passes i
 Its independent reader verifies twelve artifacts, 28,512 joint factors and sixteen corruption controls, including two fresh complete histories.
 The weighted population checks also pass, covering 24 proposal mappings and eight malformed summaries.
 Complete forecast fixtures, full forecasts and their readers are dependency-queued behind the fitting results.
+The [matched comparison collector](boil-heating-comparison.md) passes its ten validation controls and preserves the four pending forecasts explicitly.
+A separate full incumbent fit is running on the same 224-action prefix after four complete subclass/literal trajectory and memory comparisons pass.
+The incumbent configuration and parameter specifications match the earlier verified control; its selected-point predictions remain a separate comparison from the incumbent planning policy.
 Full joint numerical agreement and the corresponding forecast comparison remain unfinished; fresh untouched predictive evaluation is still required before migration acceptance.
 
 Stage 0 interface preservation is complete, with scripted behavior parity checked.
