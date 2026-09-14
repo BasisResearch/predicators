@@ -22,7 +22,7 @@ The [proposal](simplification-proposal.md) records the full implementation decis
 | Fan | Fixed-fixture treatment reduces between-fit positional disagreement from 6.69 mm to 0.619 mm, with improved goal Brier scores on this recording. | Maximum future goal-probability disagreement remains 0.367; most sampled histories assign zero density to the recorded future. |
 | Boil | Full reduced fits, forecasts, independent readers and comparison are complete. | The thermal prior is now represented correctly, but both fits retain one initial lineage and predictions remain worse than the incumbent. |
 | Bridge | Both resumed fits, complete forecasts and independent readers are complete. | Both fits retain one initial lineage; all methods miss the final clean geometric goal, and the two posterior fits disagree on glue events. |
-| Balloons | Both default-guided fits, forecasts and comparison are complete; selective fits and forecasts are complete. | Default-guided predictions remain inconsistent; selective forecast readers require invocation recovery before the full comparison can be assessed. |
+| Balloons | Original, default-guided and selective comparisons are complete and independently verified. | Selective proposals broaden some marginals but worsen height error and predict 97-99% final burst probability; the short fitting prefix also excludes later color releases. |
 
 The earlier source-program audit found no learnable parameters in the saved Boil and Bridge programs from the original noisy sweep.
 Those remain incomplete-model controls.
@@ -110,13 +110,16 @@ This is a verification-launch failure, not a failed fit, prediction, or agent se
 The exact failing expansion was reproduced in `logs/uncertainty_balloons_selective_reader_recovery_20260914/reproduction.json`.
 Recovery array `22755276` explicitly supplies report and index to the unchanged frozen launcher and verifier.
 Comparison `22755277` depends on successful completion of both readers.
-No completed fit or forecast is regenerated, and old frozen source files are not edited.
+Both recovered readers and comparison `22755277` have now completed successfully.
+No completed fit or forecast was regenerated, and old frozen source files were not edited.
 The recovery manifest pins the original reports, scripts and invocation wrapper.
+The [completed selective comparison](balloons-selective-guidance.md#completed-comparison-and-information-limitation) worsens height error in both fits despite broader marginals.
+It also identifies a separate information limitation: the 64-action prefix ends before the red and green releases assessed in the continuation.
 
 ## Next acceptance work
 
-Read and verify the recovered Balloons comparison when it completes.
-Use the completed informative-heating diagnostic to construct a separately identified heating-aware joint target, retaining correlations and the original all-off control.
+For Balloons, distinguish prediction after an observed release from extrapolation to an unseen color using a separately identified longer-prefix diagnostic.
+For Boil, finish the active heating-aware joint fits and their forecast comparisons, retaining the original all-off control.
 Use their results to choose a numerical or model change rather than repeat the same unstable fits at a larger budget without a specific hypothesis.
 Existing conditional scalar-discrepancy, joint-variance and physical-transition experiments remain distinct model choices.
 Any new law motivated by these already-inspected future recordings needs a new untouched evaluation before acceptance.

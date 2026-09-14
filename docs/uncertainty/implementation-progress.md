@@ -77,6 +77,9 @@ Paired fits `22715405` and final-target readers `22715406`/`22715407` have compl
 The selective proposal's weighted future adapter and independent reader `22715541`/`22715542` now pass, including rejection of a decoder that omits the selective mask.
 Forecasts `22715569`/`22715571` completed, but their reader invocations omitted the required numerical index and failed before verification.
 The cancelled comparison `22715574` is replaced by `22755277`, after invocation-recovery reader array `22755276`.
+Both recovered readers and comparison `22755277` now pass, with all eighteen comparison source hashes verified.
+The selective treatment broadens several marginals but worsens height error, retains one initial lineage per fit, and assigns zero final-goal probability.
+The [completed comparison](balloons-selective-guidance.md#completed-comparison-and-information-limitation) distinguishes those numerical concerns from the unobserved red and green releases after the short fitting prefix.
 The comparison fixture `22715573` passes its marginal and configuration guards, retaining the four pending forecasts explicitly.
 The comparison preserves the original and default-centered controls and reports parameter spread alongside future predictions.
 It retains the complete prior, likelihood and Metropolis correction and does not assume global parameter independence.
