@@ -154,5 +154,34 @@ The next diagnostic should separate interpolation after observed releases from e
 Use an explicitly identified longer development prefix containing the red-release response, assess a continuation before the green release separately, and retain the green-release suffix as an unseen-color case.
 Keep the original 64-action case, original priors, fixed program, sensor law and discrepancy law as controls.
 First verify whether the added observations constrain the relevant dynamics conditionally before commissioning another full joint fit.
-This is pending work, not a launched experiment or an acceptance result.
+The native preflight below starts that investigation; no full longer-prefix fit or acceptance result is available.
 A new untouched evaluation remains required after selecting an implementation using this inspected recording.
+
+## Longer-prefix native preflight
+
+Frozen bundle `logs/uncertainty_balloons_release_prefix_20260914` introduces an explicit action-160 cutoff in an offline copy of the validated continuation worker.
+It receives only observations 65 through 160 in addition to the original prefix, covering the red release at 106 and ending before green is released at 220.
+The original priors, probability laws, model source and initialization protocol are unchanged.
+The later 161-219 continuation and 220-235 unseen-green continuation remain separate prospective development assessments.
+Those assessments have not yet been run.
+
+The two starting candidates are the maximum-weight particles from the latest verified selective fits, with lowest index breaking ties.
+Selection uses fitting weights, not future prediction scores.
+The preflight replays their archived full histories exactly, checks that the action-160 history matches truncating an uninterrupted full replay, and verifies the original 64-action likelihood.
+Changing a later action must leave the shorter history unchanged, and supplying observations beyond the cutoff must be rejected.
+It probes red and green lift at prior-unit coordinates 0.05 and 0.95 while keeping every other candidate coordinate fixed.
+These finite sensitivity checks are not a normalized conditional posterior or evidence of full-scene learnability.
+Exact support failures remain explicit and are not softened to obtain a finite score.
+
+Native job `22764761` and dependent independent reader `22764762` use the previously audited Intel node on `mit_preemptable`, with unchanged frozen runtime preparation.
+The independent reader reconstructs joint and radial factors, checks the complete shorter histories and scores, rejects corrupted factors and repeats selected histories in fresh worlds.
+Native preflight `22764761` completed in 1:12 with 2,828 actions and all ten planned cases.
+The original reader `22764762` failed during import, before verification, because worker imports changed module search order and `run` resolved to an unrelated diagnostic.
+Recovery reader `22764827` loads the original adapter by its exact path under a unique module name; the completed native report and numerical checks are reused unchanged.
+The recovery bundle is `logs/uncertainty_balloons_release_prefix_reader_recovery_20260914`.
+Recovery reader `22764827` completed in 45 seconds and passes all ten cases, 14,400 independent joint-factor checks, 1,600 radial-density checks and four corrupt-factor controls, using 768 native actions.
+The completed report and checker hashes, plus both frozen input manifests, were verified.
+In both fixed histories, lowering red lift to prior-unit 0.05 substantially improves the action-160 score, while green-lift changes leave the complete history and score unchanged.
+A high-red-lift candidate in the first history predicts a burst at action 116 that contradicts the exact observation and retains zero likelihood.
+This verifies conditional sensitivity and the causal cutoff; a parameter profile over additional values and latent draws remains necessary before claiming a conditional distribution or constructing a full longer-prefix fit.
+A wider conditional parameter study or another full fit must follow the resulting evidence rather than assume that extending the prefix resolves the discrepancy.
