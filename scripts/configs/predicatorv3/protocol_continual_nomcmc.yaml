@@ -53,4 +53,3 @@ APPROACHES:
       agent_explorer_info_seeking_adaptive: True
       # The variable under test: no ensemble-calibration MCMC. The
       # ensemble falls back to the Laplace covariance at the MAP.
-      agent_explorer_info_mcmc_steps: 0

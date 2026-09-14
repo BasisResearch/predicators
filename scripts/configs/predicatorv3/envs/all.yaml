@@ -182,7 +182,6 @@ ENVS:
       agent_bilevel_log_state: False
       agent_sim_learn_oracle_sim_program: False
       agent_sim_learn_oracle_sim_params: False
-      code_sim_learning_num_mcmc_steps: 0
       pybullet_robot: "panda"
       domino_use_skill_factories: True
       domino_real_scene: "/home/amberli/babyrobot/BabyRobotPredicator/scenes/domino_straight.json"
