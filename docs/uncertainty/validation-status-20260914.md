@@ -73,9 +73,9 @@ The corrected thermal proposal also passes native preflight `22757771` and indep
 All four matched uniform and guided fitting fixtures and their recovered readers now pass on `mit_preemptable`.
 The [reader recovery](boil-heating-reader-recovery.md) corrects only a tuple/list transport mismatch, preserving all numerical checks and reusing the completed fits.
 The dependency-cancelled downstream jobs are replaced with identical scientific inputs and budgets; verified runtime references support six-hour full-fit and two-hour reader allocations.
-Uniform seed 410, guided seed 410 and uniform seed 411 completed all 64 temperatures with 14,870, 14,773 and 14,987 target evaluations respectively, each retaining one initial lineage.
+Uniform seed 410, guided seed 410, uniform seed 411 and guided seed 411 completed all 64 temperatures with 14,870, 14,773, 14,987 and 14,850 target evaluations respectively, each retaining one initial lineage.
 Their saved populations and checkpoints agree; independent native readers and full forecasts remain pending, and their assessments remain explicitly unevaluated.
-Guided seed 411 remains running, and all four forecast fixtures pass independent verification of their complete histories and weighted summaries.
+All four forecast fixtures pass independent verification of their complete histories and weighted summaries; full native verification and forecasts remain pending.
 The [40-action forecast adapter](boil-heating-forecasts.md) passes native fixture `22759308` with 5,120 simulator actions.
 Independent reader `22759309` verifies all twelve artifacts and sixteen corruption controls, with another 1,424 native actions.
 Weighted population check `22759907` also passes its proposal mapping, nonuniform moment and zero-density controls.

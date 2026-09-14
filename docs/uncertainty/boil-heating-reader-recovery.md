@@ -2,7 +2,7 @@
 
 September 14, 2026.
 All four short joint-inference fits are complete and independently verified.
-Three full fits have completed; guided seed 411 remains running, with subsequent work queued for resources or prerequisite verification.
+All four full fits have completed, with native verification and subsequent forecasts queued for resources or prerequisite verification.
 All four forecast fixtures have completed with successful independent readers.
 Their independent native readers and complete forecasts remain pending.
 The incumbent selected-point control is also complete and independently verified.
@@ -107,16 +107,16 @@ There is still no completed matched posterior performance comparison.
 
 ## Completed full fits
 
-Three full fits have completed all 64 temperatures with 32 particles and 84 retained joint coordinates.
-The final guided seed-411 fit remains running.
+All four full fits have completed all 64 temperatures with 32 particles and 84 retained joint coordinates.
 
 | Proposal | Numerical seed | Job | Target evaluations | Native actions | Allocation, four CPUs | Initial lineages | Resampling events |
 | --- | ---: | --- | ---: | ---: | --- | ---: | ---: |
 | Uniform | 410 | `22762490` | 14,870 | 2,619,904 | 2:16:13 | 1 | 15 |
 | Guided | 410 | `22762502` | 14,773 | 2,621,920 | 2:19:34 | 1 | 16 |
 | Uniform | 411 | `22762496` | 14,987 | 2,606,240 | 2:25:31 | 1 | 14 |
+| Guided | 411 | `22762512` | 14,850 | 2,572,864 | 2:22:37 | 1 | 12 |
 
-The respective physical-evaluation counts are 11,822, 11,828 and 11,781.
+The respective physical-evaluation counts are 11,822, 11,828, 11,781 and 11,631.
 For each completed fit, the complete population and original weights match the checksummed final checkpoint exactly.
 The frozen plan, driver and complete evaluation-ledger hashes also match their report references.
 The source reports in `logs/uncertainty_boil_heating_fits_20260914` have the following checksums:
@@ -124,12 +124,13 @@ The source reports in `logs/uncertainty_boil_heating_fits_20260914` have the fol
 - `uniform-full-seed410.json`: `a56b070e92ab1e8ad4aef55d1f823fe7d4713e346a0d8c2c2dfd0775ed193822`.
 - `guided-full-seed410.json`: `739bd29a4a5a7f7291cdff9c02806ec06151a89cc85adbc7ffc41f74b83a4fb9`.
 - `uniform-full-seed411.json`: `4dba36534c3fe79ea1954cf41515e0a48ab3425dcc93342c28b1ca78e579defc`.
+- `guided-full-seed411.json`: `4255ea2dbe14acb83e7c65cc92dbacd1786d448f5b55db60c435a1c26450b033`.
 
-All three retain one initial lineage.
+All four retain one initial lineage.
 That warns about exploration, but does not independently determine the accuracy of every posterior quantity or establish agreement between fits.
 Their assessments correctly remain `unevaluated`, with no usable assessed posterior published.
-Independent native readers `22762491`, `22762503` and `22762497` and their complete forecasts remain pending.
-The final guided fit and complete verified forecasts are still required for the planned comparison.
+Independent native readers `22762491`, `22762503`, `22762497` and `22762513` and their complete forecasts remain pending.
+Complete native verification and forecasts are still required for the planned comparison.
 Artifact consistency and sampler completion do not establish numerical adequacy, predictive improvement or an agent result.
 
 ### Where ancestry is lost
@@ -143,9 +144,11 @@ Here beta is the exponent on the remaining likelihood, reaching one at the final
 | Uniform 410 | 47 | 0.02404 | 1.0013 | 40.23% |
 | Guided 410 | 55 | 0.13895 | 1.6079 | 42.97% |
 | Uniform 411 | 44 | 0.01245 | 7.3005 | 37.11% |
+| Guided 411 | 48 | 0.02994 | 6.5729 | 43.75% |
 
 These values are reconstructed from the completed reports' stage records, with final-stage acceptance computed from the increment in accepted and attempted moves.
-Guided seed 410 retains multiple original lineages farther into tempering than its uniform counterpart, but the unfinished second guided fit and missing verified forecasts prevent a general improvement claim.
+Both guided fits reach one original lineage later than their same-numbered uniform counterparts in these completed runs.
+That descriptive difference does not establish numerical adequacy or better predictions, and the verified forecast comparison remains pending.
 Ancestry records descent from initialization, not the number of current modes: later invariant moves can change states without creating new ancestor labels.
 The nonzero acceptance rates therefore neither remove the ancestry warning nor prove adequate exploration of every parameter and state block.
 They aggregate heterogeneous proposal blocks and are not per-parameter mixing diagnostics.

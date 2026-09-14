@@ -16,7 +16,7 @@ Native and independent target readers pass, as do separate checks of a density-c
 All four matched uniform and guided fitting fixtures now pass their numerical and native readers after the [documented JSON transport correction](boil-heating-reader-recovery.md).
 The completed fits and checkpoints were reused unchanged; every reader rechecks all 32 final native targets.
 Replacement full jobs restore the dependency-cancelled pipeline with identical scientific inputs and budgets, using six-hour fit and two-hour reader allocations justified by verified workload measurements.
-Both seed-410 full fits and uniform seed 411 have completed all 64 temperatures; guided seed 411 remains running.
+All four uniform and guided full fits have completed all 64 temperatures.
 Their saved populations, checkpoints and source hashes agree, but each retains one initial lineage and their independent native readers remain pending.
 All four forecast fixtures pass independent verification of their complete histories and weighted summaries.
 The [224/40-action continuation adapter](boil-heating-forecasts.md) now passes its four-case native fixture, including generation/density round trips and exact-constraint rejection.
