@@ -14,7 +14,9 @@ Native replay, later-observation isolation, independent direct Gaussian referenc
 The subsequent [heating-aware joint target](boil-heating-joint-target.md) includes all observations through action 224 and retains all 84 joint coordinates under the original priors and noise laws.
 Native and independent target readers pass, as do separate checks of a density-corrected thermal sampling guide.
 Matched uniform and guided fitting fixtures are queued on compute nodes, followed by full fits gated on fixture validation and independent final readers.
-The fixtures currently cannot fit their requested allocations before scheduled maintenance.
+After checking four verified earlier fixture runtimes, the inherited eight-hour fixture and fixture-reader wall-time requests were reduced to two hours in scheduler metadata only.
+Job IDs, restart counts, frozen sources and numerical budgets are unchanged; three short fits have started and the fourth is waiting for resources.
+The full fits retain their original eight-hour allocation limits.
 The [224/40-action continuation adapter](boil-heating-forecasts.md) now passes its four-case native fixture, including generation/density round trips and exact-constraint rejection.
 Its independent reader verifies twelve artifacts, 28,512 joint factors and sixteen corruption controls, including two fresh complete histories.
 The weighted population checks also pass, covering 24 proposal mappings and eight malformed summaries.

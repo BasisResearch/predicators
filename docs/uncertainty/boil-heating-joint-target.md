@@ -76,7 +76,14 @@ Sampler completion alone leaves the assessment unavailable.
 | Guided | 410 | 22758859 | 22758860 | 22758887 | 22758888 |
 | Guided | 411 | 22758861 | 22758862 | 22758889 | 22758890 |
 
-At submission, the fixtures are pending on `mit_preemptable` because their eight-hour allocations overlap the scheduled maintenance reservation.
+At submission, the fixtures were pending on `mit_preemptable` because their eight-hour allocations overlapped the scheduled maintenance reservation.
+Those short jobs had inherited the full-fit wall-time request.
+Four independently verified earlier fixtures took 76 to 180 seconds with the same particle count, two temperatures, one move and 2,048-evaluation cap.
+Scaling the slowest observed seconds per evaluation to the full cap and the longer 224/132-action ratio gives an empirical estimate of 3,479 seconds, not a guaranteed runtime bound.
+The eight still-pending fixture and fixture-reader allocations were therefore reduced to two hours through scheduler metadata only.
+All job IDs, zero restart counts, frozen input hashes and numerical budgets were preserved; the full fits retain their original eight-hour requests.
+Three fixtures have started, and the fourth is waiting for resources.
+The before/after scheduler records and checked timing references are saved in `logs/uncertainty_boil_heating_fixture_allocation_20260914`.
 The full fits and readers are dependency-queued.
 No fitting result is available yet.
 These are numerical inference seeds, not new agent solve-rate seeds.
