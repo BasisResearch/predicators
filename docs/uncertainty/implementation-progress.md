@@ -21,6 +21,11 @@ The original reader's report-field naming error is preserved separately; it is a
 Both small fitting fixtures and their numerical/native readers have now passed, including exact complete proposal/target/checkpoint traces and every final native target.
 Full paired fits `22709091` and `22709092` are running on the compute node, with full-fit readers `22709093` and `22709094` dependent afterward.
 These compare the same original Boil target under supported initialization and a 64-stage finite-factor tempering path; stable final inference and reserved-future prediction improvement remain unproven.
+The [weighted Boil future adapter](boil-supported-inference.md#weighted-future-comparison) is implemented with exact completed-checkpoint recovery, unchanged positive weights and complete joint histories, and separate generation and future-density paths.
+All ten source guards, eight malformed-history checks and an independent nonuniform-weight reference pass.
+Its native fixture and independent reader have passed: 96 histories, 29,172 generation/check actions, 228,096 verified joint factors and 3,828 additional reader actions, including two exact fresh complete histories.
+Full forecasts `22709874` and `22709875`, forecast readers `22709879` and `22709880`, and comparison `22709887` are queued behind the still-running fits and their readers.
+The validation work uses a second matching-CPU compute node with exact prefix/replay checks; none of the four running fits is modified.
 
 The [Bridge causal future generator](bridge-causal-futures.md) now passes four complete native histories and an independent joint/reach/memory reader, totaling 4,744 actions.
 It preserves the checked 600-action prefix and generates the 586-action suffix without future observations, retaining one sampled variance per joint throughout each continuation.

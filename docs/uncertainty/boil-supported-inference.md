@@ -82,3 +82,44 @@ Full fits `22709091` and `22709092` are now running after the fixture readers pa
 Each full fit has 16 CPUs, 64 GB memory and an eight-hour allocation.
 Independent replicas, numerical-budget sensitivity and reserved-future forecasts remain acceptance requirements.
 No replacement posterior or agent advantage is established by this initialization diagnostic.
+
+## Weighted future comparison
+
+The forecast adapter is implemented separately in `logs/uncertainty_boil_supported_forecasts_20260913`.
+It reuses the previously verified shared-variance physical future generator, output model and per-history probability checks.
+The completed-fit adapter restores the saved checkpoint without evaluating the fitting target, requires agreement with the independently verified source, and preserves every positive fitted weight and complete joint candidate.
+It checks that each replay's original prefix base factor plus remaining likelihood equals the combined prefix score stored by the new sampler.
+The factors retain their original statistical meanings even though their placement in the sampling schedule changed.
+
+Each candidate remains fixed through its complete 132-action continuation.
+Full forecasts use two banks of four generated futures per positive-weight candidate, plus a separate conditional-density evaluation against the recorded future.
+Generated histories have no future-observation lookup.
+Zero-likelihood future contributions remain in the original mixture without discarding or renormalizing their source weight.
+The assessment, feature/event definitions and future random seeds match the previous shared-variance comparison.
+
+Guard job `22709834` passed ten completed-source corruption checks and eight malformed-history checks, plus an independent nonuniform-weight mean/variance/density reference.
+The reference explicitly tests a zero-density component carrying weight 0.3 and a finite component carrying weight 0.7.
+The native adapter fixture, `22709851`, uses all 32 positive-weight candidates from the completed two-temperature fitting fixture, producing 96 histories before its repeated checks.
+It completed successfully with 29,172 native simulator actions, preserving the saved complete-prefix scores and repeating its selected generated and density histories exactly.
+Its reader, `22709867`, checks every saved history, independently rebuilds the weighted means, variances, feature errors, event probabilities, mixture densities and bank differences, and repeats one complete generated history and one density history.
+That reader has completed successfully: all 96 histories and 228,096 joint factors pass, the weighted summaries agree, and 3,828 additional native actions include both exact fresh complete histories.
+This fixture tests the complete adapter; its source fit is deliberately inadequate and is not a posterior-accuracy result.
+
+The original validation node has all 64 allocated cores occupied by the four ongoing fits.
+A read-only compute probe, `22709822`, confirmed that `node1411` has the same AMD EPYC 7542 CPU model as `node1412`.
+The new adapter checks run on `node1411`, requiring exact saved prefix-density and fresh-history comparisons before its full forecast jobs can proceed.
+Matching the saved density does not by itself establish portability of every physical trajectory across machines; the reader additionally checks native prefixes and fresh complete histories on the new node.
+The initially pending guard and fixture jobs `22709723` and `22709730` were cancelled before starting to move only this validation work; none of the running fits was changed.
+
+| Work | Jobs | Gate |
+|---|---|---|
+| Full Boil forecasts | `22709874`, `22709875` | Adapter fixture reader and corresponding full-fit reader |
+| Full forecast readers | `22709879`, `22709880` | Corresponding full forecast |
+| Incumbent/model/numerical comparison | `22709887` | Both full forecast readers |
+
+The final comparison retains the earlier incumbent, fixed-variance and shared-variance rows, adds both new numerical replicas, and reports replica disagreement and fitting/forecast cost.
+Initialization native actions are reported separately from the cached full fit and must be included when assessing total fitting cost.
+The new versus previous shared-variance comparison preserves the probability model while changing initialization, tempering and numerical budget.
+The fixed-variance and incumbent controls retain their separately labelled differences in discrepancy or initial-state treatment.
+The full forecasts and comparison remain incomplete until the gated jobs finish and their reports are verified.
+The adapter gate has passed; the full forecasts are currently waiting for the full fits and their readers.
