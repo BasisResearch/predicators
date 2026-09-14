@@ -10,15 +10,19 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
+from typing import Any, Dict, List
 
 import matplotlib
 
 matplotlib.use('Agg')
+# pylint: disable=wrong-import-position
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.ticker import FuncFormatter, MaxNLocator
 
-ROOT = Path(__file__).resolve().parents[2]
+# pylint: enable=wrong-import-position
+
+ROOT = Path(__file__).resolve().parent.parent.parent
 DOMAINS = ['Boil', 'Domino', 'Fan', 'Bridge', 'Balloons']
 ARMS = [
     'MB', 'MF', 'agent_continual_program_world_model',
@@ -37,11 +41,12 @@ COLORS = [
 ]
 
 
-def capture(paper, target):
+def capture(paper: Path, target: Path) -> None:
     """Verify every selected final scorecard before freezing plot inputs."""
     sys.path.insert(0, str(paper / 'scripts'))
     spec = importlib.util.spec_from_file_location(
         'paper_artifacts', paper / 'scripts/build_artifacts.py')
+    assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     rows, _ = module.verified_reported_rows()
@@ -49,7 +54,7 @@ def capture(paper, target):
         ROOT / 'docs/comparisons/continual-results.json',
         ROOT / 'docs/comparisons/bridge-three-span-results.json'
     ]
-    sources = []
+    sources: List[Dict[str, str]] = []
     for index, report in enumerate(reports):
         document = json.loads(report.read_text())
         for row in document['rows']:
@@ -101,24 +106,30 @@ def capture(paper, target):
         'generated_by':
         'scripts/plotting/plot_continual_comparisons.py',
         'policy':
-        'Preserve paper MB (3) and historical MF (2); add six comparison arms (3 each). Bridge uses three-span integrity-fixed cohort. Steps: whole-run successes only; solve: all levels; resets: all finished runs.',
+        ('Preserve paper MB (3) and historical MF (2); add six comparison '
+         'arms (3 each). Bridge uses three-span integrity-fixed cohort. '
+         'Steps: whole-run successes only; solve: all levels; resets: all '
+         'finished runs.'),
         'sources':
         sources,
         'records':
         rows,
-        'caveats': [
-            'Cohorts differ in observation handling and agent runtime; not a matched causal ablation.',
-            'Only new Bridge standalone permits engine imports; other domains retain stricter historical prompt.',
-            'Some historical standalone agents did not use a model; uncertainty arms include known custom uncertainty checks.',
-            'Original no-fitting Bridge seed 0 retained; post-completion scheduler repeat excluded.',
-            'Balloons is original non-hatch with historical instantaneous goal.'
-        ]
+        'caveats':
+        [('Cohorts differ in observation handling and agent runtime; not '
+          'a matched causal ablation.'),
+         ('Only new Bridge standalone permits engine imports; other '
+          'domains retain stricter historical prompt.'),
+         ('Some historical standalone agents did not use a model; '
+          'uncertainty arms include known custom uncertainty checks.'),
+         ('Original no-fitting Bridge seed 0 retained; post-completion '
+          'scheduler repeat excluded.'),
+         'Balloons is original non-hatch with historical instantaneous goal.']
     }
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(payload, indent=2) + '\n')
 
 
-def render(snapshot, output):
+def render(snapshot: Path, output: Path) -> None:
     """Means plus individual seed values, without small-sample CI claims."""
     data = json.loads(snapshot.read_text())
     rows = data['records']
@@ -130,7 +141,7 @@ def render(snapshot, output):
         'svg.hashsalt': 'continual-comparisons'
     })
     fig, axes = plt.subplots(3, 5, figsize=(12.8, 8.7), sharey=True)
-    summary = []
+    summary: List[Dict[str, Any]] = []
     for col, domain in enumerate(DOMAINS):
         for metric, field in enumerate(['solve', 'steps', 'resets']):
             ax = axes[metric, col]
@@ -231,7 +242,8 @@ def render(snapshot, output):
         json.dumps(summary, indent=2) + '\n')
 
 
-def main():
+def main() -> None:
+    """Optionally capture a snapshot, then render the figure."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--paper-root',
                         type=Path,
