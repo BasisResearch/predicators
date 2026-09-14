@@ -10,6 +10,7 @@ Available factories
 - ``create_pick_skill``   -- Pick up an object.
 - ``create_place_skill``  -- Place a held object.
 - ``create_push_skill``   -- Push through waypoints.
+- ``create_press_skill``  -- Press a button from above and hold it.
 - ``create_pour_skill``   -- Pour from a held container.
 - ``create_move_to_skill``-- Move EE to a target pose.
 - ``create_wait_option``  -- Hold current pose (no-op).
@@ -88,6 +89,8 @@ from predicators.ground_truth_models.skill_factories.place import \
     create_place_skill
 from predicators.ground_truth_models.skill_factories.pour import \
     create_pour_skill
+from predicators.ground_truth_models.skill_factories.press import \
+    create_press_skill
 from predicators.ground_truth_models.skill_factories.push import \
     create_push_skill
 from predicators.ground_truth_models.skill_factories.wait import \
@@ -105,6 +108,7 @@ __all__ = [
     "create_pick_skill",
     "create_place_skill",
     "create_pour_skill",
+    "create_press_skill",
     "create_push_skill",
     "create_wait_option",
     "shared_skill_robot",
