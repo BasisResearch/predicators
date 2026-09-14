@@ -23,6 +23,9 @@ The optional [complete-support initializer](support-initialization.md) now redra
 All 35 focused functional tests and 32 exact default-path comparisons pass, together with type, lint and pinned format checks.
 Both native fixtures and independent readers now pass: 32 supported candidates are collected in 209 and 123 evaluations, with effective sample sizes 30.06 and 31.03 at temperature 0.0001.
 Paired full fitting pilots `22706932` are running with 64 temperatures, blocked rejuvenation and a 20,000-evaluation budget per run.
+Both have completed their first two temperature steps with all 32 initial lineages retained; these very early diagnostics do not establish adequate exploration.
+The [generalized forecast adapter](bridge-posterior-forecasts.md) passes native checks on two complete joint candidates, with 10,688 actions and exact generated/density histories; the independent reader also passes for both candidates.
+The reserved assessment is prepared: the clean geometric bridge goal is true only at the final step, while direct evaluation of noisy observations misses it throughout the suffix.
 The Bridge fixture separately tempers all finite reduced-target factors while keeping exact support hard and preserving the final target.
 The [conditional future-density audit](bridge-future-density.md) also passes, with 8,318 native actions and independent variance, reach and output-factor checks.
 The generated histories reproduce exactly, but the fixed starting candidate gives very low likelihood to the recorded suffix, dominated by continuous output disagreement.
