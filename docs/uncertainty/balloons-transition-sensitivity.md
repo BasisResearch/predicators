@@ -51,3 +51,109 @@ There is no basis for promoting a simple noise-disable change to production.
 The next model investigation should separate the velocity reset atom from continuous velocity noise and inspect errors already present in the conditioned prefix.
 Any proposed replacement must use a coherent law during both fitting and forecasting, then be refitted and assessed across complete weighted populations.
 These two selected states cannot establish posterior-wide improvement, numerical convergence, or the Stage B acceptance gate.
+
+## Separating reset events from continuous velocity noise
+
+The follow-up bundle `logs/uncertainty_balloons_velocity_components_20260914` crosses joint noise on/off with either the velocity reset branch or the Gaussian branch.
+Suppressing a reset retains the native velocity on that branch; it does not replace the skipped reset with a new Gaussian draw.
+Suppressing a Gaussian branch still draws its noise and then retains native velocity.
+This preserves the original paired random schedules and isolates interventions; it does not define or fit a new posterior.
+
+Native job `22714229` completed in 2:45 with 11,280 actions, including eight original-treatment baseline histories and eight complete repeats.
+All original-treatment histories and all fitting prefixes reproduce exactly.
+Reader `22714231` completed in 10 seconds, checking the 32 new histories, 5,472 future joint vectors and velocity draws, and four corruption controls.
+
+| Fitting seed | Active future noise | Box-height RMSE (m) | Box-speed RMSE (m/s) | Final burst count | Final predicted goal count |
+|---|---|---:|---:|---:|---:|
+| 620 | Joint and Gaussian velocity | 0.20953 | 0.23888 | 0/4 | 0/4 |
+| 620 | Gaussian velocity only | 0.19419 | 0.26363 | 0/4 | 0/4 |
+| 620 | Joint and velocity reset | 0.40998 | 1.27533 | 2/4 | 0/4 |
+| 620 | Velocity reset only | 0.23846 | 0.63505 | 1/4 | 0/4 |
+| 621 | Joint and Gaussian velocity | 0.18292 | 0.34631 | 4/4 | 0/4 |
+| 621 | Gaussian velocity only | 0.20205 | 0.35242 | 4/4 | 0/4 |
+| 621 | Joint and velocity reset | 0.10594 | 0.42441 | 2/4 | 0/4 |
+| 621 | Velocity reset only | 0.11305 | 0.38959 | 0/4 | 0/4 |
+
+At the selected seed-621 state, continuous velocity noise alone suffices to cause the four observed forecast bursts, while resets alone do not.
+At the selected seed-620 state, reset interventions can also cause bursts.
+The effects are nonlinear and depend on the fitted state; the reset branch is not the sole cause.
+Neither intervention recovers the goal.
+
+The same reader finds substantial discrepancies during the conditioned fitting prefix.
+The two selected histories require speed corrections with RMS 0.26270 and 0.06844 m/s, compared with the declared 0.01 m/s continuous velocity scale.
+All 64 fitted speed observations in each history are positive, so none uses the zero-speed atom during conditioning.
+The nominal discrepancy scale should not be interpreted as a bound on these conditioned corrections.
+These errors motivate investigation of the sampled parameters and initial states in addition to future noise.
+
+## Conditional parameter profiles
+
+The frozen program's own decision record describes an earlier overdamped optimizer solution that matched mean heights but lost the observed oscillation.
+The selected posterior states have drag values 23.20 and 21.20, compared with the program's default 1.979.
+This motivates a diagnostic rather than a conclusion that changing drag alone will fix the problem.
+
+Bundle `logs/uncertainty_balloons_parameter_profiles_20260914` evaluates eight predefined parameter profiles at each selected initial state and latent direction path.
+Profiles include the selected parameters, all existing program defaults, selected single-parameter changes and three interpolations in the original prior's unit coordinates.
+All 196 non-parameter coordinates remain fixed within each profile.
+The parameters remain inside the same original prior bounds.
+The program defaults already contain historical development-data choices and are not independent evidence or a newly asserted prior.
+
+Native job `22714315` completed in 1:41 with 5,808 actions.
+Every fitting prefix repeats exactly and matches its separately generated full-history prefix.
+Independent reader `22714316` completed in 19 seconds, verifying all 1,024 radial speed factors, joint factors, output-score composition, parameter edits and future intervention semantics.
+Future evaluation uses native continuation with both physical noise interventions disabled, separately from the unchanged conditioned-prefix score.
+
+| Fitting seed | Parameter profile | Prefix log score | Prefix height RMSE against noisy observations (m) | Future height RMSE against clean observations (m) | Future speed RMSE (m/s) |
+|---|---|---:|---:|---:|---:|
+| 620 | Selected | -14,534.08 | 0.02552 | 0.22072 | 0.23738 |
+| 620 | Program defaults | 4,920.01 | 0.01378 | 0.01279 | 0.05321 |
+| 621 | Selected | 7,411.31 | 0.02291 | 0.11345 | 0.37631 |
+| 621 | Program defaults | -1,477.20 | 0.02682 | 0.01383 | 0.05748 |
+
+The prefix scores are conditional likelihoods at fixed initial states and latent paths, not marginal parameter evidence or posterior weights.
+At the selected seed-620 state, defaults improve the score by about 19,454 and greatly improve the native future prediction.
+This exposes a much better conditional fitting point than that particular retained sample.
+At the seed-621 state, defaults improve future motion prediction but reduce the fitted output score enough to lower the total prefix score.
+Other profiles have large discontinuities and can produce violent trajectories; the complete report retains those failures.
+Changing drag alone barely changes seed 621's prefix score yet severely worsens its future prediction.
+Thus both numerical exploration and the relationship between the conditional scoring model and future dynamics remain concerns.
+None of these profiles predicts the final goal correctly.
+
+The next proposal audit uses prefix observations before the first exact clip/tie change to estimate initial-location proposal centers, and tests those centers with existing program defaults and selected parameters.
+It retains the original prior, feasibility rules and likelihood, including their treatment of motion.
+The use of a quiet-prefix mean is a proposal heuristic, not an assumption that those measurements are independent initial-state observations in the likelihood.
+The audit must verify normalized proposal densities and native target scores before any new fitting run uses it.
+
+## Verified proposal audit and matched fits
+
+The audit in `logs/uncertainty_balloons_prefix_guidance_20260914` uses observations 0 through 22, before the first exact clip/tie change at step 23, for its optional initial-location means.
+It compares four proposal centers with the same twelve random inputs per guide, plus one evaluation of each center.
+Native job `22714432` completed in 1:46 with 4,864 actions, including repeated evaluations of all 52 points.
+Geometry or exact-output failures remain explicit unsupported candidates.
+
+| Proposal center | Finite random draws | Best random-draw prefix log score | Center prefix log score |
+|---|---:|---:|---:|
+| Original guide | 3/12 | -1,252,294.47 | -268,373.62 |
+| Original scene, program-default parameters | 8/12 | 6,559.01 | -651.49 |
+| Prefix location means, program-default parameters | 9/12 | 4,516.61 | Unsupported |
+| Prefix location means, selected seed-621 parameters | 5/12 | 5,960.21 | Unsupported |
+
+These small counts describe proposal support and are not posterior-quality estimates.
+The independent reader verifies all 52 mixture proposal densities and 38 evaluated conditional likelihoods, including the original correction for the full mixture density.
+The first reader, `22714433`, encountered a 2.78e-17 inverse-CDF coordinate difference between AMD and Intel processors while checking exact proposal provenance.
+Reader `22714522` passes the unchanged checks on the same Intel CPU model as generation.
+This is a reader/runtime precision issue, not an agent or model failure.
+
+The next comparison changes only the original guide's ten parameter-center coordinates to the frozen program defaults.
+It retains the original scene center; the additional mean-location change is not included in these fits.
+The original broad proposal component and normalized mixture correction remain intact, so this changes how the target is explored rather than changing the declared prior or likelihood.
+
+The frozen fitting bundle is `logs/uncertainty_balloons_default_guided_fits_20260914`.
+Native target validation `22714576` has passed: archived prefix histories reproduce, future-data corruption leaves the fitting data unchanged, 14 of 16 new proposal cases have finite support, and serial/parallel target evaluations agree exactly.
+The maximum checked factorization error is 2.27e-13.
+Array `22714577` runs numerical seeds 620 and 621 with the original 64 particles, 32 temperatures, eight moves, four workers and 16,448-evaluation budget.
+Fit readers `22714628` and `22714629` will recover each complete checkpoint and freshly repeat every retained native target.
+
+The two new fits remain separate from the earlier populations with the same numerical seed labels.
+Complete weighted reserved-future forecasts and numerical-stability checks are still required before assessing the changed guide.
+In particular, adequate inference must retain prior uncertainty for parameters that the recorded prefix does not inform; a better conditional fitting score alone is insufficient.
+There is no new agent-performance result or production-estimator change.

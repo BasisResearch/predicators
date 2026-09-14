@@ -15,6 +15,12 @@ The full plan remains incomplete, and the incumbent estimator remains the produc
 The [Balloons transition diagnostic](balloons-transition-sensitivity.md) now verifies 32 paired continuations and 9,400 native actions.
 At one selected fitted state, removing future joint and velocity noise eliminates bursts in four continuations, but does not recover the goal; the other selected state does not improve.
 This isolates a contribution from the physical discrepancy model without establishing a replacement posterior or an agent improvement.
+The subsequent velocity-component audit verifies another 32 paired interventions and shows that both reset events and continuous noise can cause bursts, depending on the fitted state.
+Sixteen verified conditional parameter profiles expose both a much better fitting point than one retained sample and disagreement between fitted score and future quality at the other selected state.
+An unchanged-target proposal audit verifies 52 proposal densities and motivates a matched guide-center-only comparison.
+Native validation `22714576` passes exact archived replay, future-data isolation, factorization and serial/parallel checks.
+Array `22714577` now runs the two original numerical seeds with only the parameter proposal center changed to the fixed program defaults; original priors, likelihood and sampling budgets remain unchanged.
+Independent complete-checkpoint and final-target readers `22714628` and `22714629` are queued; new weighted future comparisons remain outstanding.
 
 The [Bridge recovery](bridge-memory-recovery.md) validates both stage-26 checkpoints after the original fits exhausted their 64 GiB allocations.
 Both complete numerical prefixes and four fresh native targets reproduce exactly.
