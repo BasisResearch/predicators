@@ -68,7 +68,8 @@ Array `22715405` runs paired fitting seeds 620 and 621 on `mit_preemptable`, eac
 It retains 64 particles, 32 cubic temperatures, eight moves, the original blocks and a 16,448-evaluation cap.
 Final-target readers `22715406` and `22715407` are dependency-queued to recover each complete checkpoint and freshly evaluate every retained particle.
 Their frozen bundle is `logs/uncertainty_balloons_selective_verification_20260914`.
-A complete weighted future adapter for this selective proposal is still required; the existing default-guide adapter must not decode its particles without the new coordinate selection.
+The selective-proposal weighted future adapter in `logs/uncertainty_balloons_selective_forecasts_20260914` has passed native validation and independent verification.
+Its particle decoder binds the new guide and all five uniform-coordinate selections; the default-guide decoder cannot be substituted for it.
 
 ## Remaining acceptance work
 
@@ -78,3 +79,30 @@ Broader marginals alone do not establish adequate inference in the remaining sce
 Improving numerical exploration also does not fix an inadequate dynamics or discrepancy model.
 The [Balloons transition diagnostics](balloons-transition-sensitivity.md) remain relevant to that separate predictive issue.
 No Stage B acceptance or live-agent improvement follows from this experiment's launch.
+
+
+## Weighted prediction pipeline
+
+The new pipeline keeps the native generation, density integration and weighted summary methods from the previously verified default-guide adapter.
+It binds the new fitting identities and selective proposal, preserving the physical coordinates, complete histories, and positive weights of every retained particle.
+It uses the unchanged two banks of four future generations and eight conditional-density draws per particle.
+The source-publication step waits for independent completed-fit verification and then creates immutable report and checkpoint copies.
+
+Native adapter `22715541` completed in 1:12 with 3,012 actions, and independent reader `22715542` completed in 27 seconds with another 192 prefix actions.
+They pass broad and local component checks, repeatability, full checkpoint recovery, weighted summaries, density denominators and twelve malformed-result rejections.
+Both completed reports match the checksums of their frozen inputs and source artifacts.
+The reader successfully rejects both the old proposal center and the correct center with its uniform-coordinate selection omitted.
+This distinction matters because omitting the selection changes the physical state represented by the same saved proposal coordinates.
+
+Full forecasts `22715569` and `22715571` are queued behind the completed-fit readers and successful adapter verification.
+Independent forecast readers `22715570` and `22715572` follow them.
+Comparison fixture `22715573` and final comparison `22715574` cover the original, default-centered and selective treatments, retaining the incumbent estimator as a separate reference.
+The full comparison also waits for the earlier default-guide forecast readers, so unfinished treatments cannot be silently omitted.
+
+The comparison checks identical fitting budgets and forecast draw counts across all treatments, allowing only the declared refresh-probability difference in the sampler configuration.
+It reports all ten weighted parameter marginals in prior-unit coordinates, including duplicate sample masses, alongside prediction errors, event probabilities, replica agreement and available computation costs.
+Comparison fixture `22715573` completed in seven seconds.
+Its synthetic weighted-distribution check and six deliberate invalid-budget, invalid-refresh, invalid-weight and out-of-prior cases pass.
+It independently reproduces the original two fits' parameter summaries and retains all four new forecasts as pending.
+An incomplete comparison fixture is expected while new forecasts are unavailable; full comparison requires all six verified forecasts.
+These reports remain offline evidence and do not establish agent solve rates.

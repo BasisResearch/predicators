@@ -27,7 +27,11 @@ The comparison retains both earlier fits and the incumbent, including prediction
 The [parameter-dependence audit](balloons-selective-guidance.md) and independent reader `22715205`/`22715206` have completed all 46 native cases and twenty marginal checks.
 Changing five parameters separately or together leaves both tested fitting histories and scores exactly unchanged, while the original fits retain very narrow marginals for them.
 A selective guide with uniform proposals on those coordinates and 20% block refresh moves now passes native validation `22715307`, including 32 default-parity and 32 independent mixture-density checks.
-Paired fits `22715405` are running with final-target readers `22715406`/`22715407` dependent on completion; weighted future validation for this selective proposal remains outstanding.
+Paired fits `22715405` are running with final-target readers `22715406`/`22715407` dependent on completion.
+The selective proposal's weighted future adapter and independent reader `22715541`/`22715542` now pass, including rejection of a decoder that omits the selective mask.
+Forecasts `22715569`/`22715571`, independent readers and the six-population comparison `22715574` are dependency-queued.
+The comparison fixture `22715573` passes its marginal and configuration guards, retaining the four pending forecasts explicitly.
+The comparison preserves the original and default-centered controls and reports parameter spread alongside future predictions.
 It retains the complete prior, likelihood and Metropolis correction and does not assume global parameter independence.
 
 The [Bridge recovery](bridge-memory-recovery.md) validates both stage-26 checkpoints after the original fits exhausted their 64 GiB allocations.
