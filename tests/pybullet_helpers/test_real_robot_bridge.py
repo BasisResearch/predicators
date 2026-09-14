@@ -613,3 +613,65 @@ def test_release_eps_sits_between_the_two_measured_widths():
     force, these are the two numbers to re-measure.
     """
     assert 0.00558 <= _RELEASE_EPS < 0.0122
+
+
+# -- the guarded press --------------------------------------------------------
+
+
+def _press_action(arm_value, hold=4.0):
+    """A closed-finger descent step tagged the way the press skill tags it."""
+    act = _action(arm_value, 0.0)
+    act.extra_info = {"segment": "press", "hold_seconds": hold}
+    return act
+
+
+def test_split_actions_ships_tagged_actions_as_one_press(tmp_path):
+    """Press-tagged actions become a single press segment between the
+    approach and the retract, with the hold from the tag and the triggers
+    from the calibration file; the sim's hold (the same target repeated) is
+    de-duplicated."""
+    pytest.importorskip("babyrobot")
+    import json
+    cal = tmp_path / "press_calibration.json"
+    cal.write_text(json.dumps({"press": {"force_limit_n": 5.21,
+                                         "stall_window_s": 0.5,
+                                         "max_depth_m": 0.0275}}))
+    utils.reset_config({"real_robot_press_calibration_json": str(cal)})
+    actions = [
+        _action(0.0, 0.0),  # close, then approach
+        _action(0.1, 0.0),
+        _press_action(0.11),  # the descent
+        _press_action(0.12),
+        _press_action(0.12),  # the hold: same target, repeated
+        _press_action(0.12),
+        _action(0.1, 0.0),  # retract
+        _action(0.1, 0.04),  # open
+    ]
+    segments = _split_actions(actions, _LAYOUT)
+    # (The open's own arm target trails it as a one-point move, as it does
+    # for every gripper transition.)
+    assert [s.type for s in segments] == \
+        ["gripper", "move", "press", "move", "gripper", "move"]
+    press = segments[2]
+    assert len(press.waypoints) == 2
+    assert press.waypoints[0] == pytest.approx((0.11, ) * _N_ARM)
+    assert press.waypoints[1] == pytest.approx((0.12, ) * _N_ARM)
+    assert press.hold_seconds == 4.0
+    assert (press.force_limit_n, press.stall_window_s, press.max_depth_m) == \
+        (5.21, 0.5, 0.0275)
+    # The approach ended where the press began; the retract begins after it.
+    assert len(segments[1].waypoints) == 2
+    assert len(segments[3].waypoints) == 1
+    utils.reset_config({"real_robot_press_calibration_json": ""})
+
+
+def test_press_triggers_default_to_the_button_asset_calibration():
+    """With no override, the triggers are the ones measured beside the
+    button in BabyRobotPredicator."""
+    pytest.importorskip("babyrobot")
+    pytest.importorskip("markerless_estimation")
+    from predicators.pybullet_helpers.real_robot_bridge import press_triggers
+    utils.reset_config({"real_robot_press_calibration_json": ""})
+    t = press_triggers()
+    assert set(t) == {"force_limit_n", "stall_window_s", "max_depth_m"}
+    assert all(v > 0 for v in t.values())
