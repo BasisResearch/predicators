@@ -57,6 +57,8 @@ The checked preflight checksum is `db0952a62ede8afa7333ca50a7ac216ba4f1447aaad0a
 
 ## Matched fitting experiment
 
+All four short fits now pass their numerical and native readers after the [documented JSON transport recovery](boil-heating-reader-recovery.md).
+The job table below records the original submissions; cancelled downstream jobs and their replacements are listed in that recovery note.
 Both arms use numerical seeds 410 and 411, 32 particles, the same coordinate blocks and matching evaluation budgets.
 The uniform arm includes an unused normalized selector coordinate so both arms have 85 proposal coordinates and 84 joint output coordinates.
 The guided arm uses that selector for the thermal mixture.
@@ -81,11 +83,12 @@ Those short jobs had inherited the full-fit wall-time request.
 Four independently verified earlier fixtures took 76 to 180 seconds with the same particle count, two temperatures, one move and 2,048-evaluation cap.
 Scaling the slowest observed seconds per evaluation to the full cap and the longer 224/132-action ratio gives an empirical estimate of 3,479 seconds, not a guaranteed runtime bound.
 The eight still-pending fixture and fixture-reader allocations were therefore reduced to two hours through scheduler metadata only.
-All job IDs, zero restart counts, frozen input hashes and numerical budgets were preserved; the full fits retain their original eight-hour requests.
-Three fixtures have started, and the fourth is waiting for resources.
+All job IDs, zero restart counts, frozen input hashes and numerical budgets were preserved; at that point the full fits retained their original eight-hour requests.
+All four fixtures subsequently completed, and their recovered independent readers pass.
 The before/after scheduler records and checked timing references are saved in `logs/uncertainty_boil_heating_fixture_allocation_20260914`.
-The full fits and readers are dependency-queued.
-No fitting result is available yet.
+The original full fits were cancelled by failed reader dependencies before starting.
+Replacement full fits are underway with unchanged numerical budgets and six-hour allocations justified by verified full-fit timing references.
+No full fitting result is available yet.
 These are numerical inference seeds, not new agent solve-rate seeds.
 
 ## Remaining work

@@ -2,7 +2,7 @@
 
 September 14, 2026.
 This collects the [heating-aware fits](boil-heating-joint-target.md) and [224/40-action forecasts](boil-heating-forecasts.md) into a matched numerical comparison.
-The fits and forecasts remain pending; there is no new posterior or agent-performance result.
+The short fits are verified and replacement full fits and forecasts are underway; there is no completed full posterior or agent-performance result.
 
 ## Matched sampler comparison
 
@@ -37,7 +37,8 @@ The separately frozen v2 converts event indicators to numeric probabilities befo
 Check `22761384` exercises known feature errors, a rare final-step goal miss, nonuniform weighted covariance, mismatched treatment identities and budgets, malformed metrics and the four actually pending forecast sources.
 Full collector `22761385` depends on that check and all four complete forecast readers.
 The check completed in seventeen seconds and passes all ten rejection controls, the known-error and covariance references, and explicit handling of the four pending forecasts.
-The full collector remains dependency-queued.
+That full collector was later cancelled by a failed fitting-reader dependency before it started.
+Replacement `22762518` uses the same metric calculations with the [verified transport recovery and allocation provenance](boil-heating-reader-recovery.md).
 
 ## Matched incumbent prefix
 
@@ -50,8 +51,8 @@ This prevents the longer data prefix from concealing another fitter configuratio
 The subclass conversion preflight `22761362` completed in 32 seconds with 1,056 simulator actions.
 All four complete archived trajectories and their hidden feature memory reproduce exactly.
 Fit `22761363` and independent reader `22761364` follow that preflight.
-The fit is running, and its configuration and parameter-specification equality checks have passed.
-The independent reader remains dependency-queued.
+Both have completed, including configuration and parameter-specification equality checks and independent full prediction/memory replay.
+The [verified result](boil-heating-reader-recovery.md#verified-incumbent-result) matches the suffix's clean event curves and final goal, with water-volume RMSE 0.008744.
 
 The control replays the selected parameters from the initial observation over the entire action sequence, repeats that prediction in a fresh world, and evaluates only steps 225 through 264 afterward.
 The reader reconstructs the prediction and memory using the literal program independently of the subclass wrapper.

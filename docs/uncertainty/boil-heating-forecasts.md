@@ -67,10 +67,10 @@ Actual completed-checkpoint recovery and every population history still require 
 
 All jobs use `mit_preemptable` compute nodes.
 The native adapter and its reader request one-hour allocations, which fit before scheduled maintenance.
-The short fitting fixtures and their readers now have two-hour scheduler allocations, based on verified timing references; their scientific inputs and numerical caps are unchanged.
-Three fixtures have started, while the fourth is waiting for resources.
-The full fitting jobs retain their eight-hour allocation limits.
-The forecast jobs below wait for the required fitting readers and preliminary checks; full forecasts also require their corresponding forecast fixture reader.
+The short fitting fixtures are complete and their readers pass after the [documented transport recovery](boil-heating-reader-recovery.md).
+Replacement full fits request six hours based on verified full-fit timing references, while preserving the original numerical caps and frozen scientific inputs.
+The table below records the original downstream submissions, which were cancelled before starting; the recovery note lists their replacements.
+Replacement forecast jobs retain the required fitting-reader and preliminary-check dependencies; full forecasts also require their corresponding forecast fixture reader.
 The same requirements are checked again inside each forecast process.
 
 | Arm | Numerical seed | Forecast fixture | Fixture reader | Full forecast | Full reader |

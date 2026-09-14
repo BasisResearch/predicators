@@ -2,7 +2,7 @@
 
 September 14, 2026.
 This combines the [matched posterior comparison](boil-heating-comparison.md) with the incumbent's selected-point prediction on the same 224-action fitting prefix.
-The incumbent fit is still running, while the posterior fitting and forecasting pipelines remain queued.
+The incumbent fit and independent reader are complete, while replacement posterior fitting and forecasting pipelines are underway.
 No performance difference is available yet.
 
 ## Required source evidence
@@ -44,7 +44,9 @@ The checker also reads the actual pending sources and confirms that it cannot re
 
 Check `22761575` completed in sixteen seconds on `mit_preemptable`.
 All eleven rejection controls pass, along with the known-error and signed-difference references.
-Its actual-source check retains the running incumbent and absent complete posterior comparison as pending, with no performance differences.
-Final report `22761576` depends on that check, posterior collector `22761385`, and incumbent reader `22761364`.
+At check time it retained the running incumbent and absent complete posterior comparison as pending, with no performance differences.
+Original report job `22761576` was subsequently cancelled by the failed fitting-reader dependency before starting.
+Replacement report `22762519` depends on recovered posterior collector `22762518` and verifies the already-completed incumbent reader `22761364`.
+The [recovery note](boil-heating-reader-recovery.md) records the unchanged metric code, transport adapter and replacement accounting.
 The same requirements are checked inside the final report process.
 Frozen scripts and reports are in `logs/uncertainty_boil_heating_legacy_comparison_20260914`.

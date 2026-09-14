@@ -13,19 +13,22 @@ The [informative-heating diagnostic](boil-informative-heating.md) preserves the 
 Native replay, later-observation isolation, independent direct Gaussian references and a higher-precision integration comparison pass.
 The subsequent [heating-aware joint target](boil-heating-joint-target.md) includes all observations through action 224 and retains all 84 joint coordinates under the original priors and noise laws.
 Native and independent target readers pass, as do separate checks of a density-corrected thermal sampling guide.
-Matched uniform and guided fitting fixtures are queued on compute nodes, followed by full fits gated on fixture validation and independent final readers.
-After checking four verified earlier fixture runtimes, the inherited eight-hour fixture and fixture-reader wall-time requests were reduced to two hours in scheduler metadata only.
-Job IDs, restart counts, frozen sources and numerical budgets are unchanged; three short fits have started and the fourth is waiting for resources.
-The full fits retain their original eight-hour allocation limits.
+All four matched uniform and guided fitting fixtures now pass their numerical and native readers after the [documented JSON transport correction](boil-heating-reader-recovery.md).
+The completed fits and checkpoints were reused unchanged; every reader rechecks all 32 final native targets.
+Replacement full jobs restore the dependency-cancelled pipeline with identical scientific inputs and budgets, using six-hour fit and two-hour reader allocations justified by verified workload measurements.
+Full fits are underway; both uniform-arm forecast fixtures have completed and await independent verification.
 The [224/40-action continuation adapter](boil-heating-forecasts.md) now passes its four-case native fixture, including generation/density round trips and exact-constraint rejection.
 Its independent reader verifies twelve artifacts, 28,512 joint factors and sixteen corruption controls, including two fresh complete histories.
 The weighted population checks also pass, covering 24 proposal mappings and eight malformed summaries.
-Complete forecast fixtures, full forecasts and their readers are dependency-queued behind the fitting results.
+Remaining forecast fixtures, full forecasts and their readers follow their fitting and verification dependencies.
 The [matched comparison collector](boil-heating-comparison.md) passes its ten validation controls and preserves the four pending forecasts explicitly.
-A separate full incumbent fit is running on the same 224-action prefix after four complete subclass/literal trajectory and memory comparisons pass.
+A separate full incumbent fit and its literal replay reader have completed on the same 224-action prefix.
+Its selected-point prediction matches all event curves and the final goal on this development suffix; clean bubbling error is zero and water-volume RMSE is 0.008744.
+Bubbling is saturated throughout the suffix, so this does not establish general thermal identification.
 The incumbent configuration and parameter specifications match the earlier verified control; its selected-point predictions remain a separate comparison from the incumbent planning policy.
 The [combined incumbent/posterior report](boil-heating-legacy-comparison.md) passes eleven contract and incomplete-source controls in `22761575`.
-Its final collection waits for the matched posterior collector and verified incumbent result, and leaves all performance differences unset until both are complete.
+Replacement collectors `22762518` and `22762519` preserve the frozen metric calculations and append verified transport provenance and replacement allocation accounting.
+They leave all performance differences unset until the posterior side is complete.
 Full joint numerical agreement and the corresponding forecast comparison remain unfinished; fresh untouched predictive evaluation is still required before migration acceptance.
 
 Stage 0 interface preservation is complete, with scripted behavior parity checked.

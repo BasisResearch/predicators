@@ -66,20 +66,21 @@ See the [informative-heating diagnostic](boil-informative-heating.md) for the or
 The subsequent [complete 224-action joint target](boil-heating-joint-target.md) passes native preflight `22757366` and independent reader `22757367`.
 It retains all 84 joint coordinates and includes every observation channel under the original priors and noise laws.
 The corrected thermal proposal also passes native preflight `22757771` and independent density and mapping reader `22757772`.
-Matched uniform and guided fitting fixtures are queued on `mit_preemptable`, with full fits and readers dependent on verified fixture completion.
-The short fixtures inherited an eight-hour wall-time request that conflicted with maintenance.
-Verified prior fixture runtimes justified two-hour scheduler allocations without changing job IDs, restart counts, frozen code or numerical budgets; three fixtures have started.
-The full fits retain eight-hour requests and remain dependency-queued.
+All four matched uniform and guided fitting fixtures and their recovered readers now pass on `mit_preemptable`.
+The [reader recovery](boil-heating-reader-recovery.md) corrects only a tuple/list transport mismatch, preserving all numerical checks and reusing the completed fits.
+The dependency-cancelled downstream jobs are replaced with identical scientific inputs and budgets; verified runtime references support six-hour full-fit and two-hour reader allocations.
+Full fits are underway; both uniform-arm forecast fixtures have completed and await independent verification.
 The [40-action forecast adapter](boil-heating-forecasts.md) passes native fixture `22759308` with 5,120 simulator actions.
 Independent reader `22759309` verifies all twelve artifacts and sixteen corruption controls, with another 1,424 native actions.
 Weighted population check `22759907` also passes its proposal mapping, nonuniform moment and zero-density controls.
-The four forecast pipelines remain queued behind their fitting and fixture dependencies.
+Remaining forecast work follows its fitting and fixture dependencies.
 Predictive and numerical comparisons remain unfinished.
-The [matched collector](boil-heating-comparison.md) passes its known-error, weighted-covariance, identity and incomplete-source checks in `22761384`; collection `22761385` waits on all four complete forecast readers.
-The matched-prefix incumbent control passes native parity preflight `22761362` and is fitting in `22761363`, with reader `22761364` queued.
+The [matched collector](boil-heating-comparison.md) passes its known-error, weighted-covariance, identity and incomplete-source checks in `22761384`; replacement collection `22762518` waits on all four complete forecast readers.
+The matched-prefix incumbent fit `22761363` and independent reader `22761364` have completed.
+Its point prediction matches all five clean event curves and the final goal; water-volume RMSE is 0.008744 and bubbling error is zero on the already-saturated suffix.
 Its configuration and parameter specifications are verified unchanged from the earlier control.
 The combined incumbent/posterior report check `22761575` passes all eleven rejection controls and retains the real inputs as incomplete.
-Final collector `22761576` remains queued behind the verified incumbent and complete posterior comparison.
+Replacement final collector `22762519` remains queued behind the verified incumbent and complete posterior comparison, with recovery provenance and allocation costs retained.
 
 ## Bridge completed recovery
 
