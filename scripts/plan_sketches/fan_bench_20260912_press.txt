@@ -1,0 +1,25 @@
+# scene   : scenes/fan_bench_20260912.json  (fan_loop_robot7, camera 30264679)
+# goal    : InGoal(domino_0, goal_region)  -- the block lies FLAT in the patch
+# fixtures: fan at world (0.952, 1.317) blowing -x; button at (0.996, 1.134),
+#           top z 0.471; goal patch centred (0.609, 1.304), +/- 0.092 along
+#           the wind, +/- 0.075 across it
+#
+# Settings this plan assumes:
+#   domino_real_scene:        .../BabyRobotPredicator/scenes/fan_bench_20260912.json
+#   domino_blow_real_hold_s:  4.0   (the press's hold = the gust)
+#
+# GEOMETRY. The block is staged at world (0.461, 1.176), downwind of the
+# patch and off its line, so the gust alone can never deliver it. The
+# place stands it one slide-length UPWIND of the patch centre, on the wind
+# line: the bench measured 9.5-9.7 cm of slide for this fan
+# (captures/fan_calibration.jsonl, robot5 and robot7), so 0.609 + 0.095 =
+# 0.704 along x. Yaw: a domino's yaw is the heading of its width axis, and
+# the wide face has to meet the wind, so the width runs ACROSS -x: pi/2
+# (1.5708). Release at 0.57, the height exp_domino_real's places use.
+#
+# The press takes no parameters: where is the button, how long is the
+# config. The Wait lets the gust run and the block settle.
+Pick(robot:robot, domino_0:domino)[0.065700]
+Place(robot:robot)[0.7040, 1.3040, 0.57, 1.5708]
+Press(robot:robot, fan_0:fan)[]
+Wait(robot:robot)[]

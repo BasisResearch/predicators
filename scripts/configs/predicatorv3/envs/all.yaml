@@ -355,6 +355,54 @@ ENVS:
       # downwind; a turn puts the rest of the chain across the wind,
       # and the turn geometry was tuned for a robot push anyway.
       domino_train_turn_ratio: 0.0
+  # The blow task on the REAL bench: domino_blow's task, scene and trigger
+  # replaced. The fan, the button and the goal patch are where the cameras
+  # saw them (a scene JSON from BabyRobotPredicator's
+  # real_skills/fan_scene_export.py), the block is the real 0.15 m domino,
+  # and the fan is started by pressing a momentary arcade button from above
+  # and HOLDING it -- the hold is the gust. Parked here; un-skipped by
+  # exp_domino_blow_real.yaml, which also decides whether the arm moves.
+  # The env builds one task from the scene, so DO NOT set
+  # domino_{train,test}_num_dominos here.
+  domino_blow_real:
+    NAME: "pybullet_domino_blow_real"
+    SKIP: True
+    ARGS:
+      - "make_test_images"
+      - "make_failure_images"
+    FLAGS:
+      num_test_tasks: 1
+      max_initial_demos: 0
+      excluded_objects_in_state_str: "loc,rot,angle,direction"
+      horizon: 500
+      domino_initialize_at_finished_state: False
+      domino_use_continuous_place: True
+      process_planning_heuristic_weight: 2.0
+      domino_has_glued_dominos: False
+      keep_failed_demos: True
+      predicate_invent_invent_derived_predicates: True
+      pybullet_birrt_extend_num_interp: 20
+      pybullet_birrt_path_subsample_ratio: 2
+      fan_known_controls_relation: True
+      fan_fans_blow_opposite_direction: False
+      option_model_use_gui: False
+      agent_bilevel_log_state: False
+      agent_sim_learn_oracle_sim_program: False
+      agent_sim_learn_oracle_sim_params: False
+      # -- the bench --
+      pybullet_robot: "panda"
+      domino_use_skill_factories: True
+      # The exported fan-bench scene: one block plus fixtures. Re-export
+      # after the fan, button or goal marker is moved.
+      domino_real_scene: "/home/amberli/babyrobot/BabyRobotPredicator/scenes/fan_bench_20260912.json"
+      # Rest the closed fingers at the 0.029 m real domino's faces.
+      pybullet_closed_fingers: 0.015
+      # How long the button is held: the gust, in seconds, on the arm.
+      domino_blow_real_hold_s: 4.0
+      # Wind force and gust length are calibrated together against the
+      # slide curve (settings.py); the fit turns a measured slide into
+      # the force. Left to settings.py.
+      real_robot_execute: False
   # Flags from the boil oracle test; boil has a PO simulator. exp_boil_sweep.yaml.
   boil:
     NAME: "pybullet_boil"
