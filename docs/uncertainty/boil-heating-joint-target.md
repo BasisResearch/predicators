@@ -83,7 +83,8 @@ These are numerical inference seeds, not new agent solve-rate seeds.
 
 ## Remaining work
 
-Verify the fixture and full-fit results, then construct and validate the corresponding 224/40-action forecast adapter.
+Verify the fixture and full-fit results and complete validation of the [corresponding 224/40-action forecast adapter](boil-heating-forecasts.md).
+The native continuation fixture now passes, and the population forecast pipeline is queued behind its validation and fitting dependencies.
 Compare numerical replicas, prior retention where justified, posterior predictions and computation costs.
 The longer prefix supplies heating information but does not itself fix uncertainty about the initial scene or poor exploration of the joint posterior.
 Between-replica agreement, budget stability and fresh predictive evidence remain required before using the replacement in live planning.

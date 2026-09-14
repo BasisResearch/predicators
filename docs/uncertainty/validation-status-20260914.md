@@ -68,7 +68,11 @@ It retains all 84 joint coordinates and includes every observation channel under
 The corrected thermal proposal also passes native preflight `22757771` and independent density and mapping reader `22757772`.
 Matched uniform and guided fitting fixtures are queued on `mit_preemptable`, with full fits and readers dependent on verified fixture completion.
 Their current scheduling obstacle is the upcoming maintenance reservation, not a failed numerical experiment.
-The 40-action forecast adapter and subsequent predictive and numerical comparisons remain unfinished.
+The [40-action forecast adapter](boil-heating-forecasts.md) passes native fixture `22759308` with 5,120 simulator actions.
+Independent reader `22759309` verifies all twelve artifacts and sixteen corruption controls, with another 1,424 native actions.
+Weighted population check `22759907` also passes its proposal mapping, nonuniform moment and zero-density controls.
+The four forecast pipelines remain queued behind their fitting and fixture dependencies.
+Predictive and numerical comparisons remain unfinished.
 
 ## Bridge completed recovery
 
