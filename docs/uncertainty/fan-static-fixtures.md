@@ -85,6 +85,29 @@ Independent reader `22712364` also passes, reconstructing each physical candidat
 Array `22712476` submits the full paired fits for seeds 302 and 303 on `mit_preemptable`, with 16 CPUs and 64 GB per task on the matching-CPU node1411.
 The serial/parallel native preflight establishes unchanged evaluation results across the tested execution modes; worker count changes allocation throughput rather than the ordered sampler target or random stream.
 Full fits preserve complete-stage checkpoints for preemption recovery and retain the original 16,448-evaluation budget.
-The weighted future adapter and independent prediction comparison for this new observation model are still required.
+The weighted future adapter and independent prediction checks are now implemented and validated as described below.
 Prediction stability, comparison with the incumbent and adequate numerical exploration remain unproven.
 The production estimator remains unchanged.
+
+## Weighted future pipeline
+
+The frozen adapter is in `logs/uncertainty_fan_static_forecasts_20260914`.
+It recovers a completed source checkpoint without another fitting evaluation and verifies the new proposal-to-canonical-coordinate mapping for every positive-weight particle.
+Each particle retains its complete sampled scene, original weight and complete 132-action trajectory.
+The changed static-fixture likelihood is used consistently in prefix checks and future scoring.
+The full history is generated before future observations are scored, and all zero-density contributions remain in the mixture.
+
+The short fitting fixture `22712635` completes with 7,808 native actions.
+Its full forecast fixture `22712670` completes 64 weighted histories plus one exact repeat, using 8,580 native actions.
+Independent reader `22712683` verifies all complete histories and their weights, the completed checkpoint, every prefix and future likelihood, and the ball's conditional output moments.
+It independently reconstructs mixture variance using within-component variance plus deviations from the weighted mean, checks a nonuniform two-component reference, and recomputes feature errors, event scores and goal scores.
+All eight corruption checks pass, rejecting a dropped particle, changed weights, native predictions, events, goals, density, conditional means and conditional variances.
+The deliberately short fixture is numerically unassessed, and its prediction metrics are not evidence for the alternative model.
+
+Full forecasts `22712813` and `22712819` are queued behind the respective running fits and the passed fixture reader.
+Their independent readers are `22712820` and `22712825`.
+Comparison `22712836` depends on both readers and on the comparison fixture `22712826`.
+The comparison fixture has passed, reproducing both earlier tempered populations and correctly preserving the two new rows as pending.
+It runs on the matching-CPU node1412 after only its pending resource request was changed; no frozen code or running fit was modified.
+The full comparison retains both original and new numerical replicas and the unchanged incumbent forecast, checking identical data, program, original physical prior and sampling budget while recording the changed discrepancy model.
+No full replacement forecast or acceptance result is available yet.

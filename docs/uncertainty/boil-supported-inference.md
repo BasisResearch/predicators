@@ -78,7 +78,9 @@ Cached evaluations remain charged to the fitting budget; the original initializa
 After those checks, the paired full comparison will keep the original 32 particles, eight moves per temperature, proposal blocks, proposal scale and refresh probability.
 It uses 64 geometrically spaced temperatures from `0.000001` to one and a maximum of 20,000 target evaluations per run.
 The runs use compute nodes on `mit_preemptable` with the previously audited native runtime pinned to `node1412`.
-Full fits `22709091` and `22709092` are now running after the fixture readers passed, with their own readers `22709093` and `22709094` dependent afterward.
+Full fits `22709091` and `22709092` have completed all 64 stages, with 15,001 and 14,944 target evaluations and 1,577,004 and 1,638,648 native actions respectively, excluding their separately reported initialization costs.
+Their independent readers `22709093` and `22709094` also pass, exactly reproducing the numerical traces and all final native targets with 4,224 additional native actions each.
+Both completed populations retain one original particle lineage; this diagnostic alone neither proves adequate exploration nor substitutes for the pending prediction comparison.
 Each full fit has 16 CPUs, 64 GB memory and an eight-hour allocation.
 Independent replicas, numerical-budget sensitivity and reserved-future forecasts remain acceptance requirements.
 No replacement posterior or agent advantage is established by this initialization diagnostic.
@@ -122,4 +124,4 @@ Initialization native actions are reported separately from the cached full fit a
 The new versus previous shared-variance comparison preserves the probability model while changing initialization, tempering and numerical budget.
 The fixed-variance and incumbent controls retain their separately labelled differences in discrepancy or initial-state treatment.
 The full forecasts and comparison remain incomplete until the gated jobs finish and their reports are verified.
-The adapter gate has passed; the full forecasts are currently waiting for the full fits and their readers.
+The adapter and full-fit reader gates have passed; both full forecasts are now running.
