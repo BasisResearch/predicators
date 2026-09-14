@@ -82,7 +82,8 @@ The selective treatment broadens several marginals but worsens height error, ret
 The [completed comparison](balloons-selective-guidance.md#completed-comparison-and-information-limitation) distinguishes those numerical concerns from the unobserved red and green releases after the short fitting prefix.
 The separately frozen [action-160 preflight](balloons-selective-guidance.md#longer-prefix-native-preflight) now passes native `22764761` and recovered independent reader `22764827`, keeping the original laws and verifying red/green sensitivity and the information cutoff.
 The original reader import error is preserved separately; its correction reuses the completed native output.
-Red lift becomes conditionally informative while green remains inactive in these two fixed histories; a wider conditional profile remains pending before another full joint fit.
+Red lift becomes conditionally informative while green remains inactive in these two fixed histories.
+The [conditional red-lift profile](balloons-red-profile.md) is now submitted with two grid resolutions, independent latent-draw banks, zero-density preservation and independent verification before another full joint fit.
 The comparison fixture `22715573` passes its marginal and configuration guards, retaining the four pending forecasts explicitly.
 The comparison preserves the original and default-centered controls and reports parameter spread alongside future predictions.
 It retains the complete prior, likelihood and Metropolis correction and does not assume global parameter independence.
