@@ -65,9 +65,29 @@ from predicators.envs.pybullet_domino.components.domino_component import \
     DominoComponent
 from predicators.structs import GroundAtom, Object, State, StepOption
 
-# The name of the option through which the robot is allowed to topple
-# the green start block.
+# The name of the option through which the robot is allowed to set the
+# cascade going. "Push" is the domino env's: the robot shoves the green
+# start block itself. A fan env's is "TurnFanOn" - the robot presses a
+# switch and the WIND does the toppling - and the machinery below needs
+# nothing else to accommodate it, because the span finder already
+# admits a trigger that names no domino at all.
 _PUSH_OPTION_NAME = "Push"
+_WIND_TRIGGER_OPTION_NAME = "TurnFanOn"
+
+# Triggers that never touch a domino. The counterfactual probe (rule d)
+# is skipped for these: it exists to prove the robot's BODY did not
+# carry the cascade, and a trigger whose whole action is pressing a
+# switch metres away has no body contact to disprove. Rules (a)-(c)
+# still apply and are what reject the arm-knocked-the-target episodes
+# this env was scoring as wins.
+_DECLARE_TRIGGER_OPTION_NAME = "DeclareFinished"
+
+# Triggers that start a cascade without the arm touching anything, and
+# so have no contact for the counterfactual probe to disprove. The
+# switch press is one because the switch is metres from the chain; a
+# declaration is one because it moves nothing at all.
+_BODYLESS_TRIGGERS = frozenset(
+    {_WIND_TRIGGER_OPTION_NAME, _DECLARE_TRIGGER_OPTION_NAME})
 
 # Consecutive non-held states a domino must spend at or past
 # ``fallen_threshold`` before that counts as a topple rather than as
@@ -243,8 +263,11 @@ def _topple_onset(states: Sequence[State], domino: Object) -> Optional[int]:
 
 
 def _push_on_green_spans(
-        step_options: Sequence[StepOption], greens: Sequence[Object],
-        domino_names: Set[str]) -> Tuple[List[Tuple[int, int]], bool]:
+    step_options: Sequence[StepOption],
+    greens: Sequence[Object],
+    domino_names: Set[str],
+    trigger_option_name: str = _PUSH_OPTION_NAME
+) -> Tuple[List[Tuple[int, int]], bool]:
     """Maximal runs of consecutive action indices whose option is a Push on a
     green start block, plus whether any option label was missing.
 
@@ -261,7 +284,7 @@ def _push_on_green_spans(
             any_unknown = True
             continue
         name, object_names = step_option[0], step_option[1]
-        if name == _PUSH_OPTION_NAME and (
+        if name == trigger_option_name and (
                 green_names & set(object_names)
                 or not domino_names & set(object_names)):
             push_idxs.append(i)
@@ -314,7 +337,8 @@ def check_cascade_legitimacy(
         states: Sequence[State],
         goal: Set[GroundAtom],
         step_options: Optional[Sequence[StepOption]] = None,
-        probe: Optional[CascadeProbe] = None) -> Tuple[bool, str]:
+        probe: Optional[CascadeProbe] = None,
+        trigger_option_name: str = _PUSH_OPTION_NAME) -> Tuple[bool, str]:
     """Certify that the episode's topples are a genuine push-seeded cascade.
 
     Rules (any violation fails the whole episode):
@@ -381,6 +405,9 @@ def check_cascade_legitimacy(
                        "start block in the scene to seed a cascade")
 
     # Action rules (a)/(b).
+    # Whether the action rules actually ran and found the trigger. The
+    # bodyless-trigger shortcut below is only sound once they have.
+    trigger_verified = False
     pre_push_idx: Optional[int] = None
     pushed_greens: List[Object] = list(greens)
     push_params: Optional[Tuple[float, ...]] = None
@@ -390,7 +417,7 @@ def check_cascade_legitimacy(
             if step_option is None:
                 continue
             name, object_names = step_option[0], step_option[1]
-            if name == _PUSH_OPTION_NAME:
+            if name == trigger_option_name:
                 foreign = sorted((set(object_names) & domino_names) -
                                  {g.name
                                   for g in greens})
@@ -400,7 +427,8 @@ def check_cascade_legitimacy(
                         f"step {i}) - only the green start block may be "
                         "pushed")
         spans, any_unknown = _push_on_green_spans(step_options, greens,
-                                                  domino_names)
+                                                  domino_names,
+                                                  trigger_option_name)
         if any_unknown:
             logging.warning(
                 "[cascade certificate] some actions lack option labels; "
@@ -409,6 +437,7 @@ def check_cascade_legitimacy(
             return False, ("dominoes toppled but the green start block was "
                            "never pushed (no Push on it in the episode)")
         first_push = spans[0][0]
+        trigger_verified = True
         pre_push_idx = first_push
         pushed_greens = _pushed_greens_in_order(step_options, greens, spans)
         push_params = _push_params_of_span(step_options, first_push)
@@ -460,6 +489,26 @@ def check_cascade_legitimacy(
     # Rule (d): the counterfactual push probe, on goal-reaching episodes.
     if not all(atom.holds(states[-1]) for atom in goal):
         return True, ""
+    if trigger_option_name in _BODYLESS_TRIGGERS:
+        # No probe for a wind trigger: the probe re-runs the robot's own
+        # skill with every link but the fingertips masked, to prove the
+        # cascade was not carried by the arm, and pressing a switch
+        # metres from the chain has no such contact to disprove - there
+        # is no push to replay.
+        #
+        # Sound ONLY because rules (a) and (b) have already established
+        # that the trigger happened and that nothing toppled before it.
+        # Without option labels those rules are skipped, and passing
+        # here regardless would turn the last gate into a rubber stamp:
+        # a place-knock episode with no trigger anywhere would collect
+        # the success bonus. Fail closed instead, as the probe path
+        # does for a goal-reaching episode it cannot check.
+        if trigger_verified:
+            return True, ""
+        return False, (
+            "the episode reached the goal but carries no option labels, "
+            f"so the {trigger_option_name} trigger cannot be confirmed "
+            "and a place-knock cannot be ruled out")
     if probe is None:
         return False, (
             "the goal atoms hold, but no counterfactual push probe is "

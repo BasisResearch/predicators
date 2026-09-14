@@ -16,9 +16,10 @@ what to do with any observation that comes back, belongs to the caller --
 """
 from __future__ import annotations
 
+import json
 import math
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Tuple
 
 from predicators.settings import CFG
 from predicators.structs import Action, Array
@@ -54,6 +55,13 @@ _MISSING_BABYROBOT = (
 # skill's own finger_status through on Action.extra_info, at which point this
 # constant only guards actions that arrive without it.
 _RELEASE_EPS = 0.008
+
+# The tag a press skill puts on its descent actions (``Action.extra_info``
+# ``{"segment": "press", "hold_seconds": ...}``; see
+# skill_factories/press.py). Actions so tagged are shipped as ONE guarded
+# press rather than as a move: the arm streams the descent until a force,
+# stall or depth trigger fires, holds, and stays where it stopped.
+PRESS_SEGMENT_TAG = "press"
 
 
 class MissingBabyRobotError(ImportError):
@@ -201,12 +209,48 @@ def execute_chunks(robot: "RealRobot",
     return list(reply.observations)
 
 
+def press_triggers() -> Dict[str, float]:
+    """The guarded press's triggers, from the button's measured calibration.
+
+    ``CFG.real_robot_press_calibration_json`` names the file; empty
+    reads the one beside the button asset in BabyRobotPredicator, which
+    ``real_skills/press_calibration.py analyze`` writes. Guessed
+    triggers are refused on purpose: a cap sized for the modelled gap
+    fired in the air on this bench, 2 mm above a button the model put 13
+    mm away.
+    """
+    # pylint: disable=import-outside-toplevel,import-error
+    path = CFG.real_robot_press_calibration_json
+    if path:
+        with open(path, encoding="utf-8") as f:
+            raw = json.load(f)
+        press = raw["press"]
+        return {
+            "force_limit_n": float(press["force_limit_n"]),
+            "stall_window_s": float(press["stall_window_s"]),
+            "max_depth_m": float(press["max_depth_m"]),
+        }
+    try:
+        from markerless_estimation.assets.button_arcade60_proxy import \
+            load_press_calibration
+    except ImportError as e:
+        raise MissingBabyRobotError(_MISSING_BABYROBOT) from e
+    cal = load_press_calibration()
+    return {
+        k: cal[k]
+        for k in ("force_limit_n", "stall_window_s", "max_depth_m")
+    }
+
+
 def _split_actions(actions: Sequence[Action],
                    layout: GripperJointLayout) -> List["Segment"]:
-    """Joint-target actions -> [Segment(move, waypoints) | Segment(gripper)].
+    """Joint-target actions -> [Segment(move | press | gripper)].
 
     Consecutive same-gripper steps coalesce into one move of arm waypoints,
-    with the finger joints removed.
+    with the finger joints removed. A run of press-tagged actions (see
+    ``PRESS_SEGMENT_TAG``) becomes one ``press`` segment instead: its
+    descent waypoints, de-duplicated (the sim's hold is the same target
+    repeated), plus the hold the tag carries and the bench's triggers.
 
     Stateless ACROSS calls: gripper tracking restarts every call, so a chunk
     that begins already holding an object re-emits its leading ``close``.
@@ -217,6 +261,7 @@ def _split_actions(actions: Sequence[Action],
     from babyrobot.realrobot.messages import Segment as _Segment
     gidx = layout.finger_joint_idxs
     closed, opened = layout.closed_fingers, layout.open_fingers
+    triggers: Optional[Dict[str, float]] = None
 
     # A width this far above `closed` is tight enough to be a grasp. Only used
     # to spot the START of a grasp; a release is judged against the grasp, not
@@ -233,8 +278,38 @@ def _split_actions(actions: Sequence[Action],
     # Width at which the hand last released; inf before any release.
     open_ref = math.inf
     moves: List[Tuple[float, ...]] = []
+    press: List[Tuple[float, ...]] = []
+    press_hold: float = 0.0
+
+    def flush_press() -> None:
+        nonlocal press, triggers
+        if not press:
+            return
+        if triggers is None:
+            triggers = press_triggers()
+        segments.append(
+            _Segment(type="press",
+                     waypoints=tuple(press),
+                     hold_seconds=press_hold,
+                     **triggers))
+        press = []
+
     for action in actions:
         arr = action.arr
+        info = action.extra_info
+        if isinstance(info, dict) and info.get("segment") == PRESS_SEGMENT_TAG:
+            # The fingers are already closed (the skill closes them before
+            # it approaches), so no gripper transition hides in here; the
+            # move so far is the approach and ends where the press starts.
+            if moves:
+                segments.append(_Segment(type="move", waypoints=tuple(moves)))
+                moves = []
+            wp = arm_only(arr)
+            if not press or wp != press[-1]:
+                press.append(wp)
+            press_hold = float(info.get("hold_seconds", 0.0))
+            continue
+        flush_press()
         v = float(arr[layout.left_finger_joint_idx])
         if cur_grip == "close":
             # Judge a release against the GRASP width, not against
@@ -263,6 +338,7 @@ def _split_actions(actions: Sequence[Action],
             segments.append(_Segment(type="gripper", command=g))
             cur_grip = g
         moves.append(arm_only(arr))
+    flush_press()
     if moves:
         segments.append(_Segment(type="move", waypoints=tuple(moves)))
     return segments

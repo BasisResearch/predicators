@@ -1,0 +1,79 @@
+# Thin launcher: the ball-free domino-fan task. The robot bridges the
+# start block to the target with blue dominoes, presses the switch, and
+# the WIND topples the chain - it never pushes a domino itself (Push is
+# withheld in this env, option and process both).
+#
+# Usage: python scripts/local/launch_simp.py -c predicatorv3/exp_domino_fan.yaml
+#
+# THE LADDER. Each rung hands the agent less. Exactly one arm should be
+# un-skipped at a time (launch_simp runs the ENVS x APPROACHES
+# cross-product, so two un-skipped arms means two runs).
+#
+#   rung 1  oracle                      GT processes + GT predicates,
+#                                       process planning. Proves the task
+#                                       is solvable and sets the reward
+#                                       ceiling. MEASURED: 1/1 at 0.900.
+#   rung 2a agent_model_based_planning  GT monolithic sim + GT predicates,
+#                                       the AGENT plans. The gentler entry
+#                                       to rung 2 - no sketch scaffolding.
+#   rung 2b agent_oracle_hybrid_sim     GT hybrid sim + GT params + GT
+#                                       predicates, agent plans.
+#   rung 3  agent_param_learning        GT sim STRUCTURE, params fitted:
+#                                       told the wind exists, must recover
+#                                       how strong it is and where it acts.
+#                                       Isolates system-ID from structure
+#                                       discovery.
+#   rung 4  agent_po_predicate_invention_al
+#                                       Base sim only. Must discover the
+#                                       wind exists, write a model of it,
+#                                       and invent predicates. Partially
+#                                       observable. This is "ours".
+#                                       (agent_predicate_invention is the
+#                                       fully-observable variant.)
+#
+# NOT agent_oracle_mono_sim for rung 2: its
+# agent_bilevel_plan_sketch_file points at a BOIL env sketch
+# (tests/approaches/test_data/boil_plan_sketch.txt), which names objects
+# this env does not have. It needs a domino-fan sketch written first.
+#
+# Reward scale, so a curve is not misread: train tasks are 1-blue
+# bridges (best possible 0.95), test tasks 2-blue (best possible 0.900),
+# since reward = 1[certified wind cascade] - 0.05 per blue used. A run
+# going 0.95 on train and 0.900 on test is at ceiling on both, not
+# declining.
+---
+includes:
+  - common.yaml
+  - envs/all.yaml
+  - approaches/all.yaml
+ENVS:
+  domino_fan:
+    SKIP: False
+APPROACHES:
+  # rung 1 - the baseline. Fast (~1 min), no LLM.
+  oracle:
+    SKIP: True
+  # rung 2a
+  agent_model_based_planning:
+    SKIP: True
+  # rung 2b
+  agent_oracle_hybrid_sim:
+    SKIP: True
+  # rung 3
+  agent_param_learning:
+    SKIP: False
+  # rung 4 - ours
+  agent_po_predicate_invention_al:
+    SKIP: True
+    FLAGS:
+      skip_initial_test: True
+      # NOT enabled: this flag is a no-op for this env and reads as if
+      # it were not. exp_fan.yaml can turn it on because the ball env
+      # split its sim core into pybullet_fan_base.py, a module holding
+      # geometry and switch mechanics and deliberately NO wind law.
+      # pybullet_domino_fan has no such split - the wind lives inside
+      # fan_component.py next to the fan bodies - so
+      # get_base_sim_source_files() returns [] and the run logs
+      # "declares no base-sim source files; providing none".
+      # Turning it on would need that module split first.
+      #   agent_sim_provide_base_sim_source: True

@@ -1,0 +1,106 @@
+# The fan-domino task on the REAL bench: place the block upwind, press the
+# fan's button, and let the wind lay it flat in the goal patch.
+#
+# Usage (from a predicators checkout that carries this env, with its
+# BabyRobotPredicator submodule on a branch that has the press segment):
+#
+#   PYTHONHASHSEED=0 PYTHONPATH=$PWD:$PWD/submodules/BabyRobotPredicator \
+#     python scripts/local/launch_simp.py -c predicatorv3/exp_domino_blow_real.yaml
+#
+# PYTHONPATH is not decoration. predicators and babyrobot are both
+# installed EDITABLE, pointing at ONE checkout each; launch_simp runs
+# `python predicators/main.py`, whose sys.path[0] is predicators/, so from
+# any other checkout (a worktree) the imports silently resolve to the
+# installed ones and this file runs code you are not looking at.
+#
+# THE SCENE. domino_real_scene (envs/all.yaml) names a scene exported from
+# a fan-loop workspace by BabyRobotPredicator's
+# real_skills/fan_scene_export.py: the block from the automatic read, and
+# the fan, button and goal marker from the boxes the operator drew once.
+# The fixtures are read at env construction and never re-perceived; the
+# block is. Re-export when anything on the bench moves.
+#
+# THE ARMS. launch_simp runs ENVS x APPROACHES, so un-skip ONE at a time.
+#
+#   sim_predicator  + fixed_plan (as shipped): replays the sketch below
+#                   every episode, records the gust, fits the wind. The
+#                   exp_domino_real pattern -- exploration is a constant,
+#                   so a run that goes wrong is the loop's fault and not
+#                   the planner's.
+#   sim_predicator  + agent_model_based (delete the two explorer lines):
+#                   the agent plans the placement AND the press itself
+#                   from the hybrid sim. Same env, same executor; only the
+#                   plan's author changes.
+#   oracle          GT model, pure sim, no executor: the smoke test. It
+#                   lives in exp_domino_blow_real_oracle.yaml, because env
+#                   flags override approach flags in the launcher and the
+#                   hardware switch is an env flag.
+#
+# THE HARDWARE SWITCH is real_robot_execute, with the same open-loop,
+# record-from-the-trigger settings exp_domino_real.yaml proved out, except
+# that the take opens in front of Press rather than Push, and the arm is
+# DRY by default: flip real_robot_dry to False for the live bench. Dry
+# ships the whole plan into nothing -- including the press, whose hold is
+# slept -- so the timing a recording would see is still exercised.
+---
+includes:
+  - common.yaml
+  - envs/all.yaml
+  - approaches/all.yaml
+FLAGS:
+  num_online_learning_cycles: 1
+  wait_option_max_steps: 200
+  online_nsrt_learning_requests_per_cycle: 1
+NUM_SEEDS: 1
+ENVS:
+  domino_blow_real:
+    SKIP: False
+    FLAGS:
+      # -- the arm and the cameras ---------------------------------------
+      real_robot_execute: True
+      # DRY: no arm, no cameras. Set False for the live bench.
+      real_robot_dry: True
+      real_robot_open_loop_episode: True
+      real_robot_observe_at_option_boundary: False
+      # Open the take in front of the press: the pick-and-place before it
+      # is not evidence, the gust is.
+      real_robot_record_from_option: "Press"
+      # The exported scene stands in for the cameras. "zed" is the marker
+      # pipeline; the bench's block has no markers.
+      real_robot_perception: "scene_file"
+      real_robot_human_reset: False
+      real_robot_record_episodes: False
+      real_robot_process_takes: False
+      real_robot_pick_boxes_at_start: False
+      real_robot_snapshot_rebuild: False
+      real_robot_track_camera: "30264679"
+      real_robot_divergence_atol: 0.02
+      # -- the mismatch: what the twin believes about the wind ----------
+      # The truth is what the fit recovers from the recorded slide; this
+      # is where the twin starts. NOT the 1.2 N fan_fit.py put on the last
+      # measured 9.7 cm gust: that number was floored, and below ~1.8 N
+      # the twin's block does not move at all -- the real domino is
+      # 29 mm thick against the generated task's 15 mm, so it takes more
+      # wind to tip, and the settings.py slide curve was measured on the
+      # thin one. At 2.0 N the twin lays this block flat and slides it
+      # ~14 cm, 4 cm further than the bench's gust; the patch is +/- 9 cm
+      # along the wind, so the oracle's placement still lands. Re-measure
+      # the curve on this block before trusting the fit's number.
+      domino_blow_wind_force: 2.0
+      # The hold: the gust on the arm, in seconds.
+      domino_blow_real_hold_s: 4.0
+APPROACHES:
+  agent_oracle_hybrid_sim:
+    SKIP: True
+  oracle:
+    SKIP: True
+  sim_predicator:
+    SKIP: False
+    FLAGS:
+      # Fixed plan: replay the sketch every episode. Delete these two
+      # lines (falling back to approaches/all.yaml's agent_model_based)
+      # for the arm where the agent plans the placement itself.
+      explorer: "fixed_plan"
+      fixed_plan_explorer_path: "scripts/plan_sketches/fan_bench_20260912_press.txt"
+      agent_planner_use_base_simulator: True
+      skip_initial_test: True

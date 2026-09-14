@@ -243,22 +243,19 @@ class PyBulletDominoRealGeometryEnv(RealSceneGeometryMixin, PyBulletDominoEnv):
         return "pybullet_domino_real_geometry"
 
 
-class PyBulletDominoRealEnv(RealSceneGeometryMixin, PyBulletDominoEnv):
-    """``pybullet_domino`` on the real scene: the geometry above, plus a single
-    task sized and built from a perceived scene JSON."""
+class PerceivedDominoesMixin:
+    """Reads dominoes off a captured scene or a live observation into the env's
+    slots -- the conversion every real-scene env needs, whatever its task is.
 
-    def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
-        self._z_off = domino_world_z_offset(CFG.domino_real_table_z)
-        # Dominoes are placed in scene order, so slot i <-> capture id
-        # self._scene_ids[i]; that mapping is what lets a live observation,
-        # which carries capture ids and nothing else, name component slots.
-        with open(CFG.domino_real_scene, encoding="utf-8") as f:
-            self._scene_ids = [int(d["id"]) for d in json.load(f)["dominoes"]]
-        super().__init__(use_gui=use_gui, **kwargs)
+    Requires the env it is mixed into to set ``self._scene_ids``
+    (capture ids in scene order, so slot i holds ``_scene_ids[i]``) and
+    ``self._z_off`` (the base -> world z offset) before any of these
+    run. Like :class:`RealSceneGeometryMixin`, deliberately not a
+    ``BaseEnv``.
+    """
 
-    @classmethod
-    def get_name(cls) -> str:
-        return "pybullet_domino_real"
+    _scene_ids: List[int]
+    _z_off: float
 
     # -- roles --------------------------------------------------------------
     @staticmethod
@@ -285,43 +282,6 @@ class PyBulletDominoRealEnv(RealSceneGeometryMixin, PyBulletDominoEnv):
         if "role" in d:
             return str(d["role"])
         return cls._role_for_capture_id(int(d["id"]))
-
-    # -- component sizing + dims --------------------------------------------
-    @classmethod
-    def _scene_role_counts(cls) -> Tuple[int, int]:
-        """(num_target, num_nontarget) domino counts from the scene JSON."""
-        with open(CFG.domino_real_scene, encoding="utf-8") as f:
-            roles = [cls._domino_role(d) for d in json.load(f)["dominoes"]]
-        n_target = sum(1 for r in roles if r == "target")
-        return n_target, len(roles) - n_target
-
-    @classmethod
-    def _make_domino_component(
-            cls, workspace_bounds: Dict[str, float]) -> DominoComponent:
-        """Allocate the scene's counts and the real perceived dimensions,
-        passing dims through the component ctor (not a base ClassVar mutation).
-
-        ``domino_real_domino_dims`` is (L, W, H): a standing domino has
-        body-x (L) vertical, so env height=L, width=W (broad face),
-        depth=H (thickness).
-        """
-        n_target, n_nontarget = cls._scene_role_counts()
-        length, width, thickness = (float(v)
-                                    for v in CFG.domino_real_domino_dims)
-        return DominoComponent(num_dominos_max=n_nontarget,
-                               num_targets_max=n_target,
-                               num_pivots_max=0,
-                               workspace_bounds=workspace_bounds,
-                               domino_width=width,
-                               domino_depth=thickness,
-                               domino_height=length)
-
-    # -- task generation ----------------------------------------------------
-    def _generate_train_tasks(self) -> List[EnvironmentTask]:
-        return [self._build_task_from_scene()]
-
-    def _generate_test_tasks(self) -> List[EnvironmentTask]:
-        return [self._build_task_from_scene()]
 
     # -- perception -> State / Task -----------------------------------------
     # ONE conversion, three callers: the captured scene JSON, a live
@@ -403,6 +363,62 @@ class PyBulletDominoRealEnv(RealSceneGeometryMixin, PyBulletDominoEnv):
                 "the (yaw, roll) domino state cannot represent; dropping the "
                 "pitch", capture_id, math.degrees(pitch))
         return _canonical_roll(roll), yaw
+
+
+class PyBulletDominoRealEnv(RealSceneGeometryMixin, PerceivedDominoesMixin,
+                            PyBulletDominoEnv):
+    """``pybullet_domino`` on the real scene: the geometry above, plus a single
+    task sized and built from a perceived scene JSON."""
+
+    def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
+        self._z_off = domino_world_z_offset(CFG.domino_real_table_z)
+        # Dominoes are placed in scene order, so slot i <-> capture id
+        # self._scene_ids[i]; that mapping is what lets a live observation,
+        # which carries capture ids and nothing else, name component slots.
+        with open(CFG.domino_real_scene, encoding="utf-8") as f:
+            self._scene_ids = [int(d["id"]) for d in json.load(f)["dominoes"]]
+        super().__init__(use_gui=use_gui, **kwargs)
+
+    @classmethod
+    def get_name(cls) -> str:
+        return "pybullet_domino_real"
+
+    # -- component sizing + dims --------------------------------------------
+    @classmethod
+    def _scene_role_counts(cls) -> Tuple[int, int]:
+        """(num_target, num_nontarget) domino counts from the scene JSON."""
+        with open(CFG.domino_real_scene, encoding="utf-8") as f:
+            roles = [cls._domino_role(d) for d in json.load(f)["dominoes"]]
+        n_target = sum(1 for r in roles if r == "target")
+        return n_target, len(roles) - n_target
+
+    @classmethod
+    def _make_domino_component(
+            cls, workspace_bounds: Dict[str, float]) -> DominoComponent:
+        """Allocate the scene's counts and the real perceived dimensions,
+        passing dims through the component ctor (not a base ClassVar mutation).
+
+        ``domino_real_domino_dims`` is (L, W, H): a standing domino has
+        body-x (L) vertical, so env height=L, width=W (broad face),
+        depth=H (thickness).
+        """
+        n_target, n_nontarget = cls._scene_role_counts()
+        length, width, thickness = (float(v)
+                                    for v in CFG.domino_real_domino_dims)
+        return DominoComponent(num_dominos_max=n_nontarget,
+                               num_targets_max=n_target,
+                               num_pivots_max=0,
+                               workspace_bounds=workspace_bounds,
+                               domino_width=width,
+                               domino_depth=thickness,
+                               domino_height=length)
+
+    # -- task generation ----------------------------------------------------
+    def _generate_train_tasks(self) -> List[EnvironmentTask]:
+        return [self._build_task_from_scene()]
+
+    def _generate_test_tasks(self) -> List[EnvironmentTask]:
+        return [self._build_task_from_scene()]
 
     @staticmethod
     def _canonical_start_yaw(

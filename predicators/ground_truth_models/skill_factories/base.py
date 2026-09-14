@@ -469,6 +469,13 @@ class Phase:
     # object did not rise with the gripper: pressing on only defers the
     # failure to a downstream option with less context to report it.
     verify_failure_msg: Optional[str] = None
+    # Attached to every action this phase emits as ``Action.extra_info``
+    # (a copy per action). The env ignores it; it is for whoever executes
+    # the actions OUTSIDE the sim and needs to know what a run of joint
+    # targets means -- e.g. the real-robot bridge, which ships a phase
+    # tagged ``{"segment": "press"}`` as a guarded press rather than as
+    # a plain move (see real_robot_bridge._split_actions).
+    action_extra_info: Optional[Dict[str, Any]] = None
 
 
 class PhaseSkill:
@@ -602,11 +609,17 @@ class PhaseSkill:
 
     def _execute_phase(self, phase: Phase, state: State, memory: Dict,
                        objects: Sequence[Object], params: Array) -> Action:
-        """Dispatch one policy step of ``phase`` by its action type."""
+        """Dispatch one policy step of ``phase`` by its action type, tagging
+        the action with the phase's ``action_extra_info`` when it has one."""
         if phase.action_type == PhaseAction.MOVE_TO_POSE:
-            return self._execute_move(phase, state, memory, objects, params)
-        assert phase.action_type == PhaseAction.CHANGE_FINGERS
-        return self._execute_fingers(phase, state, memory, objects, params)
+            action = self._execute_move(phase, state, memory, objects, params)
+        else:
+            assert phase.action_type == PhaseAction.CHANGE_FINGERS
+            action = self._execute_fingers(phase, state, memory, objects,
+                                           params)
+        if phase.action_extra_info is not None and action.extra_info is None:
+            action.extra_info = dict(phase.action_extra_info)
+        return action
 
     def _finger_target(self, phase: Phase, state: State, memory: Dict,
                        objects: Sequence[Object],

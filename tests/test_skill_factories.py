@@ -2055,3 +2055,115 @@ class TestCollisionDiagnosticsLogging:
             assert len(caplog.records) == len(loud)
         finally:
             p.removeBody(block_id, physicsClientId=physics_client_id)
+
+
+# ---------------------------------------------------------------------------
+# create_press_skill
+# ---------------------------------------------------------------------------
+
+
+class TestCreatePressSkill:
+    """Tests for the press-and-hold skill."""
+
+    def _make_press(self, robot, **kw):
+        from predicators.ground_truth_models.skill_factories.press import \
+            create_press_skill
+        config = SkillConfig(
+            robot=robot,
+            open_fingers_joint=robot.open_fingers,
+            closed_fingers_joint=robot.closed_fingers,
+            fingers_state_to_joint=_fingers_state_to_joint,
+            robot_home_pos=_EE_HOME,
+            transport_z=0.8,
+        )
+        return create_press_skill(name="Press",
+                                  types=[_ROBOT_TYPE, _OBJ_TYPE],
+                                  config=config,
+                                  get_button_top_fn=lambda s, o, p_, c:
+                                  (1.35, 0.75, 0.4),
+                                  hold_steps=kw.pop("hold_steps", 3),
+                                  hold_seconds=kw.pop("hold_seconds", 4.0),
+                                  **kw)
+
+    @staticmethod
+    def _phases(opt):
+        return opt.policy.__self__._phases  # pylint: disable=protected-access
+
+    @staticmethod
+    def _config_of(opt):
+        return opt.policy.__self__._config  # pylint: disable=protected-access
+
+    def test_returns_parameterless_option(self, robot_scene):
+        _, robot = robot_scene
+        opt = self._make_press(robot)
+        assert isinstance(opt, ParameterizedOption)
+        assert opt.name == "Press"
+        assert opt.params_space.shape == (0, )
+
+    def test_phases_in_order_and_only_the_press_is_tagged(self, robot_scene):
+        """Close, approach, hover, press, retract, open; the press phase -- and
+        only it -- tags its actions for the executor, with the hold."""
+        _, robot = robot_scene
+        utils.reset_config({
+            "seed": 123,
+            "skill_phase_use_motion_planning": True,
+        })
+        opt = self._make_press(robot, hold_seconds=2.5)
+        phases = self._phases(opt)
+        assert [ph.name for ph in phases] == [
+            "CloseFingers", "Approach", "Hover", "Press", "Retract",
+            "OpenFingers"
+        ]
+        tags = [ph.action_extra_info for ph in phases]
+        assert tags[3] == {"segment": "press", "hold_seconds": 2.5}
+        assert all(t is None for i, t in enumerate(tags) if i != 3)
+        # The strokes step IK straight down; only the approach plans.
+        assert phases[1].use_motion_planning is True
+        assert phases[2].use_motion_planning is False
+        assert phases[3].use_motion_planning is False
+        assert phases[4].use_motion_planning is False
+        assert phases[3].dwell_steps == 3
+        utils.reset_config({"seed": 123})
+
+    def test_targets_stack_above_the_button_top(self, robot_scene):
+        """Approach above hover above the top, press below it, all raised by
+        the pad's offset under the control point."""
+        _, robot = robot_scene
+        opt = self._make_press(robot,
+                               approach_above_m=0.12,
+                               hover_above_m=0.01,
+                               press_depth_m=0.004,
+                               pad_below_tcp_m=0.0107)
+        phases = self._phases(opt)
+        robot_obj, obj = _make_robot_obj(), _make_obj()
+        state = _build_state(robot_obj, robot, *_EE_HOME, obj=obj)
+        cfg = self._config_of(opt)
+
+        def z_of(phase):
+            _, target, _ = phase.target_fn(state, [robot_obj, obj],
+                                           np.zeros(0), cfg)
+            return target.position[2]
+
+        top = 0.4 + 0.0107
+        assert z_of(phases[1]) == pytest.approx(top + 0.13)
+        assert z_of(phases[2]) == pytest.approx(top + 0.01)
+        assert z_of(phases[3]) == pytest.approx(top - 0.004)
+        assert z_of(phases[4]) == pytest.approx(top + 0.13)
+
+    def test_policy_first_action_closes_fingers(self, robot_scene):
+        _, robot = robot_scene
+        utils.reset_config({"seed": 123})
+        robot_obj, obj = _make_robot_obj(), _make_obj()
+        opt = self._make_press(robot)
+        grounded = opt.ground([robot_obj, obj], np.zeros(0, dtype=np.float32))
+        state = _build_state(robot_obj,
+                             robot,
+                             *_EE_HOME,
+                             finger_state=_OPEN_STATE,
+                             obj=obj,
+                             obj_xyz=(1.35, 0.75, 0.4))
+        grounded.initiable(state)
+        action = grounded.policy(state)
+        assert isinstance(action, Action)
+        assert robot.action_space.contains(action.arr)
+        assert action.extra_info is None  # CloseFingers is not the press

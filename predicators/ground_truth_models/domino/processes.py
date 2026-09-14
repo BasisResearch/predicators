@@ -7,6 +7,7 @@ import torch
 
 from predicators.ground_truth_models import GroundTruthProcessFactory, \
     GroundTruthSamplerFactory
+from predicators.ground_truth_models.domino.predicates import BLOW_ENVS
 from predicators.settings import CFG
 from predicators.structs import Array, CausalProcess, EndogenousProcess, \
     ExogenousProcess, GroundAtom, LiftedAtom, Object, ParameterizedOption, \
@@ -97,6 +98,39 @@ def _push_sampler(state: State, goal: Set[GroundAtom],
                     dtype=np.float32)
 
 
+def _declare_sampler(state: State, goal: Set[GroundAtom],
+                     rng: np.random.Generator,
+                     objs: Sequence[Object]) -> Array:
+    """No parameters: a declaration has nothing to aim.
+
+    Its option's params_space is empty, so an empty array is what the
+    option expects. Written out rather than reaching for null_sampler to
+    keep the contrast with _switch_push_sampler on the page: the press
+    needs an approach distance and a contact offset because it has to
+    arrive somewhere, and this does not.
+    """
+    del state, goal, rng, objs
+    return np.array([], dtype=np.float32)
+
+
+def _switch_push_sampler(state: State, goal: Set[GroundAtom],
+                         rng: np.random.Generator,
+                         objs: Sequence[Object]) -> Array:
+    """Approach distance and contact offset for pressing a switch.
+
+    TurnFanOn is a push skill, so it wants the same two params every
+    push does - null_sampler hands it an empty array and the option's
+    clip against a 2-vector bounds raises. The values are
+    fan/processes.py's, measured there against this same switch model:
+    0.075 clears an end-of-row switch on the approach without stalling
+    at the arm's reach on the far-side press.
+    """
+    del state, goal, rng, objs
+    if not CFG.domino_use_skill_factories:
+        return np.array([], dtype=np.float32)
+    return np.array([0.075, 0.1], dtype=np.float32)
+
+
 def _place_sampler(state: State, goal: Set[GroundAtom],
                    rng: np.random.Generator, objs: Sequence[Object]) -> Array:
     """Return a generator-faithful placement for the open-loop oracle.
@@ -167,7 +201,9 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
     def get_env_names(cls) -> Set[str]:
         return {
             "pybullet_domino_grid", "pybullet_domino", "pybullet_domino_real",
-            "pybullet_domino_real_geometry"
+            "pybullet_domino_real_geometry", "pybullet_domino_fan",
+            "pybullet_domino_declare", "pybullet_domino_blow",
+            "pybullet_domino_blow_real"
         }
 
     @classmethod
@@ -176,7 +212,11 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
                                             Type], predicates: Dict[str,
                                                                     Predicate],
             options: Dict[str, ParameterizedOption]) -> Set[CausalProcess]:
-        del env_name  # unused
+        if env_name in BLOW_ENVS:
+            # A different task, so a different model rather than the
+            # cascade one with pieces disabled: no chain, no topple, no
+            # grid. One block, one gust, one patch to land it in.
+            return _get_blow_processes(types, predicates, options)
 
         # These processes are defined over the grid (loc/angle/direction).
         # Only oracle / process-planning approaches request them, and they do
@@ -208,8 +248,9 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         # We would need to add it to the environment for the DominoFall
         # exogenous process
 
-        # Options
-        Push = options["Push"]
+        # Options. Push is absent in a fan env (see below), so it is
+        # looked up defensively rather than by subscript.
+        Push = options.get("Push")
         Pick = options["Pick"]
         Place = options["Place"]
         Wait = options["Wait"]
@@ -229,7 +270,6 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
             option_vars = [robot]
         else:
             option_vars = [robot, domino]
-        option = Push
         condition_at_start = {
             LiftedAtom(HandEmpty, [robot]),
             LiftedAtom(StartBlock, [domino]),
@@ -244,12 +284,16 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         ignore_effects = {DominoAtPos, DominoAtRot, PosClear, AdjacentTo}
         delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(1.0),
                                                    sigma=torch.tensor(0.1))
-        push_start_block_process = EndogenousProcess(
-            "PushStartBlock", parameters, condition_at_start, set(),
-            set(), add_effects, delete_effects, delay_distribution,
-            torch.tensor(1.0), option, option_vars, _push_sampler,
-            ignore_effects)
-        processes.add(push_start_block_process)
+        if Push is not None:
+            push_start_block_process = EndogenousProcess(
+                "PushStartBlock", parameters, condition_at_start, set(), set(),
+                add_effects, delete_effects, delay_distribution,
+                torch.tensor(1.0), Push, option_vars, _push_sampler,
+                ignore_effects)
+            # Withheld in a fan env, matching the option: the wind starts
+            # the chain there, and a planner left a Push will use it and
+            # never touch a switch.
+            processes.add(push_start_block_process)
 
         # PickDomino: Position-based pick process
         robot = Variable("?robot", robot_type)
@@ -394,6 +438,117 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
             delay_distribution, torch.tensor(1.0))
         processes.add(domino_tilting_delete_process)
 
+        # --- Wind, when the env has fans -------------------------------
+        # A composed env carrying a FanComponent brings switches and
+        # fans; a plain domino env does not, and its predicate dict has
+        # none of these names.
+        if "FanOn" in predicates:
+            processes |= cls._get_fan_processes(types, predicates, options)
+
+        return processes
+
+    @classmethod
+    def _get_fan_processes(
+            cls, types: Dict[str, Type], predicates: Dict[str, Predicate],
+            options: Dict[str, ParameterizedOption]) -> Set[CausalProcess]:
+        """Turning a fan on, and the wind that follows.
+
+        Two processes are enough, and that is the point. The fan env
+        needs a grid because a ball's whole trajectory is wind; a domino
+        chain's is not. Only the FIRST block is pushed by the wind -
+        ``DominoFallFromBeingInFrontOfTilting`` and
+        ``DominoTiltingDelete`` above carry the cascade from there. So
+        the wind needs exactly one bridging rule into the vocabulary the
+        chain already speaks.
+
+        Written over FANS rather than switches because that is the
+        vocabulary the env exposes: under
+        ``fan_known_controls_relation`` FanComponent hides
+        SwitchOn/SwitchOff and publishes FanOn/FanOff, and the switch is
+        an implementation detail the option resolves for itself.
+        """
+        robot_type = types["robot"]
+        domino_type = types["domino"]
+        fan_type = types["fan"]
+
+        FanOn = predicates["FanOn"]
+        FanOff = predicates["FanOff"]
+        Upright = predicates["Upright"]
+        StartBlock = predicates["InitialBlock"]
+        Tilting = predicates["Tilting"]
+
+        processes: Set[CausalProcess] = set()
+
+        # Starting the fan. Endogenous either way: the robot does it.
+        # What differs between the two fan envs is only HOW, and so
+        # what the process is grounded on.
+        robot = Variable("?robot", robot_type)
+        fan = Variable("?fan", fan_type)
+        if CFG.env == "pybullet_domino_declare":
+            # The robot announces it has finished building and the fan
+            # starts. The option takes only the robot -- there is
+            # nothing to reach for -- so the fan appears in the
+            # process's variables and its effects but NOT in the
+            # option's arguments. That split is the whole content of
+            # this env: an effect with no contact to explain it.
+            processes.add(
+                EndogenousProcess(
+                    "DeclareFinished", [robot, fan],
+                    {LiftedAtom(FanOff, [fan])}, set(), set(),
+                    {LiftedAtom(FanOn, [fan])}, {LiftedAtom(FanOff, [fan])},
+                    DiscreteGaussianDelay(mu=torch.tensor(1.0),
+                                          sigma=torch.tensor(0.1)),
+                    torch.tensor(1.0), options["DeclareFinished"], [robot],
+                    _declare_sampler))
+        else:
+            processes.add(
+                EndogenousProcess(
+                    "TurnFanOn", [robot, fan], {LiftedAtom(FanOff, [fan])},
+                    set(), set(), {LiftedAtom(FanOn, [fan])},
+                    {LiftedAtom(FanOff, [fan])},
+                    DiscreteGaussianDelay(mu=torch.tensor(1.0),
+                                          sigma=torch.tensor(0.1)),
+                    torch.tensor(1.0), options["TurnFanOn"], [robot, fan],
+                    _switch_push_sampler))
+
+        # The wind. Exogenous: nobody chooses it, it follows from the
+        # fan being on.
+        #
+        # Deliberately NOT conditioned on which way the fan faces, the
+        # way pybullet_fan's MoveToSide is. That needs a direction
+        # vocabulary the domino side has no use for, and the tasks are
+        # generated with the chain already laid along one fan's axis
+        # (domino_fan_aligned_tasks), so a fan press and a topple are
+        # one-to-one here. A task set where the planner had to CHOOSE a
+        # fan would need it, and this is where it would go.
+        #
+        # Effects mirror PushStartBlock exactly - Tilting added, Upright
+        # deleted - because the two are the same event reached two ways,
+        # and a rule that left Upright asserted could fire forever.
+        domino = Variable("?domino", domino_type)
+        fan2 = Variable("?fan", fan_type)
+        conds = {
+            LiftedAtom(FanOn, [fan2]),
+            LiftedAtom(StartBlock, [domino]),
+            LiftedAtom(Upright, [domino]),
+        }
+        # Delay 0: the block goes the moment the fan comes on. Anything
+        # longer opens a window the planner will use - at mu=2 it
+        # ordered TurnFanOn FOURTH of six and went on placing dominoes
+        # afterwards, believing it could finish the bridge while the
+        # start block was mid-topple. It cannot: a Place runs ~19 env
+        # steps and the topple is over in a fraction of that. With no
+        # window, InFront has to already hold when the fan is switched
+        # on, which forces the press to come last - the ordering the
+        # task actually has.
+        processes.add(
+            ExogenousProcess(
+                "WindTopplesStartBlock", [domino, fan2], conds, set(), set(),
+                {LiftedAtom(Tilting, [domino])},
+                {LiftedAtom(Upright, [domino])},
+                DiscreteGaussianDelay(mu=torch.tensor(0.0),
+                                      sigma=torch.tensor(0.1)),
+                torch.tensor(1.0)))
         return processes
 
 
@@ -639,7 +794,9 @@ class PyBulletDominoGroundTruthSamplerFactory(GroundTruthSamplerFactory):
     def get_env_names(cls) -> Set[str]:
         return {
             "pybullet_domino_grid", "pybullet_domino", "pybullet_domino_real",
-            "pybullet_domino_real_geometry"
+            "pybullet_domino_real_geometry", "pybullet_domino_fan",
+            "pybullet_domino_declare", "pybullet_domino_blow",
+            "pybullet_domino_blow_real"
         }
 
     @classmethod
@@ -650,3 +807,194 @@ class PyBulletDominoGroundTruthSamplerFactory(GroundTruthSamplerFactory):
             "Push": _push_option_sampler,
             "Place": _place_option_sampler,
         }
+
+
+# ── Blow task: pick, place upwind, declare, and let the wind deliver ──
+
+
+def _blow_place_sampler(state: State, subgoal_atoms: Set[GroundAtom],
+                        rng: np.random.Generator,
+                        objects: Sequence[Object]) -> Array:
+    """Put the block one slide-length upwind of the goal patch.
+
+    The oracle's whole advantage in this env is this number. A learner
+    has to recover it from watching blocks slide; here it is read
+    straight off the ground-truth curve.
+    """
+    del subgoal_atoms, objects
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.ground_truth_models.domino.predicates import \
+        _blow_slide_distance, blow_wind_dir
+    regions = [o for o in state if o.type.name == "region"]
+    held = [
+        o for o in state
+        if o.type.name == "domino" and state.get(o, "is_held") > 0.5
+    ]
+    if not regions or len(held) != 1:
+        raise ValueError("blow place sampler: need a region and a held block")
+    region = regions[0]
+    # One slide-length UPWIND of the patch, along the fan's axis.
+    dx, dy = blow_wind_dir(state)
+    back = _blow_slide_distance()
+    # A hair of jitter so backtracking can re-draw rather than retrying
+    # an identical pose, kept well inside the patch's own tolerance.
+    back += float(rng.uniform(-0.005, 0.005))
+    x = float(state.get(region, "x")) - back * dx
+    y = float(state.get(region, "y")) - back * dy
+    # The canonical release height, NOT the held block's current z: the
+    # Place option's release_z is where the GRIPPER opens (its declared
+    # range is 0.5-0.6), and the block's carried z is neither that nor
+    # inside it, so every refinement was asking for a drop the skill
+    # could not make.
+    # The block's WIDE face into the wind. Dropping it edge-on leaves
+    # the narrow edge facing the gust, which the wind creeps along
+    # without ever tipping: measured 5.0 cm and roll 0.000 where the
+    # same force on a turned block gives 14.4 cm and flat. A domino's
+    # yaw is the heading of its width axis, so facing the wind means the
+    # width axis lies ACROSS it: wind yaw + pi/2 (pi/2 for the generated
+    # task's +x fan, which is what its generator stages).
+    yaw = float(np.arctan2(dy, dx)) + np.pi / 2
+    return np.array([x, y, _DOMINO_DROP_Z, yaw], dtype=np.float32)
+
+
+def _get_blow_processes(
+        types: Dict[str, Type], predicates: Dict[str, Predicate],
+        options: Dict[str, ParameterizedOption]) -> Set[CausalProcess]:
+    """Pick, place upwind, declare, and let the wind carry the block.
+
+    Four processes and no grid. The one that matters is the last: the
+    wind is EXOGENOUS - the robot does not carry the block into the
+    goal, it arranges the world so that the wind will, and then says it
+    is done. That is the shape of the whole task, and it is why the
+    placement has to be right rather than merely somewhere.
+    """
+    robot_type = types["robot"]
+    domino_type = types["domino"]
+    fan_type = types["fan"]
+    region_type = types["region"]
+
+    HandEmpty = predicates["HandEmpty"]
+    Holding = predicates["Holding"]
+    FanOn = predicates["FanOn"]
+    FanOff = predicates["FanOff"]
+    ReadyToBlow = predicates["ReadyToBlow"]
+    InGoal = predicates["InGoal"]
+
+    robot = Variable("?robot", robot_type)
+    block = Variable("?block", domino_type)
+    fan = Variable("?fan", fan_type)
+    region = Variable("?region", region_type)
+
+    processes: Set[CausalProcess] = set()
+
+    # Predicates a pick or a place disturbs incidentally. Lifting a
+    # block off the table changes whether it is Upright and whether it
+    # is where the wind would take it; a process that does not declare
+    # those as ignorable is rejected in refinement for effects it never
+    # claimed, which is what stalled every skeleton at step 0.
+    Upright = predicates["Upright"]
+    incidental = {Upright, ReadyToBlow, InGoal}
+
+    # Pick the block up.
+    processes.add(
+        EndogenousProcess(
+            "PickBlock", [robot, block], {LiftedAtom(HandEmpty, [robot])},
+            set(), set(), {LiftedAtom(Holding, [robot, block])},
+            {LiftedAtom(HandEmpty, [robot])},
+            DiscreteGaussianDelay(mu=torch.tensor(4.0),
+                                  sigma=torch.tensor(0.1)), torch.tensor(1.0),
+            options["Pick"], [robot, block], _pick_sampler, incidental))
+
+    # Put it down one slide-length upwind of the patch.
+    processes.add(
+        EndogenousProcess(
+            "PlaceUpwind", [robot, block, region],
+            {LiftedAtom(Holding, [robot, block])}, set(), set(), {
+                LiftedAtom(HandEmpty, [robot]),
+                LiftedAtom(ReadyToBlow, [block, region])
+            }, {LiftedAtom(Holding, [robot, block])},
+            DiscreteGaussianDelay(mu=torch.tensor(3.0),
+                                  sigma=torch.tensor(0.1)), torch.tensor(1.0),
+            options["Place"], [robot], _blow_place_sampler, incidental))
+
+    # Press the switch, and the fan starts. HandEmpty is a precondition
+    # and not decoration: without it the planner is free to press while
+    # still holding the block, and its first skeleton did exactly that -
+    # PickBlock, <trigger>, PlaceUpwind - which blows the gust across an
+    # empty table while the arm is still carrying the thing it was
+    # supposed to move.
+    # On the real bench the trigger is a momentary button pressed from
+    # above; the process is the same, the skill under it is Press and it
+    # takes no parameters.
+    if "Press" in options:
+        trigger_option, trigger_sampler = options["Press"], null_sampler
+    else:
+        trigger_option, trigger_sampler = (options["TurnFanOn"],
+                                           _switch_push_sampler)
+    processes.add(
+        EndogenousProcess(
+            "TurnFanOn",
+            [robot, fan, block, region],
+            {
+                LiftedAtom(FanOff, [fan]),
+                LiftedAtom(HandEmpty, [robot]),
+                # The switch is only worth pressing once the block is
+                # where the gust can deliver it. HandEmpty alone is true
+                # at t=0, so without this the planner's first skeleton
+                # pressed the switch before it had even picked the block
+                # up and blew the gust across an empty table.
+                LiftedAtom(ReadyToBlow, [block, region])
+            },
+            set(),
+            set(),
+            {LiftedAtom(FanOn, [fan])},
+            {LiftedAtom(FanOff, [fan])},
+            DiscreteGaussianDelay(mu=torch.tensor(1.0),
+                                  sigma=torch.tensor(0.1)),
+            torch.tensor(1.0),
+            trigger_option,
+            [robot, fan],
+            trigger_sampler,
+            incidental))
+
+    # The gust. Exogenous: the robot never carries the block in.
+    # condition_overall as well as condition_at_start: the gust only
+    # delivers the block if the fan STAYS on and the block STAYS where
+    # it was put for the whole flight, which is what the cascade's own
+    # exogenous processes assert too.
+    wind_conditions = {
+        LiftedAtom(FanOn, [fan]),
+        LiftedAtom(ReadyToBlow, [block, region])
+    }
+    processes.add(
+        ExogenousProcess(
+            "WindCarriesToGoal",
+            [fan, block, region],
+            wind_conditions,
+            wind_conditions.copy(),
+            set(),
+            {LiftedAtom(InGoal, [block, region])},
+            set(),
+            # Delay is in PROCESS steps, not simulator steps. Handing it
+            # the gust's 60 simulator steps put the effect beyond the
+            # planner's lookahead and every skeleton was exhausted
+            # without the goal ever becoming true. The cascade's own
+            # exogenous processes use 1-4 for the same reason.
+            DiscreteGaussianDelay(mu=torch.tensor(12.0),
+                                  sigma=torch.tensor(0.5)),
+            torch.tensor(1.0)))
+
+    # Wait. No preconditions, no effects: it exists so the planner can
+    # let TIME pass. The gust needs about sixty simulator steps to carry
+    # the block, and without a Wait in the skeleton the episode ends the
+    # instant the robot finishes speaking.
+    # The Wait's ignore_effects are the point of the Wait. Everything
+    # this task is about happens DURING it - the block tips, slides and
+    # arrives - and a Wait that does not declare those changes ignorable
+    # is cut short by its own executor with "atom change during Wait".
+    processes.add(
+        EndogenousProcess("Wait", [robot], set(), set(), set(), set(), set(),
+                          ConstantDelay(1), torch.tensor(1.0), options["Wait"],
+                          [robot], null_sampler, incidental))
+
+    return processes

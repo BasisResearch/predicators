@@ -1,6 +1,6 @@
 """Task generator for domino-based tasks."""
 
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, ClassVar, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -13,6 +13,20 @@ from predicators.envs.pybullet_domino.task_generators.base_generator import \
     TaskGenerator
 from predicators.settings import CFG
 from predicators.structs import EnvironmentTask, GroundAtom, Object
+
+
+def _dist_to_segment(pt: Tuple[float, float], a: Tuple[float, float],
+                     b: Tuple[float, float]) -> float:
+    """Perpendicular distance from ``pt`` to segment ``a``-``b``."""
+    px, py = pt
+    ax, ay = a
+    bx, by = b
+    dx, dy = bx - ax, by - ay
+    denom = dx * dx + dy * dy
+    if denom <= 0.0:
+        return float(np.hypot(px - ax, py - ay))
+    t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / denom))
+    return float(np.hypot(px - (ax + t * dx), py - (ay + t * dy)))
 
 
 class DominoTaskGenerator(TaskGenerator):
@@ -39,6 +53,9 @@ class DominoTaskGenerator(TaskGenerator):
         self.robot = robot
         self.robot_init_state = robot_init_state
         self.additional_components = additional_components or []
+        # Fan side the last generated chain was aligned to (None when
+        # domino_fan_aligned_tasks is off, or before the first chain).
+        self.last_fan_side: Optional[int] = None
 
     def generate_tasks(
             self,
@@ -88,6 +105,21 @@ class DominoTaskGenerator(TaskGenerator):
 
         return tasks
 
+    def _wind_triggered(self) -> bool:
+        """True when the cascade is started by wind, not by a push.
+
+        A fan is the only additional component that can start a cascade
+        legitimately without the arm touching a domino, so it decides
+        both the trigger the certificate sanctions and what the goal
+        text may ask for. Those two must never disagree: an agent told
+        to push the green in a fan env has no Push skill to push with,
+        and every episode it runs is rejected for having no TurnFanOn on
+        the record. A ball is a second body the robot can throw at the
+        chain, so ball variants are not wind-triggered.
+        """
+        comp_names = {type(c).__name__ for c in self.additional_components}
+        return bool(comp_names) and comp_names <= {"FanComponent"}
+
     def _generate_single_task(
             self,
             task_idx: int,
@@ -107,6 +139,8 @@ class DominoTaskGenerator(TaskGenerator):
         straight-only. Ignored on the min-block path, which fills its
         own quota from the same ratio.
         """
+        if getattr(CFG, "env", "") == "pybullet_domino_blow":
+            return self._generate_blow_task(task_idx, rng)
         if CFG.domino_min_block_tasks:
             return self._generate_min_block_task(task_idx, rng)
 
@@ -162,6 +196,18 @@ class DominoTaskGenerator(TaskGenerator):
 
         init_dict.update(obj_dict)
 
+        # Aim the fan down the chain BEFORE it reports its own init
+        # state. Doing it at reset instead leaves the task carrying the
+        # fan's un-aimed coordinate and the reset check comparing two
+        # different positions ("fan_0.y: requested=1.708000
+        # reconstructed=1.386534"). The chain's lateral coordinate is
+        # known here and nowhere earlier.
+        chain_lateral = self._chain_lateral(obj_dict)
+        for component in self.additional_components:
+            if chain_lateral is not None and hasattr(component,
+                                                     "set_lateral_alignment"):
+                component.set_lateral_alignment(chain_lateral)
+
         # Add entries from additional components
         for component in self.additional_components:
             if hasattr(component, 'get_init_dict_entries'):
@@ -186,14 +232,48 @@ class DominoTaskGenerator(TaskGenerator):
             target_word, target_verb = "the purple domino", "is"
         else:
             target_word, target_verb = "the purple dominoes", "are"
-        goal_nl = (f"Arrange the blue dominoes as needed (possibly none) such "
-                   f"that when the green domino is pushed, {target_word} "
-                   f"{target_verb} toppled. Only the blue dominoes may be "
-                   f"rearranged: the green and purple dominoes must stay "
-                   f"untouched at their staged poses, upright and never "
-                   f"held, until the green is pushed, and nothing may "
-                   f"topple before that push. Only the green domino may "
-                   f"ever be pushed.")
+        fan_only = self._wind_triggered()
+        # Which skill is sanctioned to start the cascade. The two fan
+        # envs differ only here: one presses a button, one declares.
+        if not fan_only:
+            trigger = "Push"
+        elif CFG.env == "pybullet_domino_declare":
+            trigger = "DeclareFinished"
+        else:
+            trigger = "TurnFanOn"
+        if fan_only and trigger == "DeclareFinished":
+            goal_nl = (
+                f"Arrange the blue dominoes as needed (possibly none) such "
+                f"that once you declare you have finished building, "
+                f"{target_word} {target_verb} toppled. Only the blue "
+                f"dominoes may be "
+                f"rearranged: the green and purple dominoes must stay "
+                f"untouched at their staged poses, upright and never held, "
+                f"until you declare finished, and nothing may topple "
+                f"before that. There is no switch to press and the robot "
+                f"must never push a domino - declaring finished is the "
+                f"only thing that starts the cascade.")
+        elif fan_only:
+            goal_nl = (
+                f"Arrange the blue dominoes as needed (possibly none) such "
+                f"that when the fan is switched on, {target_word} "
+                f"{target_verb} toppled. "
+                f"Only the blue dominoes may be rearranged: the green and "
+                f"purple dominoes must stay untouched at their staged "
+                f"poses, upright and never held, until the fan is switched "
+                f"on, and nothing may topple before that. The robot must "
+                f"never push a domino - the only way to start the cascade "
+                f"is to press the fan's switch.")
+        else:
+            goal_nl = (
+                f"Arrange the blue dominoes as needed (possibly none) such "
+                f"that when the green domino is pushed, {target_word} "
+                f"{target_verb} toppled. Only the blue dominoes may be "
+                f"rearranged: the green and purple dominoes must stay "
+                f"untouched at their staged poses, upright and never "
+                f"held, until the green is pushed, and nothing may "
+                f"topple before that push. Only the green domino may "
+                f"ever be pushed.")
 
         # Cascade-legitimacy evaluator (reward = certified success minus a
         # per-toppled-blue cost), same as the min-block tasks. Attached only
@@ -203,9 +283,15 @@ class DominoTaskGenerator(TaskGenerator):
         # would certify it at zero blue cost), and dominoes must be the only
         # dynamic component (ball/fan variants topple dominoes legitimately
         # without a robot Push, which the certificate would reject).
+        # A fan is a dynamic component, but a legitimate one: it
+        # topples dominoes only through the wind, and the certificate
+        # can score that as long as it is told the trigger is TurnFanOn
+        # rather than Push. A BALL is not - it is a second body the
+        # robot can throw at the chain - so ball variants still get no
+        # evaluator.
         evaluator = None
         if CFG.domino_use_domino_blocks_as_target and \
-                not self.additional_components:
+                (not self.additional_components or fan_only):
             # Imported lazily: env.py imports this module at load time.
             # pylint: disable-next=import-outside-toplevel
             from predicators.envs.pybullet_domino.env import DominoEvaluator
@@ -213,7 +299,9 @@ class DominoTaskGenerator(TaskGenerator):
                 1 for obj in init_state.get_objects(self.domino.domino_type)
                 # pylint: disable-next=protected-access
                 if DominoComponent._MovableBlock_holds(init_state, [obj]))
-            evaluator = DominoEvaluator(goal_atoms, num_movables)
+            evaluator = DominoEvaluator(goal_atoms,
+                                        num_movables,
+                                        trigger_option_name=trigger)
             # State the reward structure so a rejected goal-reaching
             # attempt reads as "no solve bonus", not as a fatal
             # per-blue penalty: run_20260716_215533 burned its budget
@@ -227,12 +315,116 @@ class DominoTaskGenerator(TaskGenerator):
             # Same reasoning for the legitimacy rule (see
             # goal_text.CASCADE_VERIFICATION_NL): an arm-assisted layout
             # otherwise fails with verdicts the agent cannot explain.
-            goal_nl += goal_text.CASCADE_VERIFICATION_NL
+            if not fan_only:
+                goal_nl += goal_text.CASCADE_VERIFICATION_NL
+            elif trigger == "DeclareFinished":
+                goal_nl += goal_text.DECLARE_VERIFICATION_NL
+            else:
+                goal_nl += goal_text.WIND_VERIFICATION_NL
 
         return EnvironmentTask(init_state,
                                goal_atoms,
                                goal_nl=goal_nl,
                                evaluator=evaluator)
+
+    def _generate_blow_task(
+            self, task_idx: int,
+            rng: np.random.Generator) -> Optional[EnvironmentTask]:
+        """Place a block so the wind carries it into the goal patch.
+
+        The scene is one line along the fan's axis: fan (off-table, at
+        low x, blowing +x), then the goal patch, then the block on its
+        staging spot downwind of the patch. The robot has to pick the
+        block up and put it down UPWIND of the patch, far enough back
+        that the gust delivers it into the patch rather than past it.
+
+        The patch is placed first and the staging spot derived from it,
+        so the block never starts inside its own goal - which would make
+        the task solvable by doing nothing at all.
+        """
+        dominos = self.domino.dominos
+        if not dominos or self._goal_region is None:
+            return None
+        x_lb, x_ub = self.domino.domino_x_lb, self.domino.domino_x_ub
+        y_lb, y_ub = self.domino.domino_y_lb, self.domino.domino_y_ub
+
+        # One lane, chosen away from the workspace edges so both the
+        # placement band and the staging spot stay reachable.
+        lane_y = float(rng.uniform(y_lb + 0.05, y_ub - 0.05))
+        # The patch sits in the middle third of the run, leaving room
+        # upwind for the placement band and downwind for staging.
+        goal_x = float(
+            rng.uniform(x_lb + 0.30 * (x_ub - x_lb),
+                        x_lb + 0.55 * (x_ub - x_lb)))
+        self._goal_region.set_region_xy(goal_x, lane_y)
+
+        # The block starts downwind of the patch: the wind blows +x, so
+        # from here the gust alone can never deliver it. Only a pick and
+        # a place upwind can.
+        stage_x = min(x_ub - 0.02, goal_x + 0.18)
+        if stage_x <= goal_x + 0.10:
+            return None
+
+        obj_dict: Dict[Object, Dict[str, Any]] = {}
+        # pi/2 turns the block's WIDE face into the wind. With rotation
+        # 0 it presents its narrow edge, which a +x gust shoves happily
+        # and can barely tip - measured: nothing toppled at any force or
+        # lever until the block was turned to face the wind.
+        obj_dict[dominos[0]] = self.domino.place_domino(0,
+                                                        stage_x,
+                                                        lane_y,
+                                                        np.pi / 2,
+                                                        rng=rng,
+                                                        task_idx=task_idx)
+        # Every other domino body this env owns is parked out of view:
+        # the task is about ONE block, and spare bodies on the table
+        # would be distractors the planner still has to ground.
+        ox, oy = self.domino.out_of_view_xy
+        for i in range(1, len(dominos)):
+            obj_dict[dominos[i]] = self.domino.place_domino(i,
+                                                            ox + 0.05 * i,
+                                                            oy,
+                                                            0.0,
+                                                            rng=rng,
+                                                            task_idx=task_idx)
+
+        init_dict: Dict[Object, Dict[str, Any]] = {
+            self.robot: self.robot_init_state.copy()
+        }
+        init_dict.update(obj_dict)
+        # Aim the fan down the lane BEFORE its init entries are read.
+        # Reading them first records the fan at its rail default while
+        # the body ends up on the lane, and the state then disagrees
+        # with the world by a third of a metre - the same misalignment
+        # the cascade generator fixes for the same reason.
+        for component in self.additional_components:
+            if hasattr(component, "set_lateral_alignment"):
+                component.set_lateral_alignment(lane_y)
+        for component in self.additional_components:
+            if hasattr(component, "get_init_dict_entries"):
+                init_dict.update(component.get_init_dict_entries(rng))
+        init_state = utils.create_state_from_dict(init_dict)
+
+        goal_atoms = {
+            GroundAtom(self._goal_region.InGoal,
+                       [dominos[0], self._goal_region.region])
+        }
+        goal_nl = (
+            "Pick up the block and put it down so that when the fan is "
+            "switched on, the wind knocks it over and it ends up lying "
+            "FLAT inside the green goal region. Putting the block down "
+            "in the region is not enough - you cannot place it on its "
+            "side, so only the wind can leave it flat. The fan blows for "
+            "a limited time once it is switched on.")
+        return EnvironmentTask(init_state, goal_atoms, goal_nl=goal_nl)
+
+    @property
+    def _goal_region(self) -> Any:
+        """The GoalRegionComponent, if this env has one."""
+        for component in self.additional_components:
+            if type(component).__name__ == "GoalRegionComponent":
+                return component
+        return None
 
     def _generate_min_block_task(
             self, task_idx: int,
@@ -315,9 +507,53 @@ class DominoTaskGenerator(TaskGenerator):
             # pylint: disable=protected-access
             if self.domino._TargetDomino_holds(init_state, [domino_obj]):
                 goal_atoms.add(GroundAtom(self.domino.Toppled, [domino_obj]))
-        return EnvironmentTask(init_state,
-                               goal_atoms,
-                               goal_nl=goal_text.MIN_BLOCK_GOAL_NL)
+        return EnvironmentTask(
+            init_state,
+            goal_atoms,
+            goal_nl=(goal_text.MIN_BLOCK_WIND_GOAL_NL if
+                     self._wind_triggered() else goal_text.MIN_BLOCK_GOAL_NL))
+
+    # A chain's travel direction is (sin rotation, cos rotation) -- see
+    # _place_straight_domino -- so rotation is measured from +y, turning
+    # toward +x. A fan on side_idx blows along its own yaw, world
+    # (cos yaw, sin yaw): left(0) +x, right(1) -x, back(2) +y,
+    # front(3) -y. These are those two conventions reconciled, which is
+    # the only place the fan's frame and the chain's frame meet.
+    _FAN_SIDE_TO_ROTATION: ClassVar[Dict[int, float]] = {
+        0: np.pi / 2,  # left fan blows +x
+        1: -np.pi / 2,  # right fan blows -x
+        2: 0.0,  # back fan blows +y
+        3: np.pi,  # front fan blows -y
+    }
+
+    def _fan_aligned_start(self, rng: np.random.Generator, x_lb: float,
+                           x_ub: float, y_lb: float,
+                           y_ub: float) -> Tuple[float, float, float, int]:
+        """Start pose and travel direction for a wind-started chain.
+
+        Picks a fan side, points the chain downwind, and puts the start
+        block in the upwind fifth of that axis so the rest of the chain
+        has the workspace to run into. Free across the crosswind axis:
+        the wind is uniform, so where the chain sits sideways does not
+        change whether it cascades, and varying it keeps the task set
+        from collapsing onto one line.
+        """
+        # Only sides that actually carry a fan (see
+        # domino_fan_num_sides); aligning a chain to a fan that is not
+        # there makes the task unsolvable.
+        side = int(rng.integers(0, max(1, CFG.domino_fan_num_sides)))
+        rotation = self._FAN_SIDE_TO_ROTATION[side]
+        dx, dy = np.sin(rotation), np.cos(rotation)
+        lead = 0.2  # fraction of the axis reserved upwind of the start
+        if abs(dx) > abs(dy):  # travelling along x
+            x = (x_lb + lead * (x_ub - x_lb) if dx > 0 else x_ub - lead *
+                 (x_ub - x_lb))
+            y = rng.uniform(y_lb, y_ub)
+        else:  # travelling along y
+            x = rng.uniform(x_lb, x_ub)
+            y = (y_lb + lead * (y_ub - y_lb) if dy > 0 else y_ub - lead *
+                 (y_ub - y_lb))
+        return x, y, rotation, side
 
     def _generate_domino_sequence(self,
                                   rng: np.random.Generator,
@@ -351,10 +587,18 @@ class DominoTaskGenerator(TaskGenerator):
         def _in_bounds(nx: float, ny: float) -> bool:
             return x_lb < nx < x_ub and y_lb < ny < y_ub
 
-        # Initial position and orientation
-        x = rng.uniform(x_lb, x_ub)
-        y = rng.uniform(y_lb, y_ub)
-        rotation = rng.choice([0, np.pi / 2, -np.pi / 2])
+        # Initial position and orientation. A wind-started chain has to
+        # run downwind from the upwind edge; a robot-pushed one can start
+        # anywhere and face any of three ways (the fourth, -y, has never
+        # been in this list).
+        self.last_fan_side = None
+        if CFG.domino_fan_aligned_tasks:
+            x, y, rotation, self.last_fan_side = self._fan_aligned_start(
+                rng, x_lb, x_ub, y_lb, y_ub)
+        else:
+            x = rng.uniform(x_lb, x_ub)
+            y = rng.uniform(y_lb, y_ub)
+            rotation = rng.choice([0, np.pi / 2, -np.pi / 2])
         gap = self.domino.pos_gap
 
         # Place first domino (start block)
@@ -924,6 +1168,21 @@ class DominoTaskGenerator(TaskGenerator):
         candidate_xy = [(float(x), float(y)) for y in y_values
                         for x in x_values]
 
+        # The corridor the robot has to build through: the segment from
+        # the start block to the far target. A blue parked inside it is
+        # not merely untidy - it sits within the gripper's finger sweep
+        # of a bridge slot, and Place then has no collision-free
+        # descent. Whether that happens is pure luck about where the
+        # chain landed: a uniformly-placed chain usually sits to one
+        # side and leaves whole staging cells free, while a
+        # wind-ALIGNED chain starts in the upwind fifth and runs through
+        # the middle of the workspace, straight across the staging row.
+        # Measured: plain domino parks its blues at x = 0.470 / 0.575
+        # against a chain spanning 0.697-0.991 (clear), the fan env at
+        # 0.470 / 0.680 against 0.540-0.834 - the second one 66 mm from
+        # a slot, inside a 100 mm finger sweep.
+        corridor = self._chain_corridor(occupied)
+
         for obj, obj_type in intermediate_objects:
             placed = False
             for new_x, new_y in candidate_xy:
@@ -949,6 +1208,9 @@ class DominoTaskGenerator(TaskGenerator):
                     }
                 if self._placement_collides(obj, candidate, occupied):
                     continue
+                if corridor is not None and _dist_to_segment(
+                    (new_x, new_y), *corridor) < grasp_clear_finger:
+                    continue
                 if obj_type == "domino" and self._grasp_clearance_blocked(
                         candidate, occupied, grasp_clear_hand,
                         grasp_clear_finger):
@@ -961,6 +1223,44 @@ class DominoTaskGenerator(TaskGenerator):
                 return None
 
         return obj_dict
+
+    def _chain_lateral(self, obj_dict: Dict) -> Optional[float]:
+        """The y the chain was laid at, or None if there is no chain.
+
+        Only meaningful for a wind-aligned layout, where every block
+        shares one lateral coordinate; the staged blues sit on their own
+        row and are excluded by taking the START block's.
+        """
+        for obj, data in obj_dict.items():
+            if obj.type != self.domino.domino_type or "y" not in data:
+                continue
+            eps = 1e-3
+            if all(
+                    abs(data.get(c, 0.0) -
+                        self.domino.start_domino_color[i]) < eps
+                    for i, c in enumerate(("r", "g", "b"))):
+                return float(data["y"])
+        return None
+
+    def _chain_corridor(
+        self, occupied: Dict[Object, Dict[str, float]]
+    ) -> Optional[Tuple[Tuple[float, float], Tuple[float, float]]]:
+        """Endpoints of the line the chain will be built along, or None.
+
+        The fixed blocks at staging time are the start block and the
+        target(s); the bridge runs between them, so the two extreme
+        fixed positions bound the corridor. None when fewer than two are
+        present and there is nothing to keep clear of.
+        """
+        pts = [(float(d["x"]), float(d["y"])) for o, d in occupied.items()
+               if o.type == self.domino.domino_type and "x" in d]
+        if len(pts) < 2:
+            return None
+        far = max(
+            ((a, b) for i, a in enumerate(pts) for b in pts[i + 1:]),
+            key=lambda ab: np.hypot(ab[0][0] - ab[1][0], ab[0][1] - ab[1][1]),
+            default=None)
+        return far
 
     def _placement_collides(self, obj: Object, candidate: Dict[str, float],
                             occupied: Dict[Object, Dict[str, float]]) -> bool:

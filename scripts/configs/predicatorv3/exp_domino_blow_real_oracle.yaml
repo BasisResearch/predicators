@@ -1,0 +1,25 @@
+# The fan-domino bench task, solved by the ORACLE in pure simulation.
+# Usage:
+#   PYTHONHASHSEED=0 PYTHONPATH=$PWD:$PWD/submodules/BabyRobotPredicator \
+#     python scripts/local/launch_simp.py -c predicatorv3/exp_domino_blow_real_oracle.yaml
+#
+# The smoke test for exp_domino_blow_real.yaml: same env, same exported
+# scene, the ground-truth model planning and executing in the twin with no
+# executor attached. A 1/1 here says the scene reads right, the press
+# actuates the button, the wind blows down the measured axis and the
+# oracle's placement lands the block in the patch -- before any hardware
+# moves. ~2 minutes, no LLM.
+---
+includes:
+  - exp_domino_blow_real.yaml
+ENVS:
+  domino_blow_real:
+    FLAGS:
+      # No executor: env flags override approach flags in the launcher,
+      # so this cannot be turned off from the oracle's own block.
+      real_robot_execute: False
+APPROACHES:
+  oracle:
+    SKIP: False
+  sim_predicator:
+    SKIP: True
