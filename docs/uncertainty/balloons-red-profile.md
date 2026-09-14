@@ -39,7 +39,7 @@ All-zero profiles remain explicitly unavailable.
 
 The full study requires 122,880 profile actions plus up to 512 worker prefix-reference actions.
 Independent verification adds its separately recorded native work.
-Each job uses four CPUs and 20 GiB on the previously audited Intel node in `mit_preemptable`.
+Each job uses four CPUs and 20 GiB on a previously audited Intel node in `mit_preemptable`.
 Fixture allocations request thirty minutes; full allocations request two hours.
 These are fixed numerical budgets, not early-stopping rules selected after seeing a result.
 
@@ -60,3 +60,12 @@ Frozen inputs and output locations are in `logs/uncertainty_balloons_red_profile
 The next action depends on the observed grid and bank sensitivity.
 A concentrated single-node profile or disagreement across budgets requires further numerical investigation, rather than a fitted-width claim.
 A stable conditional calculation would still require a separate joint target and prediction validation, including the unseen-green continuation and fresh untouched evaluation before migration acceptance.
+
+## Audited node eligibility
+
+While all four jobs were still pending with zero runtime and restarts, their scheduler eligibility was expanded from `node1393` to `node1381`, `node1390` or `node1393`.
+Earlier successful native jobs `22652531` and `22692309` establish the corresponding replay references on the first two nodes; the current action-160 preflight used `node1393`.
+The runtime CPU-model assertion and all archived-prefix and fresh-history checks remain enabled.
+Only scheduler placement changed: job IDs, dependencies, resource requests, time limits, scientific budgets and frozen source hashes were verified unchanged.
+The before/after evidence is in the study bundle's `allocation.json`.
+The fixture remains pending; a larger eligible node pool is not a claim that execution has started.
