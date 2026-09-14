@@ -12,6 +12,17 @@ The active work is Stage B offline comparison; Stage C live posterior use and St
 Stage D execution smoothing remains optional and deferred.
 The full plan remains incomplete, and the incumbent estimator remains the production default.
 
+The [Fan reflection diagnostic](fan-reflection-diagnostic.md) now verifies a conditional ambiguity that helps explain disagreement between independent parameter fits.
+At two fixed sampled scenes, ten tested speed pairs `v` and `1-v` per scene have exactly equal fitting-prefix likelihoods.
+The original native prefixes reproduce exactly, and all 119 other coordinates remain unchanged across the profiles.
+The independent reader passes all 60 profiles and attributes the zero future likelihoods in 127 of 128 original histories to exact event mismatches.
+A full-population reflection audit `22711267` and independent reader `22711276` now pass all 128 pairs, totaling 33,792 native actions.
+It preserves the declared target and uses only fitting-prefix data for a lazy Metropolis transition; future predictions remain a separate assessment.
+All reflected candidates have equal fitting-target scores, but representing both speed branches leaves the event and goal forecasts unchanged.
+A separate saved-history audit confirms identical event/goal curves within every pair and maximum future ball-coordinate changes of only `1.1098e-6` m.
+The practical disagreement between populations therefore remains; initial-scene and event sensitivity is the next diagnostic, rather than a speed-reflection sampler change.
+This is a numerical diagnostic, not an accepted posterior or agent-performance result.
+
 The [Boil supported-inference diagnostic](boil-supported-inference.md) now reproduces the original first-update concentration on both shared-variance seeds.
 The original base weights already have effective sample sizes 2.264 and 1.074 before the remaining trajectory likelihood is introduced.
 Whole-joint rejection collects 32 finite candidates in 132 and 128 evaluations; placing all finite factors under tempering preserves the final target and gives initial-temperature effective sample sizes 31.700 and 31.815 on those same retained populations.
