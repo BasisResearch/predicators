@@ -30,7 +30,9 @@ The continuous-output composition and retained exact-rate factor now pass reader
 Three initial resting-face choices dominate that error, motivating a native orientation-support diagnostic before fitting.
 The initial-face scan and independent reader now cover all 36 body/face cases.
 The new prior-preserving categorical proposal passes sixteen functional tests and focused static/format checks; its Bridge adapter recovers seven native roots and verifies all 46,656 joint face weights.
-Complete conditional-trajectory and output checks for these face changes are running as `22703020` after correcting a narrow-interval probability calculation exposed by the independent reader.
+Complete conditional-trajectory and output checks for these face changes finished as `22703020`, with 7,306 native actions and independent probability/output checks.
+The combined correction preserves all 600 exact glue updates and removes the dominant orientation penalty; individual face changes can still lose exact support.
+An independently detected narrow-interval probability error is corrected and the failed artifacts are retained separately.
 The complete inference map, adequate exploration and future-prediction assessment are still required before a usable Bridge posterior can be claimed.
 
 The [Bridge glue attribution](bridge-glue-attribution.md) now proves a structural contradiction in the transferred parameterized program, beyond the original no-op control.

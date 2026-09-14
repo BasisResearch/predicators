@@ -126,5 +126,42 @@ It checks all 36 per-body density corrections and sums all 46,656 joint face com
 Moving-body coordinates remain unchanged and acquire no spurious resting-face factor.
 This validates a proposal boundary for the planned inference map; it does not supply a posterior population or satisfy the prediction gate.
 
+## Complete conditional trajectories with corrected faces
+
+Pipeline `22703020` completed in 7:49, including 7,306 native actions, independent reach/joint verification and four complete output-accounting checks.
+Every feasible diagnostic is run twice from a fresh native world, and the baseline reproduces the earlier supported artifact exactly.
+
+| Face intervention | Exact glue prefix supported | First unsupported action | Complete output log density |
+| --- | ---: | ---: | ---: |
+| Original sampled faces | 600 | None | -11,048,561.45 |
+| Correct `leg1` only | 600 | None | -3,619,008.88 |
+| Correct `span0` only | 86 | 87 | Zero complete likelihood |
+| Correct `span1` only | 600 | None | -9,218,435.81 |
+| Correct bottle only | 582 | 583 | Zero complete likelihood |
+| All initial-observation-selected faces | 600 | None | 74,837.37 |
+| All selected faces, dwell 30 | 582 | 583 | Zero complete likelihood |
+
+The combined face correction removes the dominant orientation discrepancy while preserving all 600 exact glue updates, with retained reach-event log probability -5.32478.
+The complete composition, before the additional face-proposal correction, has log weight 109,642.31.
+Its independent output-accounting discrepancy is at most 2.9104e-11.
+The largest remaining negative output terms are the two span roll channels, so the improved score does not establish good prediction or calibrated uncertainty.
+These are log densities at deterministic development points, not marginal evidence, posterior comparisons, solve rates or successful agent seeds.
+
+The face interventions cannot be assessed independently: changing the bottle or `span0` alone loses an exact event, whereas their combined correction with the other faces preserves the full prefix.
+At the fixed radius, intersecting every compatible height interval on the corrected conditional path remains empty at action 87.
+Thus this corrected scene does not yet justify removing the declared reach discrepancy and using a single deterministic height.
+
+The first complete reader attempt exposed cancellation for a roughly 5.55e-17 m interval between nearly equal reach thresholds.
+Subtracting rounded Gaussian log-CDF values produced a log-mass error of about 0.094 for an incompatible interval.
+The corrected evaluator subtracts the original boundaries before scaling and uses the narrow-interval density expansion when the standardized width times the midpoint magnitude is below 1e-5.
+The independent quadrature reader likewise preserves the original interval width.
+All seven native cases were rerun after that correction, with maximum independent interval log-mass discrepancy 5.3718e-11.
+The earlier path/probability artifacts remain retained separately under the failed attempt.
+The earlier scan path-resolution failure and an incorrect float32 assumption in its height-readout checker also remain recorded as setup/verification failures, not model or agent outcomes.
+
+Next, integrate the corrected face proposal into the complete parameter/scene target and validate an unconditional future generator for the explicit joint/reach laws.
+Future reach perturbations must be sampled independently of future glue observations, with one posterior variance draw retained per joint throughout each future.
+Only then should full posterior populations and their reserved-action forecasts be assessed against the incumbent.
+
 Artifacts are in `logs/uncertainty_bridge_joint_glue_screen_20260913/`, `logs/uncertainty_bridge_local_scene_20260913/`, `logs/uncertainty_bridge_local_glue_screen_20260913/` and `logs/uncertainty_bridge_reach_discrepancy_20260913/`.
 Orientation diagnostics and the face proposal are in `logs/uncertainty_bridge_orientation_support_20260913/` and `logs/uncertainty_bridge_face_proposal_20260913/`.
