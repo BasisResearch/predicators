@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import time
-from itertools import islice
+from itertools import islice, product
 from typing import TYPE_CHECKING, Callable, Dict, Iterator, List, Optional, \
     Tuple, Union
 
@@ -276,6 +276,44 @@ def ikfast_inverse_kinematics(
             if not violates_joint_limits(ik_joint_infos, joint_positions) and (
                     np.linalg.norm(difference, ord=norm) <= max_distance):
                 yield joint_positions
+
+
+def ikfast_free_joint_grid_inverse_kinematics(
+        robot: SingleArmPyBulletRobot, world_from_target: Pose,
+        num_free_positions: int) -> List[JointPositions]:
+    """Runs IKFast with the free joints on a fixed grid over their limits.
+
+    Unlike ikfast_inverse_kinematics, which samples free joints from the
+    global NumPy RNG under a wall-clock budget, the returned candidates
+    depend only on the robot and target pose. Returns every solution
+    within joint limits, in grid order.
+    """
+    ikfast_info = robot.ikfast_info()
+    if ikfast_info is None:
+        raise ValueError(f"Robot {robot.get_name()} has no IKFast info")
+    ikfast = import_ikfast(ikfast_info)
+    ik_joint_infos, free_joint_infos = get_ikfast_joints(robot)
+    free_joints = [info.jointIndex for info in free_joint_infos]
+    lower_limits = get_joint_lower_limits(robot.robot_id, free_joints,
+                                          robot.physics_client_id)
+    upper_limits = get_joint_upper_limits(robot.robot_id, free_joints,
+                                          robot.physics_client_id)
+    base_from_ee = get_base_from_ee(robot, world_from_target)
+    position = list(base_from_ee.position)
+    rot_matrix = matrix_from_quat(base_from_ee.orientation).tolist()
+    axes = [
+        np.linspace(lower, upper, num_free_positions)
+        for lower, upper in zip(lower_limits, upper_limits)
+    ]
+    solutions: List[JointPositions] = []
+    for free_positions in product(*axes):
+        ik_candidates: Optional[
+            List[JointPositions]] = ikfast.get_ik(  # type: ignore
+                rot_matrix, position, [float(v) for v in free_positions])
+        for joint_positions in ik_candidates or []:
+            if not violates_joint_limits(ik_joint_infos, joint_positions):
+                solutions.append(joint_positions)
+    return solutions
 
 
 def ikfast_closest_inverse_kinematics(
