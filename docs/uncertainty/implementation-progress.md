@@ -20,7 +20,15 @@ Sixteen verified conditional parameter profiles expose both a much better fittin
 An unchanged-target proposal audit verifies 52 proposal densities and motivates a matched guide-center-only comparison.
 Native validation `22714576` passes exact archived replay, future-data isolation, factorization and serial/parallel checks.
 Array `22714577` now runs the two original numerical seeds with only the parameter proposal center changed to the fixed program defaults; original priors, likelihood and sampling budgets remain unchanged.
-Independent complete-checkpoint and final-target readers `22714628` and `22714629` are queued; new weighted future comparisons remain outstanding.
+Independent complete-checkpoint and final-target readers `22714628` and `22714629` are queued.
+The new weighted forecast adapter and independent reader `22715007`/`22715008` have passed, checking both broad and local proposal mappings, complete native prefixes, generation and density histories, and rejection of the old guide when decoding new particles.
+Full forecasts `22715115`/`22715117`, readers `22715116`/`22715118`, and comparison `22715120` are dependency-queued behind the verified completed fits.
+The comparison retains both earlier fits and the incumbent, including prediction metrics and computation costs; its fixture `22715119` passes while correctly leaving the new outcomes pending.
+The [parameter-dependence audit](balloons-selective-guidance.md) and independent reader `22715205`/`22715206` have completed all 46 native cases and twenty marginal checks.
+Changing five parameters separately or together leaves both tested fitting histories and scores exactly unchanged, while the original fits retain very narrow marginals for them.
+A selective guide with uniform proposals on those coordinates and 20% block refresh moves now passes native validation `22715307`, including 32 default-parity and 32 independent mixture-density checks.
+Paired fits `22715405` are running with final-target readers `22715406`/`22715407` dependent on completion; weighted future validation for this selective proposal remains outstanding.
+It retains the complete prior, likelihood and Metropolis correction and does not assume global parameter independence.
 
 The [Bridge recovery](bridge-memory-recovery.md) validates both stage-26 checkpoints after the original fits exhausted their 64 GiB allocations.
 Both complete numerical prefixes and four fresh native targets reproduce exactly.

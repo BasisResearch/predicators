@@ -157,3 +157,40 @@ The two new fits remain separate from the earlier populations with the same nume
 Complete weighted reserved-future forecasts and numerical-stability checks are still required before assessing the changed guide.
 In particular, adequate inference must retain prior uncertainty for parameters that the recorded prefix does not inform; a better conditional fitting score alone is insufficient.
 There is no new agent-performance result or production-estimator change.
+
+
+## Weighted comparison for the new guide
+
+Bundle `logs/uncertainty_balloons_default_guided_forecasts_20260914` binds the forecast adapter to the new guide and fitting identities.
+It preserves every retained positive-weight particle and its full joint history, and separates future generation from conditioning on reserved observations for density assessment.
+The frozen forecasting budget remains two banks of four generation draws and eight density draws per positive-weight particle.
+Source preparation waits for independent complete-checkpoint and final-target verification, then publishes checksummed immutable copies of the reports and checkpoints.
+It resolves the verified final attempt rather than copying live files or assuming attempt zero will finish.
+
+Native adapter job `22715007` completed in 1:18 with 3,012 actions.
+Independent reader `22715008` completed in 29 seconds with 192 additional prefix actions.
+The checks cover three distinct physical candidates across six generation/density histories, including two candidates drawn through local components of the new guide.
+They also retain twelve malformed-result rejections and verify that the old guide cannot decode a new local particle as the stored physical state.
+The reader's source checksum matches the completed adapter report.
+These results establish the tested adapter mechanics, not the quality of the pending fitted posterior.
+
+Full forecast jobs `22715115` and `22715117` wait for fit readers `22714628`/`22714629` and the adapter reader.
+Independent forecast readers `22715116` and `22715118` and final comparison `22715120` are dependency-queued.
+Comparison fixture `22715119` completes successfully, verifying the original results and incumbent while retaining missing new forecasts as pending.
+The comparison preserves the original physical prior, recording, simulator program, likelihood, numerical seeds and fitting budget across the old and new guides.
+It reports replica agreement, predictive errors, future density, ancestry and fit/forecast cost without treating a higher fitting score as acceptance.
+Cost records include available interrupted-attempt reports and explicitly exclude native work that an interrupted process never returned.
+
+## Checking parameter dependence
+
+The fixed program selects box mass by material and reads a balloon's color-specific lift coefficient when that balloon is tied and live.
+This suggests that the fitting prefix may leave several parameters unobserved.
+Bundle `logs/uncertainty_balloons_parameter_dependence_20260914` tests this using the same two supported fitted scenes and latent direction paths as the conditional profiles.
+At each scene it evaluates the original point, each of the ten parameter coordinates at prior-unit values 0.05 and 0.95, and two simultaneous interventions on the five suspected inactive parameters.
+All non-parameter coordinates remain fixed, and every evaluation repeats in a fresh native trajectory.
+The report preserves both changed and unchanged predictions, likelihoods and support outcomes rather than assuming the suspected independence is true.
+It also compares the original completed populations' weighted parameter marginals with the declared prior in unit coordinates.
+These finite interventions are local dependence evidence; they do not by themselves prove a global likelihood factorization.
+Native job `22715205` and independent reader `22715206` have completed on the matching Intel compute node, with 5,888 and 1,792 native actions respectively.
+All five suspected inactive parameters preserve both evaluated histories and scores exactly, while the other parameters have detectable effects.
+The [selective-guidance follow-up](balloons-selective-guidance.md) records the unexpectedly narrow fitted marginals and a target-preserving numerical intervention.
