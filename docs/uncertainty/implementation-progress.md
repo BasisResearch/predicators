@@ -37,6 +37,11 @@ The active work is Stage B offline comparison; Stage C live posterior use and St
 Stage D execution smoothing remains optional and deferred.
 The full plan remains incomplete, and the incumbent estimator remains the production default.
 
+The [Domino uncertain-state transition preflight](domino-uncertain-transition.md) now tests the existing joint-transition law with the original uncertain initial-scene prior.
+It retains the varying base weights that the earlier fixed-state approximation could omit, and includes archived joint targets, exact fixed-state controls and causal future round trips.
+Preparation and scalar-reference checks pass; native job `22766058` and reader `22766059` are pending on a compute node.
+This is a composition check rather than another posterior fit, and it does not resolve the completed transition model's cross-budget prediction disagreement.
+
 The [independent-prior representation](independent-prior-factors.md) now supports an explicitly checked product of a sampled joint marginal and independent uniform prior factors.
 Compute-node check `22717200` passes 27 focused tests, typing, repository lint and formatting checks.
 The consumer preserves retained correlations, exact analytic quantiles, full-target provenance and unavailable-assessment behavior; production integration is unchanged.

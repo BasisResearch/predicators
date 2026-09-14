@@ -18,7 +18,7 @@ The [proposal](simplification-proposal.md) records the full implementation decis
 
 | Domain | Latest evidence | Remaining difficulty |
 |---|---|---|
-| Domino | Both 64- and 128-particle comparisons are complete. | Agreement does not persist across numerical budgets; fixing the initial state is not a validated shortcut. |
+| Domino | Both 64- and 128-particle comparisons are complete, including the fixed-state joint-transition alternative. | That alternative passes its 128-particle replica screens but retains a 0.1928 cross-budget final-toppling gap; uncertain-state composition is now queued for validation. |
 | Fan | Fixed-fixture treatment reduces between-fit positional disagreement from 6.69 mm to 0.619 mm, with improved goal Brier scores on this recording. | Maximum future goal-probability disagreement remains 0.367; most sampled histories assign zero density to the recorded future. |
 | Boil | Full reduced fits, forecasts, independent readers and comparison are complete. | The thermal prior is now represented correctly, but both fits retain one initial lineage and predictions remain worse than the incumbent. |
 | Bridge | Both resumed fits, complete forecasts and independent readers are complete. | Both fits retain one initial lineage; all methods miss the final clean geometric goal, and the two posterior fits disagree on glue events. |
@@ -30,6 +30,10 @@ The positive Boil and Bridge comparisons instead use separately identified histo
 Their selected-point incumbent rows therefore carry historical information that an uninformative fitting prefix cannot recreate from a broad parameter prior.
 This is a known comparison difference, not evidence that sensor noise should be enlarged or priors narrowed after seeing future scores.
 See the [historical model controls](historical-model-controls.md) and [Boil incumbent control](boil-incumbent-control.md).
+
+The new [Domino composition check](domino-uncertain-transition.md) preserves the original initial-scene prior and combines it with the already declared joint-transition law.
+Fourteen cases include archived joint proposals, fixed-state controls and unselected proposal vectors.
+Native `22766058` and independent reader `22766059` are pending; preparation checks alone do not establish native parity or an adequate uncertain-state posterior.
 
 ## Boil reduced-target outcome
 
