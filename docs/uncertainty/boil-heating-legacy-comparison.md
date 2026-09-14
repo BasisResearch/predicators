@@ -50,3 +50,7 @@ Replacement report `22762519` depends on recovered posterior collector `22762518
 The [recovery note](boil-heating-reader-recovery.md) records the unchanged metric code, transport adapter and replacement accounting.
 The same requirements are checked inside the final report process.
 Frozen scripts and reports are in `logs/uncertainty_boil_heating_legacy_comparison_20260914`.
+
+The subsequent partial-source check `22762655` completed in nineteen seconds using the actual verified incumbent result.
+It validates the incumbent scores and keeps the absent complete posterior comparison explicitly pending, with performance differences unset.
+Its source, script and plan hashes were verified after completion; the [recovery note](boil-heating-reader-recovery.md#pending-check-allocation-and-completed-partial-comparison) records the scheduler-only move to the previously audited matching-CPU node.
