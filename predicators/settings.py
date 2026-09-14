@@ -1028,6 +1028,71 @@ class GlobalSettings:
     # domino_min_block_num_blues); domino_min_block_tasks does not also
     # need to be set.
     domino_heavy_block_tasks = False
+    # Lay each chain out along one fan's wind axis, starting at the upwind
+    # end, for the ball-free pybullet_domino_fan env. Off, the generator
+    # picks the start pose uniformly and the travel direction at random,
+    # which is right for a task the ROBOT pushes and wrong for one the WIND
+    # starts: a chain crossing the wind cannot cascade no matter how hard
+    # the fan blows, so the task is unsolvable before a planner sees it.
+    # The chosen side is recorded per task in offline_task_metrics
+    # ("fan_side"), 0=left 1=right 2=back 3=front, matching
+    # FanComponent's side_idx.
+    domino_fan_aligned_tasks = False
+    # Wind force (N) the fan applies to the start domino in the ball-free
+    # pybullet_domino_fan env. NOT the FanComponent class default (2.0),
+    # which is the ball's.
+    #
+    # The static threshold is m*g*(depth/2)/(0.4*height) = 0.123 N for a
+    # 100 g domino 15 mm thick and 150 mm tall pushed at 0.4 of its
+    # height, and 0.2 N clears it. But clearing it is not enough: what
+    # sets this value is how FAST the block has to move.
+    #
+    # Wait terminates on quiescence, and at 0.2 N the block does not
+    # visibly move until step 28 - so Wait sees a still scene, declares
+    # it settled at step 11, and the plan ends before the wind has done
+    # anything. Measured onset: 28 steps at 0.2 N, 17 at 0.4, 11 at 0.8,
+    # 7 at 1.5, 4 at 3.0. 1.5 N moves the block well inside Wait's
+    # window.
+    #
+    # Nothing is lost by the higher force now that the wind pushes above
+    # the centre of mass and stops once its target is down: the cascade
+    # it produces is the same one (final rolls [81,66,45,11] at 1.5 N
+    # against [80,66,45,11] at 0.2 N). An earlier note here warned that
+    # force above ~0.3 N sends blocks flying metres; that was measured
+    # against the centre-of-mass push and the never-ending wind, and no
+    # longer holds.
+    domino_fan_wind_force = 1.5
+
+    # Wind force for the blow-to-goal task (N). Applied 0.4 of the way
+    # up the block, so the gust tips it AND keeps pushing it once it is
+    # down: the block ends up flat (which the robot cannot achieve by
+    # placing, so the goal cannot be reached without the wind) while the
+    # distance travelled stays a continuous, monotone function of this
+    # number - over a 30-step gust: 12.0 cm at 1.5 N, 14.4 at 2.0,
+    # 16.3 at 2.5, 20.3 at 3.0, 26.4 at 3.5. In pybullet_domino_fan the same parameter is NOT fittable,
+    # because there the wind tips a block in about two steps and every
+    # force above threshold looks the same (see
+    # scripts/domino_debug/probe_wind_identifiability.py).
+    domino_blow_wind_force = 2.0
+    # Steps the fan blows for once the robot has declared. Bounded so
+    # the block travels a finite, repeatable distance rather than being
+    # pushed until the episode ends. Measured: at 2.5 N this gust slides
+    # the block 11.6 cm, and the response is steep and monotone (1.5 N ->
+    # 3.7 cm, 2.5 -> 11.6, 4.0 -> 30.9) which is exactly the gradient the
+    # cascade env's saturating topple does not provide. Past ~6 N the
+    # block is launched off the table rather than slid.
+    # Thirty, not sixty, because the plan gets exactly ONE Wait however
+    # long the wind process's delay is made, and a Wait ends when the
+    # scene's atoms change. A 60-step gust was still pushing when its
+    # Wait expired at 40 steps and the block stopped short.
+    domino_blow_wind_steps = 30
+    # Sides carrying a fan + switch in pybullet_domino_fan, in order
+    # left, right, down, up. One is the point of the task: the robot has
+    # a single switch to find and press. Four is the ball task's layout
+    # and only adds groundings the planner must search and fans that
+    # cancel each other. domino_fan_aligned_tasks lays every chain along
+    # one of the sides that exist.
+    domino_fan_num_sides = 1
 
     # burger env parameters
     burger_render_set_of_marks = True

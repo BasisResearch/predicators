@@ -4,14 +4,18 @@ from dataclasses import replace
 from typing import ClassVar, Dict, Optional, Sequence, Set, Tuple
 from typing import Type as TypingType
 
+import numpy as np
 from gym.spaces import Box
 
+from predicators import utils
 from predicators.envs.pybullet_domino import PyBulletDominoEnv
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
 from predicators.ground_truth_models.skill_factories import SkillConfig, \
     create_pick_skill, create_place_skill, create_push_skill, \
     create_wait_option, shared_skill_robot, shared_skill_simulator
+from predicators.ground_truth_models.skill_factories.declare import \
+    create_declare_option
 from predicators.ground_truth_models.skill_factories.pick import _PICK_PARAMS
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
@@ -36,6 +40,27 @@ def _skill_robot_env_cls(env_name: str) -> TypingType[PyBulletEnv]:
     return PyBulletDominoEnv
 
 
+# Envs where the cascade is started by WIND rather than by a push, and
+# so where a Wait has to outlast the lull described below. Named
+# explicitly because the obvious test - a "_fan" suffix - silently gave
+# pybullet_domino_declare the push threshold of 10: it is wind-started
+# too, it just does not say so in its name. The agent in
+# run_20260831_122006 noticed before I did, and padded its plan with
+# extra Waits to compensate.
+# Envs where the robot starts the fan by DECLARING it has finished
+# rather than by pressing a switch. Named rather than tested by suffix,
+# for the same reason as _WIND_STARTED_ENVS below.
+_DECLARE_TRIGGER_ENVS = frozenset({
+    "pybullet_domino_declare",
+})
+
+_WIND_STARTED_ENVS = frozenset({
+    "pybullet_domino_fan",
+    "pybullet_domino_declare",
+    "pybullet_domino_blow",
+})
+
+
 class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
                                              GroundTruthOptionFactory):
     """Ground-truth options for the domino environment."""
@@ -56,7 +81,9 @@ class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
     def get_env_names(cls) -> Set[str]:
         return {
             "pybullet_domino_grid", "pybullet_domino", "pybullet_domino_real",
-            "pybullet_domino_real_geometry"
+            "pybullet_domino_real_geometry", "pybullet_domino_fan",
+            "pybullet_domino_declare",
+            "pybullet_domino_blow"
         }
 
     @classmethod
@@ -95,17 +122,112 @@ class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
 
         options: Set[ParameterizedOption] = set()
 
-        if CFG.domino_restricted_push:
-            options.add(
-                cls._create_sf_push_restricted(cfg, robot_type, domino_type))
-        else:
-            options.add(cls._create_sf_push(cfg, robot_type, domino_type))
+        # A fan env withholds Push on purpose. The wind is what starts
+        # the chain there, so leaving the robot a shove makes the fan
+        # decorative: the planner takes the cheaper Push every time and
+        # solves a wind task without ever touching a switch. Detected by
+        # the switch type, which only a FanComponent contributes.
+        if "switch" not in types:
+            if CFG.domino_restricted_push:
+                options.add(
+                    cls._create_sf_push_restricted(cfg, robot_type,
+                                                   domino_type))
+            else:
+                options.add(cls._create_sf_push(cfg, robot_type, domino_type))
 
         options.add(cls._create_sf_pick(cfg, robot_type, domino_type))
         options.add(cls._create_sf_place(cfg, robot_type))
         options.add(create_wait_option("Wait", cfg, robot_type))
 
+        # A composed env carrying a FanComponent brings switches with
+        # it, and without a skill to start the fan it can never be
+        # turned on: every plan in a fan env starts there. Absent in
+        # the plain domino envs, whose types have no switch.
+        #
+        # HOW the fan starts is the difference between the two fan
+        # envs. pybullet_domino_fan gives the robot a button and a push
+        # skill to press it. pybullet_domino_declare parks the switch
+        # outside the workspace and the robot instead DECLARES it has
+        # finished building - no contact, nothing to reach around, and
+        # for a learner nothing mechanical to credit the wind to.
+        if "switch" in types:
+            if CFG.env in _DECLARE_TRIGGER_ENVS:
+                options.add(
+                    create_declare_option("DeclareFinished", cfg, robot_type))
+            else:
+                options |= cls._create_sf_switch_options(
+                    cfg, robot_type, types["switch"], types.get("fan"))
+
         return options
+
+    @classmethod
+    def _create_sf_switch_options(
+            cls, cfg: SkillConfig, robot_type: Type, switch_type: Type,
+            fan_type: Optional[Type]) -> Set[ParameterizedOption]:
+        """Press a switch on or off.
+
+        A switch is pressed by pushing at its pose, so these are plain
+        push skills with the target taken from the switch - the same
+        construction ``fan/options.py`` uses, including its yaw
+        correction: a push skill faces (sin yaw, cos yaw) while a switch
+        reports its push direction as (cos rot, sin rot), so the two
+        conventions differ by a quarter turn, and on and off are that
+        quarter turn either side.
+
+        Under ``fan_known_controls_relation`` the second argument is the
+        FAN, not the switch: the env hides SwitchOn/SwitchOff in that
+        mode and speaks only of FanOn/FanOff, so a process written over
+        fans needs an option it can share variables with. The switch is
+        then found from the fan, by the side it controls.
+        """
+        known = CFG.fan_known_controls_relation and fan_type is not None
+        control_type = fan_type if known else switch_type
+        assert control_type is not None
+        option_types = [robot_type, control_type]
+
+        def _switch_of(state: State, control: Object) -> Object:
+            if not known:
+                return control
+            switch = next(
+                (sw for sw in state.get_objects(switch_type) if state.get(
+                    sw, "controls_fan") == state.get(control, "facing_side")),
+                None)
+            if switch is None:
+                raise utils.OptionExecutionFailure(
+                    "No switch found for fan (controls_fan mismatch)")
+            return switch
+
+        def _pose(state: State, objects: Sequence[Object],
+                  sign: float) -> Tuple[float, float, float, float]:
+            _, control = objects
+            switch = _switch_of(state, control)
+            return (state.get(switch,
+                              "x"), state.get(switch,
+                                              "y"), state.get(switch, "z"),
+                    state.get(switch, "rot") + sign * np.pi / 2)
+
+        def _on_pose(state: State, objects: Sequence[Object], params: Array,
+                     config: SkillConfig) -> Tuple[float, float, float, float]:
+            del params, config
+            return _pose(state, objects, -1.0)
+
+        def _off_pose(
+                state: State, objects: Sequence[Object], params: Array,
+                config: SkillConfig) -> Tuple[float, float, float, float]:
+            del params, config
+            return _pose(state, objects, +1.0)
+
+        push_cfg = replace(cfg, transport_z=cls._transport_z_push)
+        return {
+            create_push_skill(name="TurnFanOn",
+                              types=option_types,
+                              config=push_cfg,
+                              get_target_pose_fn=_on_pose),
+            create_push_skill(name="TurnFanOff",
+                              types=option_types,
+                              config=push_cfg,
+                              get_target_pose_fn=_off_pose),
+        }
 
     @classmethod
     def _build_skill_config(
@@ -149,6 +271,15 @@ class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
             # every rollout - the cap dominated probe/validation wall
             # time in the 2026-07-17 run audits.
             wait_quiescence_eps=1e-4,
+            # A push-started cascade runs without pause, so 10 quiet
+            # steps means it is over. A WIND-started one has a lull
+            # built into it: the fan cuts out the moment the start
+            # block is down (a fallen domino is out of the airstream),
+            # and the chain then coasts on contact alone. Ten steps of
+            # that reads as settled and ends the Wait mid-cascade -
+            # measured at 35 steps against the ~70 the chain needs.
+            wait_quiescence_steps=(40 if CFG.env in _WIND_STARTED_ENVS
+                                   else 10),
         )
 
     @classmethod
