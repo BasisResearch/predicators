@@ -158,7 +158,8 @@ def _make_perception() -> Any:
         return DominoPerception(table_z=float(CFG.domino_real_table_z))
     if kind == "fan_scene":
         from babyrobot.realrobot.perception import FanScenePerception
-        return FanScenePerception(os.path.join(CFG.log_file, "looks"))
+        return FanScenePerception(
+            os.path.abspath(os.path.join(CFG.log_file, "looks")))
     raise ValueError(f"unknown real_robot_perception: {kind!r}")
 
 
