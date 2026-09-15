@@ -102,6 +102,8 @@ class RealBenchFanComponent(FanComponent):
         self._button_yaw = float(button_yaw)
         self._button_urdf = button_urdf
         self._button_joint_id: int = -1
+        # Set once the body is loaded (see initialize_pybullet).
+        self._button_top_above_base: float = 0.0
 
     # -- geometry --------------------------------------------------------
 
@@ -124,6 +126,21 @@ class RealBenchFanComponent(FanComponent):
     def button_top_z(self) -> float:
         """World z of the plunger's top at rest."""
         return self._button_top_z
+
+    @property
+    def button_top_above_base(self) -> float:
+        """How far the plunger's rest top sits above the body's base frame.
+
+        The state's ``z`` for the button is the plunger's top, but what
+        PyBullet reads and writes as a body's base pose is its inertial
+        (centre-of-mass) frame -- for this URDF the middle of the holder,
+        43 mm below the plunger. The env translates by this on every
+        state write and read so the twin's button stands where the
+        cameras put it; without the shift the first reset lifted the
+        whole button by this much and the Press hover landed inside the
+        plunger.
+        """
+        return self._button_top_above_base
 
     # -- bodies ----------------------------------------------------------
 
@@ -155,6 +172,11 @@ class RealBenchFanComponent(FanComponent):
         self._button_joint_id = self._get_joint_id(button_id, _BUTTON_JOINT)
         assert self._button_joint_id >= 0, \
             f"button URDF {urdf} has no joint {_BUTTON_JOINT!r}"
+        # loadURDF placed the root link's frame at the corner; the base
+        # pose PyBullet reports from now on is the inertial frame.
+        inertial_local_z = p.getDynamicsInfo(
+            button_id, -1, physicsClientId=physics_client_id)[3][2]
+        self._button_top_above_base = _BUTTON_PLUNGER_TOP_M - inertial_local_z
         # The return spring: a position servo holding the plunger at rest
         # with the preload's worth of force. A press has to beat it, and
         # the plunger pops back the moment the pad lifts.

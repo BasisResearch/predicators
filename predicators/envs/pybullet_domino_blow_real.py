@@ -45,7 +45,7 @@ from predicators.envs.pybullet_domino.real_geometry import \
 from predicators.envs.pybullet_domino_real import PerceivedDominoesMixin, \
     RealSceneGeometryMixin, _PerceivedDomino
 from predicators.settings import CFG
-from predicators.structs import EnvironmentTask, GroundAtom, State
+from predicators.structs import EnvironmentTask, GroundAtom, Object, State
 
 # What a scene has to name for this env to stand the bench up.
 _FIXTURES = ("fan", "button", "goal")
@@ -179,6 +179,46 @@ class PyBulletDominoBlowRealEnv(RealSceneGeometryMixin, PerceivedDominoesMixin,
                                      workspace_bounds=bounds,
                                      table_height=self.table_height,
                                      table_width=self.table_width)
+
+    # -- the button's z is its plunger top, not its base ---------------
+    # The generic state read/write treats every object's ``z`` as the
+    # PyBullet base (inertial) frame. For the button proxy that frame is
+    # the middle of the holder, 43 mm below the plunger top that the
+    # state's ``z`` names (RealBenchFanComponent.button_top_above_base),
+    # so the three generic paths are translated for that one body. Left
+    # alone, the first reset lifted the button by that much and the Press
+    # hover -- aimed 1 cm above the state's top -- collided 3 cm deep in
+    # the plunger (dry runs crushed through; on the bench runs the hand
+    # tilted and jammed, and the episode died before shipping).
+    def _button_z_shift(self, obj: Object) -> float:
+        comp = self._fan_component
+        if isinstance(comp, RealBenchFanComponent) and obj == comp.button:
+            return comp.button_top_above_base
+        return 0.0
+
+    def _reset_single_object(self, obj: Object, state: State) -> None:
+        shift = self._button_z_shift(obj)
+        if shift:
+            state = state.copy()
+            state.set(obj, "z", state.get(obj, "z") - shift)
+        super()._reset_single_object(obj, state)
+
+    def _object_pose_matches_state(self,
+                                   obj: Object,
+                                   state: State,
+                                   atol: float = 1e-3) -> bool:
+        shift = self._button_z_shift(obj)
+        if shift:
+            state = state.copy()
+            state.set(obj, "z", state.get(obj, "z") - shift)
+        return super()._object_pose_matches_state(obj, state, atol)
+
+    def _get_object_state_dict(self, obj: Object) -> Dict[str, float]:
+        obj_dict = super()._get_object_state_dict(obj)
+        shift = self._button_z_shift(obj)
+        if shift and "z" in obj_dict:
+            obj_dict["z"] += shift
+        return obj_dict
 
     def _extra_components(self, bounds: Dict[str, float],
                           domino_comp: DominoComponent) -> List[Any]:
