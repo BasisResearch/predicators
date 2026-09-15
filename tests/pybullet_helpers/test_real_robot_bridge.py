@@ -608,11 +608,37 @@ def test_split_actions_still_sees_a_real_release_on_that_bench():
 def test_release_eps_sits_between_the_two_measured_widths():
     """The constant is fitted, not derived, so pin what it was fitted to.
 
-    A carry command of 0.00558 must not clear it and a release of
-    0.0122 must. If someone retunes the grasp depth or the finger
-    force, these are the two numbers to re-measure.
+    The margin is measured from the width the fingers settled at
+    (0.00558 on the domino bench), so a carry command of 0.00611 must
+    not clear it and a release of 0.0122 must. If someone retunes the
+    grasp depth or the finger force, these are the numbers to
+    re-measure.
     """
-    assert 0.00558 <= _RELEASE_EPS < 0.0122
+    assert 0.00611 - 0.00558 <= _RELEASE_EPS < 0.0122 - 0.00558
+
+
+# The fan bench: a 29 mm block with closed_fingers 0.015.
+_FAN_BENCH_LAYOUT = GripperJointLayout(left_finger_joint_idx=7,
+                                       right_finger_joint_idx=8,
+                                       open_fingers=0.04,
+                                       closed_fingers=0.015)
+
+
+def test_split_actions_settling_on_a_wider_block_is_not_a_release():
+    """Regression, measured on run_20260915_140946.
+
+    Grasp commands ``closed - 0.01`` = 0.005; the fingers stop on the
+    block at 0.0143 and the carry commands that width. 9.3 mm above the
+    grasp command cleared the old 8 mm margin, so every Pick shipped
+    close, open, close: the hand let go right after grasping, lifted
+    empty and re-grasped 2.6 cm higher up the block. The release that
+    follows (0.0253) must still register.
+    """
+    pytest.importorskip("babyrobot")
+    carried = [0.04, 0.005, 0.0143, 0.0143, 0.0143]
+    assert _commands(carried, _FAN_BENCH_LAYOUT) == ["open", "close"]
+    released = carried + [0.0253, 0.032, 0.04]
+    assert _commands(released, _FAN_BENCH_LAYOUT) == ["open", "close", "open"]
 
 
 # -- the guarded press --------------------------------------------------------

@@ -38,24 +38,13 @@ _MISSING_BABYROBOT = (
     "    git submodule update --init submodules/BabyRobotPredicator\n"
     "    pip install -e submodules/BabyRobotPredicator")
 
-# How much wider than the GRASP COMMAND counts as a release. The splitter only
-# ever sees commands, never achieved positions, so this is measured against
-# what Grasp asked for -- not against where the fingers came to rest.
-#
-# STOPGAP, and a fitted constant rather than a derived one. After a grasp the
-# carry phases command `achieved - 1mm`, and the fingers stall on the object
-# well short of the grasp command, so the carry command sits ABOVE it without
-# anything having been released: measured on a Pick as 0.00000 -> 0.00558,
-# which cleared the old 0.005 by 0.58mm and shipped close, open, close to the
-# arm. A genuine release measures 0.0122 on the same scale. 0.008 is simply a
-# value between the two.
-#
-# It cannot be derived, because the two cases are indistinguishable from the
-# command stream: both are "widen after a grasp" and only the magnitude
-# differs. The real fix is to stop inferring intent from widths and carry the
-# skill's own finger_status through on Action.extra_info, at which point this
-# constant only guards actions that arrive without it.
-_RELEASE_EPS = 0.008
+# A release is a commanded width this much above the grasp reference.
+# The reference is the width the fingers settled at on the object (the
+# commands right after a close that stay within the closed band), so
+# the margin only has to clear the jitter of a carry: 0.5 mm on the
+# domino bench, 0 mm on the fan bench, against releases of 6.6 mm and
+# 11 mm.
+_RELEASE_EPS = 0.005
 
 # The tag a press skill puts on its descent actions (``Action.extra_info``
 # ``{"segment": "press", "hold_seconds": ...}``; see
@@ -289,6 +278,9 @@ def _split_actions(actions: Sequence[Action],
     moves: List[Tuple[float, ...]] = []
     press: List[Tuple[float, ...]] = []
     press_hold: float = 0.0
+    # True right after a close: the next commands may be the fingers
+    # settling on the object (see below).
+    settling = False
 
     def flush_press() -> None:
         nonlocal press, triggers
@@ -320,6 +312,21 @@ def _split_actions(actions: Sequence[Action],
             continue
         flush_press()
         v = float(arr[layout.left_finger_joint_idx])
+        if cur_grip == "close" and settling:
+            # A grasp commands a width the object stops the fingers short
+            # of, and the skill's next commands carry the width it then
+            # reads back with the object in hand. That widening is the
+            # fingers settling, not a release -- judged against the
+            # commanded width it read as one (9 mm on a 29 mm block
+            # against an 8 mm release margin), which shipped an open right
+            # after the grasp, a lift with nothing in hand, and a re-grasp
+            # higher up the block. Widths still at or under the closed
+            # threshold become the grasp reference instead.
+            if grip_ref < v <= closed + close_tol:
+                grip_ref = v
+                moves.append(arm_only(arr))
+                continue
+            settling = False
         if cur_grip == "close":
             # Judge a release against the GRASP width, not against
             # `closed_fingers`. Otherwise the release width is still under
@@ -337,6 +344,7 @@ def _split_actions(actions: Sequence[Action],
                  and v < open_ref - _RELEASE_EPS else "open")
             if g == "close":
                 grip_ref = v
+                settling = True
         if g != cur_grip:
             if g == "open":
                 open_ref = v
