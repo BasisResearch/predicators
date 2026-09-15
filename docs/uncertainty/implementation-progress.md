@@ -1,14 +1,368 @@
 # Uncertainty simplification: implementation progress
 
-Updated September 12, 2026.
+Updated September 14, 2026.
 This tracks implementation of the [simplification proposal](simplification-proposal.md).
 The incumbent estimator remains the production default.
+
+## Current stage
+
+Stage 0 interface preservation is complete, with scripted behavior parity checked.
+Stage A has implemented probability and replay components, but physical support and numerical validation remain incomplete.
+The active work is Stage B offline comparison; Stage C live posterior use and Stage E retirement have not passed their evidence requirements.
+Stage D execution smoothing remains optional and deferred.
+The full plan remains incomplete, and the incumbent estimator remains the production default.
+
+The [independent-prior representation](independent-prior-factors.md) now supports an explicitly checked product of a sampled joint marginal and independent uniform prior factors.
+Compute-node check `22717200` passes 27 focused tests, typing, repository lint and formatting checks.
+The consumer preserves retained correlations, exact analytic quantiles, full-target provenance and unavailable-assessment behavior; production integration is unchanged.
+The reduced Boil target removes the three unobserved heating coordinates while preserving the original full target score.
+Native preflight `22717213` passes 56 assignments across eight source states, with 792 native actions and four contract guards.
+Independent reader `22717214` also passes, with 264 fresh native actions and a rejected placeholder coordinate.
+Both small fitting fixtures and readers now pass, including 4,224 fresh native actions per reader.
+Full fits `22717256` and `22717258` are running with final-target verification queued.
+The [reduced Boil forecast adapter](reduced-boil-forecasts.md) restores independently sampled thermal priors per complete trajectory while preserving retained joint rows and weights.
+Its twelve source guards, ten malformed-history checks and nonuniform density/variance reference pass in `22717364`.
+Native forecast fixture `22717373` completed 128 histories and 40,656 native actions.
+Independent reader `22717375` also passes, checking 304,128 joint factors and using 6,864 additional native actions, including two fresh complete histories.
+Both full forecasts, their independent readers and the final comparison are dependency-queued behind successful fit and fixture verification.
+Comparison fixture `22717399` preserves all seven earlier controls while explicitly retaining both pending new outcomes.
+No full reduced fit or new agent result is available yet.
+
+The [Balloons transition diagnostic](balloons-transition-sensitivity.md) now verifies 32 paired continuations and 9,400 native actions.
+At one selected fitted state, removing future joint and velocity noise eliminates bursts in four continuations, but does not recover the goal; the other selected state does not improve.
+This isolates a contribution from the physical discrepancy model without establishing a replacement posterior or an agent improvement.
+The subsequent velocity-component audit verifies another 32 paired interventions and shows that both reset events and continuous noise can cause bursts, depending on the fitted state.
+Sixteen verified conditional parameter profiles expose both a much better fitting point than one retained sample and disagreement between fitted score and future quality at the other selected state.
+An unchanged-target proposal audit verifies 52 proposal densities and motivates a matched guide-center-only comparison.
+Native validation `22714576` passes exact archived replay, future-data isolation, factorization and serial/parallel checks.
+Array `22714577` now runs the two original numerical seeds with only the parameter proposal center changed to the fixed program defaults; original priors, likelihood and sampling budgets remain unchanged.
+The default-centered seed 621 fit `22714577_1` and its reader `22714629` have completed; all 64 final native targets and the checkpoint reproduce, with one surviving original lineage.
+This does not establish mixing or prediction quality.
+The paired seed 620 fit `22714577_0` and reader `22714628` have also completed, with the same final-target reproducibility and one surviving original lineage.
+Both default-centered posterior forecasts remain pending or running; their comparison is incomplete.
+The new weighted forecast adapter and independent reader `22715007`/`22715008` have passed, checking both broad and local proposal mappings, complete native prefixes, generation and density histories, and rejection of the old guide when decoding new particles.
+Full forecasts `22715115`/`22715117`, readers `22715116`/`22715118`, and comparison `22715120` are dependency-queued behind the verified completed fits.
+The comparison retains both earlier fits and the incumbent, including prediction metrics and computation costs; its fixture `22715119` passes while correctly leaving the new outcomes pending.
+The [parameter-dependence audit](balloons-selective-guidance.md) and independent reader `22715205`/`22715206` have completed all 46 native cases and twenty marginal checks.
+Changing five parameters separately or together leaves both tested fitting histories and scores exactly unchanged, while the original fits retain very narrow marginals for them.
+A selective guide with uniform proposals on those coordinates and 20% block refresh moves now passes native validation `22715307`, including 32 default-parity and 32 independent mixture-density checks.
+Paired fits `22715405` are running with final-target readers `22715406`/`22715407` dependent on completion.
+The selective proposal's weighted future adapter and independent reader `22715541`/`22715542` now pass, including rejection of a decoder that omits the selective mask.
+Forecasts `22715569`/`22715571`, independent readers and the six-population comparison `22715574` are dependency-queued.
+The comparison fixture `22715573` passes its marginal and configuration guards, retaining the four pending forecasts explicitly.
+The comparison preserves the original and default-centered controls and reports parameter spread alongside future predictions.
+It retains the complete prior, likelihood and Metropolis correction and does not assume global parameter independence.
+
+The [Bridge recovery](bridge-memory-recovery.md) validates both stage-26 checkpoints after the original fits exhausted their 64 GiB allocations.
+Both complete numerical prefixes and four fresh native targets reproduce exactly.
+After fixing and checking a JSON-container comparison in the resume launcher, array `22714037` now resumes the same fits with 128 GiB per allocation, with replacement fit readers and the complete forecast/verification pipeline queued.
+This is recovery from an infrastructure interruption; the incomplete fits are not model or agent outcomes.
+
+The [Fan fixture diagnostic](fan-static-fixtures.md) now isolates a practical forecast sensitivity after the speed-reflection result.
+Two verified scene-exchange audits use 4,884 native actions and retain three geometry-rejected candidates.
+At the two selected scenes, exchanging the target pad's pose transfers the final-goal difference, while switch 2's pose changes one activation-time label.
+The target heights differ by approximately 9.7 mm.
+A third verified audit uses 2,640 native actions and isolates the final-goal change to target z; switch 2 y accounts for its one-step activation difference.
+An alternative observation model removes motion-discrepancy factors only from 30 source-established fixed-fixture coordinates and retains the original sensor noise.
+Its saved-history audit and independent scalar reader pass 128 histories and 3,840 fixture factors, but importance reweighting collapses to approximately one effective sample per population.
+Fresh matched inference has passed native preflight `22712355` with 8,192 actions and exact initial-state comparisons, plus 4,096 independent target-reader actions in `22712364`.
+The two full fits are submitted as array `22712476` on compute nodes, retaining the original 64 particles, 32 temperatures, eight moves and evaluation budget.
+The new model's weighted future adapter now passes its native fixture and independent reader: 64 full weighted histories plus one exact repeat, 8,580 native actions, full checkpoint/density/moment checks and eight corruption rejections.
+Full forecasts `22712813` and `22712819`, readers `22712820` and `22712825`, and comparison `22712836` have completed.
+The revised static-fixture model reduces between-fit position disagreement from 6.69 mm to 0.619 mm, and both goal Brier scores improve over the incumbent on this recording.
+However, maximum goal-probability disagreement across the future remains 0.3673, and 57/64 and 62/64 retained histories assign zero density to the recorded future.
+The practical improvement is partial and does not establish numerical or predictive acceptance.
+This is an explicitly changed discrepancy law, not a claimed sampler-only improvement or accepted posterior replacement.
+
+The [Fan reflection diagnostic](fan-reflection-diagnostic.md) now verifies a conditional ambiguity that helps explain disagreement between independent parameter fits.
+At two fixed sampled scenes, ten tested speed pairs `v` and `1-v` per scene have exactly equal fitting-prefix likelihoods.
+The original native prefixes reproduce exactly, and all 119 other coordinates remain unchanged across the profiles.
+The independent reader passes all 60 profiles and attributes the zero future likelihoods in 127 of 128 original histories to exact event mismatches.
+A full-population reflection audit `22711267` and independent reader `22711276` now pass all 128 pairs, totaling 33,792 native actions.
+It preserves the declared target and uses only fitting-prefix data for a lazy Metropolis transition; future predictions remain a separate assessment.
+All reflected candidates have equal fitting-target scores, but representing both speed branches leaves the event and goal forecasts unchanged.
+A separate saved-history audit confirms identical event/goal curves within every pair and maximum future ball-coordinate changes of only `1.1098e-6` m.
+The practical disagreement between populations therefore remains; this motivated the initial-scene and event diagnostics reported above rather than a speed-reflection sampler change.
+This is a numerical diagnostic, not an accepted posterior or agent-performance result.
+
+The [Boil supported-inference diagnostic](boil-supported-inference.md) now reproduces the original first-update concentration on both shared-variance seeds.
+The original base weights already have effective sample sizes 2.264 and 1.074 before the remaining trajectory likelihood is introduced.
+Whole-joint rejection collects 32 finite candidates in 132 and 128 evaluations; placing all finite factors under tempering preserves the final target and gives initial-temperature effective sample sizes 31.700 and 31.815 on those same retained populations.
+Both corrected independent readers pass all retained native targets, rejection/RNG and checkpoint checks, scalar ESS references, and six corruption controls.
+The initial diagnostic performs 29,304 native actions across both seeds, and fresh reader verification adds 8,448.
+The original reader's report-field naming error is preserved separately; it is a checker failure rather than a model or agent outcome.
+Both small fitting fixtures and their numerical/native readers have now passed, including exact complete proposal/target/checkpoint traces and every final native target.
+Full paired fits `22709091` and `22709092` and full-fit readers `22709093` and `22709094` have completed successfully.
+They use 15,001 and 14,944 evaluations, respectively, and each retains one original particle lineage; final numerical and predictive adequacy remains unestablished.
+These compare the same original Boil target under supported initialization and a 64-stage finite-factor tempering path; stable final inference and reserved-future prediction improvement remain unproven.
+The [weighted Boil future adapter](boil-supported-inference.md#weighted-future-comparison) is implemented with exact completed-checkpoint recovery, unchanged positive weights and complete joint histories, and separate generation and future-density paths.
+All ten source guards, eight malformed-history checks and an independent nonuniform-weight reference pass.
+Its native fixture and independent reader have passed: 96 histories, 29,172 generation/check actions, 228,096 verified joint factors and 3,828 additional reader actions, including two exact fresh complete histories.
+Full forecasts `22709874` and `22709875`, readers `22709879` and `22709880`, and comparison `22709887` have completed.
+Both new fits remain worse than the incumbent on bubbling prediction, and their final-goal probabilities differ by 0.2054.
+Supported initialization improves the initial population but has not established adequate final inference or prediction.
+The validation and forecast work uses a second matching-CPU compute node with exact prefix/replay checks; the frozen fitting inputs are unchanged.
+
+The [Boil heating investigation](boil-unobserved-heating.md) now identifies an information limitation in that 132-action prefix: its exact burner observations are all off, so the frozen model cannot constrain burner radius, heating onset or heating width.
+Forty verified fixed-history interventions preserve the full fitting score; changing only onset and width to the incumbent defaults removes the bubbling error on all eight selected future paths.
+The incumbent itself reports these parameters as unconstrained and retains their defaults.
+An explicit conditional-prior integration now covers all three heating parameters across all 512 weighted generated histories, with independent order-statistic and integral verification over 67,584 future frames.
+It uses no additional native actions, improves bubbling RMSE from 0.3386/0.3164 to 0.2873/0.2965, and reduces between-fit final-goal disagreement from 0.2054 to 0.0247.
+These moment calculations preserve the other fitted coordinates and weights; they neither establish full numerical adequacy nor supply a new future-density estimate.
+This motivates an explicitly factorized inference representation and an additional informative-heating prefix, while retaining the original extrapolation case and incumbent default.
+
+
+The [Bridge causal future generator](bridge-causal-futures.md) now passes four complete native histories and an independent joint/reach/memory reader, totaling 4,744 actions.
+It preserves the checked 600-action prefix and generates the 586-action suffix without future observations, retaining one sampled variance per joint throughout each continuation.
+The [complete Bridge joint target](bridge-joint-inference.md) now composes the original parameter/scene priors, exact-rate/latch factors and corrected scene/parameter proposals.
+Its eleven-case native preflight completed with seven finite targets, two geometry rejections and two exact-event rejections; all repeated calculations are exact.
+Independent target verification passes within 2.9104e-11, but both first 32-candidate populations have zero complete support.
+A target-preserving local mixture then finds three and twelve finite candidates; both populations still concentrate to effective sample size approximately one at the first temperature.
+Base-weight concentration is already severe, so improved initialization is required in addition to any temperature-schedule change.
+The optional [complete-support initializer](support-initialization.md) now redraws entire joint candidates with rejected evaluations charged to the same budget.
+All 35 focused functional tests and 32 exact default-path comparisons pass, together with type, lint and pinned format checks.
+Both native fixtures and independent readers now pass: 32 supported candidates are collected in 209 and 123 evaluations, with effective sample sizes 30.06 and 31.03 at temperature 0.0001.
+Paired full fitting pilots `22706932` are running with 64 temperatures, blocked rejuvenation and a 20,000-evaluation budget per run.
+Both have completed their first two temperature steps with all 32 initial lineages retained; these very early diagnostics do not establish adequate exploration.
+The [generalized forecast adapter](bridge-posterior-forecasts.md) passes native checks on two complete joint candidates, with 10,688 actions and exact generated/density histories; the independent reader also passes for both candidates.
+The reserved assessment is prepared: the clean geometric bridge goal is true only at the final step, while direct evaluation of noisy observations misses it throughout the suffix.
+The weighted population driver now passes a 13,060-action native fixture, independent per-history and mixture checks, ten source guards, eight malformed-history rejections and separate forecast-bank checks.
+Full forecasts `22708283` and `22708284`, their readers `22708285` and `22708286`, and incumbent comparison `22708287` are queued behind the live fit verifiers.
+No full-population prediction result or replacement acceptance is available yet.
+The Bridge fixture separately tempers all finite reduced-target factors while keeping exact support hard and preserving the final target.
+The [conditional future-density audit](bridge-future-density.md) also passes, with 8,318 native actions and independent variance, reach and output-factor checks.
+The generated histories reproduce exactly, but the fixed starting candidate gives very low likelihood to the recorded suffix, dominated by continuous output disagreement.
+These close further integration components while leaving posterior exploration and predictive acceptance open.
+
+The shared-variance Boil forecast adapter has now completed its compute validation as `22699944`, with 2,376 native actions, exact checkpoint recovery, independent weighted summaries and twelve corruption rejections.
+Both replacement Boil fits completed all 32 stages with 7,357 and 7,293 evaluations, but each retains one initial ancestor.
+Full forecast generation has completed for both populations, producing 288 saved histories each.
+Reader jobs within `22700066_0` and `22700067_1` completed successfully in 1:33:57 and 1:34:04; comparison `22700111` has also completed.
+The [verified Boil comparison](shared-variance-discrepancy.md#completed-boil-forecast-comparison) shows improved pose and bubbling predictions relative to fixed variance, but continued regression against the incumbent.
+Shared-variance replicas predict final goal probabilities 0.649 and 0.189 for the observed successful suffix, while the incumbent predicts one; these are forecast probabilities, not agent solve rates.
+Replica disagreement and one-ancestor populations keep the replacement gate open.
+These preserve the previous fitting and forecast seeds and compare the shared-variance law with the fixed-variance law and incumbent selected point.
+The [Bridge incumbent control](bridge-incumbent-control.md) has also completed its 600-action fit and independently verified 586-action forecast assessment.
+It records two suffix glue-reading mismatches, while other exact channels still disagree and the complete replacement target remains unfinished.
+The follow-up [Bridge joint-conditioning audit](bridge-initial-scene.md#conditional-robot-joint-trajectory-audit) reproduced all five original root failures and compared exact-joint conditional paths with fresh repeats, totaling 12,000 native actions.
+Independent verification passed 27,000 normalized joint factors and four corruption controls.
+Joint and finger-readout mismatches disappear, but all sixteen glue mismatches remain on the all-rest root, alongside six robot pose/orientation channels.
+The next Bridge work must resolve those remaining conditional-output and geometric constraints; more replay repetitions alone cannot supply a supported posterior.
+The [Bridge glue-support follow-up](bridge-glue-support.md) independently checked 73,082 radius/height cells across 29 repeated nearby scene trajectories, but none supplied exact deposition support.
+A separate stochastic-reach trial retains exact glue observations and their normalized transition probabilities rather than assigning them sensor noise.
+Its first native case supports all 600 glue updates with bond dwell 25; the dwell-30 control correctly rejects action 583.
+Independent verification passed all 1,471 reach intervals, literal model-memory updates and four corruption controls.
+The continuous-output composition and retained exact-rate factor now pass reader `22702562`, but the finite supported point has very poor noisy block-orientation likelihood.
+Three initial resting-face choices dominate that error, motivating a native orientation-support diagnostic before fitting.
+The initial-face scan and independent reader now cover all 36 body/face cases.
+The new prior-preserving categorical proposal passes sixteen functional tests and focused static/format checks; its Bridge adapter recovers seven native roots and verifies all 46,656 joint face weights.
+Complete conditional-trajectory and output checks for these face changes finished as `22703020`, with 7,306 native actions and independent probability/output checks.
+The combined correction preserves all 600 exact glue updates and removes the dominant orientation penalty; individual face changes can still lose exact support.
+An independently detected narrow-interval probability error is corrected and the failed artifacts are retained separately.
+The complete inference map, adequate exploration and future-prediction assessment are still required before a usable Bridge posterior can be claimed.
+
+The [Bridge glue attribution](bridge-glue-attribution.md) now proves a structural contradiction in the transferred parameterized program, beyond the original no-op control.
+Four exact `0, 0.2, 0.4, 1` progressions cannot arise from its constant-increment deposition law for any parameter setting under the preserved memory contract.
+Six geometry-conditioned development cases and an independent 7,116-step direct-rule verifier complete; clean recorded geometry still exposes wrong face selection and timing, and a saturation correction alone is insufficient.
+The follow-up nearest-face hypothesis identifies the observed face at all thirteen positive clean-geometry transitions, but a single proximity threshold fails the fitting-prefix labels in all four geometry/phase cases.
+An independent rotation and scalar-loss reader verifies 16,320 distances and 148 tested thresholds; face choice and deposition eligibility need separate treatment before causal replay.
+This identifies model revision as the next Bridge action; these conditional diagnostics are not causal forecasts or an accepted posterior.
+The next [Bridge eligibility and native revision](bridge-glue-attribution.md#nearest-eligible-face-with-the-historical-drip-conditions) now completes eight conditional grid cases and five full causal native trajectories.
+Nearest-eligible-face scoring plus a progress latch reduces glue mismatches from 3,695 in the transferred historical program to 23 with noisy-prefix geometry parameters, on the same 1,186-action recording and public noisy initial state.
+Independent readers verify 5,704 grid scores, 9,488 rule steps, all five native artifacts, archived no-op parity and exact repetition of the revised default.
+The remaining default glue errors are three delayed deposition readings and two bond-consumption events delayed five actions; 22 exact channels still disagree overall.
+This is a development program revision, not an estimator comparison or agent result; subclass parity and the conditional probability target remain next.
+The [revised Bridge subclass](bridge-subclass-inference.md) now matches all observations, learned memory and attachment-command counts/types over four complete native trajectories, totaling 4,744 actions.
+The exact-rate component also passes: 600 actual-rule latch cases reproduce the analytic conditional support and retained rate-prior density, with 1,812 rule steps and no native rollout.
+That component assumes an eligible deposition schedule; full latent geometry, remaining exact-output constraints and a complete Bridge inference target are still required.
+The [revised Bridge incumbent control](bridge-incumbent-control.md) now freezes a 600-action fitting prefix containing the first bond and reserves the remaining 586 actions, including the second bond.
+Preflight `22696941` completed all 7,116 native actions with exact helper/manual agreement; the full serial incumbent fit `22697046` is running, with independent forecast verification `22697048` dependent on completion.
+The new Bridge probability-model arm remains unfinished; this pipeline does not substitute a point fit for the planned posterior comparison.
+The [Bridge initial-scene construction](bridge-initial-scene.md) now declares the six-face rest/moving body cases, uncertain fixed-site mounting, all robot joints and the revised program's reset-memory boundary.
+Its 140 augmented proposal coordinates represent 30 through 101 continuous physical root coordinates across cases, before parameters and trajectory discrepancies.
+Native geometry audits verify the rounded-box support formula for blocks and the bottle, while retaining the failed ideal-contact assumption for thin site markers.
+Corrected root audit `22698304` completes sixteen cases: one is feasible and repeats all 64 actions exactly; fifteen retain collision rejections.
+Independent reader `22698424` verifies 182 proposal-density ratios, 384 guided coordinates, all root support charts and stored rejection witnesses.
+Geometry-aware moving-height guidance `22698483` and independent reader `22698502` have completed, with the original prior and full density corrections retained.
+Five of sixteen stratified roots are now feasible, including moving-body and moving-robot cases; all five repeat exactly over 64 actions, totaling 640 native actions.
+Long-prefix job `22698641` and reader `22698656` also completed: all five roots repeat 600 actions exactly, totaling 6,000 native actions.
+All five still contradict exact recorded outputs, starting at actions 1-34 depending on the root; this leaves full-prefix conditional support and the Bridge posterior target open.
+
+The [Balloons population forecast adapter](balloons-prefix-forecasts.md#complete-population-forecast-adapter) now passes native replay, nonuniform weighted-summary, zero-density and no-refit checkpoint checks, including twelve malformed-result rejections.
+Both prefix fits, forecast/verifier jobs `22693026` and `22693027`, and paired report `22693044` have completed.
+Every positive-weight particle keeps its original weight, receives eight generated suffixes and eight separate conditional-density draws, and must reproduce its saved prefix likelihood.
+The [Balloons incumbent control](balloons-incumbent-control.md) completed its full fit as `22693806` in 39:11 and its independent complete-trajectory verification as `22693822` in 17 seconds; comparison `22693842` has also completed.
+The incumbent has lower box-height and speed errors than both new populations on this recording, although it also misses the final goal.
+The new populations disagree by 0.21909 m RMS in box height and up to 0.59913 in an individual burst probability, with large density-bank disagreements as well.
+Both assign zero empirical probability to the final win among generated futures; finite forecast completion does not establish reliable uncertainty.
+All three segments survived, but the incumbent's publication rules retained the original applied parameters.
+Its selected-point forecast reproduces reserved tie/burst/clip indicators but misses the final goal event; this is a recorded-action prediction result, not an agent failure.
+Its overlapping windows and rest-averaged starts remain intact; the comparison driver now verifies those averages after correcting its initial overly strict raw-frame check.
+
+The [Balloons prefix forecast fixture](balloons-prefix-forecasts.md) now covers all 171 reserved actions using a candidate selected only from the 64-action prefix.
+Twelve native histories reproduce that prefix exactly, and the independent reader verifies 25,380 joint factors or draws, 2,136 radial-density evaluations, full native replay and eight corruption rejections.
+Generation has no future-observation lookup; density evaluation separately averages conditional-history contributions while retaining zero-support draws.
+All eight density histories for this preliminary candidate contradict a recorded burst event, so their likelihood contributions are zero; this does not assess the running fitted populations or prove that conditional support is empty.
+Five small initialization-readout perturbations preserve the complete prefix exactly, while a deliberately inconsistent orientation is rejected by the reconstruction guard.
+The next step is to apply the verified forecast mechanics to completed prefix populations with their original weights and assess numerical stability and incumbent prediction differences.
+
+The [canonical Boil forecast path](boil-canonical-forecasts.md) now passes its native fixture, independent full-history verifier and completed-population adapter checks.
+The verifier checks twelve histories and 28,512 joint-transition factors, and rejects eight corrupted records.
+The adapter independently checks weighted moments, zero future support and exact checkpoint recovery, rejects nine additional corruptions, and repeats generated and density-evaluation paths exactly.
+Both Boil fits completed all 32 stages: numerical seeds410/411 used 7,455/7,317 target evaluations, respectively.
+Reserved-132-action forecast/verifier `22690863_1` has completed, including independent checks of 288 histories, 684,288 joint factors and 4,224 native reference actions.
+The other forecast/verifier, `22690858_0`, and paired report `22690864` have also completed.
+Both completed populations descend from one initial ancestor, so completion alone does not establish adequate exploration.
+Forecast generation cannot read future observations, and the original fitted weights remain unchanged.
+These are mechanical and offline comparison gates, not evidence of improved agent performance or permission to advance to live posterior use.
+
+The [Boil incumbent control](boil-incumbent-control.md) now represents the same historical filling/heating program through the current subclass interface.
+Four complete 264-action trajectories and all model memory match the archived literal-rule program exactly.
+The incumbent full fitter ran as `22691175` on the same 132-action prefix, with interval belief, fit-side noise handling and fit evidence enabled.
+The fit completed in 8:49, and independent literal-program verifier `22691200` completed in 19 seconds with every predicted frame and model-memory value matching exactly.
+The selected-point forecast matches the task-goal predicate on all 132 reserved frames, while the boiled predicate differs on one frame.
+The combined comparison `22691239` has completed and shows substantially worse motion and heating predictions from the new model on this recording.
+Its two jug-x RMSEs are 0.12922/0.12632 m versus 0.00170 m for the incumbent; boiled Brier scores are 0.25314/0.22527 versus 0.00758.
+Both new populations also retain one initial ancestor, so state/discrepancy assumptions and numerical exploration must be isolated before larger-budget fits or live use.
+The [Boil future-joint intervention](boil-joint-noise-attribution.md) now isolates one major motion failure: suppressing future perturbations reduces jug-x errors from tens of centimetres to millimetres on eight preselected fixed candidates, while holding their entire fitting prefixes and parameters constant.
+Both finger and arm perturbations can be harmful, and substantial heating errors remain after removing them.
+The native audit and independent reader completed all 32 intervention histories, eight additional repeats, mask/RNG checks and deliberate corruption rejections.
+The [shared-variance discrepancy](shared-variance-discrepancy.md) therefore replaces a fixed transition scale in a separate offline model with a normalized inverse-gamma variance per joint, integrated during fitting and shared across each generated future.
+Thirteen component tests, focused type/lint/format checks, eight native-prefix comparisons and 2,112 native actions pass; complete target factors agree with independent integration within 3.638e-12.
+Matched 32-particle Boil refits `22699492_0` and `_1` are running with the original physical priors, program, data, sampler configuration and seeds retained.
+The corresponding future fixture completed 1,848 native actions with exact generation/density round trips; independent reader `22699757` also passed, verifying four histories and 9,504 joint factors and rejecting three corruption classes.
+This is a model alternative under evaluation, not a validated posterior or a deployed replacement.
+This compares selected-point and posterior-mean predictions while retaining the explicit differences in initial-state treatment and discrepancy model; it is not an estimator-only ablation or an agent performance result.
+
+The separate [Balloons prefix experiment](balloons-prefix-inference.md) now fits only 64 actions and reserves 171 for later forecasts.
+Its guide does not reuse a center or population selected from the complete recording.
+Thirty-two candidate prefixes repeat exactly, with fifteen finite targets; independent verification confirms the future-data boundary, complete saved replays and exact serial/parallel targets.
+Continuous transition normalizers are annealed with the output likelihood while preserving the same final conditional target and exact-observation representation.
+The gated numerical pilots `22691680_0` and `_1` use seeds 620/621 and remain separate from the full-recording 300/301 pair.
+Both completed all 32 temperatures with 12,487/13,439 evaluations; checksummed checkpoints match the complete reports exactly, but each population retains only one initial ancestor.
+Their posterior adequacy and reserved-action forecasts remain unassessed.
+
+The [combined Domino assessment](domino-comparison-summary.md) now has all six completed 64-particle populations, their reserved-action forecasts and verified complete weighted histories.
+Matched local-only proposals fail all three initial stability screens; mixed local/full-range proposals reduce disagreement and pass both toppling screens, but still fail the position-mean screen.
+The fixed-initial-state approximation passes all three screens while showing worse position error and better toppling error than legacy on this recording.
+These are numerical replicas on one development recording, not agent seeds or evidence of calibrated uncertainty across tasks.
+All four [larger Domino fits](domino-budget-sensitivity.md), their forecasts and the eight-population comparison have completed.
+The 128-particle joint pair fails the position and toppling-curve screens; none of its six within-target comparisons across budgets passes all screens.
+The 128-particle fixed-state pair fails the final-toppling screen, and two cross-budget comparisons show final-probability gaps above 0.25.
+The earlier fixed-state agreement did not persist across budgets, so removing initial-state uncertainty is not a validated shortcut.
+Both treatments remain unassessed, with inference exploration and cost unresolved.
+The [coupled-direction audit](domino-coupled-directions.md) reproduces 16 archived point-state anchors exactly and evaluates 384 matched joint/scalar proposals.
+Broad donor-difference moves usually have very low acceptance; all 50 supported restitution-only moves leave the likelihood unchanged, exposing a misleading source of aggregate parameter movement.
+Smaller steps improve joint movement in one population while the other barely moves; removing jitter reverses which population benefits, so the three completed audits do not establish a general sampler repair.
+All 1,152 proposals and native replay checks are verified.
+The [factor attribution](domino-factor-attribution.md) now reproduces 48 matched cases: joint channel 6 dominates 15 of 16 selected score changes, with median 96.8% of absolute channel changes coming from robot observations.
+All sampled boundary contact-pair sets match between those pairs, and an independent Gaussian calculation verifies 93,600 scalar time factors.
+The subsequent 124-case local-sensitivity test also completes: non-restitution joint-response derivatives vary strongly across 1e-6 to 1e-4 parameter changes, while 241,800 additional scalar factors verify independently; a simple gradient proposal is not supported.
+The separate [joint-transition model comparison](domino-joint-transition.md) now passes 124-case probability/replay checks and full 97-action future-generation/density validation.
+It retains every joint transition density and cached-link observation timing while removing only the former joint AR output factors as an explicit model change.
+Both 64-particle point-start fits and their independently verified full-suffix forecasts have completed.
+The new pair agrees to 0.215 mm in position means but differs by 0.166830 in final-toppling probability, failing the declared 0.15 limit.
+Future-bank variability is much smaller than fitted-replica disagreement, and the new model has worse toppling scores than the matched older model on this recording despite slightly better position error.
+The complete artifacts retain original weights, separate generation from conditioned density evaluation and reject six deliberately corrupted inputs.
+Matched 128-particle follow-ups `22688869_0` and `_1` completed all 32 temperatures with 31,921/31,959 evaluations, retaining 15/10 initial ancestors.
+Complete populations and weights match their checksummed checkpoints; forecast/verifier jobs `22689058_0` and `22689059_1` and six-pair budget report `22689095` have completed.
+The 128-particle pair passes all three screens, with 0.200 mm position disagreement and a 0.127143 final-toppling gap, but one cross-budget pair still fails at a 0.192756 final-toppling gap.
+Four of six comparisons pass all screens; this does not establish budget-stable inference or close the uncertain-initial-state requirement.
+These remain offline diagnostics; neither the short fixture nor a completed sampler is an approved posterior.
+
+The [Fan prefix comparison](fan-prefix-comparison.md) has two completed 64-particle fits and causal forecasts on 68 reserved actions.
+Position errors are lower than legacy on this recording, but goal-probability curves disagree by up to 0.33212, and each empirical full-future density depends on only one supported particle.
+The larger native preflight `22676726` matches the original prior and target identity and verifies exact serial/parallel initialization at 128 particles.
+Both larger fits, forecasts and cross-budget summary `22677060` are complete, verifying 384 complete histories and all six pairs.
+The larger pair still differs by 5.043 mm in position means and up to 0.298481 in goal-probability curves, with cross-budget goal gaps as large as 0.549676; numerical adequacy remains unestablished.
+
+The [isolated carried-center comparison](carried-center-comparison.md) has completed both arms and report `22676128`.
+All six fits on identical data select the same parameters and produce exactly identical complete predictions.
+Fixed centers preserve every diagnostic report across all three repetitions; carrying changes friction, restitution and mass widths after the first fit, then remains stable.
+This supplies active-carry repeated-data coverage and supports an immutable original prior, but does not establish unchanged future predictions or planning decisions.
+The original harness reproduction also confirms that applying fitted values to a reused subclass reference can change registry defaults even with explicit carrying off; the corrected comparison isolates that effect without changing production behavior.
+
+The first full-recording Balloons fit, numerical seed 300, has completed; seed 301 remains ongoing.
+After Slurm confirmed `22671041_0` timed out, its seed-300 fit continued as `22684078_0` from completed stage 28 and 15,107 evaluations under the same frozen runtime, prior and numerical budget.
+Its two previous eight-hour allocations remain part of the cost.
+Seed 301 subsequently reached a confirmed allocation timeout and continued as `22686274_1` from completed stage 24 and 13,819 evaluations, preserving its existing numerical budget and prior sixteen allocation hours.
+Seed 300 has now completed all 32 stages with 17,200 evaluations, 29 resampling events and one surviving initial ancestor.
+Its report and checksummed checkpoint agree exactly on the saved joint population and weights; numerical availability remains unevaluated.
+The final 2:25:46 allocation adds to its prior sixteen hours, and the full fitting recording is not a held-out prediction test.
+Both full-recording Fan fits and their verified report have completed, but their narrow empirical speed distributions do not overlap and each retains one initial ancestor; they remain unassessed.
+The [repeated-dataset Gaussian reference](repeated-dataset-reference.md) has completed all 512 fits.
+All three parameter-coordinate groups pass the declared CDF-error screens at 2,048 particles; both correlated coordinates fail at 256 particles despite apparently plausible coverage.
+This supplies larger-budget synthetic prior-predictive reference evidence, while physical-domain calibration and live-agent acceptance remain separate.
+The new [constant-output guide calculation](constant-output-guides.md) passes 33 tests and focused static checks, and matches all checked Fan fixture likelihoods while retaining correlated discrepancy.
+A prefix-only saved-history audit verifies the 30 fixture coordinates and a 3.312 mm Gaussian guide scale.
+The guided proposal subsequently passed density correction, original physical target and serial/parallel initialization checks.
+Two guided 64-particle fits and gated reserved-future forecasts are submitted, with the original prior, program and observation model retained.
+Both guided fits, forecasts and the four-population summary `22679496` are complete, with all 256 positive-weight histories verified.
+The guided pair lowers position errors but retains a 0.3125 maximum goal-curve disagreement and very different empirical fan-speed quantiles; posterior adequacy remains unestablished.
+Initial weight effective sample size is worse than the original proposal, so this guide remains an exploratory comparison rather than an improvement claim.
+The [guided-tempering reference](guided-tempering.md) completed 16 exact Gaussian fits; annealing the finite mixture correction reduces error in these references while preserving the final target.
+Its native Fan preflight preserves the target and serial/parallel state, with initial effective sample size 15 instead of 2.010.
+Both alternative-bridge fits and forecasts are now complete: summary `22680197` verifies all six populations and 15 pairs, but the tempered pair differs by 6.656 mm in position means and up to 0.371003 in goal curves.
+The tempered seed-302 empirical complete-future density has zero supported particles; this is retained as a failure of that density estimate, not converted to a finite value.
+The completed Fan budget, guide and tempering comparisons do not close Stage B.
+The first guided forecast snapshot failed before native actions because it lacked the future-likelihood method.
+The corrected snapshot reuses the completed fixture and passes full native replay.
+A controlled same-node audit attributes the 1.11e-16 cross-machine coordinate mismatch to NumPy instruction dispatch; disabling the extra AVX-512 dispatch options restores exact coordinates for the saved fixture.
+Strict physical verification remains pinned to the validated source runtime; this does not certify general cross-hardware trajectory replay.
+The [historical Bridge/Boil model audit](historical-model-controls.md) now expands the incomplete-model analysis beyond the original parameter-free artifacts.
+All thirteen saved version files across the six original sweep runs remain parameter-free; two earlier learned programs are therefore tested as separate frozen transfer controls.
+Boil's transferred filling/heating dynamics improve scalar errors, while Bridge's transferred glue dynamics produce more exact glue-reading mismatches than its no-op control.
+Both complete replays retain exact-output contradictions, so neither is an approved complete probability model or a replacement posterior.
+The subsequent [Boil transition/initial-state audit](boil-transition-and-initial-state.md) verifies that joint corrections alone worsen the fixed-point switch history, while cache refresh and identity joint resets preserve every predicted frame.
+Ten initial-slider candidates retain the failure, but estimating static fixture x/y positions from the first 65 observations yields two supported complete conditional histories with the same learned dynamics and exact switch checks.
+These point-state cases are independently verified and supply candidates for explicit initial-state inference; they are not posterior forecasts or Stage B acceptance.
+The [Boil fixture proposal](boil-fixture-proposal.md) now separates an explicit uniform fixture-position prior from a first-65-observation Gaussian guide, retaining the complete prior/proposal density correction.
+Independent quadrature checks recover original-prior moments and posterior reference integrals under different guides.
+Twenty-seven functional tests and focused static/format checks pass.
+The native 29-history audit and independent reader are complete: all 18 guided fixture draws have supported full conditional histories, all six broad draws retain zero likelihood, and the reader verifies 68,904 joint factors plus all guide densities and inverse quantiles.
+Full initial-state composition and posterior adequacy remain open.
+The subsequent [Boil articulated-state component](boil-articulated-prior.md) adds a direct original-prior map for the unobserved faucet joint while preserving the existing conditioning interface for the two switches.
+Sixteen functional tests and focused static/format checks pass.
+All 16 sampled joint triples have supported full conditional histories; independent readers verify 48 initial joint draws, 42,768 transition factors, and exact literal-rule reconstruction of all 4,752 saved output frames and model-memory states.
+The next gate is trustworthy decision-relevant prediction within the declared computation budget, followed by saved-decision shadow comparisons and matched live use.
+No current physical posterior has been approved for the acting agent.
+
+## Recent evidence
 
 The new offline [stochastic future integration component](stochastic-future-integration.md) retains exact joint/speed density factors and reports Monte Carlo concentration explicitly.
 Forty functional tests and focused static checks pass.
 Its first native Balloons diagnostic reproduces the reference trajectory but fails all four numerical comparisons: eight and 64 complete paths remain dominated by a single contribution.
 This is an unresolved integration problem, so these scores are not used to compare estimators or change agent behavior.
 A native factor audit reproduces ten selected paths exactly and attributes their output-score variation to the box and attached balloon positions; robot factors remain invariant.
+The subsequent offline sequential integrator retains complete histories and block density normalizers, with explicit ancestry diagnostics.
+Forty-four functional tests and focused static checks pass.
+All four native sequential integrations completed with exact replay and factor accounting, but both independent-run comparisons fail the declared density-stability diagnostic and retain only one or two original ancestors.
+The next offline proposal mixes original and position-guided velocity directions while retaining the full mixture correction, so it targets the same probability model.
+Fifty-one functional tests and focused static checks pass; all four guided native pilots completed, but both whole-history density comparisons still fail the declared consistency diagnostic.
+The two [Domino conditioned-base pilots](domino-joint-inference.md#completed-numerical-pilots-september-13) also completed, with strongly different parameter summaries and one original ancestor each; numerical adequacy remains unestablished.
+The completed Domino population replay gives similar mean Cartesian errors (1.16 and 1.21 cm), but predicted toppling differs by as much as 0.90625 at the same frame.
+The disagreement therefore affects goal-relevant predictions despite similar averaged feature errors.
+Fan recovery jobs are active after confirmed allocation timeouts, and the two Balloons fits have been submitted for continuation from their saved complete-stage checkpoints under the same numerical budgets.
+
+The completed matched Domino diagnostic now compares all three forecasts on the same 97-action suffix, with stored truth used only for evaluation after predictions were frozen.
+Legacy has lower Cartesian error, while the new populations have slightly lower frame-averaged toppling Brier error and substantially different final toppling probabilities.
+This does not establish a replacement advantage, and the new multi-hour fits retain an unresolved cost problem.
+The next [ordered batch evaluation component](batch-evaluation.md) combines each conditional map and likelihood into an indivisible worker operation, allowing isolated processes to evaluate a mutation sweep concurrently.
+Its scalar path retains the original random schedule, while batch mode uses a separate checkpoint identity and reserves its numerical budget before dispatch.
+Thirty-two functional tests, sixteen exact comparisons against the original scalar implementation and final focused type/lint/format checks pass.
+The native Domino check reproduces all target values and complete sampler output exactly across one and four processes, with a measured 3.76-fold sampler speedup; numerical adequacy remains unestablished.
+
+The subsequent [conditional-parameter slices and mixed proposals](proposal-refresh.md) identify a concrete exploration issue: restitution changes leave the complete fitting history unchanged at two checked scenes, yet the two populations retain narrow, different restitution ranges.
+A mixed local/full-range block proposal now preserves the same fixed conditional target while allowing larger numerical moves.
+Forty-one functional tests, thirty-two disabled-refresh compatibility comparisons and final focused type/lint/format checks pass.
+The native mixed-proposal check also matches target values and sampler output exactly between synchronous and four-process execution.
+Both mixed-proposal Domino fits and forecasts have completed; matched local-only controls are running, and numerical adequacy remains unresolved.
+
+The [initial-state ablation](initial-state-ablation.md) now supplies a first-observation-only point-start comparison while retaining the original parameter prior and output model.
+Its selected scene is feasible, repeats exactly and yields finite full-prefix likelihoods at 39 of 64 random parameter settings.
+Two parameter-only fits have completed; this is an explicitly labeled approximation, not an exact state observation.
+The [checkpoint-driven forecast follow-up](checkpoint-forecasts.md) now reproduces every complete history and aggregate metric from the earlier 64-row forecast exactly.
+Six follow-up jobs are submitted with dependencies on successful completion of their individual source fits; the mixed-proposal and fixed-initial-state pairs are complete, while the local comparison remains pending.
 
 The latest [likelihood cost reduction](likelihood-cost.md) preserves all 2,560 archived orientation densities and five complete Fan likelihoods exactly on the checked runtimes.
 It removes array reductions from two-term quadrature sums, making the measured density evaluations about four times faster while retaining the statistical model and numerical acceptance checks.
@@ -418,6 +772,22 @@ All 295 Domino and Fan training frames round-trip exactly; seven functional test
 Four cold-fit comparisons are submitted for the two 64-action windows and the two complete training recordings, using the actual legacy preparation and orchestration pipeline.
 The Fan audit separates its earliest broad support from later data-derived bounds and declares a fixed uniform prior for future posterior experiments without changing the latest program dynamics.
 These are comparison inputs and submitted experiments, not completed Stage B evidence or a production replacement.
+
+The [complete Boil scene audit](boil-full-scene-prior.md) now composes fixture poses, robot nuisance joints and motion, jug pose/motion/water and all articulated components under an explicit geometry-conditioned law.
+The corrected native audit completed 28 histories and 7,392 actions; two of sixteen sampled scenes have finite complete-recording likelihood, three are geometrically infeasible and eleven retain exact-event contradictions.
+Paired default/random parameter cases preserve identical physical histories for the fixed feature-only program.
+Fresh independent geometry reconstruction verifies all sixteen scenes, 464 body pairs and both native support probes per scene.
+Independent density and coordinate checks pass, including 66,528 transition factors, original-prior corrections and fifteen corruption controls.
+Literal rule evaluation also reproduces all 7,392 frames and model-memory states exactly across both parameter settings without additional native actions.
+This validates a fixed-program reuse boundary for future inference, while remaining a prior/support audit rather than a posterior or agent result.
+
+The [Boil prefix-inference integration](boil-joint-inference.md) implements a cache for parameter-independent physical histories and separates the first 132 fitting actions from 132 reserved actions.
+The archived-history reference verifies all factored targets against direct likelihoods to 1.456e-11, but native integration exposes initialization-order dependence in three tested contact trajectories.
+Restoring the old intermediate operation sequence restores exact agreement; this leaves an observation-derived numeric initialization path that must be removed before treating the scene construction as a generative prior.
+The fixed-template initializer passes full sixteen-scene preflight `22690049`, including fresh repeats, serial/parallel target equality, unchanged initial geometry and likelihood factorization.
+Three sampled candidates have finite fitting-prefix targets, and the maximum finite factorization discrepancy is 1.456e-11.
+Both gated canonical Boil posterior pilots, `22690118_0` and `_1`, are running with initialization checkpoints and eleven/seven finite targets out of 32 respectively.
+Their numerical adequacy and held-out predictions remain unassessed.
 
 ## Next gate
 

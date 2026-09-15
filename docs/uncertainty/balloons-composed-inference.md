@@ -5,6 +5,9 @@ This joins the previously tested [conditional velocity transition](transition-di
 It is an explicit stochastic model extension beside the deterministic reference and the production agent.
 It changes neither the sensor variances nor the exact tie, pop and clip observations.
 
+The later [prefix-only inference experiment](balloons-prefix-inference.md) fits 64 actions and reserves 171 for prediction assessment without reusing the full-recording guide center.
+Its results remain separate from the complete-recording support and inference results below.
+
 ## Accounting for each observation
 
 After each native action, the existing transition diagnostic conditions Gaussian joint-position corrections on the nine exact current-joint readings.
@@ -204,6 +207,18 @@ The original geometry normalizer and fixed initial robot-output factors cancel f
 Their numerical availability remains unevaluated until the separate assessment is complete.
 No resulting parameter distribution is routed to the acting agent by this experiment.
 
+## Checkpoint continuation, September 13
+
+Both original array tasks `22649168_0` and `22649168_1` reached their eight-hour Slurm limits with terminal `TIMEOUT` states.
+Numerical seeds 300 and 301 retained complete-stage checkpoints at stages 14 and 13, after 7,922 and 7,601 evaluations respectively.
+Their old progress reports still say running because the scheduler terminated the process; those reports do not override the terminal job states.
+
+Array `22671041` continues those same numerical seeds from the saved sampler populations and random states, using the identical frozen worker, target, proposal and 32,896-evaluation cap.
+Each continuation has another eight-hour allocation on node1391; the additional allocation is part of the total inference cost and is not a new experiment seed.
+The original checkpoints were copied and hashed before continuation in `logs/uncertainty_balloons_joint_pilot_20260912/continuation-20260913`.
+The first continuation has confirmed `resumed=true` with 7,922 saved evaluations; the other task is queued for resources at this update.
+No completed Balloons posterior or numerical adequacy result is available from these fits yet.
+
 ## Unconditional future-generation audit
 
 Compute job `22652531` validates the generation half of the stochastic forecast using the same mapped support witness and frozen learned program as the joint sampler preflight.
@@ -242,3 +257,17 @@ The successful report, source hashes, candidate coordinates and per-seed physica
 This audit supplies unconditional physical and observation generation, not the complete stochastic posterior forecast interface.
 Numerically assessed joint posterior weights and integration over future transitions remain required.
 In particular, future-density evaluation must use Gaussian joint and radial speed factors with conditional-history integration, rather than treating finitely many unconditional paths as exact-output equality components.
+
+## First completed full-recording pilot
+
+Seed 300 completed through continuation job `22684078_0` in an additional 2:25:46 allocation on September 13.
+Its two previous eight-hour allocations remain part of the approximately 18:25:46 allocated runtime cost.
+This is one continued numerical seed, not three experiments or an agent result.
+
+The final population has 128 particles after 17,200 evaluated proposals and all 32 temperature stages.
+It accepted 8,150 of 32,768 attempted moves, with 29 resampling events and only one surviving initial ancestor.
+The report and checksummed checkpoint agree exactly on all joint samples, weights, completed stage and evaluation count.
+The consistency record is `logs/uncertainty_balloons_joint_pilot_20260912/seed300-completion-check.json`.
+These checks establish a completed artifact, not adequate posterior exploration, calibrated uncertainty or trustworthy predictions.
+Seed 301 remains running as `22686274_1`; a paired assessment is not yet available.
+The complete 235-action fitting recording cannot also serve as an independent held-out prediction test for this fit.

@@ -114,16 +114,104 @@ It fits the same 64-action development prefix under fixed priors and an identifi
 Run `22637359_100` reached its four-hour Slurm limit before producing a completed sampler result.
 Its last saved progress report recorded 9,536 target calls; the scheduler reports `TIMEOUT`, not an agent outcome or a completed posterior.
 No sampler checkpoint existed in that frozen worker, so its best candidate cannot serve as a continuation state.
-The other numerical seed, `22637359_101`, remains a separate running fit with an eight-hour allocation.
+The other numerical seed, `22637359_101`, used an eight-hour allocation and subsequently completed.
 
 Replacement `22649657_100` restarts numerical seed 100 from the original prior with the same data, priors, temperature schedule and evaluation budget.
 It adds the tested scalar likelihood optimization, [stage checkpoints](sampler-checkpoints.md) and an eight-hour allocation on the same AMD EPYC 7542 worker node.
 The runtime identity changes to identify those source changes; the statistical model and sampler configuration do not change.
 Its startup checks compare complete old/new likelihoods on two replayed candidates before fitting.
 One pair retains zero support, and the finite pair matches exactly at `8141.576094195281` on this AMD runtime.
-The retry is running and has saved its initialized population checkpoint after 64 evaluations.
+The retry saved its initialized population after 64 evaluations and subsequently completed all 32 stages.
 All sixty recorded finite-initial-base entries also match the timed-out run's entries exactly.
 
 The [retry manifest](../../logs/uncertainty_domino_conditioned_checkpoint_20260912/plan.json) retains the timeout reason and hashes the old likelihood source used for the paired check.
 Attempt files retain per-attempt counters; the sampler result and checkpoint retain the cumulative numerical evaluation count.
 This recovery does not establish posterior adequacy, convergence or an improvement in agent performance.
+
+### Completed numerical pilots, September 13
+
+Both conditioned-base fits now have terminal `COMPLETED` job states and complete, structurally valid 64-row weighted sampler results at temperature 1.
+Numerical seed 100 used 14,318 target evaluations in its replacement attempt, and seed 101 used 14,038.
+Their completed attempts took approximately 5 hours 8 minutes and 5 hours 32 minutes; seed 100 also incurred the earlier four-hour timed-out attempt.
+Both retained only one original ancestor after 11 resampling events.
+The minimum recorded effective sample sizes were 18.32 and 20.33, respectively.
+
+Their empirical parameter summaries disagree substantially:
+
+| Parameter | Seed 100: 5th / 50th / 95th percentile | Seed 101: 5th / 50th / 95th percentile |
+| --- | --- | --- |
+| Lateral friction | 0.11496 / 0.17337 / 0.21346 | 0.42817 / 0.65932 / 0.87769 |
+| Restitution | 0.25945 / 0.41405 / 0.55124 | 0.72363 / 0.87345 / 0.89240 |
+| Rolling friction | 0.003084 / 0.003496 / 0.006734 | 0.000129 / 0.000129 / 0.002509 |
+| Spinning friction | 0.01137 / 0.02051 / 0.02760 | 0.03731 / 0.04631 / 0.06521 |
+| Mass | 0.30506 / 0.40014 / 0.53333 | 0.49608 / 0.64470 / 0.78762 |
+
+These are summaries of the numerical populations, not validated credible intervals.
+Shared data, sensor, program, prior and sampler configuration were verified, along with complete finite samples and normalized nonnegative weights.
+The runtime-source difference and its earlier exact likelihood parity checks remain part of the comparison's provenance.
+Completion does not resolve the disagreement or establish trustworthy posterior coverage.
+Predictive stability and a defensible exploration of the joint parameter/initial-state distribution remain required before any posterior publication or legacy comparison claim.
+The source hashes and completion checks are retained in `logs/uncertainty_domino_conditioned_checkpoint_20260912/completion-comparison-20260913.json`.
+
+### Future predictions from the completed populations
+
+Array `22671823` replays every complete weighted row of each unassessed population through the 97-action suffix following the fitted 64-action prefix.
+It uses the retained physical parameter values directly, avoiding a lossy inverse transform back into prior coordinates, while preserving each row's state coordinates and correlations.
+Before evaluating the population, each worker reconstructs the archived best candidate exactly, repeats its full 161-action history, and reproduces its original fitting log likelihood exactly.
+The first retained row is also repeated exactly, every fitting prefix has finite likelihood, and no row is dropped or reweighted using future observations.
+
+For Cartesian readings, conditional output means and variances follow the declared scalar error process filtered on the fitting prefix, with the original future sensor variance retained.
+Native toppling indicators use the frozen domain threshold; they describe model predictions, not achieved task outcomes.
+These diagnostics consume unassessed populations to investigate their disagreement and do not bypass the production posterior-assessment boundary.
+
+Both jobs completed and all 128 compressed history artifacts passed their hash checks.
+Each job performed 10,787 native actions, including its reconstruction checks, and took approximately 3.5 minutes.
+
+| Quantity | Numerical seed 100 | Numerical seed 101 |
+| --- | ---: | ---: |
+| Future Cartesian conditional-mean RMSE | 0.011585 m | 0.012130 m |
+| Future native-mean RMSE | 0.011688 m | 0.012354 m |
+| Whole-future mixture log density | 14105.63278 | 14434.93358 |
+| Final predicted toppling probability, domino_1 | 0.96875 | 0.32628 |
+
+Across all future Cartesian readings, the two conditional means differ by 0.006934 m RMS, with a maximum difference of 0.052394 m.
+Their predicted standard deviations differ by 0.001694 m RMS.
+These apparently similar averaged errors do not imply equivalent decisions.
+At primitive step 158, the two populations predict `domino_3` toppling with probabilities 0.90625 and 0, respectively.
+Their final `domino_1` predictions also differ by more than 0.64.
+
+The full future log-density estimates differ by 329.30080, and each is dominated by roughly one weighted contribution among the 64 rows.
+An informative future can concentrate those contributions even under a valid prefix posterior, so this alone is not proof that the probability model is wrong.
+Together with the replica differences, it leaves the present finite-population predictive calculation unsuitable for numerical acceptance.
+A low average position error on one suffix cannot establish posterior coverage, toppling/timing stability, or unchanged agent performance.
+
+The source populations, reconstruction code, full histories, per-row scores, complete forecast curves and comparison checks are retained in `logs/uncertainty_domino_population_forecast_20260913`.
+This population-stability diagnostic is followed by the matched incumbent comparison below; broader validation gates remain required.
+
+## Matched legacy prediction diagnostic, September 13
+
+Compute job `22672106` completed evaluation of the already-frozen predictions from the cold legacy fit and both new populations.
+All three use the same fixed program and 64-action fitting prefix, followed by the same 97-action future suffix.
+The worker verifies input identities and all 128 compressed population histories, and independently reconstructs their previously reported means and toppling curves.
+Stored noiseless states are evaluator-only labels, read after the forecasts were fixed; they enter neither inference nor prediction.
+This evaluation takes no native simulator steps.
+
+| Forecast | Cartesian RMSE to noisy readings | Cartesian RMSE to stored truth | Mean toppling Brier error | Final domino_1 toppling probability |
+| --- | ---: | ---: | ---: | ---: |
+| Cold legacy fit | 0.011062 m | 0.004933 m | 0.003436 | 0 |
+| Population 100, unassessed | 0.011585 m | 0.006138 m | 0.002801 | 0.96875 |
+| Population 101, unassessed | 0.012130 m | 0.006849 m | 0.002824 | 0.32628 |
+
+The legacy fit has smaller position error on this suffix.
+Both new populations have slightly smaller Brier error averaged over all 97 frames and six objects, but their final predictions disagree substantially.
+The recorded first toppling frames for objects 0 through 5 are `[157, 161, absent, 159, 160, absent]`.
+Legacy predicts `[157, absent, absent, 159, 161, absent]`.
+Population 100 mostly predicts object 3 toppling at frame 158, one frame early, while population 101 predicts frame 159.
+A long interval before any toppling makes the frame-averaged metric particularly insufficient as a goal or event-timing assessment.
+These are descriptive errors on one training suffix, not independent-trial uncertainty estimates or evidence of an agent advantage.
+
+The cold legacy fit took 214.39 seconds using its six-CPU allocation.
+The new serial population fits took over five hours each, with an additional timed-out attempt for seed 100.
+The methods change both parameter inference and initial-state handling, so the planned matched ablations are still required.
+Numerical stability, predictive adequacy and inference cost have not passed the replacement gate.
+The report, frozen inputs and evaluator are in `logs/uncertainty_domino_legacy_prediction_comparison_20260913`.

@@ -141,3 +141,70 @@ The initially queued unguarded recovery submissions `22650769` and `22650770` we
 The recovery manifest, gate checks and authoritative scheduler evidence are in the same bundle.
 Original jobs remain live and unchanged; no full replacement is running concurrently.
 Original attempts, initialization checks and any eventual recovery all belong to the same two numerical seeds, not additional agent outcomes or independent posterior replications.
+
+### Recovery activation, September 13
+
+Slurm now confirms both original tasks `22643258_0` and `22643258_1` timed out at their eight-hour limits.
+Their guarded recovery jobs `22650786_0` and `22650787_1` activated after those terminal failures and are running on node1412.
+They restart the same numerical seeds from the verified stage-zero populations after 64 evaluations; the original eight-hour workers did not save their later sampler populations.
+The recovery allocations are twelve hours each, and original-attempt costs remain part of the total.
+They are not additional independent fits or agent outcomes.
+The earlier descriptions of live original jobs and pending recoveries above record the state when the safeguards were implemented.
+No completed or numerically assessed Fan posterior is claimed by this update.
+
+## Complete-population report preparation
+
+The two full-recording recovery runs have reached saved stages 30 and 31 of 32, with their target-evaluation counters advancing.
+Their configuration has 64 particles and uses all 132 recorded actions.
+They are distinct from the newer prefix-only fits and the 128-particle prefix budget comparison.
+
+The report bundle `logs/uncertainty_fan_full_fit_summary_20260913` pins the recovery plan, original runtime overlay and worker scripts.
+A completed source report must have a complete sampler at temperature one, the expected seed and numerical configuration, and matching prior and inference identities.
+The reporter restores the complete sampler checkpoint under the frozen implementation and requires the entire recovered result to match the source report without requesting another target evaluation.
+Weighted fan-speed quantiles are independently reconstructed and must match the saved values.
+The report also retains mean, standard deviation, distinct positive-weight values, largest exact-value mass, ancestry and evaluation counts.
+
+The paired comparison requires identical complete target identities, priors, numerical configurations and recorded runtimes.
+It reports the maximum difference between weighted empirical CDFs and their one-dimensional Wasserstein distance.
+These are descriptive distances between dependent numerical populations, not an independent-sample hypothesis test or an automatic adequacy decision.
+There are no reserved observations in this full-recording study, so marginal agreement cannot substitute for the separate prefix forecast comparison.
+
+Original timeout and recovery allocation costs are reported separately and combined only when both accounting records are available.
+Latest-attempt worker time and native actions remain separate from sampler evaluations carried in the checkpoint.
+Missing or noncomplete fits remain explicit; neither is interpreted as an agent outcome.
+
+Compute validation `22678043` completed in eleven allocation seconds on one CPU and performed no native simulation.
+Known discrete distributions verify the weighted quantile convention, zero-weight exclusions, CDF distance and Wasserstein distance; invalid weights, lost mass and nonfinite values are rejected.
+The initial report correctly remains incomplete while both source fits are running.
+This validates the marginal calculations and incomplete-report path; completed-checkpoint recovery will be exercised when completed source fits exist.
+Finite report `22678058` depends on successful validation and termination of both recovery runs.
+It requests one CPU, 4 GB and ten minutes on `mit_preemptable`, without sending notifications or modifying the fits.
+
+The full-recording seed-201 recovery `22650787_1` has completed at 15,092 target evaluations, using 30,790 allocation seconds and 30,769.80 worker seconds in this recovery attempt.
+It records 1,983,960 native actions in the recovery and retains one initial ancestor.
+Report `22678127` now exercises complete-checkpoint recovery successfully and independently verifies its fan-speed quantiles: [0.09034013, 0.09036351, 0.09053017].
+There are eight distinct positive-weight speeds, with 0.75 of empirical mass at one exact speed value.
+This concentration does not establish precise identification; the paired result remains incomplete until seed 200 finishes.
+Including the original 28,812-second timeout, this seed has consumed 59,602 allocation CPU-seconds across the two attempts.
+
+## Completed full-recording pair
+
+Both recoveries and final report `22678058` have completed.
+The report verifies exact complete-checkpoint recovery for both fits, independently reconstructs their fan-speed summaries, and checks identical full target identities, priors, configurations and recorded runtimes.
+
+| Numerical seed | Fan-speed 5th / 50th / 95th percentiles | Retained ancestors | Largest exact-value mass | Target evaluations | Recovery allocation seconds |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 200 | 0.08994192 / 0.08996900 / 0.08999337 | 1 | 0.859375 | 15,116 | 31,612 |
+| 201 | 0.09034013 / 0.09036351 / 0.09053017 | 1 | 0.750000 | 15,092 | 30,790 |
+
+The two weighted empirical CDFs differ by 1.0 at their maximum, and their one-dimensional Wasserstein distance is 0.00040176.
+Their means differ by approximately 0.000402, while their empirical standard deviations are only 0.0000148 and 0.0000439.
+The small absolute mean separation does not validate these much narrower, nonoverlapping empirical uncertainty distributions.
+Both populations remain numerically unassessed.
+No independent-sample p-value or post-hoc acceptance threshold is attached to these distances.
+
+The recovery attempts record 1,987,128 and 1,983,960 native actions and 31,591.27 and 30,769.80 worker seconds.
+Including each original timeout, the per-seed allocation costs are 60,424 and 59,602 CPU-seconds.
+The final report uses four allocation seconds on one CPU and no native simulation.
+There is no reserved future in this full-recording study, so these results do not establish predictive improvement or an agent advantage.
+The separate prefix budget comparisons remain active; the [constant-output guide](constant-output-guides.md) prepares a density-corrected proposal investigation without changing their target models or running configurations.

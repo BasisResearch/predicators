@@ -61,6 +61,110 @@ class GaussianOutputError:
 
 
 @dataclass(frozen=True)
+class ConstantOutputLikelihood:
+    """Gaussian-shaped likelihood of one constant simulator output.
+
+    This is not a normalized posterior or a detected rest window. A
+    caller must justify the constant-output model and supply its prior.
+    It can also guide a density-corrected proposal while the original
+    simulator likelihood remains authoritative.
+    """
+    center: float
+    sigma: float
+    log_peak: float
+
+    def __post_init__(self) -> None:
+        if not all(math.isfinite(v)
+                   for v in (self.center, self.sigma, self.log_peak)) or \
+                self.sigma <= 0:
+            raise ValueError("A finite, positive-width location likelihood "
+                             "is required")
+
+    def log_likelihood(self, location: float) -> float:
+        """Evaluate the original reading density, including its constant."""
+        if not math.isfinite(location):
+            raise ValueError("Constant output must be finite")
+        residual = (location - self.center) / self.sigma
+        value = self.log_peak - .5 * residual * residual
+        if not math.isfinite(value):
+            raise ConditioningNumericalError("Location likelihood overflow")
+        return value
+
+
+def constant_output_likelihood(
+        process: GaussianOutputError, observations: Tuple[Optional[float],
+                                                          ...],
+        sensor_sigma: float) -> ConstantOutputLikelihood:
+    """Integrate AR errors and collect the likelihood of a constant output.
+
+    The affine Kalman innovations give its location and precision in
+    linear time, including missing primitive-step readings. Correlated
+    discrepancy is retained; this is generally not an arithmetic mean
+    with sensor sigma divided by the square root of the sample count.
+    Positive sensor noise is required. Exact coordinates need explicit
+    conditioning rather than a finite-width proposal from this helper.
+    Only the caller's supplied history is used; online callers must not
+    supply future observations.
+    """
+    readings = tuple(v for v in observations if v is not None)
+    if not readings or any(not math.isfinite(v) for v in readings):
+        raise ValueError("At least one finite reading is required")
+    if not math.isfinite(sensor_sigma) or sensor_sigma <= 0:
+        raise ValueError("Constant-output proposal requires positive noise")
+    baseline = readings[0]
+    mean, response = 0., 0.
+    variance = process.initial_sigma * process.initial_sigma
+    noise_variance = sensor_sigma * sensor_sigma
+    precision_terms: List[float] = []
+    information_terms: List[float] = []
+    constant_terms: List[float] = []
+    for index, observed in enumerate(observations):
+        if index:
+            mean *= process.persistence
+            response *= process.persistence
+            variance = (process.persistence * process.persistence * variance +
+                        process.innovation_sigma * process.innovation_sigma)
+        if observed is None:
+            continue
+        innovation_variance = variance + noise_variance
+        if not math.isfinite(innovation_variance) or \
+                innovation_variance <= 0 or noise_variance == 0:
+            raise ConditioningNumericalError("Location variance overflow "
+                                             "or underflow")
+        innovation = (observed - baseline) - mean
+        sensitivity = 1. - response
+        scale = math.sqrt(innovation_variance)
+        whitened, slope = innovation / scale, sensitivity / scale
+        precision_terms.append(slope * slope)
+        information_terms.append(slope * whitened)
+        constant_terms.append(-.5 * whitened * whitened - math.log(scale) -
+                              .5 * math.log(2 * math.pi))
+        gain = variance / innovation_variance
+        mean += gain * innovation
+        response += gain * sensitivity
+        variance = gain * noise_variance
+    if not all(
+            math.isfinite(v)
+            for v in precision_terms + information_terms + constant_terms):
+        raise ConditioningNumericalError("Location information overflow")
+    try:
+        precision = math.fsum(precision_terms)
+        information = math.fsum(information_terms)
+        constant = math.fsum(constant_terms)
+    except OverflowError as err:
+        raise ConditioningNumericalError("Location information overflow") \
+            from err
+    if not math.isfinite(precision) or precision <= 0:
+        raise ConditioningNumericalError("Location precision is unavailable")
+    offset = information / precision
+    center, sigma = baseline + offset, 1. / math.sqrt(precision)
+    peak = constant + .5 * information * offset
+    if not all(math.isfinite(v) for v in (center, sigma, peak)) or sigma <= 0:
+        raise ConditioningNumericalError("Location summary overflow")
+    return ConstantOutputLikelihood(center, sigma, peak)
+
+
+@dataclass(frozen=True)
 class ErrorFilterStep:
     """Causal error moments before and after this step's optional reading.
 
