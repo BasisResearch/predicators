@@ -47,8 +47,16 @@ Forecast readers retain their existing implementation.
 Four verified earlier full fits, with the same 32 particles, 64 temperatures, eight moves and 20,000-evaluation cap, took approximately 5,404 to 5,660 seconds on the shorter prefix.
 Scaling their observed rates to the full evaluation cap and the 224/132-action ratio gives at most 12,855 seconds, about 3.6 hours.
 This is an empirical estimate, not a guaranteed runtime bound.
-Replacement full fits request six hours, and their readers request two hours; the latter's verified earlier timing references were 54 and 66 seconds.
+Replacement full fits requested six hours, and their readers initially requested two hours; the latter's verified earlier timing references were 54 and 66 seconds.
 The numerical work is unchanged, and no active full fit was restarted.
+
+After all four full fits completed, pending full readers `22762491`, `22762497`, `22762503` and `22762513` received thirty-minute time limits.
+The matching recovered fixture readers took 142 to 145 seconds for the same 32 fresh native targets, totaling 7,168 native actions each.
+The full readers additionally replay up to 14,987 saved evaluations, approximately 181 MiB, and check the proposal mapping; earlier full numerical readers completed in 54 and 66 seconds.
+Thirty minutes retains substantial empirical headroom without changing the verification workload; this estimate is not a guaranteed runtime bound.
+All four jobs had zero elapsed time and no restarts before the change.
+Their job IDs, dependencies, CPUs, memory, node constraints, commands and frozen input hashes remain unchanged.
+The original sealed submission is preserved, with before/after evidence in `logs/uncertainty_boil_heating_pipeline_recovery_20260914/full-reader-allocation.json`.
 
 | Arm | Seed | Full fit | Full reader | Forecast fixture | Fixture reader | Full forecast | Forecast reader |
 |---|---:|---:|---:|---:|---:|---:|---:|
