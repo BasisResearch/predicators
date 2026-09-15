@@ -7,6 +7,7 @@ so the counts are easy to pin exactly.
 import json
 import os
 import pickle
+from pathlib import Path
 from typing import Any, Dict, List
 
 import numpy as np
@@ -14,6 +15,9 @@ import pytest
 
 from predicators import observation_noise, utils
 from predicators.approaches import create_approach
+from predicators.code_sim_learning.inference_data import Observation
+from predicators.code_sim_learning.inference_recording import \
+    RecordingProjection, load_recorded_level
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
 from predicators.run import paths
@@ -865,6 +869,18 @@ def test_observation_noise_channel(tmp_path: Any, monkeypatch: Any) -> None:
     rec.close()
     assert recorded.allclose(seen["truth0"])
     assert not recorded.allclose(seen["frame0"])
+    # An offline fit must see the same noise draws as the acting agent,
+    # rather than the sanitized truth stored by the replay recorder.
+    offline = load_recorded_level(
+        Path(run.run_dir) / "L01",
+        "noise-channel-test",
+        observation_noise.ObservationNoise(position=.002),
+        RecordingProjection(require_joints=False),
+        observation_seed=CFG.seed,
+        level_index=0)
+    observations = offline.data.episodes[0].observations
+    assert observations[0] == Observation.from_state(0, seen["frame0"])
+    assert observations[1] == Observation.from_state(1, seen["frame1"])
 
 
 def test_scorecard_records_the_observation_noise() -> None:

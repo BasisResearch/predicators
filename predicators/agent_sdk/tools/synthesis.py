@@ -544,9 +544,10 @@ def create_synthesis_tools(
                  not exploratory else "Exploratory call: nothing recorded."),
                 "",
             ] + _trim_cause_note(outcome.traj_rms, trim_threshold))
-        fitted = outcome.fitted
-        applied = outcome.applied
-        ident_report = outcome.report
+        inference = outcome.inference
+        fitted = inference.point_estimate
+        applied = inference.selected_parameters
+        ident_report = inference.parameter_diagnostics
         pre_sse, post_sse = outcome.pre_sse, outcome.post_sse
         if not exploratory:
             approach._apply_identified_physical_params(applied)  # pylint: disable=protected-access

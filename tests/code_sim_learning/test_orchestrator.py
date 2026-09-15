@@ -89,6 +89,21 @@ def test_run_rollout_sysid_fit_cache_and_report_isolation():
     assert outcome.post_sse < outcome.pre_sse
     assert len(fit_cache) == 1
 
+    # Reading the versioned adapter must not run inference or consume the
+    # caller's RNG; mutating its diagnostics cannot corrupt the cache.
+    count = num_rollouts_run()
+    inference = outcome.inference
+    assert num_rollouts_run() == count
+    assert inference.schema_version == 1
+    assert inference.estimator == "legacy_rollout_sysid"
+    assert inference.uncertainty_kind == "legacy_widths"
+    assert inference.point_estimate == outcome.fitted
+    assert inference.selected_parameters == outcome.applied
+    inference.selected_parameters["gain"] = 99.0
+    inference.parameter_diagnostics["gain"]["verdict"] = Verdict.INCONSISTENT
+    assert outcome.applied["gain"] != 99.0
+    assert outcome.report["gain"]["verdict"].applies_fitted
+
     # Identical call: zero new rollouts, same applied values.
     n_before = num_rollouts_run()
     outcome2 = run_rollout_sysid(env, [traj], [spec],
@@ -121,6 +136,9 @@ def test_run_rollout_sysid_fit_cache_and_report_isolation():
                                  held={"gain": 1.5})
     assert outcome3.from_cache
     assert outcome3.applied == {"gain": 1.5}
+    assert outcome3.inference.selected_parameters == {"gain": 1.5}
+    assert outcome3.inference.parameter_diagnostics["gain"]["verdict"] == \
+        Verdict.INCONSISTENT
     assert outcome.report["gain"]["verdict"].applies_fitted
 
     # A different artifact key recomputes.

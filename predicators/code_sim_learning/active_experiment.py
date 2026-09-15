@@ -37,7 +37,8 @@ PyBullet.
 
 from __future__ import annotations
 
-from typing import Dict, List, Sequence, Union
+import math
+from typing import Dict, List, Optional, Sequence, Union
 
 import numpy as np
 
@@ -250,27 +251,54 @@ def _bernoulli_entropy(p: float) -> float:
     return float(-p * np.log2(p) - (1.0 - p) * np.log2(1.0 - p))
 
 
-def mean_bernoulli_entropy(truth_matrix: np.ndarray) -> float:
+def _validated_member_weights(arr: np.ndarray,
+                              weights: Sequence[float]) -> np.ndarray:
+    """Validate an explicit probability measure without renormalizing it."""
+    mass = np.asarray(weights, dtype=float)
+    if arr.ndim != 2 or not np.all(np.isfinite(arr)) or \
+            np.any((arr < 0.) | (arr > 1.)):
+        raise ValueError("Expected a finite 2D probability matrix in [0, 1]")
+    if mass.ndim != 1 or mass.shape[0] != arr.shape[0] or \
+            not np.all(np.isfinite(mass)) or np.any(mass < 0.) or \
+            not math.isclose(math.fsum(mass), 1., rel_tol=1e-12,
+                             abs_tol=1e-12):
+        raise ValueError(
+            "One normalized nonnegative weight per member required")
+    return mass
+
+
+def mean_bernoulli_entropy(truth_matrix: np.ndarray,
+                           *,
+                           weights: Optional[Sequence[float]] = None) -> float:
     """Mean per-atom Bernoulli entropy over an ensemble.
 
     ``truth_matrix`` is a boolean ``(num_members, num_atoms)`` array:
     entry ``[k, m]`` is whether ensemble member ``k`` believes atom
     ``m`` holds in the candidate state. The score is the mean over atoms
-    of the binary entropy of each atom's across-member truth fraction —
+    of the binary entropy of each atom's across-member truth fraction -
     0.0 when every member agrees on every atom (uninformative), up to
     1.0 when members are evenly split (maximally informative). Returns
-    0.0 for an empty matrix.
+    0.0 for an empty matrix. Explicit normalized ``weights`` replace
+    equal member mass; they require binary entries and one weight per
+    row. Omitting weights preserves the incumbent arithmetic.
     """
     arr = np.asarray(truth_matrix, dtype=float)
+    mass = None
+    if weights is not None:
+        mass = _validated_member_weights(arr, weights)
+        if np.any((arr != 0.) & (arr != 1.)):
+            raise ValueError("Weighted truth_matrix entries must be binary")
     if arr.size == 0:
         return 0.0
     if arr.ndim != 2:
         raise ValueError("truth_matrix must be 2D (members x atoms)")
-    fracs = arr.mean(axis=0)  # P(atom holds) across members
+    fracs = arr.mean(axis=0) if mass is None else mass @ arr
     return float(np.mean([_bernoulli_entropy(p) for p in fracs]))
 
 
-def noisy_read_information(prob_matrix: np.ndarray) -> float:
+def noisy_read_information(prob_matrix: np.ndarray,
+                           *,
+                           weights: Optional[Sequence[float]] = None) -> float:
     """Mean per-atom mutual information between the ensemble member and the
     atom's truth as read from a noisy observation.
 
@@ -286,9 +314,13 @@ def noisy_read_information(prob_matrix: np.ndarray) -> float:
     sigma) and falls to 0 when every member reads the atom as the same
     coin flip (predictions within sigma of the boundary, which one
     observation cannot resolve). Averaged over atoms; 0 for an empty
-    matrix.
+    matrix. Explicit normalized ``weights`` replace both member means
+    with expectations under that same measure. This remains a mean of
+    per-atom information scores, not joint information across atoms.
+    Omitting weights preserves the incumbent arithmetic.
     """
     arr = np.asarray(prob_matrix, dtype=float)
+    mass = None if weights is None else _validated_member_weights(arr, weights)
     if arr.size == 0:
         return 0.0
     if arr.ndim != 2:
@@ -296,7 +328,10 @@ def noisy_read_information(prob_matrix: np.ndarray) -> float:
     scores = []
     for m in range(arr.shape[1]):
         col = arr[:, m]
-        marginal = _bernoulli_entropy(float(col.mean()))
-        conditional = float(np.mean([_bernoulli_entropy(p) for p in col]))
+        marginal = _bernoulli_entropy(
+            float(col.mean() if mass is None else mass @ col))
+        entropies = [_bernoulli_entropy(p) for p in col]
+        conditional = float(
+            np.mean(entropies) if mass is None else mass @ entropies)
         scores.append(max(marginal - conditional, 0.0))
     return float(np.mean(scores))
