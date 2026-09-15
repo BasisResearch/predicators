@@ -49,6 +49,8 @@ class SynthesisBackend(Protocol):
     # Mutated in place (clear + update) on every re-fit; predicate
     # classifiers hold a live view onto this exact dict object.
     _fitted_params: Dict[str, float]
+    _identified_physical_params: Dict[str, float]
+    _fit_trajectories: List[LowLevelTrajectory]
     _train_tasks: List[Task]
     _types: Set[Type]
     _initial_predicates: Set[Predicate]
@@ -75,6 +77,7 @@ class SynthesisBackend(Protocol):
         applied_physical: Optional[Dict[str, float]] = None,
         sigma_points: Optional[List[Dict[str, float]]] = None,
         pinned: bool = False,
+        coverage: Optional[Tuple[int, int]] = None,
     ) -> None:
         """Deploy a canonical ``sim.fit`` result to the candidate probe.
 
@@ -105,6 +108,9 @@ class SynthesisBackend(Protocol):
         traj_idxs: Optional[Sequence[int]] = None,
     ) -> List[RolloutTrajectory]:
         ...
+
+    def _probe_fit_state(self) -> Dict[str, Any]:
+        """Evidence and applied values of the last canonical fit."""
 
     def _get_rollout_fit_env(self) -> Any:
         ...

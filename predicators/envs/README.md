@@ -154,7 +154,7 @@ the state into a `Box` observation.
 ## Developing new envs
 
 For a guide on writing new PyBullet environments, see
-[`docs/pybullet_env_guide.md`](../../docs/pybullet_env_guide.md).
+[`docs/envs/pybullet-guide.md`](../../docs/envs/pybullet-guide.md).
 
 ## Predicators planning framework
 

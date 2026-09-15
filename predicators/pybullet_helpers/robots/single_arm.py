@@ -11,7 +11,8 @@ from gym.spaces import Box
 from predicators.pybullet_helpers.geometry import Pose
 from predicators.pybullet_helpers.ikfast import IKFastInfo
 from predicators.pybullet_helpers.ikfast.utils import \
-    ikfast_closest_inverse_kinematics
+    ikfast_closest_inverse_kinematics, \
+    ikfast_free_joint_grid_inverse_kinematics
 from predicators.pybullet_helpers.inverse_kinematics import \
     InverseKinematicsError, pybullet_inverse_kinematics
 from predicators.pybullet_helpers.joint import JointInfo, JointPositions, \
@@ -20,6 +21,9 @@ from predicators.pybullet_helpers.joint import JointInfo, JointPositions, \
 from predicators.pybullet_helpers.link import BASE_LINK, get_link_state
 from predicators.settings import CFG
 from predicators.structs import Array
+
+# Free-joint values searched for the home configuration.
+_HOME_FREE_JOINT_GRID_SIZE = 2048
 
 
 class SingleArmPyBulletRobot(abc.ABC):
@@ -323,8 +327,13 @@ class SingleArmPyBulletRobot(abc.ABC):
         if home is None or ikfast_info is None:
             return None
         self.set_joints(home)
-        ik_solutions = ikfast_closest_inverse_kinematics(
-            self, world_from_target=self._ee_home_pose)
+        # A fixed free-joint grid keeps the home configuration independent of
+        # the global RNG and machine load; its resolution bounds how far the
+        # free joint can be from the exact roll.
+        ik_solutions = ikfast_free_joint_grid_inverse_kinematics(
+            self,
+            world_from_target=self._ee_home_pose,
+            num_free_positions=_HOME_FREE_JOINT_GRID_SIZE)
         if not ik_solutions:
             return None
         # IK solutions cover the arm joints only; drop the fingers from the

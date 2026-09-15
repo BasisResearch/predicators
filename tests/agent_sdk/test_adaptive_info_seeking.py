@@ -13,7 +13,7 @@ from predicators import utils
 from predicators.agent_sdk.play_prompts import build_play_system_prompt
 from predicators.agent_sdk.tools import ToolContext
 
-_GUIDANCE_MARKER = "Only if the physics sweep fails"
+_GUIDANCE_MARKER = "If its physics sweep fails only"
 
 
 def _ctx() -> ToolContext:

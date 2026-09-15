@@ -73,11 +73,14 @@ class InvocationOutcome:
 class EpisodeRunner:
     """Steps one env through episodes and classifies how they end."""
 
-    def __init__(self,
-                 env: BaseEnv,
-                 horizon: Optional[int],
-                 max_option_steps: Optional[int] = None,
-                 predicates: Optional[Set[Predicate]] = None) -> None:
+    def __init__(
+        self,
+        env: BaseEnv,
+        horizon: Optional[int],
+        max_option_steps: Optional[int] = None,
+        predicates: Optional[Set[Predicate]] = None,
+        abstract_state_transform: Optional[Callable[[State], State]] = None
+    ) -> None:
         self._env = env
         # None: no episode horizon; an episode ends only by a win, a
         # reset, an env failure or a rejected or irrecoverable state.
@@ -86,6 +89,7 @@ class EpisodeRunner:
         # Abstraction used by Wait termination and by divergence checks.
         preds = set(env.predicates) if predicates is None else set(predicates)
         self._predicates = preds
+        self._abstract_state_transform = abstract_state_transform
         self._observations: List[State] = []
         self._actions: List[Action] = []
         self._episode_state = EpisodeState.GAME_OVER
@@ -153,6 +157,8 @@ class EpisodeRunner:
 
     def abstract(self, state: State) -> Set[GroundAtom]:
         """Atoms of ``state`` under this runner's predicates."""
+        if self._abstract_state_transform is not None:
+            state = self._abstract_state_transform(state)
         return utils.abstract(state, self._predicates)
 
     def evaluate(self) -> EpisodeEvaluation:

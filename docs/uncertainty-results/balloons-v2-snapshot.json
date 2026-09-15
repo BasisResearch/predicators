@@ -1,0 +1,9 @@
+{
+  "generated_by": "make_model_repair_table.py; do not edit manually",
+  "observed_at": "2026-09-09T12:52:52.824049+00:00",
+  "manifest": "/home/ycliang/predicators/logs/mb_repair_20260909/balloons-v2/launch-manifest.json",
+  "base_sha": "24e23125c3c2b803442f855cec16b26fce93ba9f",
+  "task_generation_version": 2,
+  "source_tree": "/home/ycliang/predicators-balloons-v2-r1",
+  "rows": []
+}

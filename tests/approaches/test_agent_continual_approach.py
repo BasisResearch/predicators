@@ -12,16 +12,20 @@ import numpy as np
 import pytest
 
 from predicators import utils
+from predicators.agent_sdk.belief_probe import BeliefProbe
 from predicators.agent_sdk.sandbox_setup import trajectories_path
 from predicators.approaches import create_approach
 from predicators.approaches.agent_continual_approach import \
     AgentContinualApproach
 from predicators.code_sim_learning.fit_space import FitResult
+from predicators.code_sim_learning.latent_tracker import \
+    make_subclass_latent_tracker
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
 from predicators.run.continual import ContinualRun
-from predicators.run.controllers import create_controller
+from predicators.run.level_players import create_level_player
 from predicators.structs import Dataset, Predicate
+from tests.code_sim_learning.test_subclass_model_state import _MemoryModel
 
 
 def _config(tmp_path: Any, **overrides: Any) -> None:
@@ -111,12 +115,14 @@ def test_fit_status_text_is_a_point_estimate_line() -> None:
                        log_probs=np.array([0.0, -0.1]),
                        jacobian=np.zeros((3, 2)))
     render = AgentContinualApproach._fit_status_text  # pylint: disable=protected-access
-    fitted: Any = SimpleNamespace(_last_fit_result=result)
+    fitted: Any = SimpleNamespace(_last_fit_result=result,
+                                  _probe_fit_state=lambda: {})
     text = render(fitted)
     assert text.startswith("fitted 2 parameter(s) from 2 posterior")
     assert "lateral_friction=" in text and "chain_fwd_min=0.04" in text
     assert "jacobian" not in text and "array(" not in text
-    empty: Any = SimpleNamespace(_last_fit_result=None)
+    empty: Any = SimpleNamespace(_last_fit_result=None,
+                                 _probe_fit_state=lambda: {})
     assert render(empty) == "no fit result"
 
 
@@ -136,6 +142,147 @@ def test_predicates_install_refreshes_the_session(tmp_path: Any) -> None:
     approach._play_session = None  # pylint: disable=protected-access
     approach._on_predicates_installed()  # pylint: disable=protected-access
     assert hi in session.abstract_predicates
+
+
+@pytest.mark.slow
+def test_current_probe_refreshes_memory_after_parameter_change(
+        tmp_path: Any, monkeypatch: Any) -> None:
+    """A post-fit current-state rollout uses the revised episode memory."""
+    _config(tmp_path)
+    env, approach = _make_approach()
+    params = {"rate": .25}
+    monkeypatch.setattr(approach, "model_state_revision",
+                        lambda: tuple(params.items()))
+    monkeypatch.setattr(
+        approach, "make_latent_tracker",
+        lambda: make_subclass_latent_tracker(_MemoryModel, lambda: params))
+
+    def fake_query(*_args: Any, **_kwargs: Any) -> List[Dict[str, Any]]:
+        zero = [0.0] * env.action_space.shape[0]
+        assert "step applied" in _call(approach, "env_step", action=zero)
+        ctx = approach._tool_context  # pylint: disable=protected-access
+        assert ctx.current_observation.latent["charge"] == .25
+        # Publishing a fit changes parameters without another real action
+        # or env_observe call. Reset must reconstruct the current estimate.
+        params["rate"] = .5
+        probe = BeliefProbe(ctx).reset(current=True)
+        state = probe._require_state()  # pylint: disable=protected-access
+        assert state.latent is not None and state.latent["charge"] == .5
+        assert ctx.current_observation.latent["charge"] == .5
+        assert "Give-up recorded" in _call(approach, "give_up", note="done")
+        return _result()
+
+    monkeypatch.setattr(approach, "_query_agent_sync", fake_query)
+    approach.prepare_for_continual(Dataset([]))
+    card = ContinualRun(env, approach, create_level_player(env,
+                                                           approach)).run()
+    assert card.levels[0].steps == 1
+
+
+@pytest.mark.slow
+def test_current_probe_loads_edited_subclass_before_replaying(
+        tmp_path: Any, monkeypatch: Any) -> None:
+    """Editing a model mid-episode reconstructs memory at carried values."""
+    _config(tmp_path)
+    env, approach = _make_approach()
+    source = '''
+class Counter(BaseSimulator):
+    AGENT_PARAM_SPECS = [ParamSpec("rate", .25, lo=0.0, hi=1.0)]
+    MODEL_STATE_INIT = {"charge": 0.0}
+    RESIDUAL_FEATURES = {}
+
+    @classmethod
+    def update_model_state(cls, observation, model_state, params, action):
+        model_state["charge"] += params["rate"] * 1.0
+
+RESIDUAL_ENV = Counter
+'''
+
+    def fake_query(*_args: Any, **_kwargs: Any) -> List[Dict[str, Any]]:
+        # pylint: disable=protected-access
+        ctx = approach._tool_context
+        assert "step applied" in _call(approach,
+                                       "env_step",
+                                       action=[0.0] *
+                                       env.action_space.shape[0])
+        assert ctx.current_observation.latent is None
+        path = os.path.join(ctx.sandbox_dir, "simulator.py")
+        with open(path, "w", encoding="utf-8") as file:
+            file.write(source)
+        probe = BeliefProbe(ctx).reset(current=True)
+        assert probe._require_state().latent == {"charge": .25}
+        approach._apply_identified_physical_params({"rate": .5})
+        probe.reset(current=True)
+        assert probe._require_state().latent == {"charge": .5}
+        with open(path, "w", encoding="utf-8") as file:
+            file.write(source.replace('* 1.0', '* 2.0'))
+        probe.reset(current=True)
+        assert probe._require_state().latent == {"charge": 1.0}
+        assert "Give-up recorded" in _call(approach, "give_up", note="done")
+        return _result()
+
+    monkeypatch.setattr(approach, "_query_agent_sync", fake_query)
+    approach.prepare_for_continual(Dataset([]))
+    card = ContinualRun(env, approach, create_level_player(env,
+                                                           approach)).run()
+    assert card.levels[0].steps == 1
+    assert approach._tool_context.current_observation_provider is None  # pylint: disable=protected-access
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("fit_then_edit", [False, True])
+def test_round_end_deploys_without_fitting(tmp_path: Any, monkeypatch: Any,
+                                           caplog: Any,
+                                           fit_then_edit: bool) -> None:
+    """A real play round can deploy an unfitted model without optimizing it."""
+    # pylint: disable=protected-access
+    _config(tmp_path)
+    env, approach = _make_approach()
+    source = '''
+class Counter(BaseSimulator):
+    AGENT_PARAM_SPECS = [ParamSpec("rate", .25, lo=0.0, hi=1.0)]
+    MODEL_STATE_INIT = {"charge": 0.0}
+    RESIDUAL_FEATURES = {}
+
+    @classmethod
+    def update_model_state(cls, observation, model_state, params, action):
+        model_state["charge"] += params["rate"]
+
+RESIDUAL_ENV = Counter
+'''
+
+    def fake_query(*_args: Any, **_kwargs: Any) -> List[Dict[str, Any]]:
+        assert "step applied" in _call(approach,
+                                       "env_step",
+                                       action=[0.0] *
+                                       env.action_space.shape[0])
+        path = os.path.join(approach._tool_context.sandbox_dir, "simulator.py")
+        with open(path, "w", encoding="utf-8") as file:
+            file.write(source)
+        output = _call(approach,
+                       "run_python",
+                       code="sim.reset(current=True); print('loaded')")
+        assert "loaded" in output and not output.startswith("ERROR")
+        if fit_then_edit:
+            output = _call(approach, "run_python", code="print(sim.fit())")
+            assert not output.startswith("ERROR")
+            assert approach._probe_fit_state().get("fit_result") is not None
+            with open(path, "a", encoding="utf-8") as file:
+                file.write("\n# An edit after the explicit fit.\n")
+        assert "Give-up recorded" in _call(approach, "give_up", note="done")
+        return _result()
+
+    monkeypatch.setattr(approach, "_query_agent_sync", fake_query)
+    approach.prepare_for_continual(Dataset([]))
+    card = ContinualRun(env, approach, create_level_player(env,
+                                                           approach)).run()
+    assert card.levels[0].steps == 1
+    assert approach._last_round_modelled
+    assert "FIT FALLBACK" not in caplog.text
+    assert approach._last_fit_result is None
+    assert approach._identified_physical_params == {"rate": .25}
+    assert "UNFITTED" in approach._fit_status_text()
+    assert card.levels[0].sandbox.get("fits", 0) == int(fit_then_edit)
 
 
 @pytest.mark.slow
@@ -171,7 +318,7 @@ def test_play_loop_with_a_scripted_agent(tmp_path: Any) -> None:
         assert ctx.probe_option_model_provider is not None
         assert ctx.probe_fit_provider is not None
         if n == 1:
-            assert "first round of the run" in message
+            assert "first conversation round of the run" in message
             assert "No model yet" in message
             assert "[context] size not reported yet" in message
             assert mgr.resume_session_id is None
@@ -230,11 +377,19 @@ def test_play_loop_with_a_scripted_agent(tmp_path: Any) -> None:
 
     approach._query_agent_sync = fake_query  # type: ignore[method-assign]  # pylint: disable=protected-access
     approach.prepare_for_continual(Dataset([]))
-    run = ContinualRun(env, approach, create_controller(env, approach))
+    run = ContinualRun(env, approach, create_level_player(env, approach))
     card = run.run()
 
     assert card.end_reason == "agent_ended" and card.end_note == "enough"
     assert [q["kind"] for q in queries] == ["play", "play"]
+    # Full and continuation prompts retain one authoritative budget block.
+    for query in queries:
+        message = query["message"]
+        assert message.count("[ledger]") == 1
+        assert message.count("[context]") == 1
+        assert "[level]" in message and "[episode]" in message
+    assert "[goal]" not in queries[0]["message"]
+    assert "Goal atoms:" in queries[0]["message"]
     # The workbench is torn down between rounds and at the end; its data
     # (predicted once per transition) stays for the run.
     ctx = approach._tool_context  # pylint: disable=protected-access
@@ -307,7 +462,8 @@ def test_play_loop_stops_at_a_lost_test_level(tmp_path: Any) -> None:
 
     approach._query_agent_sync = fake_query  # type: ignore[method-assign]  # pylint: disable=protected-access
     approach.prepare_for_continual(Dataset([]))
-    card = ContinualRun(env, approach, create_controller(env, approach)).run()
+    card = ContinualRun(env, approach, create_level_player(env,
+                                                           approach)).run()
     assert len(queries) == 1
     assert card.end_reason == "level_lost"
     lv = card.levels[0]
@@ -339,7 +495,8 @@ def test_resume_reads_the_session_id_and_idle_guard(tmp_path: Any) -> None:
 
     approach._query_agent_sync = fake_query  # type: ignore[method-assign]  # pylint: disable=protected-access
     approach.prepare_for_continual(Dataset([]))
-    card = ContinualRun(env, approach, create_controller(env, approach)).run()
+    card = ContinualRun(env, approach, create_level_player(env,
+                                                           approach)).run()
     assert card.end_reason == "agent_ended" and "stalled" in card.end_note
     # The first round resumed the interrupted turn; the later ones
     # continued the same conversation as ordinary rounds.
@@ -374,7 +531,7 @@ def test_resume_rebuilds_the_workbench_from_the_recording(
     approach._query_agent_sync = killed_query  # type: ignore[method-assign]  # pylint: disable=protected-access
     approach.prepare_for_continual(Dataset([]))
     with pytest.raises(_Killed):
-        ContinualRun(env, approach, create_controller(env, approach)).run()
+        ContinualRun(env, approach, create_level_player(env, approach)).run()
 
     _config(tmp_path, continual_episode_horizon=2, auto_resume=True)
     env2, approach2 = _make_approach()
@@ -397,8 +554,8 @@ def test_resume_rebuilds_the_workbench_from_the_recording(
 
     approach2._query_agent_sync = resumed_query  # type: ignore[method-assign]  # pylint: disable=protected-access
     approach2.prepare_for_continual(Dataset([]))
-    card = ContinualRun(env2, approach2, create_controller(env2,
-                                                           approach2)).run()
+    card = ContinualRun(env2, approach2, create_level_player(env2,
+                                                             approach2)).run()
     lv = card.levels[0]
     assert lv.resumes == 1 and lv.preemptions == 1 and lv.harness_resets == 0
     assert card.end_reason == "agent_ended"

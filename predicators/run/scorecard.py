@@ -1,6 +1,6 @@
 """The continual protocol's scorecard: base metrics per level and per run.
 
-See ``docs/continual-protocol.md`` section 4.4. The card records raw
+See ``docs/protocol/design.md`` section 4.4. The card records raw
 counts only. Nothing here is normalised, capped, or weighted: how the
 metrics aggregate into a headline number is decided later, from the
 data, and is deliberately not encoded in this module.

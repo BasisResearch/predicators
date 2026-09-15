@@ -78,6 +78,8 @@ class ToolContext:
     # (see ``SynthesisToolkit.residuals_runner``). None in solve
     # sessions - residuals are a learning diagnostic.
     probe_residuals_provider: Optional[Callable[..., str]] = None
+    # Replay the current model on recorded actions without fitting or trimming.
+    probe_validation_provider: Optional[Callable[..., str]] = None
     # The ``sim.score`` backend of a program-world-model synthesis
     # session (particle-filter pseudo-likelihood of the candidate
     # world_model.py on the recorded data); None everywhere else.
@@ -101,6 +103,9 @@ class ToolContext:
     # play: every env tool result and the session query refresh it), so
     # ``sim.reset(current=True)`` can start a rollout from it.
     current_observation: Optional[State] = None
+    # Refresh inferred memory after a model edit/refit before a current-state
+    # probe. Continual MB sessions install this; other sessions keep None.
+    current_observation_provider: Optional[Callable[[], State]] = None
     # The execution-time belief over it (observation_belief.BeliefFrame)
     # when the run carries one, so sim.run(belief_draws=K) draws from
     # the belief the agent was shown.

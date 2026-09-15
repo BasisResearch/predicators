@@ -21,12 +21,13 @@ import pytest
 from gym.spaces import Box
 
 from predicators import utils
-from predicators.agent_sdk import learn_prompts
+from predicators.agent_sdk import learn_prompts, play_prompts
 from predicators.agent_sdk.prompt_templates import _PROMPTS_DIR, \
     load_sections, placeholders, render
 from predicators.agent_sdk.sandbox_prompts import build_claude_md
 from predicators.agent_sdk.sketch_prompts import build_early_stop_note, \
     build_solve_prompt, build_solve_system_prompt
+from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES
 from predicators.structs import Action, GroundAtom, Object, \
     ParameterizedOption, Predicate, State, Task, TaskEvaluator, Type
 
@@ -385,3 +386,63 @@ def test_golden_learn_notes_message() -> None:
             goal_nls=["Build the bridge.", "Build the bridge."],
             has_prior_notes=True,
             tools_block=learn_prompts.render_tools_block(["run_python"])))
+
+
+@pytest.mark.parametrize("model_based,noise,repair", [
+    (True, False, False),
+    (True, True, True),
+    (False, False, False),
+    (False, True, True),
+])
+def test_golden_continual_system(model_based, noise, repair):
+    """Review the whole prompt, including gated modeling and noise guidance."""
+    utils.reset_config({
+        "continual_obs_noise_position": 0.01 if noise else 0.0,
+        "continual_obs_noise_orientation": 0.02 if noise else 0.0,
+        "agent_model_repair": repair,
+    })
+    tools = list(CONTINUAL_TOOL_NAMES)
+    contract = ""
+    if model_based:
+        tools = ["run_python"] + tools
+        contract = play_prompts.build_model_contract(partially_observable=True)
+    text = play_prompts.build_play_system_prompt(tools,
+                                                 model_contract=contract)
+    arm = "mb" if model_based else "mf"
+    variant = "noisy_repair" if noise else "exact"
+    _check_golden(f"continual_system_{arm}_{variant}", text)
+    assert "__" not in text.replace("__init__", "")
+    if model_based:
+        assert "AGENT_PARAM_SPECS" in text
+        assert not re.search(r"(?<!AGENT_)\bPARAM_SPECS\b", text)
+        assert "always false on real observations" not in text
+        assert "a usable veto" not in text
+        assert "trials>=2, solved=True" in text and "contacts=True" in text
+    else:
+        assert "simulator.py" not in text and "sim.fit" not in text
+    utils.reset_config({})
+
+
+@pytest.mark.parametrize("kind", ["first", "level", "continue", "resumed"])
+def test_golden_continual_query(kind):
+    """Each round kind keeps live state separate from persistent
+    instructions."""
+    text = play_prompts.build_play_query(
+        kind=kind,
+        round_number=2,
+        level_number=1,
+        levels_total=3,
+        goal_nl="Move the widget to the fixture.",
+        goal_atoms=[],
+        ledger="[ledger] 12 steps; no resets",
+        context="[context] 4k tokens",
+        observation="[episode] NOT_FINISHED\n[objects] widget: x=0.2",
+        skills="Move(widget, fixture)[offset]",
+        predicates="(none)",
+        types="widget: x; fixture: x",
+        model="No fit yet; 1 recorded episode.",
+        journal="The first move fell short.\nTry a larger offset.",
+        attempts="Round 1: 12 steps.")
+    _check_golden(f"continual_query_{kind}", text)
+    assert text.count("[ledger]") == text.count("[context]") == 1
+    assert "[episode] NOT_FINISHED" in text

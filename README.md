@@ -1,5 +1,7 @@
 # predicators
 
+See the [documentation index](docs/README.md) for the continual protocol, learned simulators, uncertainty, environments, and [experiment results](docs/uncertainty-results/INDEX.md).
+
 ## Repository Description
 
 This codebase implements a framework for *bilevel planning with learned neuro-symbolic relational abstractions*, as described in the following papers:
@@ -64,7 +66,7 @@ Please make sure to `export PYTHONHASHSEED=0` when running the code. You can add
 * Run, e.g., `python predicators/main.py --env cover --approach oracle --seed 0` to run the system.
 
 ### Running Experiments on Supercloud
-See [these instructions](supercloud.md).
+Use the [Supercloud submission script](scripts/supercloud/submit_supercloud_job.py) for job submission.
 
 ## Instructions For Contributing
 * Run `pip install -e .[develop]` to install all dependencies for development.

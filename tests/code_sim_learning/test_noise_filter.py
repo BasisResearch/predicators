@@ -1,6 +1,6 @@
 """Tests for the fit-side filter (``code_sim_learning_rollout_noise_filter``)
 and the carried posterior (``code_sim_learning_carry_posterior``),
-docs/continual-uncertainty.md 3.3.
+docs/uncertainty/design.md 3.3.
 
 Under a centimetre of observation noise the per-step motion detector
 flags every step (1 cm of noise against a 1 mm tolerance), so the

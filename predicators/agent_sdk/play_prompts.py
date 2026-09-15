@@ -53,6 +53,7 @@ def build_minimal_play_system_prompt(*, model_based: bool) -> str:
     from predicators.agent_sdk.tools.continual_tools import \
         PRIMITIVE_TOOL_NAMES
 
+    variant = "" if model_based else "_model_free"
     sections = [
         render("play_minimal", "identity"),
         render("play_minimal", "protocol")
@@ -61,7 +62,7 @@ def build_minimal_play_system_prompt(*, model_based: bool) -> str:
     if noise.enabled and noise.declared:
         sections.append(
             render("play_system",
-                   "observation_noise",
+                   "observation_noise" + variant,
                    noise_line=noise.describe() + "."))
     sections.extend([
         render("play_system",
@@ -70,10 +71,10 @@ def build_minimal_play_system_prompt(*, model_based: bool) -> str:
         render("play_minimal", "policy"),
         render("play_minimal", "sandbox"),
         render("play_minimal", "model_based" if model_based else "model_free"),
-        render("play_system", "journal"),
+        render("play_system", "journal" + variant),
         render("play_system", "context"),
     ])
-    return "\n\n".join(sections)
+    return "\n\n".join(section.strip() for section in sections)
 
 
 def render_tool_list(tool_names: Iterable[str]) -> str:
@@ -106,13 +107,26 @@ def build_play_system_prompt(tool_names: Sequence[str],
     sections = [
         render("play_system", "identity" + variant),
         render("play_system", "protocol"),
+        render("play_system", "observations" + variant),
     ]
     noise = ObservationNoise.from_cfg()
     if noise.enabled and noise.declared:
         sections.append(
             render("play_system",
-                   "observation_noise",
+                   "observation_noise" + variant,
                    noise_line=noise.describe() + "."))
+    adaptive = ""
+    if (model and CFG.agent_explorer_info_seeking
+            and CFG.agent_explorer_info_seeking_adaptive
+            and not CFG.agent_model_repair):
+        adaptive = render("play_system", "adaptive_info_seeking")
+    if model:
+        sections.append(
+            render("play_system", "workflow", adaptive_info_seeking=adaptive))
+        if CFG.agent_model_repair:
+            sections.append(render("play_system", "model_repair"))
+    else:
+        sections.append(render("play_system", "workflow_model_free"))
     sections += [
         render("play_system", "tools", tool_list=render_tool_list(tool_names)),
         render("play_system", "grammar"),
@@ -120,33 +134,18 @@ def build_play_system_prompt(tool_names: Sequence[str],
                "sandbox",
                model_files=render("play_system",
                                   "sandbox" + variant + "_files")),
+        render("play_system", "journal" + variant),
+        render("play_system", "context"),
     ]
     if model:
         refs = ("" if not base_sim_refs else render(
             "play_system",
             "base_sim_refs",
-            ref_listing="\n".join(f"  - {r}" for r in base_sim_refs)))
-        # Adaptive info-seeking: teach the submit-first protocol only when
-        # the flag is on, so the always-on info-seeking arm (flag off) is
-        # not told to hold probing back. A leading newline keeps the
-        # placeholder line blank when empty.
-        adaptive = ""
-        if (CFG.agent_explorer_info_seeking
-                and CFG.agent_explorer_info_seeking_adaptive):
-            adaptive = "\n" + render("play_system", "adaptive_info_seeking")
-        sections.append(
-            render("play_system",
-                   "model",
-                   base_sim_refs=refs,
-                   adaptive_info_seeking=adaptive))
+            ref_listing="\n".join(f"- `{r}`" for r in base_sim_refs)))
+        sections.append(render("play_system", "model", base_sim_refs=refs))
         if model_contract:
             sections.append(model_contract)
-    sections += [
-        render("play_system", "journal"),
-        render("play_system", "context"),
-        render("play_system", "principles" + variant),
-    ]
-    return "\n\n".join(sections)
+    return "\n\n".join(section.strip() for section in sections)
 
 
 def build_model_contract(
@@ -158,37 +157,25 @@ def build_model_contract(
     """The contract of the model files, for the model arm's system prompt
     (``play_model_contract.md``).
 
-    ``partially_observable`` selects the recurrent rule signature and
-    adds the hidden-state section and the latent-aware classifier note.
-    ``physical_params_section`` is the rendered system-identification
-    section, from ``render_physical_params_section`` in the learn prompt
-    module; empty when the env reveals no tunable physics.
-    ``declared_params_only`` adds the learn prompt's no-estimation
-    section, since the probe then refuses to fit.
+    ``partially_observable`` adds the model-state callback contract and
+    the latent-aware classifier note. ``physical_params_section`` is the
+    rendered system-identification section, from
+    ``render_physical_params_section`` in the learn prompt module; empty
+    when the env reveals no tunable physics. ``declared_params_only``
+    adds the learn prompt's no-estimation section, since the probe then
+    refuses to fit.
     """
-    rule_args = ("state, latent, history, updates, params"
-                 if partially_observable else "state, updates, params")
-    latch_home = ("the `latent` block (see \"Hidden state\")"
-                  if partially_observable else "a feature the rules own")
     parts = [
         render("play_model_contract", "intro"),
-        render("play_model_contract", "simulator", rule_args=rule_args),
-        render("play_model_contract",
-               "processes",
-               rule_args=rule_args,
-               latch_home=latch_home),
-        render("play_model_contract", "gates"),
+        render("subclass_model", "simulator"),
+        render("subclass_model", "dynamics"),
     ]
     if partially_observable:
-        parts.append(render("play_model_contract", "hidden_state"))
+        parts.append(render("subclass_model", "memory"))
     parts.append(render("play_model_contract", "paramspec"))
     noise = ObservationNoise.from_cfg()
     if noise.enabled and noise.declared:
-        parts.append(
-            render("play_model_contract",
-                   "observation_noise",
-                   noise_line=noise.describe()))
-    parts.append(render("play_model_contract", "subclass"))
+        parts.append(render("play_model_contract", "observation_noise"))
     if physical_params_section:
         parts.append(physical_params_section)
     if declared_params_only:
@@ -196,7 +183,11 @@ def build_model_contract(
     parts.append(render("play_model_contract", "predicates"))
     if partially_observable:
         parts.append(render("play_model_contract", "predicates_latent"))
-    return "\n\n".join(p.strip("\n") for p in parts)
+    for index in range(1, len(parts)):
+        parts[index] = parts[index].strip("\n")
+        if parts[index].startswith("## "):
+            parts[index] = "#" + parts[index]
+    return "\n\n".join(parts)
 
 
 def render_data_status(*, n_episodes: int, n_steps: int) -> str:

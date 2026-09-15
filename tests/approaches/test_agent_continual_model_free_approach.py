@@ -18,7 +18,7 @@ from predicators.approaches.continual_play_mixin import ContinualPlayMixin
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
 from predicators.run.continual import ContinualRun
-from predicators.run.controllers import create_controller
+from predicators.run.level_players import create_level_player
 from predicators.structs import Dataset
 
 MODEL_FREE_TOOLS = [n for n in CONTINUAL_TOOL_NAMES if n != "learn_run"]
@@ -118,8 +118,9 @@ def test_model_free_arm_has_no_model_surface(tmp_path: Any) -> None:
     prompt = approach._get_agent_system_prompt()  # pylint: disable=protected-access
     assert "`learn_run`" not in prompt and "`run_python`" not in prompt
     assert "`sim`" not in prompt and "## Learning" not in prompt
-    assert "no learned model" in prompt and "`give_up`" in prompt
-    assert "`handoff`" not in prompt and "## Your context" in prompt
+    assert "No simulator is supplied" in prompt and "`give_up`" in prompt
+    assert "model memory" not in prompt and "candidate models" not in prompt
+    assert "`handoff`" not in prompt and "### Conversation rounds" in prompt
     # The play loop is a mixin in front of each arm's phased base, not
     # an approach of its own, so the registry never sees it.
     assert not issubclass(ContinualPlayMixin, BaseApproach)
@@ -149,7 +150,7 @@ def test_play_loop_with_a_scripted_model_free_agent(tmp_path: Any) -> None:
         ]
         assert names == MODEL_FREE_TOOLS
         if n == 1:
-            assert "first round of the run" in message
+            assert "first conversation round of the run" in message
             assert "no belief model" in message
             assert "Your model" not in message
             assert "not expressible in your predicates" in message
@@ -179,7 +180,7 @@ def test_play_loop_with_a_scripted_model_free_agent(tmp_path: Any) -> None:
 
     approach._query_agent_sync = fake_query  # type: ignore[method-assign]  # pylint: disable=protected-access
     approach.prepare_for_continual(Dataset([]))
-    run = ContinualRun(env, approach, create_controller(env, approach))
+    run = ContinualRun(env, approach, create_level_player(env, approach))
     card = run.run()
 
     assert card.end_reason == "agent_ended" and card.end_note == "enough"
@@ -223,8 +224,8 @@ def test_both_arms_start_with_no_predicates(tmp_path: Any) -> None:
     names = learner._get_solve_tool_names()  # pylint: disable=protected-access
     assert names == ["run_python"] + list(CONTINUAL_TOOL_NAMES)
     prompt = learner._get_agent_system_prompt()  # pylint: disable=protected-access
-    assert "You start with no predicates" in prompt
-    assert "## Your model" in prompt and "`sim`" in prompt
+    assert "only supplied environment predicates in your vocabulary" in prompt
+    assert "## Model workbench" in prompt and "`sim`" in prompt
 
     _config(tmp_path,
             agent_sim_learn_kept_predicates_names=["Holding"],

@@ -1,4 +1,4 @@
-"""Laplace evidence of a rollout system-ID fit (docs/continual-uncertainty.md,
+"""Laplace evidence of a rollout system-ID fit (docs/uncertainty/design.md,
 section 3.4).
 
 The model-comparison level of a Model Discovery Agent weights model

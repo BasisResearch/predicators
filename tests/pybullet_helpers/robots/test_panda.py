@@ -185,6 +185,28 @@ def test_panda_home_keeps_canonical_arm_under_rolled_orientation(
                        atol=1e-3)
 
 
+def test_panda_home_is_independent_of_global_rng_and_time_budget():
+    """The home configuration does not depend on the global NumPy RNG or the
+    IKFast wall-clock budget, so a loaded machine homes identically."""
+    rolled_home_pose = Pose(PANDA_HOME_EE_POSE_IN_BASE.position,
+                            (0.7071, 0.7071, 0.0, 0.0))
+    homes = []
+    for seed, max_time in [(0, 0.05), (1, 1e-6), (2, 0.05)]:
+        utils.reset_config({
+            "pybullet_control_mode": "reset",
+            "ikfast_max_time": max_time
+        })
+        np.random.seed(seed)
+        physics_client_id = p.connect(p.DIRECT)
+        try:
+            panda = PandaPyBulletRobot(physics_client_id, rolled_home_pose)
+            homes.append(panda.initial_joint_positions)
+        finally:
+            p.disconnect(physics_client_id)
+    assert homes[0] == homes[1] == homes[2]
+    assert np.allclose(homes[0][:6], PANDA_HOME_ARM_JOINTS[:6], atol=1e-2)
+
+
 def test_panda_pushes_with_its_front_face(panda):
     """The Franka Hand pushes front-on, unlike the base class's default."""
     assert panda.push_ee_yaw_offset == pytest.approx(np.pi / 2)

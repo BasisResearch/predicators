@@ -1,13 +1,13 @@
 """The continual protocol loop: one agent, one environment, a scorecard.
 
-See ``docs/continual-protocol.md``. The run plays an env's levels in
+See ``docs/protocol/design.md``. The run plays an env's levels in
 order (its train tasks, then its test tasks). The only primitive is the
 low-level env step; ``env.reset()`` is a step and a reset; skills are an
 agent-side library invoked through the same session. Nothing in the
 sandbox is charged. The harness never judges intent: it counts, records
 and enforces the caps, and the ``RunCard`` is the result.
 
-``ProtocolSession`` is the API a controller or an agent tool may call
+``ProtocolSession`` is the API a level player or an agent tool may call
 (section 5.1). ``ContinualRun`` owns the level list, the episode runner,
 the scorecard, the recordings and the resume path (section 6.6).
 """
@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
@@ -33,6 +33,7 @@ from predicators.observation_noise import ObservationNoise, noise_or_none, \
 from predicators.run import paths
 from predicators.run.episode import EpisodeOver, EpisodeRunner, EpisodeState, \
     InvocationOutcome, StepOutcome
+from predicators.run.interaction import InteractionExecutor
 from predicators.run.recording import LevelRecording, sanitize_state, \
     states_close
 from predicators.run.scorecard import EpisodeRecord, LevelCard, RunCard
@@ -45,7 +46,7 @@ LEVEL_ORDERS = ("train_then_test", "train_only", "test_only")
 
 
 class RunEnded(Exception):
-    """The run is over: a cap was hit, or the controller ended it."""
+    """The run is over: a cap was hit, or the level player ended it."""
 
     def __init__(self, reason: str, note: str = "") -> None:
         super().__init__(reason)
@@ -178,7 +179,7 @@ class InvocationResult:
 
     @property
     def status(self) -> str:
-        """The controller's termination status."""
+        """The invoked skill controller's termination status."""
         return self.outcome.status
 
 
@@ -226,6 +227,7 @@ class ProtocolSession:
     def __init__(self, run: "ContinualRun") -> None:
         self._run = run
         self._data_listener: Optional[Callable[[], None]] = None
+        self.executor = InteractionExecutor(self)
 
     # -- The arm's data hook -------------------------------------------------
 
@@ -284,6 +286,10 @@ class ProtocolSession:
 
     def reset(self, note: str = "") -> ProtocolObservation:
         """Restart the current level.
+
+        Starts a new environment episode on the same level. For continual
+        agents this is a tool call within the current conversation round;
+        it does not end that round or start a new conversation.
 
         One step plus one reset. Refused with ``ResetUnavailable`` on a
         level without resets (see ``resets_allowed``); nothing is
@@ -436,11 +442,11 @@ class ContinualRun:
             self,
             env: BaseEnv,
             approach: BaseApproach,
-            controller: Any,
+            level_player: Any,
             skills: Optional[Sequence[ParameterizedOption]] = None) -> None:
         self._env = env
         self._approach = approach
-        self._controller = controller
+        self._level_player = level_player
         self._arm = approach.get_name()
         # The observation-noise channel (predicators/observation_noise.py),
         # None when observations are exact. Observed views are cached per
@@ -448,6 +454,9 @@ class ContinualRun:
         # atoms and the data file all show the one draw of that step.
         self._noise = noise_or_none(ObservationNoise.from_cfg())
         self._observed_views: Dict[Tuple[int, int, int], State] = {}
+        self._model_state_key: Optional[Any] = None
+        self._model_state_tracker: Optional[Any] = None
+        self._model_state_count = 0
         # The execution-time belief (observation_belief.py) rides on a
         # declared channel only: with exact observations the frame is
         # the belief, and an undeclared channel is the agent's problem.
@@ -500,7 +509,7 @@ class ContinualRun:
 
     @property
     def session(self) -> ProtocolSession:
-        """The session handed to the controller."""
+        """The session handed to the level player."""
         return self._session
 
     @property
@@ -584,7 +593,7 @@ class ContinualRun:
                 self._check_caps()
                 self._begin_level(k)
                 try:
-                    self._controller.play_level(self._session)
+                    self._level_player.play_level(self._session)
                 finally:
                     self._end_level(k)
                 lv = self._card.levels[k]
@@ -595,7 +604,7 @@ class ContinualRun:
                 if not lv.won:
                     raise RunEnded(
                         "level_not_won",
-                        "the controller returned without winning the level")
+                        "the level player returned without winning the level")
         except RunEnded as e:
             self._finish(e.reason, e.note)
         except BaseException:
@@ -626,8 +635,43 @@ class ContinualRun:
             self._observed(s, lv.index, episode["episode"], offset + k)
             for k, s in enumerate(states)
         ]
-        return smooth_frames(frames, self._noise, window,
-                             float(CFG.continual_belief_sigmas))
+        belief = smooth_frames(frames, self._noise, window,
+                               float(CFG.continual_belief_sigmas))
+        return replace(belief, frame=self._execution_frame(belief.frame))
+
+    def _execution_frame(self, state: State) -> State:
+        """Attach inferred memory without altering recorded or true frames.
+
+        Replay only unseen observations. A model edit, refit, episode
+        reset or resume starts a new tracker over the observed episode
+        prefix. This uses the same cached noise draws as the agent's
+        data.
+        """
+        revision = self._approach.model_state_revision()
+        if revision is None or not self._level_episodes:
+            return state
+        _, lv = self._require_level()
+        episode = self._level_episodes[-1]
+        key = (lv.index, episode["episode"], revision)
+        if key != self._model_state_key:
+            self._model_state_key = key
+            self._model_state_tracker = self._approach.make_latent_tracker()
+            self._model_state_count = 0
+        tracker = self._model_state_tracker
+        if tracker is None:
+            return state
+        states, actions = episode["states"], episode["actions"]
+        for index in range(self._model_state_count, len(states)):
+            observed = self._observed(states[index], lv.index,
+                                      episode["episode"], index)
+            tracker.attach(observed,
+                           None if index == 0 else actions[index - 1])
+        self._model_state_count = len(states)
+        if tracker.failed:
+            return state
+        inferred = state.copy()
+        inferred.latent = tracker.latent
+        return inferred
 
     def observation(self, *, truth: bool = False) -> ProtocolObservation:
         """The protocol observation of the current level.
@@ -641,6 +685,8 @@ class ContinualRun:
         true_state = runner.observation()
         frame = true_state if truth else self._observed(
             true_state, lv.index, self._episode_index(), runner.num_steps)
+        if not truth:
+            frame = self._execution_frame(frame)
         evaluation = None
         if runner.episode_state is not EpisodeState.NOT_FINISHED:
             evaluation = runner.evaluate()
@@ -1082,7 +1128,8 @@ class ContinualRun:
             self._level_env,
             horizon=CFG.continual_episode_horizon,
             max_option_steps=CFG.max_num_steps_option_rollout,
-            predicates=self._predicates)
+            predicates=self._predicates,
+            abstract_state_transform=self._execution_frame)
         self._runner.add_step_listener(self._on_runner_step)
         self._recording = LevelRecording(paths.level_dir(self._run_dir, k))
         self._level_episodes = []
@@ -1487,7 +1534,7 @@ def _episode_open(runner: EpisodeRunner) -> bool:
 def run_continual(env: BaseEnv,
                   approach: BaseApproach,
                   offline_dataset: Optional[Dataset] = None) -> RunCard:
-    """Entry point from ``run_pipeline``: build the controller and play.
+    """Entry point from ``run_pipeline``: build the level player and play.
 
     Under ``--auto_resume`` (``maybe_auto_resume`` found a checkpoint
     and set ``load_approach``) the approach is loaded from its latest
@@ -1496,7 +1543,7 @@ def run_continual(env: BaseEnv,
     session: when to learn is the arm's decision.
     """
     # pylint: disable-next=import-outside-toplevel
-    from predicators.run.controllers import create_controller
+    from predicators.run.level_players import create_level_player
     if CFG.load_approach and approach.is_learning_based:
         cycle = CFG.skip_until_cycle - 1 if CFG.skip_until_cycle > 0 \
             else None
@@ -1505,8 +1552,8 @@ def run_continual(env: BaseEnv,
     if prepare is not None:
         prepare(
             offline_dataset if offline_dataset is not None else Dataset([]))
-    controller = create_controller(env, approach)
-    run = ContinualRun(env, approach, controller)
+    level_player = create_level_player(env, approach)
+    run = ContinualRun(env, approach, level_player)
     card = run.run()
     if CFG.continual_make_video and card.is_finished:
         # pylint: disable-next=import-outside-toplevel

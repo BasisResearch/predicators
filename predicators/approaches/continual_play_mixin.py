@@ -1,7 +1,8 @@
-"""The play loop of the continual protocol's agent arms (docs/continual-
-protocol.md, section 5).
+"""The play loop of the continual protocol's agent arms.
 
-``ContinualPlayMixin`` is the controller side of an agent arm: it plays
+See docs/protocol/design.md, section 5.
+
+``ContinualPlayMixin`` is the level player for an agent arm: it plays
 the run's levels through one conversation of the SDK machinery, whose
 tool surface is the protocol's env and skill tools
 (``agent_sdk.tools.continual_tools``) plus whatever the arm attaches
@@ -20,6 +21,12 @@ in progress and never a snapshot from the round's start. The
 conversation is the CLI's own transcript: the SDK's auto-compaction
 manages its size, the journal is the agent's durable memory, and a
 requeue resumes the conversation where it was (section 6.6).
+
+Rounds are conversation boundaries, episodes are environment attempts,
+and levels are tasks. A round includes all tool calls until the SDK
+query returns, so it can span several episodes if the agent resets.
+A reset starts a new episode on the same level without ending the round.
+A level can span several rounds if the agent returns before settling it.
 
 Why a mixin. The arms' learning and session machinery live in the
 phased approach classes (``AgentModelFreeApproach`` and its
@@ -205,18 +212,20 @@ class ContinualPlayMixin:
         self._offline_dataset = dataset
         self._sync_tool_context()
 
-    # -- The controller contract ----------------------------------------
+    # -- The level player contract --------------------------------------
 
     def play_level(self, session: ProtocolSession) -> None:
         """Play rounds until the level is won or lost, or the run ends."""
         self._play_session = session
         session.on_data_changed(lambda: self._on_data_changed(session))
         try:
-            self._play_rounds(session)
+            self._continue_current_level(session)
         finally:
             session.on_data_changed(None)
 
-    def _play_rounds(self, session: ProtocolSession) -> None:
+    def _continue_current_level(self, session: ProtocolSession) -> None:
+        """Prompt further rounds until this level is resolved or the run
+        ends."""
         self._begin_level(session)
         idle = 0
         while True:
@@ -235,14 +244,16 @@ class ContinualPlayMixin:
                 self._close_agent_session()
                 return
             steps_before = obs.ledger.run_steps
-            state = self._play_one_round(session)
+            # An unfinished level gets another round in the same conversation;
+            # continuing the conversation does not reset the environment.
+            state = self._run_conversation_round(session)
             self._sync_level_trajectories(session)
             if state.run_ended is not None:
                 reason, note = state.run_ended
                 raise _run_ended(reason, note)
             if state.pending_give_up is not None:
                 self.save(session.level_index)
-                session.end_run(state.pending_give_up)
+                session.executor.finish(state.pending_give_up)
             steps_after = session.observe().ledger.run_steps
             productive = self._round_was_productive(session, state,
                                                     steps_before, steps_after)
@@ -253,10 +264,14 @@ class ContinualPlayMixin:
                     "agent_ended", f"stalled: {idle} consecutive rounds "
                     "without an environment step or model work")
 
-    # -- One session --------------------------------------------------------
+    # -- One conversation round ---------------------------------------------
 
-    def _play_one_round(self, session: ProtocolSession) -> PlayState:
+    def _run_conversation_round(self, session: ProtocolSession) -> PlayState:
         """One message to the run's conversation and the agent's turn on it.
+
+        The turn includes any number of tool calls, including resets and
+        model work; its boundary is the SDK query returning, not a reset
+        or an individual skill invocation.
 
         The CLI is reopened on the conversation for every round: the SDK
         fixes a client's tool surface when it opens, and the arm's
@@ -361,10 +376,11 @@ class ContinualPlayMixin:
             ctx,
             with_state=True,
             render_path=render,
-            env_predicates=env_predicate_set(session))
-        # The ledger and the context line are already the observation's
-        # last lines; the query shows them once more on their own so
-        # they cannot be missed.
+            env_predicates=env_predicate_set(session),
+            with_goal=kind == "continue",
+            with_budget=False)
+        # Full queries own the goal; every query owns its budget block.
+        # Continuations keep the goal in the observation for orientation.
         return build_play_query(
             kind=kind,
             round_number=self._rounds_played + 1,

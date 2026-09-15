@@ -34,14 +34,29 @@ def _trim_cause_note(traj_rms: Sequence[float], threshold: float) -> List[str]:
     so; only far-over segments get the chaotic-recording advice.
 
     Under a declared observation-noise channel the note leads with the
-    exceeds-sigma bit (docs/continual-uncertainty.md, 3.5): the
+    exceeds-sigma bit (docs/uncertainty/design.md, 3.5): the
     threshold is in units of the total noise with the declared sigma
     folded in, so a dropped segment's residual exceeds what the noise
     can explain and the model, not the fit, has to change.
     """
     # pylint: disable-next=import-outside-toplevel
     from predicators.observation_noise import ObservationNoise
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.settings import CFG
     dropped = [r for r in traj_rms if r > threshold]
+    if dropped and CFG.agent_model_repair:
+        return [
+            f"{len(dropped)} recorded segment(s) exceeded the trimming "
+            f"threshold {threshold:.4g} at the tested candidate values "
+            f"(best RMS range {min(dropped):.4g}-{max(dropped):.4g}). "
+            "This alone does not identify the cause: structural error, "
+            "initial-state uncertainty, an incomplete parameter search, "
+            "and contact-sensitive replay can all contribute. Use "
+            "sim.validate() on the existing recordings, compare dynamics "
+            "structures, and test repeatability in simulation before "
+            "spending more real steps. Collect a probe only when its "
+            "predicted outcomes would change the next action."
+        ]
     close = [r for r in dropped if r <= _TRIM_BORDERLINE_FACTOR * threshold]
     far = [r for r in dropped if r > _TRIM_BORDERLINE_FACTOR * threshold]
     notes: List[str] = []
@@ -93,6 +108,7 @@ class SynthesisToolkit:
     tools: list
     fit_runner: Callable[..., str]
     residuals_runner: Callable[..., str]
+    validation_runner: Callable[..., str]
 
 
 def moving_feature_scope(
@@ -261,6 +277,8 @@ def create_synthesis_tools(
     from claude_agent_sdk import tool as _sdk_tool
     tool = _make_coercing_tool(_sdk_tool)
 
+    from predicators.code_sim_learning.base_simulator import \
+        base_simulator_class
     from predicators.code_sim_learning.evidence import format_evidence_lines
     from predicators.code_sim_learning.fit_space import ParamSpec
     from predicators.code_sim_learning.fitting import compute_sse, \
@@ -290,14 +308,16 @@ def create_synthesis_tools(
         versions_dir=versions_dir,
         artifact_name="simulator",
         cycle_index_provider=cycle_index_provider,
-        missing_file_hint=("Use Write to create it with RESIDUAL_RULES, "
-                           "PARAM_SPECS, RESIDUAL_FEATURES."),
+        missing_file_hint=("Use Write to create a RESIDUAL_ENV subclass "
+                           "with AGENT_PARAM_SPECS and RESIDUAL_FEATURES."),
     )
     # Spill oversize output from the synthesis tools into the sandbox,
     # so nothing is dumped to ``~/.claude/projects/.../tool-results/``.
     # (``run_python``'s own spill lives in ``_make_python_exec_tool``.)
     _text = _make_spilling_text_result(sandbox_dir,
                                        agent_prefix=sandbox_dir_for_agent)
+
+    loaded_native_model = False
 
     def _snapshot_and_load(
             path: str) -> Tuple[Any, Any, Any, Any, Any, Any, Any]:
@@ -315,11 +335,17 @@ def create_synthesis_tools(
         SHA256, so repeated calls on unchanged content reuse the prior
         ``cycle_XXX_vers_YYY`` tag.
         """
+        nonlocal loaded_native_model
+        loaded_native_model = False
         raw, version_tag, err = _snapshotter.snapshot(path)
         if err is not None:
             return None, None, None, None, None, None, err
         assert raw is not None and version_tag is not None
-        ns: Dict[str, Any] = {"np": np, "ParamSpec": ParamSpec}
+        ns: Dict[str, Any] = {
+            "np": np,
+            "ParamSpec": ParamSpec,
+            "BaseSimulator": base_simulator_class(getattr(CFG, "env", ""))
+        }
         try:
             exec(raw.decode("utf-8"), ns)  # pylint: disable=exec-used
         except Exception:  # pylint: disable=broad-except
@@ -337,6 +363,7 @@ def create_synthesis_tools(
         # the rollout system-ID (sim.fit) and the residual rollouts
         # (sim.residuals) run against an instance of the subclass.
         residual_env_cls = read_residual_env(ns)
+        loaded_native_model = residual_env_cls is not None
         if residual_env_cls is not None:
             physical_specs = list(residual_env_cls.AGENT_PARAM_SPECS)
             if features is None:
@@ -351,13 +378,13 @@ def create_synthesis_tools(
                 residual_env_cls,
                 hashlib.sha256(raw).hexdigest())
         if rules is None:
-            if not physical_specs:
+            if not physical_specs and residual_env_cls is None:
                 return None, None, None, None, None, version_tag, (
                     f"[{version_tag}] RESIDUAL_RULES missing or empty in "
                     f"{path}.")
             rules = []
         if specs is None:
-            if not physical_specs:
+            if not physical_specs and residual_env_cls is None:
                 return None, None, None, None, None, version_tag, (
                     f"[{version_tag}] PARAM_SPECS missing or empty in "
                     f"{path}.")
@@ -493,7 +520,8 @@ def create_synthesis_tools(
                     simulator_file,
                     fit_result=outcome.fit_result,
                     sse=float(outcome.pre_sse),
-                    pinned=True)
+                    pinned=True,
+                    coverage=(0, len(rollouts)))
                 if hasattr(approach, "_record_sysid_diagnostics"):
                     approach._record_sysid_diagnostics(  # pylint: disable=protected-access
                         {}, physical_names, 0, len(rollouts), outcome.traj_rms)
@@ -509,10 +537,11 @@ def create_synthesis_tools(
                 "",
                 "Parameters were left at their baselines; nothing was "
                 "applied to the planning base env.",
-                ("Recorded as this file's canonical fit (pinned at the "
-                 "declared inits): the deployed model will use these "
-                 "values without a harness refit." if not exploratory else
-                 "Exploratory call: nothing recorded."),
+                ("This rejection was recorded without another harness fit. "
+                 "An earlier finite fit of this same file is retained if "
+                 "available; otherwise the model remains UNVALIDATED at "
+                 "declared rule values and unchanged planning physics." if
+                 not exploratory else "Exploratory call: nothing recorded."),
                 "",
             ] + _trim_cause_note(outcome.traj_rms, trim_threshold))
         fitted = outcome.fitted
@@ -536,6 +565,7 @@ def create_synthesis_tools(
                 fit_result=outcome.fit_result,
                 sse=post_sse,
                 applied_physical=dict(applied),
+                coverage=(outcome.num_survivors, len(rollouts)),
                 # Physics-margin points for the capture gate, restored
                 # when this fit is deployed as the cycle's model.
                 sigma_points=physics_sigma_points(
@@ -727,38 +757,38 @@ def create_synthesis_tools(
     run_python = _make_python_exec_tool(
         tool,
         name="run_python",
-        description=(
-            "Execute Python code (`code`, or `path` to a .py file you wrote "
-            "in the sandbox) for ad-hoc data exploration. Available "
-            "variables: trajectories (List[LowLevelTrajectory]; each has "
-            "`is_demo`, `train_task_idx`, `states`, `actions`), train_tasks "
-            "(List[Task]; each has `init`, `goal`, `goal_holds(state)`), "
-            "is_goal_state (callable: state, task_idx -> bool - do the goal "
-            "atoms hold in this one STATE; reaching the goal atoms does not "
-            "by itself mean solved), describe_trajectory(traj_idx, "
-            "include_states=True, include_atoms=False, max_timesteps=10) "
-            "- a per-timestep digest of one trajectory, np, ParamSpec, "
-            "and (when the "
-            "env defines task evaluators) evaluate_trajectory(states, "
-            "actions=None, task_idx=0, physics_sweep=False) -> {reward, "
-            "solved, note[, sweep]} - the "
-            "task's reward model over a state sequence: the environment's "
-            "scoring rules, on a simulator rollout or a hand-built "
-            "sequence run against your belief simulator at its current "
-            "fit (`note` says what a replaying rule simulated and on "
-            "what; label transitions with (option, objects, params) so it "
-            "replays your action, not its canonical one; physics_sweep=True "
-            "also scores it at every point of the identified parameters' "
-            "belief interval and reports the fraction scored solved). "
-            "print() output "
-            "is returned. The namespace persists across calls. If output "
-            "exceeds ~30k chars it is saved to "
-            "`tool_outputs/run_python/call_NNNN.txt` in the sandbox and only "
-            "a head/tail preview plus that path is returned - use Read/Grep "
-            "to inspect the full file. This does NOT define rules - write "
-            "`simulator.py` for that; `sim.fit` and `sim.residuals` "
-            "load RESIDUAL_RULES, PARAM_SPECS, RESIDUAL_FEATURES from that "
-            "file fresh on every call." + probe_blurb),
+        description=
+        ("Execute Python code (`code`, or `path` to a .py file you wrote "
+         "in the sandbox) for ad-hoc data exploration. Available "
+         "variables: trajectories (List[LowLevelTrajectory]; each has "
+         "`is_demo`, `train_task_idx`, `states`, `actions`), train_tasks "
+         "(List[Task]; each has `init`, `goal`, `goal_holds(state)`), "
+         "is_goal_state (callable: state, task_idx -> bool - do the goal "
+         "atoms hold in this one STATE; reaching the goal atoms does not "
+         "by itself mean solved), describe_trajectory(traj_idx, "
+         "include_states=True, include_atoms=False, max_timesteps=10) "
+         "- a per-timestep digest of one trajectory, np, ParamSpec, "
+         "and (when the "
+         "env defines task evaluators) evaluate_trajectory(states, "
+         "actions=None, task_idx=0, physics_sweep=False) -> {reward, "
+         "solved, note[, sweep]} - the "
+         "task's reward model over a state sequence: the environment's "
+         "scoring rules, on a simulator rollout or a hand-built "
+         "sequence run against your belief simulator at its current "
+         "fit (`note` says what a replaying rule simulated and on "
+         "what; label transitions with (option, objects, params) so it "
+         "replays your action, not its canonical one; physics_sweep=True "
+         "also scores it at every point of the identified parameters' "
+         "belief interval and reports the fraction scored solved). "
+         "print() output "
+         "is returned. The namespace persists across calls. If output "
+         "exceeds ~30k chars it is saved to "
+         "`tool_outputs/run_python/call_NNNN.txt` in the sandbox and only "
+         "a head/tail preview plus that path is returned - use Read/Grep "
+         "to inspect the full file. To define a model, write "
+         "`simulator.py` for that; `sim.fit` and `sim.residuals` "
+         "load the RESIDUAL_ENV subclass and its AGENT_PARAM_SPECS from that "
+         "file fresh on every call." + probe_blurb),
         exec_ns=exec_ns,
         sandbox_dir=sandbox_dir,
         sandbox_dir_for_agent=sandbox_dir_for_agent,
@@ -807,6 +837,12 @@ def create_synthesis_tools(
                       "inferred (RESIDUAL_FEATURES not declared)")
         canonical = traj_idxs is None and not fixed
 
+        native_model = loaded_native_model
+        if native_model and not specs and not physical_specs:
+            return (f"[{version_tag}] No learnable parameters; nothing to fit "
+                    "or publish. Use sim.validate() to check complete "
+                    "recordings at the model's declared dynamics.")
+
         # PHYSICAL_PARAM_SPECS declared, or rules on the physics-command
         # channel (a ``cmds`` parameter) -> joint system-identification
         # fit on free-running rollouts (the per-transition /
@@ -816,7 +852,7 @@ def create_synthesis_tools(
         # traj_idxs is allowed (exploratory subset fit; applies nothing);
         # fixed is not - pinning a physical param has a versioned channel
         # already (its lo/hi bounds in the PHYSICAL_PARAM_SPECS declaration).
-        if physical_specs or has_physics_rules(rules):
+        if native_model or physical_specs or has_physics_rules(rules):
             if fixed:
                 return (f"[{version_tag}] Error: fixed is not supported "
                         "with the rollout fit (PHYSICAL_PARAM_SPECS or "
@@ -1033,6 +1069,15 @@ def create_synthesis_tools(
             approach._base_env,  # pylint: disable=protected-access
             "get_physical_param_info",
             lambda: {})()
+        baseline_physical: List[str] = []
+        if loaded_native_model:
+            # Replay the same deployed point as sim.validate. A fresh env
+            # otherwise starts at class inits even after a successful fit.
+            rule_params.update(
+                {n: float(entry["default"])
+                 for n, entry in info.items()})
+            rule_params.update(approach._identified_physical_params)  # pylint: disable=protected-access
+            baseline_physical = sorted(info)
         sweepable = {
             n: e
             for n, e in info.items()
@@ -1082,14 +1127,15 @@ def create_synthesis_tools(
         # come back as a report, not a raw traceback through the tool.
         try:
             baseline_sse = compute_rollout_sse(fit_env, rollouts, rule_params,
-                                               scope, [], rules, latent_init,
-                                               scaling)
+                                               scope, baseline_physical, rules,
+                                               latent_init, scaling)
             seg_rms = per_trajectory_rms(fit_env, rollouts, rule_params, scope,
-                                         [], rules, latent_init, scaling)
+                                         baseline_physical, rules, latent_init,
+                                         scaling)
             point_sse: Optional[float] = None
             point_rms: Optional[List[float]] = None
             if phys_params:
-                overrides = sorted(phys_params)
+                overrides = sorted(set(baseline_physical) | set(phys_params))
                 point_sse = compute_rollout_sse(fit_env, rollouts, {
                     **rule_params,
                     **phys_params
@@ -1099,19 +1145,24 @@ def create_synthesis_tools(
                     **phys_params
                 }, scope, overrides, rules, latent_init, scaling)
         except Exception as e:  # pylint: disable=broad-except
-            return (f"[{version_tag}] Error: open-loop rollout scoring "
-                    f"failed (often a RESIDUAL_RULES bug - rules run on "
-                    f"every rolled-out step):\n{e}")
+            legacy_note = "" if loaded_native_model else " (RESIDUAL_RULES bug)"
+            return (
+                f"[{version_tag}] Error: open-loop rollout scoring "
+                f"failed inside the candidate simulator{legacy_note}:\n{e}")
         ratio_bar = CFG.code_sim_learning_rollout_consistency_sse_ratio
         scope_str = "; ".join(f"{t}: {', '.join(fs)}"
                               for t, fs in sorted(scope.items()))
         rms_str = ", ".join(f"{r:.4g}" for r in seg_rms)
+        point_note = (
+            "the current RESIDUAL_ENV at deployed parameter values. "
+            if loaded_native_model else
+            "the base sim with the current historical rules "
+            "(rule params at init_value; physical params at registry "
+            "baselines, NOT any already-applied fit). ")
         lines = [
             f"[{version_tag}] OPEN-LOOP ROLLOUT residual report - each "
             "recorded trajectory's actions replayed free-running from its "
-            "initial state on the base sim with the current RESIDUAL_RULES "
-            "riding (params at init_value; physical params at the env "
-            "registry baselines, NOT any already-applied fit). Errors "
+            "initial state on " + point_note + "Errors "
             "COMPOUND across steps here; the per-step (teacher-forced) "
             "report resets to the recorded state every step and therefore "
             "CANNOT see integrated divergence - a wrong physical parameter "
@@ -1188,9 +1239,12 @@ def create_synthesis_tools(
                             if budget_check is not None:
                                 budget_check()
                             sses.append(
-                                compute_rollout_sse(fit_env, rollouts, {
-                                    **rule_params, name: c
-                                }, scope, [name], rules, latent_init, scaling))
+                                compute_rollout_sse(
+                                    fit_env, rollouts, {
+                                        **rule_params, name: c
+                                    }, scope,
+                                    sorted(set(baseline_physical) | {name}),
+                                    rules, latent_init, scaling))
                     except ProbeBudgetExceeded:
                         raise
                     except Exception as e:  # pylint: disable=broad-except
@@ -1371,14 +1425,19 @@ def create_synthesis_tools(
                 return (f"[{version_tag}] Error: sweep_params/phys_params "
                         "apply to the open-loop report only - pass "
                         "rollout=True.")
-            if not rollout and has_physics_rules(rules):
+            native_model = loaded_native_model
+            if not rollout and (native_model or has_physics_rules(rules)):
                 # Command-emitting rules act through engine stepping,
                 # which the per-transition report cannot replay;
                 # auto-route to the open-loop report rather than scoring
                 # a commands-free prediction and reporting phantom
                 # residuals.
-                note = (f"[{version_tag}] Note: RESIDUAL_RULES emit physics "
-                        "commands (a `cmds` parameter), so the "
+                reason = (
+                    "RESIDUAL_ENV supplies simulator dynamics"
+                    if native_model else
+                    "RESIDUAL_RULES emit physics commands (a `cmds` parameter)"
+                )
+                note = (f"[{version_tag}] Note: {reason}, so the "
                         "per-transition report cannot score them; showing "
                         "the OPEN-LOOP rollout report instead (equivalent "
                         "to rollout=True).")
@@ -1590,6 +1649,73 @@ def create_synthesis_tools(
 
         return "\n".join(lines)
 
+    def run_validation(traj_idxs: Optional[List[int]] = None,
+                       params: Optional[Dict[str, float]] = None) -> str:
+        """Replay the current candidate at the values planning actually
+        uses."""
+        # pylint: disable=import-outside-toplevel,protected-access
+        from predicators.agent_sdk.fit_status import format_fit_status
+        from predicators.agent_sdk.model_validation import replay_report
+        if approach is None:
+            return "Error: sim.validate requires a bound learning approach."
+        rules, specs, _features, latent_init, _physical, version, err = \
+            _snapshot_and_load(simulator_file)
+        if err:
+            return str(err)
+        whole = approach._rollout_fit_trajectories(None)
+        if not whole:
+            return "No recorded actions to validate; collect initial evidence."
+        count = len(approach._fit_trajectories)
+        indices = list(range(count)) if traj_idxs is None else traj_idxs
+        if not indices or len(set(indices)) != len(indices) or any(
+                not isinstance(i, int) or not 0 <= i < count for i in indices):
+            return f"Error: traj_idxs must be distinct indices in [0, {count})."
+        selected = []
+        for index in indices:
+            recordings = approach._rollout_fit_trajectories(None, [index])
+            if not recordings:
+                return f"Error: trajectory {index} has no complete recording."
+            selected.append((index, recordings[0]))
+        scope = moving_feature_scope(whole)
+        if not scope:
+            return "No observed motion to score; this is not model validation."
+        info: Dict[str, Dict[str, Any]] = getattr(approach._base_env,
+                                                  "get_physical_param_info",
+                                                  lambda: {})()
+        physical = {n: float(v["default"]) for n, v in info.items()}
+        physical.update(approach._identified_physical_params)
+        values = {
+            s.name: approach._fitted_params.get(s.name, s.init_value)
+            for s in specs
+        }
+        values.update(physical)
+        if params is not None:
+            if set(params) - set(values) or any(
+                    not isinstance(v, (int, float)) or not np.isfinite(v)
+                    for v in params.values()):
+                return ("Error: params must contain known finite parameter "
+                        f"values; known names: {sorted(values)}.")
+            values.update(params)
+        fit_state = approach._probe_fit_state()
+        with open(simulator_file, "rb") as stream:
+            digest = hashlib.sha256(stream.read()).hexdigest()
+        status = (format_fit_status(fit_state)
+                  if fit_state.get("digest") == digest else
+                  f"UNFITTED ({version}); carried/declared values")
+        if params is not None:
+            status += "; explicit diagnostic overrides (nothing deployed)"
+        return f"[{version}] " + replay_report(approach._get_rollout_fit_env(),
+                                               whole,
+                                               selected,
+                                               scope,
+                                               values,
+                                               sorted(physical),
+                                               rules,
+                                               latent_init,
+                                               status,
+                                               budget_check=budget_check)
+
     return SynthesisToolkit(tools=[run_python],
                             fit_runner=run_fit,
-                            residuals_runner=run_residuals)
+                            residuals_runner=run_residuals,
+                            validation_runner=run_validation)

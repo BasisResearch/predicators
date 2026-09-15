@@ -1,6 +1,6 @@
 """The observation-noise channel of the continual protocol.
 
-Design: ``docs/continual-uncertainty.md``, section 3.1. Every arm sees
+Design: ``docs/uncertainty/design.md``, section 3.1. Every arm sees
 the env state through this channel: object positions and orientations
 carry additive zero-mean Gaussian noise, and so do scalar readings (a
 level, a volume, any feature a Type declares as a sensor) under the

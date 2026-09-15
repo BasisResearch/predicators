@@ -1,4 +1,4 @@
-"""The LLM agent arms of the continual protocol (docs/continual-protocol.md).
+"""The LLM agent arms of the continual protocol (docs/protocol/design.md).
 
 Both arms mix :class:`ContinualPlayMixin` (the play loop) in front of
 the phased approach class that holds their machinery:
@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING, Any, Dict, FrozenSet, List, Optional, Set, \
     Tuple
 
 from predicators.agent_sdk import journal as journal_mod
+from predicators.agent_sdk.fit_status import format_fit_status
 from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES
 from predicators.agent_sdk.tools.sandbox_guard import \
     _screen_text_for_sandbox_escape
@@ -155,8 +156,8 @@ class AgentContinualApproach(ContinualPlayMixin,
         from predicators.agent_sdk.play_prompts import build_model_contract, \
             build_play_system_prompt
 
-        # The contract of the model files (docs/continual-protocol.md,
-        # 5): the rule signature follows CFG.partially_observable, the
+        # The contract of the model files (docs/protocol/design.md,
+        # 5): model memory follows CFG.partially_observable, the
         # system-identification menu is the base env's.
         contract = build_model_contract(
             partially_observable=CFG.partially_observable,
@@ -169,20 +170,26 @@ class AgentContinualApproach(ContinualPlayMixin,
 
     def _model_status(self, session: ProtocolSession) -> str:
         n_eps, n_steps = self._episode_counts(session)
-        data = f"Recorded episodes so far: {n_eps} ({n_steps} steps)."
-        ext = f" {self._probe_ext_status}" if self._probe_ext_status else ""
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.prompt_templates import render
         if self._current_simulator_version is None:
-            return ("No model yet: `sim` is the base simulator, the visible "
-                    "physics with none of the environment's hidden "
-                    "mechanisms. Build `./simulator.py` and `./predicates.py` "
-                    "in `run_python` and call `sim.fit()`. " + data + ext)
-        new = max(0, n_eps - self._episodes_at_last_fit)
-        refit = (f" {new} episode(s) recorded since your last fit; refit with "
-                 "`sim.fit()` before you rely on the model." if new else "")
-        return (
-            f"Your model: `simulator.py` {self._current_simulator_version}"
-            f", `predicates.py` {self._current_predicates_version or 'none'}"
-            f". Last fit: {self._fit_status_text()}. {data}{refit}{ext}")
+            status = render("play_query",
+                            "no_model",
+                            n_episodes=str(n_eps),
+                            n_steps=str(n_steps))
+        else:
+            status = render("play_query",
+                            "model_status",
+                            simulator_version=self._current_simulator_version,
+                            predicates_version=self._current_predicates_version
+                            or "none",
+                            fit_status=self._fit_status_text(),
+                            n_episodes=str(n_eps),
+                            n_steps=str(n_steps),
+                            new_episodes=str(
+                                max(0, n_eps - self._episodes_at_last_fit)))
+        return status + (f" {self._probe_ext_status}"
+                         if self._probe_ext_status else "")
 
     def _round_was_productive(self, session: ProtocolSession, state: Any,
                               steps_before: int, steps_after: int) -> bool:
@@ -210,7 +217,6 @@ class AgentContinualApproach(ContinualPlayMixin,
         forward), so the agent models and validates in the conversation
         it acts in. :meth:`_after_round` deploys what it wrote.
         """
-        del session
         # pylint: disable-next=import-outside-toplevel
         from predicators.agent_sdk.belief_probe import _check_time_budget, \
             build_probe_namespace
@@ -246,7 +252,20 @@ class AgentContinualApproach(ContinualPlayMixin,
                 paths.simulator_file, trajectories, base_pred_triples,
                 inferred_hint)
         ctx.probe_fit_provider = toolkit.fit_runner
+        ctx.probe_validation_provider = toolkit.validation_runner
         ctx.probe_residuals_provider = toolkit.residuals_runner
+
+        def current_observation() -> State:
+            # Load a present candidate at its carried/declared values before
+            # replaying observed memory. This never fits or takes a real step.
+            if os.path.isfile(paths.simulator_file):
+                assert ctx.probe_option_model_provider is not None
+                ctx.probe_option_model_provider()
+            obs = session.observe()
+            ctx.current_belief = obs.belief
+            return obs.frame
+
+        ctx.current_observation_provider = current_observation
         probe_ns = build_probe_namespace(ctx)
         exec_ns["sim"] = probe_ns["sim"]
         exec_ns["BeliefProbe"] = probe_ns["BeliefProbe"]
@@ -311,8 +330,7 @@ class AgentContinualApproach(ContinualPlayMixin,
         return self._build_synthesis_session_hooks(targets, paths.base)
 
     def _after_round(self, session: ProtocolSession, state: Any) -> None:
-        """Deploy whatever the round wrote: load the model files, fit and build
-        the option model, install the invented predicates."""
+        """Deploy the round's files and parameter values without fitting."""
         del state
         self._last_round_modelled = False
         if self._round_model is None:
@@ -351,7 +369,8 @@ class AgentContinualApproach(ContinualPlayMixin,
         self._residual_features = residual_features
         self._fit_params_after_synthesis(rules, specs, base_pred_triples,
                                          residual_features)
-        if self._residual_rules is not None and self._fitted_params:
+        if self._residual_env_cls is not None or (
+                self._residual_rules is not None and self._fitted_params):
             _rules, _params = self._residual_rules, self._fitted_params
 
             def _step_fn(s: State, c: Any) -> Any:
@@ -362,8 +381,10 @@ class AgentContinualApproach(ContinualPlayMixin,
             combined = self._build_combined_simulator(self._learned_simulator)
             self._option_model = self._build_option_model(combined)
         self._last_round_modelled = True
-        self._episodes_at_last_fit = len(self._online_trajectories)
-        session.record_sandbox("fits", 1)
+        fit_version = self._probe_fit_state().get("version")
+        if fit_version is not None and fit_version != self._fit_version_before:
+            self._episodes_at_last_fit = len(self._online_trajectories)
+            session.record_sandbox("fits", 1)
         # The invented predicates the runner abstracts with (Wait
         # targets, divergence checks) follow the model.
         self._sync_tool_context()
@@ -376,7 +397,9 @@ class AgentContinualApproach(ContinualPlayMixin,
         ctx = self._tool_context
         ctx.probe_option_model_provider = None
         ctx.probe_fit_provider = None
+        ctx.probe_validation_provider = None
         ctx.probe_residuals_provider = None
+        ctx.current_observation_provider = None
         ctx.probe_param_status = None
         ctx.probe_artifact_loaders.clear()
         ctx.learn_cycle_index = None
@@ -482,6 +505,14 @@ class AgentContinualApproach(ContinualPlayMixin,
         parameter and the posterior sample count, never the raw result (its
         Jacobian dump is noise to the agent)."""
         result = getattr(self, "_last_fit_result", None)
+        if result is None and getattr(self, "_param_specs", []):
+            return ("UNFITTED for the current simulator.py; using carried "
+                    "or declared parameter values. Call sim.fit() to fit")
+        if result is None and getattr(self, "_residual_env_cls", None):
+            return "no learnable parameters"
+        published = self._probe_fit_state()
+        if published:
+            return format_fit_status(published)
         if result is None:
             return "no fit result"
         try:

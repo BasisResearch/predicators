@@ -710,8 +710,9 @@ class BeliefProbe:
         ``task_idx`` indexes the train tasks; ``None`` uses the current
         solve-time task. ``current=True`` starts instead from the last
         real observation the session recorded (every env tool result
-        refreshes it), so a rollout begins where the environment is now;
-        the level's goal stays the task, and evaluator-scored modes
+        refreshes it), with inferred memory refreshed for the current
+        model, so a rollout begins where the environment is now; the
+        level's goal stays the task, and evaluator-scored modes
         (``solved``, ``require_solved``) are off, since they reference
         the task's true initial state. Returns ``self`` so calls chain.
         """
@@ -721,6 +722,8 @@ class BeliefProbe:
             if task_idx is not None:
                 raise ValueError("current=True starts from the last real "
                                  "observation; task_idx does not apply.")
+            if ctx.current_observation_provider is not None:
+                ctx.current_observation = ctx.current_observation_provider()
             if ctx.current_observation is None:
                 raise ValueError(
                     "No real observation has been recorded in this session: "
@@ -865,7 +868,7 @@ class BeliefProbe:
         model is fixed). With no arguments this is the CANONICAL fit -
         the same fit the probe deploys for ``run``/``refine``, on the
         full data - and, when ``simulator.py`` declares
-        ``PHYSICAL_PARAM_SPECS``, the identified physical values are applied
+        ``AGENT_PARAM_SPECS`` on its subclass, the identified values are applied
         to the planning base env. Passing ``traj_idxs`` (fit only those
         trajectories' data) or ``fixed`` (pin parameters at given
         values) makes the fit EXPLORATORY: a diagnostic report only -
@@ -873,7 +876,7 @@ class BeliefProbe:
         the canonical fit. On the system-ID path ``traj_idxs`` is a
         cross-trajectory consistency check (subset fits that disagree
         mean heterogeneous data); ``fixed`` is rejected there - pin by
-        narrowing the param's bounds in PHYSICAL_PARAM_SPECS. Reports SSE at
+        narrowing the param's declared bounds. Reports SSE at
         init vs post-fit, fitted values with deltas, and (system-ID
         path) per-parameter identifiability. The fit is the expensive
         probe call; use deliberately.
@@ -909,6 +912,30 @@ class BeliefProbe:
         return provider(path=path,
                         traj_idxs=traj_idxs,
                         num_particles=num_particles)
+
+    def validate(self,
+                 traj_idxs: Optional[List[int]] = None,
+                 params: Optional[Dict[str, float]] = None) -> str:
+        """Replay recorded actions at the current model's deployed parameters.
+
+        No fitting, segment rejection, or real actions. Returns errors
+        for every selected full trajectory, including ones a fit
+        rejected. ``traj_idxs`` indexes the available recordings, never
+        unseen tasks. ``params`` optionally overrides named
+        rule/physical values for this diagnostic only, e.g. estimates
+        from an exploratory subset fit. Exclude validation data from
+        fitting and model design to call it held out. Errors are not a
+        success certificate for a future plan.
+        """
+        ctx = self._ctx
+        _check_time_budget(ctx)
+        provider = ctx.probe_validation_provider
+        if provider is None:
+            raise RuntimeError("sim.validate is unavailable in this session: "
+                               "there is no candidate replay workbench.")
+        # Resolve edited files exactly as sim.run does, without an implicit fit.
+        self._option_model()
+        return provider(traj_idxs=traj_idxs, params=params)
 
     def predicates(self,
                    max_trajectories: int = 10,
@@ -965,7 +992,7 @@ class BeliefProbe:
                   phys_params: Optional[Dict[str, float]] = None) -> str:
         """Per-feature residual report for the current simulator rules.
 
-        Synthesis sessions only. Loads RESIDUAL_RULES fresh from
+        Synthesis sessions only. Loads the current simulator fresh from
         ``simulator.py`` and reports, per feature in RESIDUAL_FEATURES,
         mismatch counts, mean/max abs error, improvement over the
         no-rule baseline (negative = the rules hurt), and the worst-N
@@ -982,7 +1009,7 @@ class BeliefProbe:
         replay of each recorded trajectory (errors compound, which the
         teacher-forced default structurally cannot see). It is the only
         residual view that can implicate or exonerate a physical
-        parameter; consult it before deciding the ``PHYSICAL_PARAM_SPECS``
+        parameter; consult it before deciding the parameter
         declaration either way. Two mutually exclusive opt-ins probe
         the parameters themselves:
 
@@ -1327,7 +1354,7 @@ class BeliefProbe:
                 "`Option(obj:type, ...)[params]` with a known option, typed "
                 "object refs, and exact params in `[]`.")
         status = ctx.probe_param_status
-        if status and status.startswith("UNFITTED"):
+        if status and not status.startswith("fitted ("):
             notices.append(f"PARAMS {status}.")
         return probe_task, sketch_steps, all_predicates, notices
 

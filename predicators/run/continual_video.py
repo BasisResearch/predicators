@@ -1,4 +1,4 @@
-"""A labelled video of one continual-protocol run (docs/continual-protocol.md).
+"""A labelled video of one continual-protocol run (docs/protocol/design.md).
 
 The recording of a run holds every applied primitive action
 (``actions.jsonl``) and every skill invocation, reset, win and game

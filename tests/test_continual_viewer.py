@@ -4,6 +4,7 @@ import threading
 import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from predicators import utils
@@ -11,7 +12,7 @@ from predicators.approaches import create_approach
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
 from predicators.run.continual import ContinualRun
-from predicators.run.controllers import create_controller
+from predicators.run.level_players import create_level_player
 from scripts import continual_viewer as viewer
 
 
@@ -39,7 +40,7 @@ def _run(tmp_path: Any, approach_name: str, **overrides: Any) -> ContinualRun:
     approach = create_approach(approach_name, env.predicates, options,
                                env.types, env.action_space,
                                [t.task for t in env.get_train_tasks()])
-    run = ContinualRun(env, approach, create_controller(env, approach))
+    run = ContinualRun(env, approach, create_level_player(env, approach))
     run.run()
     return run
 
@@ -503,6 +504,50 @@ def _call(host: str,
             return resp.status, resp.read().decode("utf-8")
     except urllib.error.HTTPError as e:
         return e.code, e.read().decode("utf-8")
+
+
+def test_display_experiment_groups_without_changing_run_identity(
+        tmp_path: Any, monkeypatch: Any) -> None:
+    """Regroup real runs over HTTP while keeping their raw records and URLs."""
+    original = _run(tmp_path, "oracle", continual_render=False)
+    _run(tmp_path, "oracle", experiment_id="sweep", continual_render=False)
+    _no_owners(monkeypatch)
+    _serve(tmp_path)
+    key = viewer.run_key(original.run_dir)
+    card_path = Path(original.run_dir, viewer.SCORECARD_FILENAME)
+    original_bytes = card_path.read_bytes()
+    loaded = viewer.load_card(key)
+    assert loaded is not None
+    identity = viewer._card_key(loaded)  # pylint: disable=protected-access
+    label_path = Path(original.run_dir, viewer.EXPERIMENT_NAME_FILENAME)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), viewer.Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    host = f"127.0.0.1:{server.server_address[1]}"
+    try:
+        assert _call(host, "GET", "/")[1].count("class='grp exp'") == 2
+        stamp = _call(host, "GET", "/stamp")[1]
+        label_path.write_text("sweep\n", encoding="utf-8")
+        assert _call(host, "GET", "/stamp")[1] != stamp
+        status, body = _call(host, "GET", "/")
+        assert status == 200 and body.count("class='grp exp'") == 1
+        assert "data-config='sweep'" in body and "(2 runs)" in body
+        assert key in body
+        qkey = viewer.q(key)
+        assert "runhead'>sweep " in _call(host, "GET", f"/run/{qkey}")[1]
+        overview = _call(host, "GET", f"/run/{qkey}/frag/overview")[1]
+        assert "<h2>sweep</h2>" in overview
+        assert "<dt>config</dt><dd>viewer</dd>" in overview
+        assert _call(host, "GET",
+                     f"/card/{qkey}")[1].encode() == original_bytes
+        assert card_path.read_bytes() == original_bytes
+        loaded = viewer.load_card(key)
+        assert loaded is not None
+        assert viewer._card_key(loaded) == identity  # pylint: disable=protected-access
+        label_path.unlink()
+        assert _call(host, "GET", "/")[1].count("class='grp exp'") == 2
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 def test_http_endpoints(tmp_path: Any, monkeypatch: Any) -> None:

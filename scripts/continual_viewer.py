@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local web viewer for continual-protocol runs (docs/continual-protocol.md).
+"""Local web viewer for continual-protocol runs (docs/protocol/design.md).
 
 Stdlib-only browser over the run directories under one root
 (``predicators/run/paths.py``), one per run at
@@ -105,6 +105,8 @@ AGENT_DIRNAME = "agent"
 # lossless. It travels with the run directory and a delete removes it
 # along with the rest.
 HIDDEN_FILENAME = ".hidden"
+# Optional display label; the scorecard retains the original experiment id.
+EXPERIMENT_NAME_FILENAME = ".viewer-experiment"
 # A run's URL key: its directory relative to the root.
 RUN_KEY_RE = re.compile(r"^[^/]+/[^/]+/seed\d+/run_\d{8}_\d{6}$")
 LIVE_WINDOW_S = 15 * 60  # a card updated within this window is "live"
@@ -130,6 +132,13 @@ def _noise_text(card: Dict[str, Any]) -> str:
 def esc(text: Any) -> str:
     """HTML-escape."""
     return html.escape(str(text), quote=True)
+
+
+def experiment_name(card: Dict[str, Any]) -> str:
+    """The viewer label, falling back to the recorded experiment id."""
+    return str(
+        card.get("display_experiment") or card.get("config")
+        or card.get("run_id") or card.get("key"))
 
 
 def q(text: str) -> str:
@@ -260,6 +269,13 @@ def index_stamp() -> str:
                                         HIDDEN_FILENAME)))
         parts.append(f"{key}:{st.st_mtime_ns}:{st.st_size}:"
                      f"{stale}{agent_stale}{hidden}")
+        try:
+            label_stat = os.stat(
+                os.path.join(os.path.dirname(path), EXPERIMENT_NAME_FILENAME))
+            parts.append(
+                f"label:{label_stat.st_mtime_ns}:{label_stat.st_size}")
+        except OSError:
+            pass
     procs = [
         line for line in _ps_lines()
         if _PS_MAIN_RE.match(line.strip().partition(" ")[2].strip())
@@ -285,6 +301,14 @@ def load_card(key: str) -> Optional[Dict[str, Any]]:
     card["key"] = key
     card.setdefault("run_id", key)
     card["hidden"] = os.path.exists(os.path.join(root, HIDDEN_FILENAME))
+    try:
+        label = Path(
+            root,
+            EXPERIMENT_NAME_FILENAME).read_text(encoding="utf-8").strip()
+        if label:
+            card["display_experiment"] = label
+    except (OSError, UnicodeError):
+        pass
     return card
 
 
@@ -1671,7 +1695,7 @@ def index_page() -> str:
     leaves: Dict[Tuple[str, str, str], List[Dict[str, Any]]] = {}
     for card in cards:
         key = (str(card.get("arm")), str(card.get("env")),
-               str(card.get("config") or card.get("run_id")))
+               experiment_name(card))
         leaves.setdefault(key, []).append(card)
     n_runs = {key: len(runs) for key, runs in leaves.items()}
     # One column layout for the whole page: the levels column is as wide
@@ -1780,8 +1804,8 @@ def _runs_table(cards: Sequence[Dict[str, Any]], n_levels: int,
         hidden = bool(card.get("hidden"))
         search = " ".join(
             str(x) for x in (key, card.get("run_id"), card.get("config") or "",
-                             card.get("arm"), card.get("env"),
-                             f"seed{card.get('seed')}", label,
+                             experiment_name(card), card.get("arm"),
+                             card.get("env"), f"seed{card.get('seed')}", label,
                              "hidden" if hidden else ""))
         rows.append(
             f"<tr class='runrow{' hiddenrun' if hidden else ''}' "
@@ -1912,7 +1936,7 @@ def run_page(key: str) -> Optional[str]:
     label, cls = liveness(card)
     levels = card.get("levels", [])
     nav = [
-        f"<div class='runhead'>{esc(card.get('config') or key)} "
+        f"<div class='runhead'>{esc(experiment_name(card))} "
         f"{chip(label, cls)}</div>",
         "<div class='nav'><a href='#overview'>Overview</a>"
         "<a href='#replay'>▶ Replay</a>",
@@ -2067,7 +2091,7 @@ def overview_fragment(key: str) -> Optional[str]:
         meta.append(("video", "<a href='#video'>labelled replay</a>"))
     meta_html = "<dl class='meta'>" + "".join(f"<dt>{k}</dt><dd>{v}</dd>"
                                               for k, v in meta) + "</dl>"
-    return (f"<h2>{esc(card.get('config') or key)}</h2>{meta_html}"
+    return (f"<h2>{esc(experiment_name(card))}</h2>{meta_html}"
             "<h2>Cumulative steps vs levels won</h2>" + curve_svg(card) +
             "<h2>Levels</h2>" + _levels_table(card))
 

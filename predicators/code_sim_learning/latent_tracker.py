@@ -26,11 +26,17 @@ from __future__ import annotations
 
 import copy
 import logging
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, \
+    Optional, Tuple, Type, Union
 
+from predicators.code_sim_learning.model_state import advance_model_state, \
+    has_model_state, model_parameters
 from predicators.code_sim_learning.utils import apply_rules_with_latent, \
     has_latent_rules, init_latent, observation_view
 from predicators.structs import Action, State
+
+if TYPE_CHECKING:
+    from predicators.envs.pybullet_env import PyBulletEnv
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +53,8 @@ class LatentTracker:
 
     def __init__(self,
                  rules: Iterable[Any],
-                 params: Dict[str, float],
+                 params: Union[Dict[str, float], Callable[[], Dict[str,
+                                                                   float]]],
                  latent_init: Any,
                  log_label: str = "latent tracker") -> None:
         self._rules: List[Any] = list(rules)
@@ -78,9 +85,13 @@ class LatentTracker:
     def reset(self) -> None:
         """Start an episode from the canonical initial latent, the same
         ``init_latent`` the belief rollout starts from."""
-        self._latent = init_latent(self._latent_init, self._params)
+        self._latent = init_latent(self._latent_init, self._current_params())
         self._failed = False
         self._num_observations = 0
+
+    def _current_params(self) -> Dict[str, float]:
+        """Read live deployed values even when the owner replaces its dict."""
+        return self._params() if callable(self._params) else self._params
 
     def attach(self, state: State, prev_action: Optional[Action]) -> State:
         """Advance the latent by ``prev_action``'s observed outcome and return
@@ -109,7 +120,7 @@ class LatentTracker:
                                 Optional[Action]]] = [(obs, prev_action)]
             try:
                 apply_rules_with_latent(obs, self._latent, history,
-                                        self._rules, self._params)
+                                        self._rules, self._current_params())
             except Exception as e:  # pylint: disable=broad-except
                 logger.warning(
                     "%s: a rule raised at observation %d (%s: %s); latent "
@@ -138,3 +149,29 @@ def make_latent_tracker(rules: Optional[Iterable[Any]], params: Dict[str,
     if not rule_list or not has_latent_rules(rule_list):
         return None
     return LatentTracker(rule_list, params, latent_init)
+
+
+def make_subclass_latent_tracker(
+        model_cls: Type[PyBulletEnv],
+        parameters: Callable[[], Dict[str, float]]) -> Optional[LatentTracker]:
+    """Track subclass memory without constructing or stepping a physics env.
+
+    Reuse the existing snapshot, reset and failure handling. The
+    internal callback adapter does not create another simulator artifact
+    format.
+    """
+    if not has_model_state(model_cls):
+        return None
+
+    def update(observation: State, latent: Dict[str, Any],
+               history: List[Tuple[State, Optional[Action]]], updates: Dict,
+               params: Dict[str, float]) -> Dict:
+        action = history[-1][1]
+        assert action is not None
+        advance_model_state(model_cls, observation, latent, params, action)
+        return updates
+
+    return LatentTracker([update],
+                         lambda: model_parameters(model_cls, parameters()),
+                         model_cls.MODEL_STATE_INIT,
+                         log_label="subclass model-state tracker")

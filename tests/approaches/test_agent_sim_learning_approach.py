@@ -922,6 +922,12 @@ def test_extra_save_state_round_trip_defers_sigma_points(
     """Plain fields round-trip; sigma points restore AFTER rehydration."""
     obj, sandbox = _make_checkpoint_stub(tmp_path, monkeypatch)
     (sandbox / "simulator.py").write_text("SIM")
+    obj._probe_fit_state().update({
+        "version": "rejected",
+        "pinned": True,
+        "coverage": (0, 2),
+        "sse": 7.0
+    })
     save_dict = obj._extra_save_state()
     assert save_dict["fitted_params"] == {"gain": 0.7}
     assert save_dict["sandbox_files"]["simulator.py"] == b"SIM"
@@ -943,6 +949,8 @@ def test_extra_save_state_round_trip_defers_sigma_points(
         "lateral_friction": 0.55
     }]
     assert fresh._fitted_params == {"gain": 0.7}
+    assert fresh._probe_fit_state() == obj._probe_fit_state()
+    assert fresh._published_fit_is_pinned()
     assert fresh._identified_physical_params == {"lateral_friction": 0.5}
     assert fresh._carried_physical_prior == {"lateral_friction": 0.5}
     assert fresh._fit_evidence_history == {"vers_001": {"log_evidence": -1.0}}

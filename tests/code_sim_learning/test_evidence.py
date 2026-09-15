@@ -1,5 +1,5 @@
 """Tests for the Laplace evidence of a rollout fit
-(``code_sim_learning_fit_evidence``, docs/continual-uncertainty.md 3.4)."""
+(``code_sim_learning_fit_evidence``, docs/uncertainty/design.md 3.4)."""
 
 # pylint: disable=protected-access
 
