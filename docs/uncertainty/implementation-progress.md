@@ -6,6 +6,13 @@ The incumbent estimator remains the production default.
 
 ## Current stage
 
+The [September 14 validation status](validation-status-20260914.md) consolidates the completed Boil and Bridge comparisons, Balloons reader recovery, and the independently verified informative-heating diagnostic.
+Full-prefix replay is the required reference; arbitrary mid-trajectory restoration is not a migration gate.
+The discrepancy policy now explicitly separates replay bugs, missing program mechanisms, uninformative data and residual model error.
+The [informative-heating diagnostic](boil-informative-heating.md) preserves the thermal priors under the 132-action all-off prefix and constrains onset and width after 224 actions in two fixed candidate histories.
+Native replay, later-observation isolation, independent direct Gaussian references and a higher-precision integration comparison pass.
+This is conditional learnability evidence; a full-scene heating-aware target and held-out forecast remain separate requirements.
+
 Stage 0 interface preservation is complete, with scripted behavior parity checked.
 Stage A has implemented probability and replay components, but physical support and numerical validation remain incomplete.
 The active work is Stage B offline comparison; Stage C live posterior use and Stage E retirement have not passed their evidence requirements.
@@ -19,14 +26,15 @@ The reduced Boil target removes the three unobserved heating coordinates while p
 Native preflight `22717213` passes 56 assignments across eight source states, with 792 native actions and four contract guards.
 Independent reader `22717214` also passes, with 264 fresh native actions and a rejected placeholder coordinate.
 Both small fitting fixtures and readers now pass, including 4,224 fresh native actions per reader.
-Full fits `22717256` and `22717258` are running with final-target verification queued.
+Full fits `22717256` and `22717258` and their final-target verification have completed.
 The [reduced Boil forecast adapter](reduced-boil-forecasts.md) restores independently sampled thermal priors per complete trajectory while preserving retained joint rows and weights.
 Its twelve source guards, ten malformed-history checks and nonuniform density/variance reference pass in `22717364`.
 Native forecast fixture `22717373` completed 128 histories and 40,656 native actions.
 Independent reader `22717375` also passes, checking 304,128 joint factors and using 6,864 additional native actions, including two fresh complete histories.
-Both full forecasts, their independent readers and the final comparison are dependency-queued behind successful fit and fixture verification.
+Both full forecasts, their independent readers and final comparison `22717441` have completed.
 Comparison fixture `22717399` preserves all seven earlier controls while explicitly retaining both pending new outcomes.
-No full reduced fit or new agent result is available yet.
+The reduced fits retain one initial lineage each; bubbling RMSE is 0.30445 and 0.37039 versus the incumbent's 0.01915.
+No new agent result or numerical/predictive acceptance follows from this completed comparison.
 
 The [Balloons transition diagnostic](balloons-transition-sensitivity.md) now verifies 32 paired continuations and 9,400 native actions.
 At one selected fitted state, removing future joint and velocity noise eliminates bursts in four continuations, but does not recover the goal; the other selected state does not improve.
@@ -39,24 +47,28 @@ Array `22714577` now runs the two original numerical seeds with only the paramet
 The default-centered seed 621 fit `22714577_1` and its reader `22714629` have completed; all 64 final native targets and the checkpoint reproduce, with one surviving original lineage.
 This does not establish mixing or prediction quality.
 The paired seed 620 fit `22714577_0` and reader `22714628` have also completed, with the same final-target reproducibility and one surviving original lineage.
-Both default-centered posterior forecasts remain pending or running; their comparison is incomplete.
+Both default-centered posterior forecasts and comparison `22715120` have completed.
+The changed guide improves box-speed RMSE but worsens box-height RMSE in both numerical fits; both retain one original lineage.
 The new weighted forecast adapter and independent reader `22715007`/`22715008` have passed, checking both broad and local proposal mappings, complete native prefixes, generation and density histories, and rejection of the old guide when decoding new particles.
-Full forecasts `22715115`/`22715117`, readers `22715116`/`22715118`, and comparison `22715120` are dependency-queued behind the verified completed fits.
+Full forecasts `22715115`/`22715117`, readers `22715116`/`22715118`, and comparison `22715120` completed after the verified fits.
 The comparison retains both earlier fits and the incumbent, including prediction metrics and computation costs; its fixture `22715119` passes while correctly leaving the new outcomes pending.
 The [parameter-dependence audit](balloons-selective-guidance.md) and independent reader `22715205`/`22715206` have completed all 46 native cases and twenty marginal checks.
 Changing five parameters separately or together leaves both tested fitting histories and scores exactly unchanged, while the original fits retain very narrow marginals for them.
 A selective guide with uniform proposals on those coordinates and 20% block refresh moves now passes native validation `22715307`, including 32 default-parity and 32 independent mixture-density checks.
-Paired fits `22715405` are running with final-target readers `22715406`/`22715407` dependent on completion.
+Paired fits `22715405` and final-target readers `22715406`/`22715407` have completed.
 The selective proposal's weighted future adapter and independent reader `22715541`/`22715542` now pass, including rejection of a decoder that omits the selective mask.
-Forecasts `22715569`/`22715571`, independent readers and the six-population comparison `22715574` are dependency-queued.
+Forecasts `22715569`/`22715571` completed, but their reader invocations omitted the required numerical index and failed before verification.
+The cancelled comparison `22715574` is replaced by `22755277`, after invocation-recovery reader array `22755276`.
 The comparison fixture `22715573` passes its marginal and configuration guards, retaining the four pending forecasts explicitly.
 The comparison preserves the original and default-centered controls and reports parameter spread alongside future predictions.
 It retains the complete prior, likelihood and Metropolis correction and does not assume global parameter independence.
 
 The [Bridge recovery](bridge-memory-recovery.md) validates both stage-26 checkpoints after the original fits exhausted their 64 GiB allocations.
 Both complete numerical prefixes and four fresh native targets reproduce exactly.
-After fixing and checking a JSON-container comparison in the resume launcher, array `22714037` now resumes the same fits with 128 GiB per allocation, with replacement fit readers and the complete forecast/verification pipeline queued.
+After fixing and checking a JSON-container comparison in the resume launcher, array `22714037` resumed the same fits with 128 GiB per allocation, followed by replacement fit readers and the complete forecast/verification pipeline.
 This is recovery from an infrastructure interruption; the incomplete fits are not model or agent outcomes.
+The resumed fits and their full verification/forecast/comparison pipeline have now completed.
+Both fits retain one initial lineage, and both posterior forecasts and the incumbent miss the final clean geometric goal.
 
 The [Fan fixture diagnostic](fan-static-fixtures.md) now isolates a practical forecast sensitivity after the speed-reflection result.
 Two verified scene-exchange audits use 4,884 native actions and retain three geometry-rejected candidates.

@@ -64,9 +64,9 @@ An additional likelihood that depends on a selected uniform coordinate preserves
 The existing exact prefix replays pass, 14 of 16 new guide candidates have finite support, serial and parallel targets agree exactly, and future-data corruption leaves the fitting target unchanged.
 The maximum target-factorization discrepancy is 9.09e-13.
 
-Array `22715405` runs paired fitting seeds 620 and 621 on `mit_preemptable`, each with four CPUs and 20 GiB.
+Array `22715405` completed paired fitting seeds 620 and 621 on `mit_preemptable`, each with four CPUs and 20 GiB.
 It retains 64 particles, 32 cubic temperatures, eight moves, the original blocks and a 16,448-evaluation cap.
-Final-target readers `22715406` and `22715407` are dependency-queued to recover each complete checkpoint and freshly evaluate every retained particle.
+Final-target readers `22715406` and `22715407` completed, recovering each complete checkpoint and freshly evaluating every retained particle.
 Their frozen bundle is `logs/uncertainty_balloons_selective_verification_20260914`.
 The selective-proposal weighted future adapter in `logs/uncertainty_balloons_selective_forecasts_20260914` has passed native validation and independent verification.
 Its particle decoder binds the new guide and all five uniform-coordinate selections; the default-guide decoder cannot be substituted for it.
@@ -94,8 +94,8 @@ Both completed reports match the checksums of their frozen inputs and source art
 The reader successfully rejects both the old proposal center and the correct center with its uniform-coordinate selection omitted.
 This distinction matters because omitting the selection changes the physical state represented by the same saved proposal coordinates.
 
-Full forecasts `22715569` and `22715571` are queued behind the completed-fit readers and successful adapter verification.
-Independent forecast readers `22715570` and `22715572` follow them.
+Full forecasts `22715569` and `22715571` completed after the completed-fit readers and successful adapter verification.
+Independent forecast readers `22715570` and `22715572` failed before verification because their launcher invocation omitted the required numerical index.
 Comparison fixture `22715573` and final comparison `22715574` cover the original, default-centered and selective treatments, retaining the incumbent estimator as a separate reference.
 The full comparison also waits for the earlier default-guide forecast readers, so unfinished treatments cannot be silently omitted.
 
@@ -106,3 +106,9 @@ Its synthetic weighted-distribution check and six deliberate invalid-budget, inv
 It independently reproduces the original two fits' parameter summaries and retains all four new forecasts as pending.
 An incomplete comparison fixture is expected while new forecasts are unavailable; full comparison requires all six verified forecasts.
 These reports remain offline evidence and do not establish agent solve rates.
+
+The resulting dependent comparison `22715574` was cancelled.
+The exact shell failure was reproduced, and replacement reader array `22755276` supplies both required arguments to the unchanged frozen reader.
+Comparison `22755277` follows successful completion of both readers.
+No fit or forecast is regenerated for this invocation-only recovery.
+The recovery manifest and outputs are in `logs/uncertainty_balloons_selective_reader_recovery_20260914`.
