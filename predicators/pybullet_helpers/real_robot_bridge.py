@@ -17,6 +17,7 @@ what to do with any observation that comes back, belongs to the caller --
 from __future__ import annotations
 
 import json
+import os
 import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Tuple
@@ -128,6 +129,10 @@ def _make_perception() -> Any:
     ``"zed"`` (the default) is the live session-scoped ZED perception the
     closed loop needs: one instance held open for the whole run, which
     ``RealRobot`` opens on construction and closes on ``close()``.
+    ``"fan_scene"`` is the fan bench's live look: the markerless read
+    (``real_skills/fan_scene.sh``: capture, depth, SAM2, block fit) run
+    per look, since that bench's block carries no markers for ``"zed"``
+    to find. Each look is kept under the run's log dir.
     ``"scene_file"`` replays ``CFG.domino_real_scene`` -- a cameraless
     stand-in that always reports the captured layout, so it exercises the
     plumbing but never reports a topple. ``"none"`` (or ``None``, which
@@ -151,6 +156,9 @@ def _make_perception() -> Any:
     if kind == "zed":
         from babyrobot.realrobot.perception import DominoPerception
         return DominoPerception(table_z=float(CFG.domino_real_table_z))
+    if kind == "fan_scene":
+        from babyrobot.realrobot.perception import FanScenePerception
+        return FanScenePerception(os.path.join(CFG.log_file, "looks"))
     raise ValueError(f"unknown real_robot_perception: {kind!r}")
 
 

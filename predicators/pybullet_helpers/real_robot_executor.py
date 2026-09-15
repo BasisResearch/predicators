@@ -410,7 +410,7 @@ class RealRobotExecutor:
         plan was written for a world that is not there. Raising here
         costs a run that was going to be meaningless anyway.
         """
-        if CFG.real_robot_perception != "zed":
+        if CFG.real_robot_perception not in ("zed", "fan_scene"):
             return  # not looking at anything, so nothing to be stale about
         if CFG.real_robot_allow_captured_scene_task:
             return  # replaying a plan written against exactly those poses
