@@ -51,6 +51,25 @@ _DIRECT_PATH_POSE_TOL = 0.002
 _DIRECT_PATH_MIN_LEG = 1e-4
 
 
+def _solve_near(robot: SingleArmPyBulletRobot, pose: Pose,
+                prev: Sequence[float],
+                max_joint_step: float) -> Optional[List[float]]:
+    """IK for ``pose`` with every joint within ``max_joint_step`` of
+    ``prev``, sampling the redundant joint only nearby. None when no
+    such configuration exists -- then the branch change is real."""
+    old = CFG.ikfast_max_distance
+    utils.update_config({"ikfast_max_distance": float(max_joint_step)})
+    try:
+        robot.set_joints(list(prev))
+        solved = robot.inverse_kinematics(pose, validate=True,
+                                          set_joints=False)
+    except InverseKinematicsError:
+        return None
+    finally:
+        utils.update_config({"ikfast_max_distance": old})
+    return [float(v) for v in solved]
+
+
 def _direct_cartesian_path(
     robot: SingleArmPyBulletRobot,
     initial_positions: JointPositions,
@@ -138,6 +157,21 @@ def _direct_cartesian_path(
                                f"straight path {where}")
             return None
         joint_step = max(abs(q[i] - prev[i]) for i in arm_idxs)
+        if joint_step > max_joint_step:
+            # The redundant joint is sampled over its whole range
+            # (ikfast_max_distance is inf in the real-bench configs), so
+            # where the line leaves the branch the arm is on, the nearest
+            # of a hundred random draws can sit 0.6 rad away and the path
+            # is refused -- on the bench, the sketch's first Pick, about
+            # one launch in two. Before calling it a flip, solve this one
+            # sample again with the free joint held near the previous
+            # configuration; a small change of it usually keeps the branch.
+            near = _solve_near(robot, Pose(tuple(pos), orn), prev, max_joint_step)
+            if near is not None:
+                q = near
+                for f_idx in finger_idxs:
+                    q[f_idx] = float(initial_positions[f_idx])
+                joint_step = max(abs(q[i] - prev[i]) for i in arm_idxs)
         if joint_step > max_joint_step:
             diagnostics.append(
                 f"DIRECT: the arm would have to flip branch ({joint_step:.2f} "
