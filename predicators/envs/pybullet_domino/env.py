@@ -719,9 +719,12 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
             # caches its skill simulator, so this costs one lookup.
             # pylint: disable-next=import-outside-toplevel
             from predicators.ground_truth_models import get_gt_options
-            self._probe_push_option = next(
-                opt for opt in get_gt_options(self.get_name())
-                if opt.name == "Push")
+            # The composite Push whatever library the agent is given
+            # (CFG.skill_library): the probe's contract is this
+            # controller, not the agent's interface.
+            self._probe_push_option = next(opt for opt in get_gt_options(
+                self.get_name(), skill_library="composite")
+                                           if opt.name == "Push")
         factory = self.probe_process_model_factory
         ok, detail = cascade_probe.run_counterfactual_push_probe(
             self._get_cascade_probe_env(),

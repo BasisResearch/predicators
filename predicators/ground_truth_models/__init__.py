@@ -213,18 +213,22 @@ class GroundTruthPredicateFactory(abc.ABC):
 
 
 def _build_options(
-        factory: GroundTruthOptionFactory, env: BaseEnv, env_name: str,
+        factory: GroundTruthOptionFactory,
+        env: BaseEnv,
+        env_name: str,
         types: Dict[str, Type],
-        predicates: Dict[str, Predicate]) -> Set[ParameterizedOption]:
-    """The env's options under ``CFG.skill_library``: the factory's own
-    composite skills, or the domain-general primitive library built on the
-    factory's skill configuration."""
+        predicates: Dict[str, Predicate],
+        skill_library: Optional[str] = None) -> Set[ParameterizedOption]:
+    """The env's options under ``skill_library`` (``CFG.skill_library`` when
+    None): the factory's own composite skills, or the domain-general
+    primitive library built on the factory's skill configuration."""
     # Imported here: the skill factories import PyBullet helpers that
     # this package's non-PyBullet users never need.
     # pylint: disable-next=import-outside-toplevel
     from predicators.ground_truth_models.skill_factories import \
         check_skill_library, primitive_skills_for_env
-    library = check_skill_library(CFG.skill_library)
+    library = check_skill_library(
+        CFG.skill_library if skill_library is None else skill_library)
     if library == "composite":
         return factory.get_options(env_name, types, predicates,
                                    env.action_space)
@@ -238,8 +242,16 @@ def _build_options(
     return primitive_skills_for_env(type(env), config, robot_type)
 
 
-def get_gt_options(env_name: str) -> Set[ParameterizedOption]:
-    """Create ground truth options for an env."""
+def get_gt_options(
+        env_name: str,
+        skill_library: Optional[str] = None) -> Set[ParameterizedOption]:
+    """Create ground truth options for an env.
+
+    ``skill_library`` overrides ``CFG.skill_library`` for this call: an
+    env-internal probe that needs a specific composite controller (the
+    domino cascade probe's Push) asks for ``"composite"`` whatever library
+    the agent is given.
+    """
     env = get_or_create_env(env_name)
     for cls in utils.get_all_subclasses(GroundTruthOptionFactory):
         if not cls.__abstractmethods__ and env_name in cls.get_env_names():
@@ -249,7 +261,8 @@ def get_gt_options(env_name: str) -> Set[ParameterizedOption]:
             all_types = env.types | helper_types
             types = {t.name: t for t in all_types}
             predicates = {p.name: p for p in env.predicates}
-            options = _build_options(factory, env, env_name, types, predicates)
+            options = _build_options(factory, env, env_name, types, predicates,
+                                     skill_library)
             break
     else:  # pragma: no cover
         raise NotImplementedError("Ground-truth options not implemented for "

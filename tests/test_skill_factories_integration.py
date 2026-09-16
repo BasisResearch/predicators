@@ -474,6 +474,12 @@ def test_primitive_library_picks_jug_boil(boil_env):
         assert sorted(opts) == [
             "Gripper", "MoveLinear", "MoveTo", "MoveUntilContact", "Wait"
         ]
+        # Env-internal probes can still ask for the composite controllers.
+        composite = {
+            o.name
+            for o in get_gt_options(env.get_name(), skill_library="composite")
+        }
+        assert "PickJug" in composite and "Gripper" not in composite
         cur = env.get_state()
         tilt = cur.get(robot, "tilt")
         # The handle grasp pose the composite PickJug computes internally,
