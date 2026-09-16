@@ -351,6 +351,16 @@ def build_continual_tools(
         except EpisodeOver:
             return ""
 
+    def _gated() -> Optional[Dict[str, Any]]:
+        """The arm's skill gate, when it installed one: a refusal that charges
+        nothing, or None when the skill may run."""
+        if ctx.skill_gate is None:
+            return None
+        reason = ctx.skill_gate()
+        if reason is None:
+            return None
+        return _error_result(reason + " Nothing was charged." + _footer())
+
     def _resets_allowed() -> bool:
         try:
             return session.resets_allowed
@@ -645,6 +655,9 @@ def build_continual_tools(
         ended = _ended()
         if ended is not None:
             return ended
+        gated = _gated()
+        if gated is not None:
+            return gated
         try:
             parsed = parse_plan_lines(str(args.get("skill", "")), ctx,
                                       _level_task())
@@ -697,6 +710,9 @@ def build_continual_tools(
         ended = _ended()
         if ended is not None:
             return ended
+        gated = _gated()
+        if gated is not None:
+            return gated
         try:
             parsed = parse_plan_lines(str(args.get("plan", "")), ctx,
                                       _level_task())

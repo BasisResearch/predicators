@@ -124,6 +124,8 @@ def build_play_system_prompt(tool_names: Sequence[str],
     if model:
         sections.append(
             render("play_system", "workflow", adaptive_info_seeking=adaptive))
+        if CFG.continual_require_model_on_test:
+            sections.append(render("play_system", "model_gate"))
         if CFG.agent_model_repair:
             sections.append(render("play_system", "model_repair"))
     else:

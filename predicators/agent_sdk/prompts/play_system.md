@@ -78,6 +78,7 @@ Recorded features carry the same noise.
    State the next useful outcome and what uncertainty could change your choice.
 2. Use existing recordings and sandbox computation first.
    Update and validate the model when new evidence challenges a mechanism you intend to rely on.
+   Before acting on a test level, have a fitted `simulator.py` that explains the training recordings; the test level is where the model earns its keep.
    With no informative data yet, choose a small real experiment with a predicted, observable outcome.
 3. Rehearse candidate actions in the model, including uncertain parameters and poses where supported.
    Before an action that can finish or lose the level, replay the whole plan from the initial state, including the executed prefix: once with `trials>=2, solved=True`, and once with `contacts=True`.
@@ -102,6 +103,14 @@ Annotate expected outcomes when supplied predicates allow it, inspect failures, 
 For the adaptive probing strategy, first test a useful plan with the evidence already available.
 If its physics sweep fails only for part of the parameter range still consistent with the data, choose a small experiment to distinguish those values, then refit and rehearse.
 A plan that succeeds throughout that range needs no additional probing just to narrow it.
+
+<!-- section: model_gate -->
+### Test levels require a fitted model
+
+On a test level, `skills_invoke` and `skills_execute_plan` refuse, charging nothing, until `./simulator.py` loads and declares `RESIDUAL_FEATURES`.
+Fitting and validating it before you rely on it is still your decision.
+The refusal says which condition is unmet.
+Train levels are not gated: collect evidence there first.
 
 <!-- section: model_repair -->
 ### When the model disagrees with evidence

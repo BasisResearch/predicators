@@ -92,6 +92,16 @@ class GlobalSettings:
     # driving the joints by hand (the Sept 16, 2026 Boil pilots). The
     # raw-control-only agent (agent_continual_minimal) is unaffected.
     continual_raw_control = True
+    # Whether the model arm (agent_continual) must have a deployable
+    # ./simulator.py before it may invoke a skill on a TEST level. On,
+    # skills_invoke and skills_execute_plan refuse on a test level,
+    # charging nothing, until the sandbox's simulator.py loads and
+    # declares RESIDUAL_FEATURES (what the round's end needs to deploy
+    # it; fitting stays the agent's call). Train levels stay free for
+    # evidence collection, and env_step is not gated
+    # (continual_raw_control governs that). Off keeps modelling
+    # advisory. The model-free arm has no model and is never gated.
+    continual_require_model_on_test = False
     # Active wall-clock cap per env run, in hours (6.5).
     continual_wall_clock_hours = 48.0
     # One directory per run (predicators/run/paths.py):

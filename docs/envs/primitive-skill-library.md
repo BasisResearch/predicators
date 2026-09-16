@@ -45,3 +45,7 @@ The composite skills remain available under `composite`, which the oracle and NS
 
 For a skills-against-skills comparison also set `continual_raw_control: false`.
 That removes the `env_step` and `env_run_policy` tools from both skill agents, so neither arm can drive the joints by hand around the library it was given.
+
+To make the model arm act through its model on test levels, set `continual_require_model_on_test: true`.
+On a test level the skill tools then refuse, charging nothing, until the sandbox's `simulator.py` loads and declares `RESIDUAL_FEATURES`; fitting stays the agent's call, and train levels are not gated.
+See the protocol design doc, section 4.6.

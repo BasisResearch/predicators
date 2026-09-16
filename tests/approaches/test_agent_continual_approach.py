@@ -564,3 +564,66 @@ def test_resume_rebuilds_the_workbench_from_the_recording(
     assert seen["counts"] == (2, 3, 3)
     assert seen["kinds"] == ["PyBulletState"]
     assert seen["out"].startswith("2 [2, 1]")
+
+
+@pytest.mark.slow
+def test_model_gate_on_a_test_level(tmp_path: Any) -> None:
+    """Under ``continual_require_model_on_test`` the skill tools refuse on
+    a test level, charging nothing, until the sandbox's simulator.py
+    exists and declares RESIDUAL_FEATURES; then they run, fitted or not.
+    env_step is not gated."""
+    # pylint: disable=protected-access
+    _config(tmp_path,
+            continual_levels="test_only",
+            continual_require_model_on_test=True)
+    env, approach = _make_approach()
+    assert "Test levels require a fitted model" in \
+        approach._play_system_prompt()
+    counter = '''
+class Counter(BaseSimulator):
+    AGENT_PARAM_SPECS = [ParamSpec("rate", .25, lo=0.0, hi=1.0)]
+    MODEL_STATE_INIT = {"charge": 0.0}
+%s
+    @classmethod
+    def update_model_state(cls, observation, model_state, params, action):
+        model_state["charge"] += params["rate"]
+
+RESIDUAL_ENV = Counter
+'''
+
+    def fake_query(message: str, **kwargs: Any) -> List[Dict[str, Any]]:
+        del kwargs
+        assert "(test task 0, no resets)" in message
+        assert "call `sim.fit()` before you act on a test level" in message
+        zero = [0.0] * env.action_space.shape[0]
+        assert "step applied" in _call(approach, "env_step", action=zero)
+        refused = _call(approach, "skills_invoke", skill="x")
+        assert refused.startswith("ERROR")
+        assert "Write `./simulator.py`" in refused
+        assert "Nothing was charged" in refused
+        path = os.path.join(approach._tool_context.sandbox_dir, "simulator.py")
+        with open(path, "w", encoding="utf-8") as file:
+            file.write(counter % "")
+        refused = _call(approach, "skills_execute_plan", plan="x")
+        assert refused.startswith("ERROR")
+        assert "declares no RESIDUAL_FEATURES" in refused
+        with open(path, "w", encoding="utf-8") as file:
+            file.write(counter % "    RESIDUAL_FEATURES = {}")
+        out = _call(approach, "skills_invoke", skill="x")
+        assert "Could not parse" in out and "Nothing was charged" not in out
+        with open(path, "w", encoding="utf-8") as file:
+            file.write("import nonexistent_module_xyz\n" + counter % "")
+        refused = _call(approach, "skills_invoke", skill="x")
+        assert refused.startswith("ERROR") and "does not load" in refused
+        with open(path, "w", encoding="utf-8") as file:
+            file.write(counter % "    RESIDUAL_FEATURES = {}")
+        assert "Could not parse" in _call(approach, "skills_invoke", skill="x")
+        assert "Give-up recorded" in _call(approach, "give_up", note="done")
+        return _result()
+
+    approach._query_agent_sync = fake_query  # type: ignore[method-assign]
+    approach.prepare_for_continual(Dataset([]))
+    card = ContinualRun(env, approach, create_level_player(env,
+                                                           approach)).run()
+    assert card.levels[0].steps == 1 and card.levels[0].split == "test"
+    assert approach._tool_context.skill_gate is None

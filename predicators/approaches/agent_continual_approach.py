@@ -27,6 +27,7 @@ predicates when an experiment wants that.
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 from dataclasses import dataclass, field
@@ -52,6 +53,7 @@ from predicators.code_sim_learning.rollout_env import dispose_env
 from predicators.code_sim_learning.utils import LearnedSimulator, apply_rules
 from predicators.envs import create_new_env
 from predicators.option_model import _OptionModelBase
+from predicators.run.episode import EpisodeOver
 from predicators.settings import CFG
 from predicators.structs import Action, LowLevelTrajectory, Predicate, State
 
@@ -179,6 +181,9 @@ class AgentContinualApproach(ContinualPlayMixin,
                             n_episodes=str(n_eps),
                             n_steps=str(n_steps))
         else:
+            new = max(0, n_eps - self._episodes_at_last_fit)
+            refit_note = (" Refit with `sim.fit()` before you rely on the "
+                          "model." if new else "")
             status = render("play_query",
                             "model_status",
                             simulator_version=self._current_simulator_version,
@@ -187,8 +192,8 @@ class AgentContinualApproach(ContinualPlayMixin,
                             fit_status=self._fit_status_text(),
                             n_episodes=str(n_eps),
                             n_steps=str(n_steps),
-                            new_episodes=str(
-                                max(0, n_eps - self._episodes_at_last_fit)))
+                            new_episodes=str(new),
+                            refit_note=refit_note)
         return status + (f" {self._probe_ext_status}"
                          if self._probe_ext_status else "")
 
@@ -267,6 +272,9 @@ class AgentContinualApproach(ContinualPlayMixin,
             return obs.frame
 
         ctx.current_observation_provider = current_observation
+        ctx.skill_gate = (self._make_skill_gate(session, paths.simulator_file,
+                                                trajectories)
+                          if CFG.continual_require_model_on_test else None)
         probe_ns = build_probe_namespace(ctx)
         exec_ns["sim"] = probe_ns["sim"]
         exec_ns["BeliefProbe"] = probe_ns["BeliefProbe"]
@@ -401,10 +409,77 @@ class AgentContinualApproach(ContinualPlayMixin,
         ctx.probe_validation_provider = None
         ctx.probe_residuals_provider = None
         ctx.current_observation_provider = None
+        ctx.skill_gate = None
         ctx.probe_param_status = None
         ctx.probe_artifact_loaders.clear()
         ctx.learn_cycle_index = None
         ctx.extra_session_hooks = {}
+
+    # -- The test-level model gate ----------------------------------
+
+    def _make_skill_gate(self, session: ProtocolSession, simulator_file: str,
+                         trajectories: List[LowLevelTrajectory]) -> Any:
+        """The ``ToolContext.skill_gate`` of this round under
+        ``continual_require_model_on_test``: on a test level the skill
+        tools refuse until :meth:`_model_readiness` is satisfied; on a
+        train level (evidence collection) and once the level is over
+        they never refuse."""
+
+        def gate() -> Optional[str]:
+            try:
+                split = session.observe().level.split
+            except EpisodeOver:
+                return None
+            if split != "test":
+                return None
+            return self._model_readiness(simulator_file, trajectories)
+
+        return gate
+
+    def _model_readiness(
+            self, simulator_file: str,
+            trajectories: List[LowLevelTrajectory]) -> Optional[str]:
+        """Why the sandbox's ``simulator.py`` could not be deployed right now,
+        or None when it could.
+
+        Mirrors :meth:`_deploy_session_model`'s requirements so an
+        artifact the gate accepts is one the round's end deploys: the
+        file exists and execs, and it declares ``RESIDUAL_FEATURES``
+        (the deploy asserts it; Boil and Fan Sonnet runs on Sept 16,
+        2026 wrote models without it and ran on base physics). Fitting
+        is the agent's call: a round deploys an unfitted model at its
+        carried or declared values. Loads are cached by content digest
+        so a sweep of ``skills_invoke`` calls execs the file once.
+        """
+        head = "Test level: this arm acts through its model. "
+        if not os.path.isfile(simulator_file):
+            return (head + "Write `./simulator.py` (RESIDUAL_ENV with "
+                    "AGENT_PARAM_SPECS and RESIDUAL_FEATURES) in run_python "
+                    "and rehearse the plan before invoking a skill.")
+        with open(simulator_file, "rb") as f:
+            digest = hashlib.sha256(f.read()).hexdigest()
+        cache = getattr(self, "_readiness_cache_store", None)
+        if cache is None:
+            cache = {}
+            setattr(self, "_readiness_cache_store", cache)
+        if cache.get("digest") != digest:
+            rules, specs, features, _ns = \
+                self._load_simulator_from_module_file(
+                    simulator_file, trajectories)
+            cache.clear()
+            cache.update(digest=digest,
+                         loadable=rules is not None and specs is not None,
+                         features=features is not None)
+        if not cache["loadable"]:
+            return (head + "`./simulator.py` does not load (run "
+                    "`sim.reset(current=True)` in run_python to see the "
+                    "error); fix it first.")
+        if not cache["features"]:
+            return (head + "`./simulator.py` declares no RESIDUAL_FEATURES, "
+                    "so it cannot be deployed. Declare RESIDUAL_FEATURES on "
+                    "the subclass (the observation features your dynamics "
+                    "own; `{}` if none) first.")
+        return None
 
     def _append_model_journal(self, paths: Any, outcome: str) -> None:
         journal_mod.append_entry(

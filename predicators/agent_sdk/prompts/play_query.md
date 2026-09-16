@@ -106,9 +106,10 @@ Recorded episodes so far: __N_EPISODES__ (__N_STEPS__ steps), in `./data/traject
 
 <!-- section: no_model -->
 No model yet: `sim` uses the visible base physics with hidden mechanisms disabled.
+Build `./simulator.py` (and `./predicates.py` if useful) in `run_python` and call `sim.fit()` before you act on a test level.
 Recorded episodes so far: __N_EPISODES__ (__N_STEPS__ steps).
 
 <!-- section: model_status -->
 Current files: `simulator.py` __SIMULATOR_VERSION__, `predicates.py` __PREDICATES_VERSION__.
 Last fit: __FIT_STATUS__.
-Recorded episodes so far: __N_EPISODES__ (__N_STEPS__ steps); __NEW_EPISODES__ episode(s) since the last fit.
+Recorded episodes so far: __N_EPISODES__ (__N_STEPS__ steps); __NEW_EPISODES__ episode(s) since the last fit.__REFIT_NOTE__

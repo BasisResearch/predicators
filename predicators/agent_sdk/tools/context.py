@@ -73,6 +73,11 @@ class ToolContext:
     # (carried-over / declared init values) that every probe result
     # surfaces until the agent fits the file. None outside synthesis.
     probe_param_status: Optional[str] = None
+    # Installed by the model arm under continual_require_model_on_test:
+    # returns the reason the skill tools must refuse right now (no
+    # deployable, fitted simulator.py on a test level), or None when
+    # a skill may run. Nothing is charged for a refusal.
+    skill_gate: Optional[Callable[[], Optional[str]]] = None
     # Synthesis-session ``sim.residuals`` backend: computes the
     # per-feature residual report for the current simulator.py rules
     # (see ``SynthesisToolkit.residuals_runner``). None in solve
