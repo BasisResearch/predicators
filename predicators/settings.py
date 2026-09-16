@@ -83,6 +83,15 @@ class GlobalSettings:
     # per-episode GAME_OVER (tests of that path, ablations); the phased
     # loop's `horizon` is not read here.
     continual_episode_horizon: Optional[int] = None
+    # Whether the skill-using continual agents (agent_continual and
+    # agent_continual_model_free) also get raw joint control: the
+    # env_step tool (one action vector of the env's action space) and
+    # the env_run_policy tool where an arm offers it. True keeps that
+    # side door open; False makes the comparison skills against skills,
+    # so a broken or missing skill cannot be worked around by one arm
+    # driving the joints by hand (the Sept 16, 2026 Boil pilots). The
+    # raw-control-only agent (agent_continual_minimal) is unaffected.
+    continual_raw_control = True
     # Active wall-clock cap per env run, in hours (6.5).
     continual_wall_clock_hours = 48.0
     # One directory per run (predicators/run/paths.py):

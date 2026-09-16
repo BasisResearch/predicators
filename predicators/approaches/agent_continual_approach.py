@@ -35,7 +35,8 @@ from typing import TYPE_CHECKING, Any, Dict, FrozenSet, List, Optional, Set, \
 
 from predicators.agent_sdk import journal as journal_mod
 from predicators.agent_sdk.fit_status import format_fit_status
-from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES
+from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES, \
+    play_tool_names
 from predicators.agent_sdk.tools.sandbox_guard import \
     _screen_text_for_sandbox_escape
 from predicators.agent_sdk.tools.synthesis import create_synthesis_tools
@@ -139,7 +140,7 @@ class AgentContinualApproach(ContinualPlayMixin,
     # -- The arm's declarations -------------------------------------------
 
     def _continual_tool_names(self) -> List[str]:
-        return ["run_python"] + list(CONTINUAL_TOOL_NAMES)
+        return ["run_python"] + play_tool_names(CONTINUAL_TOOL_NAMES)
 
     def _resolve_kept_names(self) -> Optional[FrozenSet[str]]:
         """No env predicate by default under the protocol; the CFG allowlist
@@ -562,7 +563,7 @@ class AgentContinualModelFreeApproach(ContinualPlayMixin,
     # -- The arm's declarations -------------------------------------------
 
     def _continual_tool_names(self) -> List[str]:
-        return list(CONTINUAL_TOOL_NAMES)
+        return play_tool_names(CONTINUAL_TOOL_NAMES)
 
     def _get_all_predicates(self) -> Set[Predicate]:
         """The arm's fixed vocabulary: the env predicates the allowlist keeps,

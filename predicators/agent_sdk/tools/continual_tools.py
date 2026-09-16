@@ -56,6 +56,17 @@ PRIMITIVE_TOOL_NAMES = [
 ]
 ALL_CONTINUAL_TOOL_NAMES = list(
     dict.fromkeys(CONTINUAL_TOOL_NAMES + PRIMITIVE_TOOL_NAMES))
+# The tools that drive the robot below the skill library.
+RAW_CONTROL_TOOL_NAMES = ("env_step", "env_run_policy")
+
+
+def play_tool_names(names: Sequence[str]) -> List[str]:
+    """A skill agent's tool list under ``CFG.continual_raw_control``: the
+    given names, minus the raw-control tools when the flag is off."""
+    if CFG.continual_raw_control:
+        return list(names)
+    return [n for n in names if n not in RAW_CONTROL_TOOL_NAMES]
+
 
 GRAMMAR = (
     "One skill per line: `Skill(obj:type, ...)[p1, p2] -> {Atom(obj:type), "

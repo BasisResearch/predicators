@@ -16,8 +16,8 @@ from predicators.agent_sdk.play_prompts import build_model_contract, \
     build_play_query, build_play_system_prompt, render_data_status
 from predicators.agent_sdk.tools.context import ToolContext
 from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES, \
-    PlayState, build_continual_tools, context_status, format_observation, \
-    parse_plan_lines
+    PRIMITIVE_TOOL_NAMES, PlayState, build_continual_tools, context_status, \
+    format_observation, parse_plan_lines, play_tool_names
 from predicators.approaches import create_approach
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
@@ -624,3 +624,17 @@ def test_belief_lines_in_the_frame(tmp_path: Any, monkeypatch: Any) -> None:
     driver.body = body_off
     ContinualRun(env, approach, driver).run()
     assert seen["off"]
+
+
+def test_play_tool_names_drop_raw_control_when_disabled() -> None:
+    """With continual_raw_control off, skill agents lose env_step and
+    env_run_policy; on (the default) the list is unchanged."""
+    utils.reset_config({"continual_raw_control": True})
+    assert play_tool_names(CONTINUAL_TOOL_NAMES) == CONTINUAL_TOOL_NAMES
+    utils.reset_config({"continual_raw_control": False})
+    names = play_tool_names(CONTINUAL_TOOL_NAMES)
+    assert "env_step" not in names
+    assert names == [n for n in CONTINUAL_TOOL_NAMES if n != "env_step"]
+    assert "env_run_policy" not in play_tool_names(PRIMITIVE_TOOL_NAMES)
+    assert "skills_invoke" in names and "env_observe" in names
+    utils.reset_config({"continual_raw_control": True})
