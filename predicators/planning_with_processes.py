@@ -1628,7 +1628,7 @@ if __name__ == "__main__":
     burner1 = env._burners[0]  # pylint: disable=protected-access
 
     # Processes
-    options = get_gt_options(env.get_name())
+    options = get_gt_options(env.get_name(), skill_library="composite")
     processes = get_gt_processes(env.get_name(), env.predicates, options)
     action_processes = [
         p for p in processes if isinstance(p, EndogenousProcess)

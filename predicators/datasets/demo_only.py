@@ -168,7 +168,7 @@ def _generate_demonstrations(env: BaseEnv, train_tasks: List[Task],
         execution_monitor = create_execution_monitor(CFG.execution_monitor)
         cogman = CogMan(oracle_approach, perceiver, execution_monitor)
     elif CFG.demonstrator == "oracle_process_planning":
-        options = get_gt_options(env.get_name())
+        options = get_gt_options(env.get_name(), skill_library="composite")
         oracle_approach = OracleBilevelProcessPlanningApproach(
             env.predicates,
             options,

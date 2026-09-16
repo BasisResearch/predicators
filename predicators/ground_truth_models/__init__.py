@@ -249,8 +249,8 @@ def get_gt_options(
 
     ``skill_library`` overrides ``CFG.skill_library`` for this call: an
     env-internal probe that needs a specific composite controller (the
-    domino cascade probe's Push) asks for ``"composite"`` whatever library
-    the agent is given.
+    domino cascade probe's Push) asks for ``"composite"`` whatever
+    library the agent is given.
     """
     env = get_or_create_env(env_name)
     for cls in utils.get_all_subclasses(GroundTruthOptionFactory):
@@ -271,6 +271,19 @@ def get_gt_options(
     for option in options:
         option.params_space.seed(CFG.seed)
     return options
+
+
+def arm_skill_library() -> Optional[str]:
+    """The library ``CFG.skill_library`` selects for the running approach.
+
+    The configured library (None: ``get_gt_options`` reads
+    ``CFG.skill_library``) for the agent arms, whose approach names
+    start with ``agent_``; ``"composite"`` for every other approach,
+    since the oracle and the NSRT and process planners index the
+    composite skills by name. ``run.setup`` and the oracle option model
+    use it.
+    """
+    return None if CFG.approach.startswith("agent_") else "composite"
 
 
 def get_gt_nsrts(env_name: str, predicates_to_keep: Set[Predicate],

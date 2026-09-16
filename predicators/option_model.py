@@ -15,7 +15,7 @@ import pybullet
 
 from predicators import utils
 from predicators.envs import create_new_env
-from predicators.ground_truth_models import get_gt_options
+from predicators.ground_truth_models import arm_skill_library, get_gt_options
 from predicators.settings import CFG
 from predicators.structs import Action, DefaultState, LowLevelTrajectory, \
     ParameterizedOption, State, _Option
@@ -68,7 +68,8 @@ def create_option_model(
                              do_cache=False,
                              use_gui=gui,
                              **env_kwargs)
-        options = get_gt_options(env.get_name())
+        options = get_gt_options(env.get_name(),
+                                 skill_library=arm_skill_library())
         model = _OracleOptionModel(options, env.simulate)
         model.sim_env = env
         return model
@@ -78,7 +79,8 @@ def create_option_model(
                              do_cache=False,
                              use_gui=gui,
                              **env_kwargs)
-        options = get_gt_options(env.get_name())
+        options = get_gt_options(env.get_name(),
+                                 skill_library=arm_skill_library())
         model = _OracleOptionModel(options, env.simulate)
         model.sim_env = env
         return model

@@ -128,7 +128,9 @@ def _set_pose(state: State, dom: Object, x: float, y: float, z: float,
 def _get_push_option(env: Any) -> Any:
     # pylint: disable=import-outside-toplevel
     from predicators.ground_truth_models import get_gt_options
-    opts = get_gt_options(env.get_name())
+
+    # The composite Push whatever library the agent is given.
+    opts = get_gt_options(env.get_name(), skill_library="composite")
     return next(o for o in opts if o.name == "Push")
 
 
