@@ -1154,6 +1154,11 @@ class GlobalSettings:
     boil_num_burner_train = [1]
     boil_num_burner_test = [1]
     boil_water_fill_speed = 0.002
+    # JugAtFaucet: max distance (m) between the jug centre and the faucet
+    # outlet for water to enter the jug. The burner uses 0.05. At 0.1 a
+    # jug visibly beside the spout still filled, and an agent that found
+    # such a rim point in training carried it to the test and spilled.
+    boil_faucet_align_threshold = 0.05
     # For the mobile_fetch robot: park the base (x-aligned to each reach
     # target, a stand-off in front in y) before reaching, so the arm reaches
     # straight forward at a comfortable distance instead of sideways over the

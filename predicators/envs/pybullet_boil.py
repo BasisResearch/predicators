@@ -166,9 +166,8 @@ class PyBulletBoilEnv(PyBulletEnv):
                                     float]] = (1.0, 0.3, 0.0, 1.0
                                                )  # red-orange (on)
 
-    # Dist thresholds
-    faucet_align_threshold: ClassVar[
-        float] = 0.1  # if jug is within this distance of faucet
+    # Dist thresholds. The faucet tolerance is CFG.boil_faucet_align_threshold
+    # (see faucet_align_threshold below).
     burner_align_threshold: ClassVar[float] = 0.05
     switch_joint_scale: ClassVar[float] = 0.1
     switch_on_threshold: ClassVar[float] = 0.5  # fraction of the joint range
@@ -1221,6 +1220,11 @@ class PyBulletBoilEnv(PyBulletEnv):
         burner_y = state.get(burner, "y")
         dist = np.hypot(jug_x - burner_x, jug_y - burner_y)
         return dist < self.burner_align_threshold
+
+    @property
+    def faucet_align_threshold(self) -> float:
+        """Max jug-centre-to-outlet distance for JugAtFaucet."""
+        return float(CFG.boil_faucet_align_threshold)
 
     def _JugAtFaucet_holds(self, state: State,
                            objects: Sequence[Object]) -> bool:
