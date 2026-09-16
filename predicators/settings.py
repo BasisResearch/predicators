@@ -1082,10 +1082,27 @@ class GlobalSettings:
     fan_use_kinematic = False
     fan_train_num_pos_x = 3
     fan_train_num_pos_y = 3
-    fan_test_num_pos_x = 6  # can do 9
-    fan_test_num_pos_y = 6
+    # The test grid fills the arena: 10 x 9 cells at the 8 cm pitch put
+    # the boundary slabs 2-4 cm in front of the fan rows (the loc bounds
+    # in pybullet_fan.py admit at most 10 x 9).
+    fan_test_num_pos_x = 10
+    fan_test_num_pos_y = 9
     fan_train_num_walls_per_task = [1]
-    fan_test_num_walls_per_task = [2, 3]  # can do 4
+    # Under "maze" generation this is the number of wall cells; the walls
+    # are laid as straight segments (see fan_maze_max_segment_len).
+    fan_test_num_walls_per_task = [16, 20, 24]
+    # How ball, target and walls are laid out, per split:
+    #   "uniform": ball, target and walls at uniformly random cells, kept
+    #       only if a cardinal path exists (the historical generator);
+    #   "maze": walls laid as straight segments that keep the free cells
+    #       connected, then a ball/target pair whose best route needs at
+    #       least fan_maze_min_segments straight runs (one per fan
+    #       activation) and at least fan_maze_min_path_len cells.
+    fan_train_task_generation = "uniform"
+    fan_test_task_generation = "maze"
+    fan_maze_min_segments = 4
+    fan_maze_min_path_len = 10
+    fan_maze_max_segment_len = 4
     # When True, 3x3 grids use curated task generation: ball on an edge
     # cell, target axis-aligned two cells away, and a single wall placed
     # to block the direct path. When False, all grid sizes use uniform

@@ -226,7 +226,7 @@ ENVS:
       boil_water_fill_speed: 0.0015
       pybullet_birrt_path_subsample_ratio: 2
       boil_num_jugs_train: [1]
-      boil_num_jugs_test: [1]
+      boil_num_jugs_test: [2]
       boil_num_burner_train: [1]
       boil_num_burner_test: [1]
   fan:
@@ -240,6 +240,19 @@ ENVS:
       horizon: 500
       pybullet_birrt_path_subsample_ratio: 2
       process_planning_max_execution_replans: 3 # safety net for learned models
+      # Test tasks: maze layouts on the full 10 x 9 arena grid (see
+      # fan_test_task_generation in settings.py).
+      fan_train_num_pos_x: 3
+      fan_train_num_pos_y: 3
+      fan_test_num_pos_x: 10
+      fan_test_num_pos_y: 9
+      fan_train_num_walls_per_task: [1]
+      fan_test_num_walls_per_task: [16, 20, 24]
+      fan_train_task_generation: "uniform"
+      fan_test_task_generation: "maze"
+      fan_maze_min_segments: 4
+      fan_maze_min_path_len: 10
+      fan_maze_max_segment_len: 4
   bridge:
     NAME: "pybullet_bridge"
     SKIP: True
