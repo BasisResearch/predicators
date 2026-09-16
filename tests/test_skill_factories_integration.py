@@ -24,6 +24,7 @@ NOTE on pybullet_control_mode:
 from __future__ import annotations
 
 import functools
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
@@ -36,6 +37,7 @@ from predicators.envs.pybullet_coffee import PyBulletCoffeeEnv
 from predicators.envs.pybullet_fan import PyBulletFanEnv
 from predicators.envs.pybullet_grow import PyBulletGrowEnv
 from predicators.ground_truth_models import get_gt_options
+from predicators.structs import Object
 
 _GUI_ON = False  # Set True for visual debugging
 
@@ -790,6 +792,71 @@ def test_push_switch_skill_initiable_boil(boil_env):
     cur = env.get_state()
     option = env.SwitchFaucetOn.ground([robot, faucet], _PUSH_PARAMS)
     assert option.initiable(cur)
+
+
+def test_switch_lookup_by_name_not_caller_instance_boil(boil_env):
+    """Switch skills find their switch in the state by name, so a grounding
+    over another view's Object instances runs.
+
+    The continual harness parses the agent's skill line against its
+    observed frame, whose objects carry none of the env's simulator
+    attributes (a recording's public view rebuilds them without
+    sim_features; a fresh per-episode env never wrote on them). The old
+    lookup read ``switch_id`` off the caller's instance and raised
+    AttributeError on every SwitchFaucetOn / SwitchBurnerOn.
+    """
+    env = boil_env
+    state = env.get_train_tasks()[0].init.copy()
+
+    def public(obj: Object) -> Object:
+        return Object(obj.name, replace(obj.type, sim_features=()))
+
+    robot = public(env._robot)
+    faucet = public(env._faucet)
+    burner = public(env._burners[0])
+    assert not hasattr(faucet, "switch_id")
+    faucet_switch = env._faucet_switch
+    burner_switch = env._burner_switches[0]
+
+    for opt, objs, switch, on in [
+        (env.SwitchFaucetOn, [robot, faucet], faucet_switch, 0.0),
+        (env.SwitchFaucetOff, [robot, faucet], faucet_switch, 1.0),
+        (env.SwitchBurnerOn, [robot, burner], burner_switch, 0.0),
+        (env.SwitchBurnerOff, [robot, burner], burner_switch, 1.0),
+    ]:
+        start = state.copy()
+        start.set(switch, "is_on", on)
+        env.set_state(start)
+        option = opt.ground(objs, _PUSH_PARAMS)
+        result = env.execute_option(option)
+        assert option.terminal(result)
+
+    assert PyBulletBoilEnv.get_switch(state, faucet) == faucet_switch
+    assert PyBulletBoilEnv.get_switch(state, burner) == burner_switch
+
+    # A fresh env instance (test_fresh_env_per_episode) runs the same
+    # grounding on its own observation.
+    fresh = env.make_fresh_test_instance()
+    assert fresh is not None
+    try:
+        fresh.reset("train", 0)
+        option = env.SwitchFaucetOn.ground([robot, faucet], _PUSH_PARAMS)
+        result = fresh.execute_option(option)
+        assert option.terminal(result)
+    finally:
+        fresh.dispose()
+        _MOST_RECENT_ENV_INSTANCE[env.get_name()] = env
+
+    # A state without the switch fails the skill, not the lookup.
+    no_switch = utils.PyBulletState(
+        {o: state[o]
+         for o in state if o.name != "faucet_switch"},
+        simulator_state=state.simulator_state)
+    env.set_state(no_switch)
+    option = env.SwitchFaucetOn.ground([robot, faucet], _PUSH_PARAMS)
+    with pytest.raises(utils.OptionExecutionFailure, match="faucet_switch"):
+        env.execute_option(option)
+    env.set_state(state)
 
 
 # ===========================================================================
