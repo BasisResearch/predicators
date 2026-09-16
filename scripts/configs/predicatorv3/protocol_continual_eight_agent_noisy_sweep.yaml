@@ -181,7 +181,10 @@ ENVS:
       balloons_scene: chute
       balloons_task_generation: original
       balloons_require_jam_decoy: true
-      balloons_goal_dwell_steps: 0
+      # Runtime 091d8c5db (3e95b1798) requires a positive dwell; 1 is the
+      # closest to the archived instantaneous goal (box at rest in the
+      # band across one environment step).
+      balloons_goal_dwell_steps: 1
 APPROACHES:
   mb_joint_noisy_r1:
     NAME: agent_continual
