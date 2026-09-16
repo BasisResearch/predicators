@@ -15,11 +15,9 @@ Plan = List[Tuple[str, str]]
 
 def release_order(env: PyBulletBalloonsEnv, state: State,
                   subset: Tuple[int, ...]) -> List[int]:
-    """The subset's balloons, weakest lift first."""
-    balloons = env._active_balloons(state)  # pylint: disable=protected-access
-    return sorted(subset,
-                  key=lambda i: env.lift_at_ground(
-                      int(round(state.get(balloons[i], "color")))))
+    """The subset's balloons, weakest lift first, unless the probes only saw
+    another order win (see ``PyBulletBalloonsEnv.reference_order``)."""
+    return env.reference_order(state, subset)
 
 
 def solve_level(env: PyBulletBalloonsEnv, state: State) -> Optional[Plan]:

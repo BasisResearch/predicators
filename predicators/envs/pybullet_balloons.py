@@ -30,10 +30,22 @@ balloon than any train level, on a box material training showed; the
 train levels together cover every colour and both materials, so the
 test composes known lifts, a known mass, and the drag learned from the
 train ascents into a rack never seen.
+
+**Composition test levels** (``balloons_test_composition``) close the
+lookup this leaves open: with every colour shown on both boxes, a test
+band centred on a rest height training measured is answered from
+memory. Such a level admits no winning in-band subset that is a single
+balloon or a colour set some train rack on the same box already held.
+And every in-band subset bursts when freed weakest lift first with the
+box settling between releases, the order and timing an agent that
+reads rest heights alone and plays safe would use, while the reference
+wins in another order (the last increment must be small enough not to
+overshoot into the ceiling). Ordering the ascent takes the transient.
 """
+import logging
 from dataclasses import dataclass, replace
 from itertools import combinations, permutations
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, FrozenSet, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 import pybullet as p
@@ -449,18 +461,133 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
         }
 
     def solution_subset(self, state: State) -> Optional[Tuple[int, ...]]:
-        """A canonical reference whose tested Release orders all win.
+        """A canonical reference subset.
 
-        Prefer fewer releases, then lexicographic order. Multiple
-        winning subsets are allowed and scored by the same evaluator.
+        Prefer a subset whose every tested Release order wins, then
+        fewer releases, then lexicographic order. Under
+        ``balloons_test_composition`` a subset with any witnessed
+        winning order also qualifies, ranked after the order-robust
+        ones, because a composition level may hang on the release order
+        (see ``reference_order``). Multiple winning subsets are allowed
+        and scored by the same evaluator.
         """
         candidates = self.candidate_outcomes(state)
-        robust = [
-            subset for subset, outcomes in candidates.items()
-            if outcomes and all(outcome.won for outcome in outcomes)
+        ranked = [(0, len(subset), subset)
+                  for subset, outcomes in candidates.items()
+                  if outcomes and all(outcome.won for outcome in outcomes)]
+        if CFG.balloons_test_composition:
+            robust = {subset for _, _, subset in ranked}
+            ranked += [(1, len(subset), subset)
+                       for subset, outcomes in candidates.items()
+                       if subset not in robust and any(o.won
+                                                       for o in outcomes)]
+        return min(ranked)[2] if ranked else None
+
+    def reference_order(self, state: State, subset: Tuple[int,
+                                                          ...]) -> List[int]:
+        """A release order of ``subset`` the probes witnessed winning: the
+        weakest-first order when it wins, else the first winning order in
+        ``permutations`` order, else weakest-first (the oracle then fails on
+        this level)."""
+        colors = [
+            int(round(state.get(b, "color")))
+            for b in self._active_balloons(state)
         ]
-        return min(robust, key=lambda subset: (len(subset), subset)) \
-            if robust else None
+        order = self.weakest_first_order(colors, subset)
+        outcomes = self.candidate_outcomes(state).get(subset, [])
+        if not outcomes or self._order_outcome(outcomes, subset, order).won:
+            return order
+        for candidate, outcome in zip(permutations(subset), outcomes):
+            if outcome.won:
+                return list(candidate)
+        return order
+
+    @classmethod
+    def weakest_first_order(cls, colors: Sequence[int],
+                            subset: Tuple[int, ...]) -> List[int]:
+        """The subset's balloons, weakest lift at table height first: the
+        oracle's release order."""
+        return sorted(subset, key=lambda i: cls.lift_at_ground(colors[i]))
+
+    @staticmethod
+    def _order_outcome(outcomes: Sequence[BalloonsProbeOutcome],
+                       subset: Tuple[int, ...],
+                       order: Sequence[int]) -> BalloonsProbeOutcome:
+        """The cached outcome of one release order of ``subset``;
+        ``candidate_outcomes`` lists the orders as ``permutations`` does."""
+        return outcomes[list(permutations(subset)).index(tuple(order))]
+
+    def _train_racks(self) -> List[Tuple[int, FrozenSet[int]]]:
+        """(box material, balloon colours) of every train level."""
+        return [(int(round(task.init.get(self._box, "color"))),
+                 frozenset(
+                     int(round(task.init.get(b, "color")))
+                     for b in self._active_balloons(task.init)))
+                for task in self.get_train_tasks()]
+
+    @staticmethod
+    def _rack_seen(subset: Tuple[int,
+                                 ...], colors: Sequence[int], box_color: int,
+                   train_racks: Sequence[Tuple[int, FrozenSet[int]]]) -> bool:
+        """Whether some train rack on this box held every colour of ``subset``,
+        so training could have measured its rest height."""
+        palette = frozenset(colors[i] for i in subset)
+        return any(box == box_color and palette <= rack
+                   for box, rack in train_racks)
+
+    def _could_compose(
+            self, in_band: Sequence[Tuple[int, ...]], colors: Sequence[int],
+            box_color: int,
+            train_racks: Sequence[Tuple[int, FrozenSet[int]]]) -> bool:
+        """Analytic pre-screen of a composition level, before any rollout:
+
+        some unseen in-band subset frees two or more balloons.
+        """
+        return any(
+            len(subset) >= 2
+            and not self._rack_seen(subset, colors, box_color, train_racks)
+            for subset in in_band)
+
+    def naive_release_bursts(self, state: State, subset: Tuple[int,
+                                                               ...]) -> bool:
+        """Whether freeing ``subset`` weakest lift first, letting the box
+        settle between releases, bursts a balloon: the order and timing of an
+        agent that reads rest heights alone and plays safe."""
+        colors = [
+            int(round(state.get(b, "color")))
+            for b in self._active_balloons(state)
+        ]
+        order = self.weakest_first_order(colors, subset)
+        return self._run_release_sequence(state, order, settled=True).burst
+
+    def composition_decoy(
+        self, candidates: Dict[Tuple[int, ...], List[BalloonsProbeOutcome]],
+        colors: Sequence[int], box_color: int,
+        train_racks: Sequence[Tuple[int, FrozenSet[int]]]
+    ) -> Optional[Tuple[int, ...]]:
+        """The in-band subset a static reading picks, or None.
+
+        Every in-band subset with a winning order must free at least two
+        balloons whose colours never shared a train rack on this box;
+        otherwise None. The decoy is the lowest-hanging in-band subset,
+        the fewest-lift choice; ``naive_release_bursts`` certifies that
+        its weakest-first release (and every other in-band subset's)
+        bursts, while the reference wins in another order.
+        """
+
+        def seen(subset: Tuple[int, ...]) -> bool:
+            return self._rack_seen(subset, colors, box_color, train_racks)
+
+        def hover(subset: Tuple[int, ...]) -> float:
+            z = self.hover_height(box_color, [colors[i] for i in subset])
+            assert z is not None
+            return z
+
+        for subset, outcomes in candidates.items():
+            if any(o.won
+                   for o in outcomes) and (len(subset) < 2 or seen(subset)):
+                return None
+        return min(candidates, key=hover)
 
     def _hold_action(self) -> Action:
         """A no-op action that holds the robot at its initial joints, for
@@ -596,13 +723,35 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                     physicsClientId=self._physics_client_id)
         return replace(result, wall_free_won=without_wall.won)
 
-    def _run_release_sequence(self, state: State,
-                              order: Sequence[int]) -> BalloonsProbeOutcome:
-        """Execute Release skills without extra waits, then hold to an outcome.
+    def _hold_until_rest(self,
+                         state: State) -> Tuple[State, int, Optional[str]]:
+        """Hold the arm still until the box rests, a balloon bursts or the band
+        is reached: (final state, steps, terminal status or None)."""
+        action = Action(
+            np.array(self._pybullet_robot.get_joints(), dtype=np.float32))
+        rest = 0
+        for step in range(int(CFG.balloons_probe_max_steps)):
+            if any_popped(state) is not None:
+                return state, step, "burst"
+            if self._InBand_holds(state, [self._box, self._band]):
+                return state, step, "won"
+            rest = rest + 1 if box_at_rest(state, self._box) else 0
+            if rest >= int(CFG.balloons_probe_rest_steps):
+                return state, step, None
+            state = self.simulate(state, action)
+        return state, int(CFG.balloons_probe_max_steps), None
+
+    def _run_release_sequence(self,
+                              state: State,
+                              order: Sequence[int],
+                              settled: bool = False) -> BalloonsProbeOutcome:
+        """Execute Release skills, then hold to an outcome.
 
         Detect wins and bursts during each skill, matching continual
-        play. This certifies the supplied order only, not arbitrary
-        release timing.
+        play. Without ``settled`` the skills run back to back; with it
+        the box comes to rest between releases, the timing of an agent
+        that waits after each clip. This certifies the supplied order
+        and timing only.
         """
         # pylint: disable-next=import-outside-toplevel
         from predicators.ground_truth_models.balloons.options import \
@@ -634,6 +783,12 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                     return self._probe_outcome(current, steps, "unresolved")
             except utils.OptionExecutionFailure:
                 return self._probe_outcome(current, steps, "skill_failed")
+            if settled and index != order[-1]:
+                current, held, status = self._hold_until_rest(current)
+                self._current_observation = current
+                steps += held
+                if status is not None:
+                    return self._probe_outcome(current, steps, status)
         result = self._wait_probe(current, int(CFG.balloons_probe_max_steps))
         return BalloonsProbeOutcome(result.status, result.steps + steps,
                                     result.height, result.speed,
@@ -680,6 +835,8 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
         # Retry draws can revisit identical candidates. Cache classifications
         # only within this generation call, with exact band bounds.
         rejected_levels: Set[Tuple[Any, ...]] = set()
+        compose = not train and CFG.balloons_test_composition
+        train_racks = self._train_racks() if compose else []
         for _ in range(num_tasks):
             found = None
             for attempt in range(attempts):
@@ -735,15 +892,33 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                     ]
                     if not train and len(in_band) < 2:
                         continue
+                    if compose and not self._could_compose(
+                            in_band, colors, box_color, train_racks):
+                        continue
                     level_key = (box_color, tuple(colors), band)
                     if level_key in rejected_levels:
                         continue
                     rejected_levels.add(level_key)
                     state = self.level_state(box_color, colors, band)
+                    if compose and not all(
+                            self.naive_release_bursts(state, subset)
+                            for subset in in_band):
+                        logging.info(
+                            "Balloons composition candidate: box %d rack %s "
+                            "band %.3f-%.3f in-band %s: a weakest-first "
+                            "release survives", box_color, colors, band[0],
+                            band[1], in_band)
+                        continue
                     # Success/failure is measured through actual skills,
                     # including every intermediate frame and release order.
                     candidates = self.candidate_outcomes(state)
                     reference = self.solution_subset(state)
+                    if compose:
+                        logging.info(
+                            "Balloons composition candidate: box %d rack %s "
+                            "band %.3f-%.3f in-band %s reference %s",
+                            box_color, colors, band[0], band[1], in_band,
+                            reference)
                     if reference is None:
                         continue
                     decoys = [(subset, outcome)
@@ -752,6 +927,12 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                               if outcome.burst or outcome.jammed]
                     if not train and not decoys:
                         continue
+                    decoy = None
+                    if compose:
+                        decoy = self.composition_decoy(candidates, colors,
+                                                       box_color, train_racks)
+                        if decoy is None:
+                            continue
                     if not train and CFG.balloons_require_jam_decoy:
                         eqz = dict(reachable)
                         distances = {
@@ -767,7 +948,7 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                     if solve_level(self, state) is None:
                         continue
                     rejected_levels.discard(level_key)
-                    found = (state, reference)
+                    found = (state, reference, decoy)
                     break
                 if found is not None:
                     break
@@ -778,7 +959,7 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                     f"(require_jam_decoy={CFG.balloons_require_jam_decoy}). "
                     "Unresolved rollouts are not failures; the requested "
                     "decoy property may be unavailable under this physics.")
-            state, subset = found
+            state, subset, decoy = found
             seen_boxes.add(box_color)
             seen_colors.update(colors)
             goal = {GroundAtom(self._InBand, [self._box, self._band])}
@@ -800,6 +981,12 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                 for i, b in enumerate(balloons)
             }
             metrics["task_generation_version"] = 2.0
+            if compose:
+                assert decoy is not None
+                metrics.update({
+                    f"decoy_{b.name}": float(i in decoy)
+                    for i, b in enumerate(balloons)
+                })
             metrics["witnessed_winning_candidate_subsets"] = float(
                 sum(
                     any(o.won for o in results)

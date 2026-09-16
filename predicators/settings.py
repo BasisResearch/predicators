@@ -1405,6 +1405,16 @@ class GlobalSettings:
     # on their frozen generator when comparing agent changes.
     balloons_require_jam_decoy = False
     balloons_contact_height_tol = 0.02
+    # Composition test levels (test split only). Every in-band subset with
+    # a winning release order frees at least two balloons whose colours
+    # never shared a train rack on the test box, so the answer composes
+    # measured lifts instead of repeating a rest height training showed;
+    # and every in-band subset bursts when freed weakest lift first with
+    # the box settling between releases, the order and timing of an agent
+    # that reads rest heights alone and plays safe, while the reference
+    # wins in another order. Ordering the ascent takes the transient.
+    # Changes seeded levels; keep old experiments on their generator.
+    balloons_test_composition = False
 
     # crane env
     # Cable lengths and crate colours per split. Test levels bring a

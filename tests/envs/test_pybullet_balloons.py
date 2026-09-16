@@ -210,3 +210,53 @@ def test_train_levels_cover_every_colour_and_material():
     test = env.get_test_tasks()[0].init
     assert len(env._active_balloons(test)) == len(env.BALLOON_PALETTE)
     assert int(round(test.get(env._box, "color"))) in boxes
+
+
+def test_composition_test_levels_compose_and_defeat_the_naive_order():
+    """Under balloons_test_composition every winning in-band subset frees at
+    least two balloons whose colours never shared a train rack on the test box,
+    every in-band subset bursts when freed weakest first with the box settling
+    between releases, the task records the lowest in-band subset as the decoy,
+    and the oracle's witnessed order, which is not weakest- first, still
+    wins."""
+    _, env = _make_env(num_train_tasks=2,
+                       num_test_tasks=1,
+                       balloons_test_composition=True)
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.ground_truth_models.balloons.oracle import solve_level
+    racks = env._train_racks()
+    assert len(racks) == 2
+    task = env.get_test_tasks()[0]
+    state = task.init
+    box = int(round(state.get(env._box, "color")))
+    balloons = env._active_balloons(state)
+    colors = [int(round(state.get(b, "color"))) for b in balloons]
+
+    def seen(subset):
+        palette = frozenset(colors[i] for i in subset)
+        return any(b == box and palette <= rack for b, rack in racks)
+
+    def hover(subset):
+        return env.hover_height(box, [colors[i] for i in subset])
+
+    candidates = env.candidate_outcomes(state)
+    reference = env.solution_subset(state)
+    assert reference is not None
+    winners = [s for s, outs in candidates.items() if any(o.won for o in outs)]
+    assert reference in winners
+    for subset in winners:
+        assert len(subset) >= 2
+        assert not seen(subset)
+    for subset in candidates:
+        assert env.naive_release_bursts(state, subset)
+    flags = task.offline_task_metrics
+    recorded = tuple(i for i, b in enumerate(balloons)
+                     if flags[f"decoy_{b.name}"])
+    assert recorded == min(candidates, key=hover)
+    assert all(flags[f"solution_{b.name}"] == float(i in reference)
+               for i, b in enumerate(balloons))
+    order = env.reference_order(state, reference)
+    assert order != env.weakest_first_order(colors, reference)
+    plan = solve_level(env, state)
+    assert plan is not None
+    assert [name for _, name in plan] == [f"clip{i}" for i in order]
