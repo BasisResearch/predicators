@@ -391,6 +391,40 @@ def test_place_jug_boil_on_burner(boil_env):
 
     assert result.get(jug, "is_held") < 0.5, "Jug should no longer be held"
     assert result.get(robot, "fingers") > 0.015, "Fingers should be open"
+    # Place targets the jug's centre, not the handle the gripper holds
+    # (jug_handle_offset away along the jug's yaw).
+    assert abs(result.get(jug, "x") - bx) < 0.02
+    assert abs(result.get(jug, "y") - by) < 0.02
+
+
+def test_place_jug_boil_under_faucet(boil_env):
+    """A jug placed at the faucet outlet is under the faucet: the fill check,
+    not the handle pose, decides where the water goes."""
+    env = boil_env
+    jug = env._jugs[0]
+    robot = env._robot
+    faucet = env._faucet
+    state = env.get_train_tasks()[0].init.copy()
+    state.set(jug, "x", env.x_mid)
+    state.set(jug, "y", env.y_mid)
+    state.set(jug, "z", env.jug_init_z)
+    state.set(jug, "rot", 0.0)
+    state.set(jug, "is_held", 0.0)
+    state.set(jug, "water_volume", 0.0)
+    state.set(jug, "heat_level", 0.0)
+    env.set_state(state)
+    env.execute_option(env.PickJug.ground([robot, jug], _PICK_PARAMS))
+    ox, oy = env._faucet_outlet_xy(state, faucet)
+    release_z = max(env.table_height + env.jug_handle_height, 0.5)
+    # Handle toward the robot (yaw -pi/2, the oracle's choice): the outlet
+    # sits at the arm's reach limit, so a handle pointing away is out of
+    # reach once the held offset is compensated.
+    result = env.execute_option(
+        env.Place.ground([robot], [ox, oy, release_z, -1.57]))
+    assert result.get(jug, "is_held") < 0.5
+    assert np.hypot(result.get(jug, "x") - ox, result.get(jug, "y") - oy) \
+        < 0.03
+    assert env._JugAtFaucet_holds(result, [jug, faucet])
 
 
 def test_place_jug_boil_outside(boil_env):
@@ -1728,10 +1762,13 @@ def test_offline_dataset_under_primitive_library_uses_composite_oracle(
         boil_env, tmp_path):
     """The offline-dataset step builds the demonstrator oracle even with no
     demos requested; under skill_library=primitive it must plan with the
-    composite skills the ground-truth process factory indexes by name
-    (every Sept 16, 2026 primitive pilot crashed here with KeyError)."""
+    composite skills the ground-truth process factory indexes by name (every
+    Sept 16, 2026 primitive pilot crashed here with KeyError)."""
     env = boil_env
     utils.update_config({
+        # The demonstrator oracle reads CFG.env, which an earlier test in
+        # this module may have pointed at another environment.
+        "env": env.get_name(),
         "skill_library": "primitive",
         "offline_data_method": "demo",
         "demonstrator": "oracle",
@@ -1755,8 +1792,8 @@ def test_offline_dataset_under_primitive_library_uses_composite_oracle(
 
 
 def test_setup_options_follow_the_arm(boil_env):
-    """skill_library=primitive is the agent arms' interface; the oracle and
-    the other NSRT or process planners keep the composite skills."""
+    """skill_library=primitive is the agent arms' interface; the oracle and the
+    other NSRT or process planners keep the composite skills."""
     env = boil_env
     primitive = {"Gripper", "MoveLinear", "MoveTo", "MoveUntilContact", "Wait"}
     utils.update_config({"skill_library": "primitive", "approach": "oracle"})

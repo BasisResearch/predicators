@@ -356,6 +356,23 @@ def create_place_skill(
         off_x, off_y, off_z = _held_offset(state, objects[0])
         return x + off_x, y + off_y, drop_z + off_z, yaw
 
+    def _retreat_pose(
+        state: State,
+        objects: Sequence[Object],
+        params: Array,
+        cfg: SkillConfig,
+    ) -> Tuple[float, float, float, float]:
+        """Straight up from wherever the release left the gripper.
+
+        The placement xy is the held object's under
+        ``compensate_held_offset``; once the object is released nothing
+        is held, so re-deriving the drop pose would shift the target by
+        the whole grasp offset and turn the lift into a lateral drag.
+        """
+        robot = objects[0]
+        return (state.get(robot, "x"), state.get(robot, "y"), cfg.transport_z,
+                float(params[3]))
+
     # With release_until_ungrasped, the drop-pose opening is
     # grasp-relative instead of full-span: open gradually until the
     # simulator drops the grasp constraint, open a few millimetres more
@@ -510,8 +527,8 @@ def create_place_skill(
                 finger_tol=1e-6,
             ),
             # Straight vertical lift back to transport height by
-            # incremental IK, never a planned path. Retreat only rises at
-            # the placement xy (``_above_pose`` shares the drop xy), so it
+            # incremental IK, never a planned path. Retreat only rises
+            # from the gripper's current xy (``_retreat_pose``), so it
             # never needs to route around anything: a BiRRT retreat here
             # can instead fail to plan - stranding the arm at hold width
             # straddling the just-released object, so ``FullyOpenFingers``
@@ -523,7 +540,7 @@ def create_place_skill(
             # domino, and the recovery move swept a staged blue off the
             # table before the push, voiding an otherwise-clean cascade).
             make_move_to_phase("Retreat",
-                               _above_pose,
+                               _retreat_pose,
                                "hold",
                                use_motion_planning=False),
             Phase(
@@ -542,10 +559,10 @@ def create_place_skill(
                 finger_direction="open",
             ),
             # Straight vertical lift (see the partial-release Retreat):
-            # rise at the placement xy by incremental IK, never a planned
-            # detour that could rake the scene as the fingers open.
+            # rise from the gripper's xy by incremental IK, never a
+            # planned detour that could rake the scene as the fingers open.
             make_move_to_phase("Retreat",
-                               _above_pose,
+                               _retreat_pose,
                                "open",
                                use_motion_planning=False),
         ])

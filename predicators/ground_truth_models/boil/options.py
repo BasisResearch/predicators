@@ -212,10 +212,15 @@ class PyBulletBoilGroundTruthOptionFactory(_BoilLegacyOptionsMixin,
         # ---------------------------------------------------------------
         # Place option (unified – only needs the robot)
         # ---------------------------------------------------------------
+        # The jug is grasped by its handle, jug_handle_offset from its
+        # centre along its yaw. Compensating the held offset makes the
+        # target the jug's centre, as the public skill reference states,
+        # so a jug placed at the faucet outlet is under the faucet.
         Place = create_place_skill(
             name="Place",
             types=[robot_type],
             config=config,
+            compensate_held_offset=True,
         )
 
         # ---------------------------------------------------------------
