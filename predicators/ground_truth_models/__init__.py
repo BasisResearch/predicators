@@ -277,7 +277,9 @@ def get_gt_nsrts(env_name: str, predicates_to_keep: Set[Predicate],
                  options_to_keep: Set[ParameterizedOption]) -> Set[NSRT]:
     """Create ground truth options for an env."""
     env = get_or_create_env(env_name)
-    env_options = get_gt_options(env_name)
+    # The NSRTs are written over the composite skills, whatever library
+    # the run's learner is given (CFG.skill_library).
+    env_options = get_gt_options(env_name, skill_library="composite")
     assert predicates_to_keep.issubset(env.predicates)
     assert options_to_keep.issubset(env_options)
     nsrts: Optional[Set[NSRT]] = None
@@ -357,7 +359,9 @@ def get_gt_processes(env_name: str,
                      only_endogenous: bool = False) -> Set[CausalProcess]:
     """Create ground truth processes for an env."""
     env = get_or_create_env(env_name)
-    env_options = get_gt_options(env_name)
+    # The processes are written over the composite skills, whatever
+    # library the run's learner is given (CFG.skill_library).
+    env_options = get_gt_options(env_name, skill_library="composite")
     helper_predicates = get_gt_helper_predicates(env_name)
     # Helper predicates take precedence over env predicates on name collisions
     # (e.g. the grid's derived InFront replaces the position-based InFront).

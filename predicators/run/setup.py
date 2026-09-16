@@ -73,9 +73,15 @@ def select_predicates(env: BaseEnv) -> Set[Predicate]:
 
 
 def _options(env: BaseEnv) -> Set:
-    if CFG.option_learner == "no_learning":
-        return get_gt_options(env.get_name())
-    return parse_config_included_options(env)
+    if CFG.option_learner != "no_learning":
+        return parse_config_included_options(env)
+    # CFG.skill_library selects the skill interface of the agent arms
+    # (approach names starting with "agent_"). The reference arms and
+    # every approach that plans over the ground-truth NSRTs or processes
+    # index the composite skills by name, so they keep that library
+    # whatever the run selects (docs/envs/primitive-skill-library.md).
+    library = None if CFG.approach.startswith("agent_") else "composite"
+    return get_gt_options(env.get_name(), skill_library=library)
 
 
 def setup_approach(env: BaseEnv, preds: Set[Predicate],

@@ -30,12 +30,14 @@ import numpy as np
 import pytest
 
 from predicators import utils
+from predicators.datasets import create_dataset
 from predicators.envs import _MOST_RECENT_ENV_INSTANCE
 from predicators.envs.pybullet_boil import PyBulletBoilEnv
 from predicators.envs.pybullet_coffee import PyBulletCoffeeEnv
 from predicators.envs.pybullet_fan import PyBulletFanEnv
 from predicators.envs.pybullet_grow import PyBulletGrowEnv
 from predicators.ground_truth_models import get_gt_options
+from predicators.run.setup import _options as setup_options
 
 _GUI_ON = False  # Set True for visual debugging
 
@@ -1720,3 +1722,53 @@ def test_human_option_control_scripted_domino_solves_task():
     )
 
     assert solved, ("Scripted domino2.txt plan should solve the 1st test task")
+
+
+def test_offline_dataset_under_primitive_library_uses_composite_oracle(
+        boil_env, tmp_path):
+    """The offline-dataset step builds the demonstrator oracle even with no
+    demos requested; under skill_library=primitive it must plan with the
+    composite skills the ground-truth process factory indexes by name
+    (every Sept 16, 2026 primitive pilot crashed here with KeyError)."""
+    env = boil_env
+    utils.update_config({
+        "skill_library": "primitive",
+        "offline_data_method": "demo",
+        "demonstrator": "oracle",
+        "max_initial_demos": 0,
+        "load_data": False,
+        "data_dir": str(tmp_path),
+    })
+    try:
+        train_tasks = [t.task for t in env.get_train_tasks()]
+        learner_options = get_gt_options(env.get_name())
+        assert {o.name
+                for o in learner_options} == {
+                    "Gripper", "MoveLinear", "MoveTo", "MoveUntilContact",
+                    "Wait"
+                }
+        dataset = create_dataset(env, train_tasks, learner_options,
+                                 env.predicates)
+        assert len(dataset.trajectories) == 0
+    finally:
+        utils.update_config({"skill_library": "composite"})
+
+
+def test_setup_options_follow_the_arm(boil_env):
+    """skill_library=primitive is the agent arms' interface; the oracle and
+    the other NSRT or process planners keep the composite skills."""
+    env = boil_env
+    primitive = {"Gripper", "MoveLinear", "MoveTo", "MoveUntilContact", "Wait"}
+    utils.update_config({"skill_library": "primitive", "approach": "oracle"})
+    try:
+        names = {o.name for o in setup_options(env)}
+        assert "PickJug" in names and not names & (primitive - {"Wait"})
+        utils.update_config({"approach": "agent_continual"})
+        assert {o.name for o in setup_options(env)} == primitive
+        utils.update_config({"approach": "agent_continual_model_free"})
+        assert {o.name for o in setup_options(env)} == primitive
+    finally:
+        utils.update_config({
+            "skill_library": "composite",
+            "approach": "oracle"
+        })

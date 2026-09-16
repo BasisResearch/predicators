@@ -41,7 +41,8 @@ Supported environments implement `GroundTruthOptionFactory.get_primitive_skill_c
 Other environments raise `NotImplementedError` under `primitive`.
 The library is sized from the environment class's `x_lb`..`z_ub` workspace bounds and its `closed_fingers`/`open_fingers` feature values.
 
-The composite skills remain available under `composite`, which the oracle and NSRT-based approaches need.
+The library is the agent arms' interface (approach names starting with `agent_`).
+The oracle, the demonstrator that builds the offline dataset, and every planner over the ground-truth NSRTs or processes keep the composite skills whatever the run selects, since those factories index the composite skills by name.
 
 For a skills-against-skills comparison also set `continual_raw_control: false`.
 That removes the `env_step` and `env_run_policy` tools from both skill agents, so neither arm can drive the joints by hand around the library it was given.

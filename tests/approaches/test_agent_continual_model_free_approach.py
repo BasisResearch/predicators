@@ -6,6 +6,8 @@ import os
 import pickle
 from typing import Any, Dict, List
 
+import pytest
+
 from predicators import utils
 from predicators.agent_sdk.sandbox_setup import trajectories_path
 from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES
@@ -236,3 +238,43 @@ def test_both_arms_start_with_no_predicates(tmp_path: Any) -> None:
     # The model-free arm holds no simulator whatever the flag says.
     assert free._option_model is None  # pylint: disable=protected-access
     assert {p.name for p in env.predicates} > pred_names
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("name",
+                         ["agent_continual", "agent_continual_model_free"])
+def test_play_round_under_the_primitive_library(tmp_path: Any,
+                                                name: str) -> None:
+    """Both arms start and play a round under skill_library=primitive with
+    raw control withheld: the offline-dataset step and the run's setup
+    survive (the Sept 16, 2026 pilots crashed there), the library is the
+    five primitives, env_step is absent, and a primitive skill runs."""
+    # pylint: disable=protected-access
+    _config(tmp_path, skill_library="primitive", continual_raw_control=False)
+    try:
+        env, approach = _make_approach(name)
+        outputs: List[str] = []
+
+        def fake_query(message: str, **kwargs: Any) -> List[Dict[str, Any]]:
+            del message, kwargs
+            names = [t.name for t in approach._tool_context.extra_mcp_tools]
+            assert "env_step" not in names and "skills_invoke" in names
+            digest = _call(approach, "skills_list")
+            assert "MoveTo" in digest and "Gripper" in digest
+            assert "PickJug" not in digest
+            outputs.append(
+                _call(approach, "skills_invoke", skill="Wait(robot:robot)[2]"))
+            assert "Give-up recorded" in _call(approach, "give_up", note="x")
+            return _result()
+
+        approach._query_agent_sync = fake_query  # type: ignore[method-assign]
+        approach.prepare_for_continual(Dataset([]))
+        card = ContinualRun(env, approach,
+                            create_level_player(env, approach)).run()
+        assert outputs and "succeeded" in outputs[0], outputs
+        assert card.levels[0].steps >= 1
+    finally:
+        utils.update_config({
+            "skill_library": "composite",
+            "continual_raw_control": True
+        })

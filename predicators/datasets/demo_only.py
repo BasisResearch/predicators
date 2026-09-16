@@ -149,7 +149,11 @@ def _generate_demonstrations(env: BaseEnv, train_tasks: List[Task],
         # Instantiate CogMan with the oracle approach (to be used as the
         # demonstrator). This requires creating a perceiver and
         # execution monitor according to settings from CFG.
-        options = get_gt_options(env.get_name())
+        # The demonstrator is the env's own planner: it plans with the
+        # composite skills whatever library the learner is given
+        # (CFG.skill_library), since the ground-truth NSRT and process
+        # factories index those skills by name.
+        options = get_gt_options(env.get_name(), skill_library="composite")
         oracle_approach: BaseApproach = OracleApproach(
             env.predicates,
             options,
