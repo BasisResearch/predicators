@@ -3,7 +3,7 @@ import abc
 import logging
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Set
+from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Set, Tuple
 
 from gym.spaces import Box
 
@@ -13,6 +13,9 @@ from predicators.settings import CFG
 from predicators.structs import NSRT, CausalProcess, EndogenousProcess, \
     LiftedDecisionList, ParameterizedOption, ParameterizedSampler, Predicate, \
     State, Task, Type
+
+if TYPE_CHECKING:  # pragma: no cover
+    from predicators.ground_truth_models.skill_factories import SkillConfig
 
 
 class GroundTruthOptionFactory(abc.ABC):
@@ -31,6 +34,22 @@ class GroundTruthOptionFactory(abc.ABC):
                     action_space: Box) -> Set[ParameterizedOption]:
         """Create options for the given env name."""
         raise NotImplementedError("Override me!")
+
+    @classmethod
+    def get_primitive_skill_context(  # pylint: disable=useless-return
+            cls, env_name: str,
+            types: Dict[str, Type]) -> Optional[Tuple["SkillConfig", Type]]:
+        """The ``(skill config, robot type)`` the domain-general primitive
+        skill library (``CFG.skill_library == "primitive"``) is built on, or
+        ``None`` when this factory's env does not support it.
+
+        The default supports nothing; PyBullet factories that build a
+        ``SkillConfig`` override this and return the same configuration
+        their composite skills use, so both libraries share one robot,
+        one simulator and one set of executor tolerances.
+        """
+        del env_name, types
+        return None
 
 
 class GroundTruthNSRTFactory(abc.ABC):
@@ -193,6 +212,32 @@ class GroundTruthPredicateFactory(abc.ABC):
         raise NotImplementedError("Override me!")
 
 
+def _build_options(
+        factory: GroundTruthOptionFactory, env: BaseEnv, env_name: str,
+        types: Dict[str, Type],
+        predicates: Dict[str, Predicate]) -> Set[ParameterizedOption]:
+    """The env's options under ``CFG.skill_library``: the factory's own
+    composite skills, or the domain-general primitive library built on the
+    factory's skill configuration."""
+    # Imported here: the skill factories import PyBullet helpers that
+    # this package's non-PyBullet users never need.
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.ground_truth_models.skill_factories import \
+        check_skill_library, primitive_skills_for_env
+    library = check_skill_library(CFG.skill_library)
+    if library == "composite":
+        return factory.get_options(env_name, types, predicates,
+                                   env.action_space)
+    context = factory.get_primitive_skill_context(env_name, types)
+    if context is None:
+        raise NotImplementedError(
+            f"skill_library='primitive' is not implemented for env "
+            f"{env_name}: {type(factory).__name__} does not define "
+            "get_primitive_skill_context")
+    config, robot_type = context
+    return primitive_skills_for_env(type(env), config, robot_type)
+
+
 def get_gt_options(env_name: str) -> Set[ParameterizedOption]:
     """Create ground truth options for an env."""
     env = get_or_create_env(env_name)
@@ -204,8 +249,7 @@ def get_gt_options(env_name: str) -> Set[ParameterizedOption]:
             all_types = env.types | helper_types
             types = {t.name: t for t in all_types}
             predicates = {p.name: p for p in env.predicates}
-            options = factory.get_options(env_name, types, predicates,
-                                          env.action_space)
+            options = _build_options(factory, env, env_name, types, predicates)
             break
     else:  # pragma: no cover
         raise NotImplementedError("Ground-truth options not implemented for "

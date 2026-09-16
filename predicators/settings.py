@@ -633,6 +633,16 @@ class GlobalSettings:
     # release (see create_place_skill's settle_preload_force). 0 keeps
     # the first-touch behavior. Read by envs whose place skill enables
     # the settle stroke (currently pybullet_bridge).
+    # Which skill library get_gt_options builds for the PyBullet
+    # continual envs. "composite" (the default) is each env's own
+    # factory-built skills (PickJug, SwitchFaucetOn, Push, Release, ...),
+    # task knowledge included. "primitive" is the domain-general library
+    # of predicators/ground_truth_models/skill_factories/primitives.py -
+    # MoveTo, MoveLinear, MoveUntilContact, Gripper, Wait - identical in
+    # every env that implements GroundTruthOptionFactory.
+    # get_primitive_skill_context, with the grasp points, push strokes
+    # and release moments left to the agent.
+    skill_library = "composite"
     skill_place_settle_preload_force = 0.0
 
     # coffee env parameters

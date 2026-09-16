@@ -88,6 +88,11 @@ from predicators.ground_truth_models.skill_factories.place import \
     create_place_skill
 from predicators.ground_truth_models.skill_factories.pour import \
     create_pour_skill
+from predicators.ground_truth_models.skill_factories.primitives import \
+    PRIMITIVE_SKILL_NAMES, SKILL_LIBRARIES, check_skill_library, \
+    create_gripper_skill, create_move_linear_skill, \
+    create_move_to_pose_skill, create_move_until_contact_skill, \
+    create_primitive_skills, primitive_skills_for_env
 from predicators.ground_truth_models.skill_factories.push import \
     create_push_skill
 from predicators.ground_truth_models.skill_factories.wait import \
@@ -107,6 +112,15 @@ __all__ = [
     "create_pour_skill",
     "create_push_skill",
     "create_wait_option",
+    "PRIMITIVE_SKILL_NAMES",
+    "SKILL_LIBRARIES",
+    "check_skill_library",
+    "create_gripper_skill",
+    "create_move_linear_skill",
+    "create_move_to_pose_skill",
+    "create_move_until_contact_skill",
+    "create_primitive_skills",
+    "primitive_skills_for_env",
     "shared_skill_robot",
     "shared_skill_simulator",
 ]

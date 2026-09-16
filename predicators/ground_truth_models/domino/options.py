@@ -70,6 +70,14 @@ class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
         return cls._get_options_legacy(env_name, types, predicates,
                                        action_space)
 
+    @classmethod
+    def get_primitive_skill_context(
+            cls, env_name: str,
+            types: Dict[str, Type]) -> Optional[Tuple[SkillConfig, Type]]:
+        env_cls = _skill_robot_env_cls(env_name)
+        pybullet_robot = shared_skill_robot(env_cls)
+        return cls._build_skill_config(pybullet_robot, env_cls), types["robot"]
+
     # ------------------------------------------------------------------
     # Skill-factories-based implementation
     # ------------------------------------------------------------------

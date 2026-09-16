@@ -449,6 +449,69 @@ def test_pick_place_full_cycle_boil(boil_env):
     assert s3.get(jug, "is_held") > 0.5, "Should be held after second pick"
 
 
+def test_primitive_library_picks_jug_boil(boil_env):
+    """Under skill_library=primitive the domain-general skills pick the jug
+    with no jug knowledge in the controller: MoveTo above the handle, open the
+    Gripper, MoveTo down to the handle, close the Gripper (the env's pinch rule
+    attaches the jug), MoveLinear straight up."""
+    env = boil_env
+    jug = env._jugs[0]
+    robot = env._robot
+
+    state = env.get_train_tasks()[0].init.copy()
+    state.set(jug, "x", env.x_mid)
+    state.set(jug, "y", env.y_mid)
+    state.set(jug, "z", env.jug_init_z)
+    state.set(jug, "rot", 0.0)
+    state.set(jug, "is_held", 0.0)
+    state.set(jug, "water_volume", 0.0)
+    state.set(jug, "heat_level", 0.0)
+    env.set_state(state)
+
+    utils.update_config({"skill_library": "primitive"})
+    try:
+        opts = {o.name: o for o in get_gt_options(env.get_name())}
+        assert sorted(opts) == [
+            "Gripper", "MoveLinear", "MoveTo", "MoveUntilContact", "Wait"
+        ]
+        cur = env.get_state()
+        tilt = cur.get(robot, "tilt")
+        # The handle grasp pose the composite PickJug computes internally,
+        # here supplied by the caller as plain world coordinates.
+        gx = env.x_mid + PyBulletBoilEnv.jug_handle_offset
+        gy = env.y_mid
+        gz = PyBulletBoilEnv.table_height + PyBulletBoilEnv.jug_handle_height
+        above_z = PyBulletBoilEnv.z_ub - 0.35
+        open_w = PyBulletBoilEnv.open_fingers
+        closed_w = PyBulletBoilEnv.closed_fingers
+
+        def run(name, params):
+            return env.execute_option(opts[name].ground([robot], list(params)))
+
+        after = run("MoveTo", [gx, gy, above_z, 0.0, tilt])
+        assert np.allclose([
+            after.get(robot, "x"),
+            after.get(robot, "y"),
+            after.get(robot, "z")
+        ], [gx, gy, above_z],
+                           atol=0.02)
+        after = run("Gripper", [open_w, 20.0])
+        assert after.get(robot, "fingers") > 0.5 * (open_w + closed_w)
+        assert after.get(jug, "is_held") < 0.5
+        run("MoveTo", [gx, gy, gz, 0.0, tilt])
+        after = run("Gripper", [closed_w, 20.0])
+        assert after.get(jug, "is_held") > 0.5, "Gripper close did not grasp"
+        jug_z_before = after.get(jug, "z")
+        after = run("MoveLinear", [0.0, 0.0, 0.05, 0.01])
+        assert after.get(jug, "is_held") > 0.5, "Jug dropped during the lift"
+        assert after.get(jug, "z") > jug_z_before + 0.03
+        # Opening releases it and the jug comes to rest again.
+        after = run("Gripper", [open_w, 20.0])
+        assert after.get(jug, "is_held") < 0.5
+    finally:
+        utils.update_config({"skill_library": "composite"})
+
+
 def test_place_skill_not_terminal_before_pick_boil(boil_env):
     """Place skill not terminal at start (jug not placed yet)."""
     env = boil_env

@@ -79,6 +79,15 @@ class PyBulletBalloonsGroundTruthOptionFactory(GroundTruthOptionFactory):
         )
 
     @classmethod
+    def get_primitive_skill_context(
+            cls, env_name: str,
+            types: Dict[str, Type]) -> Optional[Tuple[SkillConfig, Type]]:
+        del env_name  # unused
+        simulator = shared_skill_simulator(cls.env_cls) \
+            if CFG.skill_phase_use_motion_planning else None
+        return cls.skill_config(simulator), types["robot"]
+
+    @classmethod
     def get_options(cls, env_name: str, types: Dict[str, Type],
                     predicates: Dict[str, Predicate],
                     action_space: Box) -> Set[ParameterizedOption]:
