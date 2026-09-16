@@ -25,7 +25,7 @@ from predicators.ground_truth_models.skill_factories.place import \
 from predicators.ground_truth_models.skill_factories.push import \
     create_push_skill, resolve_ee_yaw_offset
 from predicators.ground_truth_models.skill_factories.wait import \
-    create_wait_option, note_external_state_change
+    create_wait_option
 from predicators.pybullet_helpers.geometry import Pose
 from predicators.pybullet_helpers.inverse_kinematics import \
     InverseKinematicsError
@@ -972,14 +972,9 @@ class TestWaitOption:
         """Timed waits stop early on targets and agree across execution
         models."""
         # pylint: disable=import-outside-toplevel,protected-access
-        from dataclasses import replace
-
         from predicators.option_model import _OracleOptionModel
         _, robot = robot_scene
-        config = replace(_make_config(robot),
-                         wait_quiescence_eps=1e-4,
-                         wait_quiescence_steps=1)
-        opt = create_wait_option("Wait", config, _ROBOT_TYPE)
+        opt = create_wait_option("Wait", _make_config(robot), _ROBOT_TYPE)
         obj = _make_robot_obj()
         initial = _build_state(obj, robot, *_EE_HOME)
         initial.set(obj, "x", 0.0)
@@ -1068,100 +1063,11 @@ class TestWaitOption:
         for _ in range(5):
             assert not grounded.terminal(state)
 
-    def test_wait_quiescence_terminates_when_scene_settles(self, robot_scene):
-        """With wait_quiescence_eps set, Wait terminates after the non-robot
-        scene stops moving for wait_quiescence_steps consecutive steps."""
-        from dataclasses import \
-            replace  # pylint: disable=import-outside-toplevel
-        _, robot = robot_scene
-        config = replace(_make_config(robot),
-                         wait_quiescence_eps=1e-4,
-                         wait_quiescence_steps=3)
-        opt = create_wait_option("Wait", config, _ROBOT_TYPE)
-        robot_obj = _make_robot_obj()
-        block = Object("block0", _OBJ_TYPE)
-
-        def state_with_block_x(x):
-            return _build_state(robot_obj,
-                                robot,
-                                *_EE_HOME,
-                                obj=block,
-                                obj_xyz=(x, 0.0, 0.0))
-
-        grounded = opt.ground([robot_obj], np.zeros(0))
-        assert grounded.initiable(state_with_block_x(0.5))
-        # Block moving: never terminal, count resets.
-        assert not grounded.terminal(state_with_block_x(0.5))
-        assert not grounded.terminal(state_with_block_x(0.51))
-        assert not grounded.terminal(state_with_block_x(0.52))
-        # Block settles: three sub-eps deltas in a row terminate.
-        settled = [state_with_block_x(0.52) for _ in range(4)]
-        assert not grounded.terminal(settled[0])
-        # Re-querying the SAME state must not stand in for physics steps.
-        assert not grounded.terminal(settled[0])
-        assert not grounded.terminal(settled[1])
-        assert grounded.terminal(settled[2])
-        # Re-initiating clears the tracking: a rerun of the same grounded
-        # option must not terminate instantly on stale counts.
-        assert grounded.initiable(settled[3])
-        assert not grounded.terminal(settled[3])
-
-    def test_wait_quiescence_survives_a_twin_resync(self, robot_scene):
-        """Writing perception into the twin moves objects without the scene
-        having moved.
-
-        Counting that jolt as motion would zero the settle tally at
-        every look, and on the real robot Wait would never see the scene
-        rest.
-        """
-        from dataclasses import \
-            replace  # pylint: disable=import-outside-toplevel
-        _, robot = robot_scene
-        config = replace(_make_config(robot),
-                         wait_quiescence_eps=1e-4,
-                         wait_quiescence_steps=3)
-        opt = create_wait_option("Wait", config, _ROBOT_TYPE)
-        robot_obj = _make_robot_obj()
-        block = Object("block0", _OBJ_TYPE)
-
-        def state_with_block_z(z):
-            return _build_state(robot_obj,
-                                robot,
-                                *_EE_HOME,
-                                obj=block,
-                                obj_xyz=(0.5, 0.0, z))
-
-        grounded = opt.ground([robot_obj], np.zeros(0))
-        assert grounded.initiable(state_with_block_z(0.475))
-        # The first call only seeds the baseline; then two settled steps,
-        # leaving the tally one short of the boundary.
-        assert not grounded.terminal(state_with_block_z(0.475))
-        assert not grounded.terminal(state_with_block_z(0.475))
-        assert not grounded.terminal(state_with_block_z(0.475))
-        # A look writes perception in, moving the block 4 mm -- far more than
-        # the eps, so it would otherwise zero the tally.
-        resynced = state_with_block_z(0.471)
-        note_external_state_change(grounded, resynced)
-        # The next settled step is still the boundary.
-        assert grounded.terminal(state_with_block_z(0.471))
-
-    def test_external_state_change_ignores_an_untracked_option(
+    def test_unbounded_wait_never_terminates_on_a_frozen_scene(
             self, robot_scene):
-        """Without quiescence tracking there is no tally to protect, so the
-        hook has to leave the option alone rather than invent one."""
-        _, robot = robot_scene
-        opt = create_wait_option("Wait", _make_config(robot), _ROBOT_TYPE)
-        robot_obj = _make_robot_obj()
-        grounded = opt.ground([robot_obj], np.zeros(0))
-        state = _build_state(robot_obj, robot, *_EE_HOME)
-
-        note_external_state_change(grounded, state)
-
-        assert not grounded.memory
-
-    def test_wait_quiescence_disabled_by_default(self, robot_scene):
-        """Without wait_quiescence_eps the legacy never-terminate behavior
-        holds even on a frozen scene."""
+        """An unbounded Wait never stops on its own, frozen scene or not: the
+        skill does not inspect the physical scene, so stopping is left to the
+        executor's targets, atom changes, and step cap."""
         _, robot = robot_scene
         config = _make_config(robot)
         opt = create_wait_option("Wait", config, _ROBOT_TYPE)

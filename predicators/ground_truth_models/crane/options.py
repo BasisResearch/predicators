@@ -108,8 +108,6 @@ class PyBulletCraneGroundTruthOptionFactory(GroundTruthOptionFactory):
             # pull parameter means what it says.
             move_to_pose_tol=2.5e-5,
             # A Wait ends once the ram and the crate have settled.
-            wait_quiescence_eps=1e-4,
-            wait_quiescence_steps=10,
             # Fingers first at the head: the hand is narrow along the
             # lane that way, clearing the crate behind the head.
             extra={"push_ee_yaw_offset": 0.0},

@@ -1391,13 +1391,17 @@ class GlobalSettings:
     # parameters for random options approach
     random_options_max_tries = 100
 
-    # Max steps an any-atom-change Wait may run without seeing a change
-    # before it bails out (see option_policy_to_policy). Infinite by
-    # default (legacy behavior); envs whose plans interleave work with
-    # exogenous delays (e.g. bridge) should set a finite cap, because
-    # the awaited change can complete during the PREVIOUS option and
-    # strand the Wait until the horizon.
-    wait_option_max_steps = float("inf")
+    # Step cap on a single Wait in every domain (see
+    # option_policy_to_policy and wait_rollout_step_cap). A Wait ends at
+    # its requested count, its annotated target atoms, an atom change, or
+    # this cap, whichever comes first; reaching the cap is a normal stop,
+    # not a failure. The Wait skill never inspects the physical scene, so
+    # an agent that needs a longer wait asks for it explicitly with
+    # ``Wait(robot)[n]`` and chains waits. 200 covers the longest wait
+    # any agent issued in the September 2026 noisy sweep (a 200-step
+    # fan wait) and the bridge cure tail (cure_threshold 25 plus ~60
+    # steps of cure-start stagger, previously capped at 120).
+    wait_option_max_steps = 200
 
     # option model parameters
     option_model_terminate_on_repeat = True

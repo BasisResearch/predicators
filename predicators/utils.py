@@ -1860,8 +1860,8 @@ def wait_rollout_step_cap() -> int:
     the real Wait ran to the horizon (boil 2026-09-02: 430 real actions
     against 100 in belief, dropping every later plan step). Report code
     asking "did this Wait stall?" must compare against whichever fires
-    FIRST: the bridge configures the backstop at 120 against a 1000-step
-    rollout cap.
+    FIRST: the global backstop is 200 against a 1000-step rollout cap
+    (100 in boil).
     """
     cap = int(CFG.max_num_steps_option_rollout)
     if CFG.wait_option_terminate_on_atom_change and \

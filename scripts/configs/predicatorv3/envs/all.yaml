@@ -255,9 +255,6 @@ ENVS:
       # Each Wait ends on the first atom change, so multi-cure tails need a
       # cheap replan-from-current-state.
       process_planning_max_execution_replans: 3
-      # Bail out of a Wait that sees no atom change (cure_threshold 25 + ~60
-      # steps of cure-start stagger).
-      wait_option_max_steps: 120
       # The packed staging grid grazes by 2-3 mm; the default 1 mm margin
       # makes those unrecoverable BiRRT rejections.
       pybullet_birrt_contact_margin: -0.005

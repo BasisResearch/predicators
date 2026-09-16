@@ -3,9 +3,12 @@
 This module provides ``create_wait_option``, which builds a
 ``ParameterizedOption`` that holds the robot's current joint positions
 while nudging fingers toward their current open/closed state to resist
-drift. A positive ``num_steps`` ends the option after that many actions.
-Zero or omitted parameters retain the default quiescence behavior;
-the executor also handles annotated subgoals and its step cap.
+drift. A positive ``num_steps`` parameter ends the option after that
+many actions. Zero or omitted parameters leave stopping to the executor:
+an annotated target atom, an atom change, or the Wait step cap (see
+``utils.wait_rollout_step_cap``). The option never inspects the physical
+scene, so under observation noise it gives an agent no information its
+observations do not.
 
 Example::
 
@@ -16,7 +19,6 @@ Example::
     Wait = create_wait_option("Wait", config, robot_type)
 """
 
-import weakref
 from typing import Dict, Optional, Sequence, Tuple, cast
 
 import numpy as np
@@ -25,31 +27,7 @@ from gym.spaces import Box
 from predicators import utils
 from predicators.ground_truth_models.skill_factories.base import SkillConfig
 from predicators.structs import Action, Array, Object, ParameterizedOption, \
-    State, Type, _Option
-
-
-def note_external_state_change(option: _Option, state: State) -> None:
-    """Tell ``option`` that ``state`` was set from outside, not moved into.
-
-    ``Wait`` ends once the scene holds still for several consecutive steps.
-    Writing perception into the twin replaces object poses without the
-    scene having moved, so counting that jump would zero the tally at
-    every look and ``Wait`` would never see the scene settle. This keeps
-    the tally and moves the comparison point past the jump, so the jump is
-    skipped rather than counted as motion.
-
-    A no-op for options that track no quiescence.
-    """
-    memory = option.memory
-    if "quiescence_prev" not in memory:
-        return
-    robot_obj = option.objects[0]
-    scene_objs = sorted((o for o in state if o != robot_obj), key=str)
-    if not scene_objs:
-        return
-    memory["quiescence_prev"] = state.vec(scene_objs)
-    # The cached identity names the pre-resync state, so drop it.
-    memory.pop("quiescence_sref", None)
+    State, Type
 
 
 def create_wait_option(
@@ -63,8 +41,8 @@ def create_wait_option(
     The optional integer ``num_steps`` gives an action count, not seconds.
     Positive counts terminate after that many policy actions, unless an
     annotated subgoal or executor cap stops execution sooner.
-    Zero (also the default for an empty parameter list) retains quiescence
-    termination when configured and no explicit subgoal is present.
+    Zero (also the default for an empty parameter list) leaves stopping
+    to the executor: an annotated subgoal, an atom change, or its cap.
     Fingers are nudged toward their open/closed state to resist drift.
 
     Args:
@@ -91,51 +69,16 @@ def create_wait_option(
                 "Wait num_steps must be a finite nonnegative integer")
         memory["wait_num_steps"] = int(count)
         memory["wait_steps_taken"] = 0
-        # A grounded option can be re-run (validation rollouts reuse the
-        # grounded plan); stale quiescence tracking from a previous run
-        # would terminate the new run instantly.
-        memory.pop("quiescence_prev", None)
-        memory.pop("quiescence_count", None)
-        memory.pop("quiescence_sref", None)
         return True
 
     def _terminal(state: State, memory: Dict, objects: Sequence[Object],
                   params: Array) -> bool:
-        del params
+        del state, objects, params
         requested = memory.get("wait_num_steps", 0)
         if requested:
             return memory.get("wait_steps_taken", 0) >= requested
-        if memory.get("wait_target_atoms") or memory.get(
-                "wait_target_neg_atoms"):
-            return False
-        if config.wait_quiescence_eps is None:
-            return False
-        robot_obj = objects[0]
-        scene_objs = sorted((o for o in state if o != robot_obj), key=str)
-        if not scene_objs:
-            return False
-        # terminal() can be consulted more than once on the same state
-        # (executor loop + monitors); recounting a zero delta would let
-        # repeated queries stand in for settled physics steps. Identity
-        # via weakref, NOT id(): the allocator reuses a freed state's id,
-        # which would silently swallow real steps.
-        last_ref = memory.get("quiescence_sref")
-        if last_ref is not None and last_ref() is state:
-            return (memory.get("quiescence_count", 0) >=
-                    config.wait_quiescence_steps)
-        memory["quiescence_sref"] = weakref.ref(state)
-        vec = state.vec(scene_objs)
-        prev = memory.get("quiescence_prev")
-        memory["quiescence_prev"] = vec
-        if prev is None or prev.shape != vec.shape:
-            memory["quiescence_count"] = 0
-            return False
-        if float(np.max(np.abs(vec - prev))) < config.wait_quiescence_eps:
-            count = memory.get("quiescence_count", 0) + 1
-        else:
-            count = 0
-        memory["quiescence_count"] = count
-        return count >= config.wait_quiescence_steps
+        # Unbounded and annotated waits stop only through the executor.
+        return False
 
     def _policy(state: State, memory: Dict, objects: Sequence[Object],
                 params: Array) -> Action:
@@ -177,7 +120,8 @@ def create_wait_option(
         initiable=_initiable,
         terminal=_terminal,
         params_description=params_description
-        or ("num_steps: integer action count; 0 or [] uses default stopping; "
-            "subgoals and the execution cap can stop sooner", ),
+        or ("num_steps: integer action count; 0 or [] waits for the "
+            "annotated subgoal or the Wait step cap; subgoals and the cap "
+            "can stop a counted wait sooner", ),
         default_params=(0.0, ),
     )

@@ -148,7 +148,6 @@ class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
             # steps) instead of paying the full 1000-step rollout cap on
             # every rollout - the cap dominated probe/validation wall
             # time in the 2026-07-17 run audits.
-            wait_quiescence_eps=1e-4,
         )
 
     @classmethod

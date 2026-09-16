@@ -64,8 +64,6 @@ class PyBulletBalloonsGroundTruthOptionFactory(GroundTruthOptionFactory):
                             env_cls.robot_init_z),
             transport_z=cls._transport_z,
             simulator=simulator,
-            wait_quiescence_eps=1e-4,
-            wait_quiescence_steps=10,
         )
 
     @classmethod
