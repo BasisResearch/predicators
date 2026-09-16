@@ -70,15 +70,35 @@ def test_free_cells_connected() -> None:
         {(0, 0), (1, 0), (0, 1), (1, 1)}, 2, 2)
 
 
+_MAZE_FLAGS = {
+    "fan_test_num_pos_x": 10,
+    "fan_test_num_pos_y": 9,
+    "fan_test_num_walls_per_task": [16, 20, 24],
+    "fan_test_task_generation": "maze",
+    "fan_maze_min_segments": 4,
+    "fan_maze_min_path_len": 10,
+    "fan_maze_max_segment_len": 4,
+}
+
+
+def test_default_test_split_is_uniform() -> None:
+    """The defaults keep the historical 6 x 6 uniform test split; the maze
+    split is opted into per config."""
+    utils.reset_config({"env": "pybullet_fan", "seed": 0})
+    assert CFG.fan_test_task_generation == "uniform"
+    assert (CFG.fan_test_num_pos_x, CFG.fan_test_num_pos_y) == (6, 6)
+    assert CFG.fan_test_num_walls_per_task == [2, 3]
+
+
 def test_maze_test_tasks() -> None:
-    """Default test tasks are mazes on the full arena grid."""
+    """Maze test tasks on the full arena grid."""
     utils.reset_config({
         "env": "pybullet_fan",
         "seed": 0,
         "num_train_tasks": 1,
         "num_test_tasks": 3,
+        **_MAZE_FLAGS,
     })
-    assert CFG.fan_test_task_generation == "maze"
     env = PyBulletFanEnv(use_gui=False)
     try:
         num_x, num_y = CFG.fan_test_num_pos_x, CFG.fan_test_num_pos_y
