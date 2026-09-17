@@ -1,0 +1,21 @@
+# Seeds 1 and 2 of the Sonnet pair on the one-jug Boil test at the 5 cm
+# faucet tolerance (Sept 17, 2026): seed 0 ran from the Boil worktree on
+# Sept 16 (MB 2/2 in 1240 steps, MF 2/2 in 3379; ids
+# mb_sonnet_gate_one_jug_tight_r1 / mf_sonnet_one_jug_tight_r1, kept here so
+# the seeds join it). The menu's boil_one_jug entry carries the same flags.
+# Launched from the main tree; the MB arm runs the skill preflight.
+# python scripts/engaging/launch.py -c predicatorv3/continual_boil_one_jug_sonnet_s12.yaml --partition mit_preemptable,mit_normal --requeue --accounts b,c
+includes:
+  - continual_common.yaml
+  - envs/continual.yaml
+  - approaches/continual.yaml
+START_SEED: 1
+NUM_SEEDS: 2
+ENVS:
+  boil_one_jug:
+    SKIP: false
+APPROACHES:
+  mb_sonnet_gate_one_jug_tight_r1:
+    EXTENDS: mb_sonnet
+  mf_sonnet_one_jug_tight_r1:
+    EXTENDS: mf_sonnet
