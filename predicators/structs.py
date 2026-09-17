@@ -1159,7 +1159,13 @@ class TaskEvaluator:
         return all(atom.holds(state) for atom in self.goal)
 
     def terminated_trajectory(self, states: Sequence[State]) -> bool:
-        """Episode termination, including temporal goals when overridden."""
+        """Episode termination over the whole trajectory.
+
+        The default is the last state's ``terminated``. Subclasses with
+        a temporal goal (Balloons requires the box to hang in the band
+        for a dwell of consecutive steps) override this; ``reward``,
+        ``solved`` and the episode runner all judge through it.
+        """
         return bool(states) and self.terminated(states[-1])
 
     def reward(self,

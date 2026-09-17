@@ -333,9 +333,14 @@ class BaseEnv(abc.ABC):
         return all(goal_atom.holds(self._current_state) for goal_atom in goal)
 
     def episode_terminated(self, observations: Sequence[Observation]) -> bool:
-        """Use the task's temporal criterion at an episode boundary."""
+        """Whether the episode ends on the observations so far.
+
+        The task evaluator's trajectory-level criterion when every
+        observation is a State (a temporal goal such as the Balloons
+        dwell needs the history), else ``goal_reached``.
+        """
         evaluator = self._current_task.evaluator
-        if evaluator is not None and all(
+        if evaluator is not None and observations and all(
                 isinstance(o, State) for o in observations):
             states = [o for o in observations if isinstance(o, State)]
             return evaluator.terminated_trajectory(states)

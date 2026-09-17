@@ -39,8 +39,10 @@ def solution_subset(env: PyBulletBalloonsEnv,
     # Reconstruct the level from a clean initial state so the answer is the
     # level's, not a function of how far execution has progressed.
     clean = env.level_state(box_color, colors, (lo, hi))
+    # Original levels hold one balloon per clip, so each clip is a unit.
+    units = [[c] for c in colors]
     in_band_eq = [
-        subset for subset, z in env.lifting_subsets(box_color, colors)
+        subset for subset, z in env.lifting_subsets(box_color, units)
         if lo <= z <= hi
     ]
     winners = [
@@ -152,9 +154,10 @@ def make_tasks(env: PyBulletBalloonsEnv, num_tasks: int,
             # between them.
             reach_max = min(env.ceiling_z - env.ceiling_half_extents[2],
                             env.chute_z_hi) - 0.06
+            units = [[c] for c in colors]  # one balloon per clip
             reachable = [
                 (subset, z)
-                for subset, z in env.lifting_subsets(box_color, colors)
+                for subset, z in env.lifting_subsets(box_color, units)
                 if env.table_height + 0.12 <= z <= reach_max
             ]
             # Candidate band centres. A test level must hide the answer

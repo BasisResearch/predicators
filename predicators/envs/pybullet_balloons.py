@@ -31,21 +31,57 @@ train levels together cover every colour and both materials, so the
 test composes known lifts, a known mass, and the drag learned from the
 train ascents into a rack never seen.
 
-**Composition test levels** (``balloons_test_composition``) close the
-lookup this leaves open: with every colour shown on both boxes, a test
-band centred on a rest height training measured is answered from
-memory. Such a level admits no winning in-band subset that is a single
+**Composition test levels** close the lookup this leaves open: with
+every colour shown on both boxes, a test band centred on a rest height
+training measured is answered from memory. Every test level is a
+composition level. It admits no winning in-band subset that is a single
 balloon or a colour set some train rack on the same box already held.
 And every in-band subset bursts when freed weakest lift first with the
 box settling between releases, the order and timing an agent that
 reads rest heights alone and plays safe would use, while the reference
 wins in another order (the last increment must be small enough not to
 overshoot into the ceiling). Ordering the ascent takes the transient.
+
+**The dwell** (``balloons_goal_dwell_steps``): the level is won only
+once the box has hung at rest inside the band for that many consecutive
+environment steps. A single-frame check lets a swinging box win at a
+turning point whose peak pokes into the band while its rest height lies
+outside it. The generator's probes judge with the same evaluator.
+
+**Bundle test levels** (``balloons_test_bundle_sizes``) take away the
+safe first release. The composition levels above are still solved by
+arithmetic on rest heights: free the strongest balloon training already
+measured, watch it settle below the band, then trim with the weakest.
+On a bundle level the test rack ties its balloons into bundles, one
+clip per bundle (every balloon's ``clip`` feature names its clip), so
+one cut frees two or more balloons at once and no cut is a small trim.
+Every first cut is a union training never showed, launched from the
+table, and whether it survives is a question about the transient, not
+the rest height. The generator accepts a bundle level only when
+
+* the reference wins with two or more cuts, settling between them, and
+  its first cut is not the weakest bundle;
+* every winning union is a colour multiset no train rack on the same
+  box held;
+* some decoy bundle rests inside the band by the analytic law yet
+  bursts when cut first from the table (the arithmetic answer loses);
+* every winning order starts with the same clip, so the first cut
+  decides the level; and, when the draws allow it,
+* some other bundle rests below the band, above the reference's first
+  cut, with an analytic in-band continuation of its own, which loses.
+
+Cutting the weakest bundle, cutting the bundle whose rest is in band,
+and cutting the highest safe bundle then adding are the three readings
+of the rest heights; the first two always lose here, the third loses
+on a level with such a tempting bundle (the generator prefers one and
+falls back to a level without, recorded as ``bundle_tempting_clip``
+-1), and the winning order is found by rolling the ascent forward.
 """
 import logging
+from collections import Counter
 from dataclasses import dataclass, replace
 from itertools import combinations, permutations
-from typing import Any, Dict, FrozenSet, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 import pybullet as p
@@ -85,8 +121,8 @@ def any_popped(state: State) -> Optional[Object]:
 
 
 class BalloonsEvaluator(TaskEvaluator):
-    """Win when the box hangs at rest inside the band; a burst balloon loses
-    the level."""
+    """Win when the box hangs at rest inside the band for a dwell of
+    consecutive steps; a burst balloon loses the level."""
 
     def __init__(self, goal: Set[GroundAtom]) -> None:
         super().__init__(goal)
@@ -261,31 +297,44 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
         return float(CFG.balloons_drag)
 
     def _domain_specific_step(self) -> None:
-        """Release, pop, and pull: an open clip frees its balloon, which its
-        string seats on the box's top; a freed balloon that reaches the ceiling
-        bursts; every intact freed balloon pulls the box up with its colour's
-        lift at the box's height while its string holds it to the box."""
+        """Release, pop, and pull: an open clip frees every balloon it holds,
+        which their strings seat on the box's top; a freed balloon that reaches
+        the ceiling bursts; every intact freed balloon pulls the box up with
+        its colour's lift at the box's height while its string holds it to the
+        box."""
         state = self._get_state()
         box_top = self.box_top_point(state, self._box)
         box_z = float(state.get(self._box, "z"))
         balloons = self._active_balloons(state)
         clips = self._active_clips(state)
         commands: List[PhysicsCommand] = []
-        stacked = sum(1 for b in balloons if self._tied.get(b.name, False))
+        clip_of = [
+            self._balloon_clips.get(b.name, i) for i, b in enumerate(balloons)
+        ]
+        # Tiers: one per bundle freed, in the order they were freed.
+        tiers = len({
+            clip_of[i]
+            for i, b in enumerate(balloons) if self._tied.get(b.name, False)
+        })
+        new_tiers: Dict[int, int] = {}
         for index, balloon in enumerate(balloons):
             name = balloon.name
             if not self._tied.get(name, False):
-                if index >= len(clips) or not self._is_clip_on(clips[index]):
+                clip = clip_of[index]
+                if clip >= len(clips) or not self._is_clip_on(clips[clip]):
                     continue
                 # Freed: the string pulls the balloon to the end of its
-                # tether above the box's top centre, above any balloon
+                # tether above the box's top, a tier above the bundles
                 # freed before it, so its pull acts through the box.
                 self._tied[name] = True
-                offset = self._attach_offset(index, len(balloons))
-                seat = (box_top[0] + offset, box_top[1],
-                        box_top[2] + self.balloon_radius + self.string_length +
-                        2 * self.balloon_radius * stacked)
-                stacked += 1
+                if clip not in new_tiers:
+                    new_tiers[clip] = tiers
+                    tiers += 1
+                bundle = [i for i, c in enumerate(clip_of) if c == clip]
+                dx, dy, dz = self.bundle_seat(index, len(balloons),
+                                              bundle.index(index), len(bundle),
+                                              new_tiers[clip])
+                seat = (box_top[0] + dx, box_top[1] + dy, box_top[2] + dz)
                 p.resetBasePositionAndOrientation(
                     balloon.id,
                     seat, (0.0, 0.0, 0.0, 1.0),
@@ -376,20 +425,51 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
             CFG.balloons_fade_height) * (1.0 - weight / total_lift)
 
     @classmethod
+    def burst_height(cls, n_tiers: int) -> float:
+        """The box-centre height at which the top of a stack of ``n_tiers``
+        freed bundles (one tier each; a lone balloon is a bundle of one) meets
+        the ceiling plate and bursts."""
+        return (cls.ceiling_z - cls.ceiling_half_extents[2] - 0.002 -
+                cls.box_half - cls.string_length -
+                2 * cls.balloon_radius * n_tiers)
+
+    @classmethod
+    def unit_lift(cls, unit: Sequence[int]) -> float:
+        """The pull at table height of the balloons one clip frees."""
+        return sum(cls.lift_at_ground(c) for c in unit)
+
+    @classmethod
+    def union_colors(cls, unit_colors: Sequence[Sequence[int]],
+                     subset: Sequence[int]) -> List[int]:
+        """The colours the clips of ``subset`` free together."""
+        return [c for i in subset for c in unit_colors[i]]
+
+    @classmethod
     def lifting_subsets(
-            cls, box_color: int, balloon_colors: Sequence[int]
+        cls, box_color: int, unit_colors: Sequence[Sequence[int]]
     ) -> List[Tuple[Tuple[int, ...], float]]:
-        """Every subset (as balloon indices) that lifts the box, with its hover
-        height, highest first."""
+        """Every subset of clips that lifts the box, with the hover height of
+        the balloons they free together, highest first.
+
+        ``unit_colors`` lists the colours each clip frees; on a rack of
+        single balloons that is one colour per clip, so a subset is the
+        balloon indices as well.
+        """
         out = []
-        indices = list(range(len(balloon_colors)))
+        indices = list(range(len(unit_colors)))
         for size in range(1, len(indices) + 1):
             for subset in combinations(indices, size):
                 z = cls.hover_height(box_color,
-                                     [balloon_colors[i] for i in subset])
+                                     cls.union_colors(unit_colors, subset))
                 if z is not None:
                     out.append((subset, z))
         return sorted(out, key=lambda item: -item[1])
+
+    def unit_colors(self, state: State) -> List[List[int]]:
+        """The colours each active clip frees, by clip index."""
+        balloons = self._active_balloons(state)
+        colors = [int(round(state.get(b, "color"))) for b in balloons]
+        return [[colors[i] for i in bundle] for bundle in self.bundles(state)]
 
     # =========================================================================
     # TASK GENERATION
@@ -415,10 +495,18 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
             "wrist": self.robot_init_wrist,
         }
 
-    def level_state(self, box_color: int, balloon_colors: Sequence[int],
-                    band: Tuple[float, float]) -> State:
+    def level_state(self,
+                    box_color: int,
+                    balloon_colors: Sequence[int],
+                    band: Tuple[float, float],
+                    clip_of: Optional[Sequence[int]] = None) -> State:
         """A level: the box on the table, balloons clipped in the rack, the
-        band."""
+        band.
+
+        ``clip_of`` names the clip holding each balloon; by default
+        every balloon has its own clip, in rack order. A clip's bundle
+        stands in a row behind it.
+        """
         init: Dict[Object, Dict[str, float]] = {
             self._robot: self._robot_init_dict()
         }
@@ -429,18 +517,28 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
             "color": float(box_color),
             "speed": 0.0,
         }
-        xs = self.rack_xs(len(balloon_colors))
+        if clip_of is None:
+            clip_of = list(range(len(balloon_colors)))
+        assert len(clip_of) == len(balloon_colors)
+        n_clips = max(clip_of) + 1 if clip_of else 0
+        assert sorted(set(clip_of)) == list(range(n_clips))
+        xs = self.rack_xs(n_clips)
+        row: Dict[int, int] = {}
         for i, color in enumerate(balloon_colors):
+            clip = int(clip_of[i])
             init[self._balloons[i]] = {
-                "x": xs[i],
-                "y": self.rack_y,
+                "x": xs[clip],
+                "y": self.rack_y + self.bundle_y_gap * row.get(clip, 0),
                 "z": self.balloon_rest_z,
                 "color": float(color),
+                "clip": float(clip),
                 "tied": 0.0,
                 "popped": 0.0,
             }
-            init[self._clips[i]] = {
-                "x": xs[i],
+            row[clip] = row.get(clip, 0) + 1
+        for clip in range(n_clips):
+            init[self._clips[clip]] = {
+                "x": xs[clip],
                 "y": self.clip_y,
                 "z": self.table_height,
                 "rot": self.clip_rot,
@@ -463,34 +561,42 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
             state: State) -> Dict[Tuple[int, ...], List[BalloonsProbeOutcome]]:
         """Executable outcomes for every order of each in-band candidate.
 
-        Reconstruct the clean level, so oracle predicates keep a stable
-        reference as execution progresses. These are immediate Release
-        sequences followed by a hold, not all possible release timings.
+        Candidates and orders are over clips. Reconstruct the clean
+        level, so oracle predicates keep a stable reference as execution
+        progresses. On a rack of single balloons these are immediate
+        Release sequences followed by a hold, not all possible release
+        timings; on a bundle level the box settles between cuts, the
+        cadence of an agent that watches each cut land.
         """
         box_color = int(round(state.get(self._box, "color")))
         colors = [
             int(round(state.get(b, "color")))
             for b in self._active_balloons(state)
         ]
+        clip_of = tuple(
+            self.clip_index(state, b) for b in self._active_balloons(state))
+        settled = self.is_bundled(state)
         lo, hi = (float(state.get(self._band, f)) for f in ("lo", "hi"))
-        key = (box_color, tuple(colors), lo, hi, tuple(CFG.balloons_lifts),
-               tuple(CFG.balloons_box_masses), CFG.balloons_fade_height,
-               CFG.balloons_drag, CFG.balloons_probe_max_steps,
-               CFG.balloons_probe_rest_steps, CFG.balloons_probe_rest_tol,
-               CFG.balloons_settle_speed, CFG.balloons_scene,
+        key = (box_color, tuple(colors), clip_of, settled, lo, hi,
+               tuple(CFG.balloons_lifts), tuple(CFG.balloons_box_masses),
+               CFG.balloons_fade_height, CFG.balloons_drag,
+               CFG.balloons_probe_max_steps, CFG.balloons_probe_rest_steps,
+               CFG.balloons_probe_rest_tol, CFG.balloons_settle_speed,
+               CFG.balloons_goal_dwell_steps, CFG.balloons_scene,
                self.box_half_extents(), tuple(self.obstacle_geometry()),
                CFG.balloons_hatch_attach_span,
                CFG.skill_phase_use_motion_planning, CFG.seed,
                CFG.balloons_push_approach, CFG.balloons_push_contact_z,
                tuple(sorted(self._param_overrides.items())))
         if key not in self._candidate_cache:
-            clean = self.level_state(box_color, colors, (lo, hi))
+            clean = self.level_state(box_color, colors, (lo, hi), clip_of)
+            units = self.unit_colors(clean)
             self._candidate_cache[key] = {
                 subset: [
-                    self.release_sequence_outcome(clean, order)
+                    self.release_sequence_outcome(clean, order, settled)
                     for order in permutations(subset)
                 ]
-                for subset, z in self.lifting_subsets(box_color, colors)
+                for subset, z in self.lifting_subsets(box_color, units)
                 if lo <= z <= hi
             }
         return {
@@ -499,32 +605,35 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
         }
 
     def solution_subset(self, state: State) -> Optional[Tuple[int, ...]]:
-        """A canonical reference subset.
+        """A canonical reference subset of clips.
 
         Prefer a subset whose every tested Release order wins, then
-        fewer releases, then lexicographic order. Under
-        ``balloons_test_composition`` a subset with any witnessed
-        winning order also qualifies, ranked after the order-robust
-        ones, because a composition level may hang on the release order
-        (see ``reference_order``). Multiple winning subsets are allowed
-        and scored by the same evaluator. Original tasks
-        (``balloons_task_generation=original``) retain the historical
-        simultaneous-release screen.
+        fewer releases, then lexicographic order. A subset with any
+        witnessed winning order also qualifies, ranked after the order-
+        robust ones, because a composition level may hang on the release
+        order (see ``reference_order``). Multiple winning subsets are
+        allowed and scored by the same evaluator. On a bundle level the
+        reference has at least two cuts (see the module doc). Original
+        tasks (``balloons_task_generation=original``) retain the
+        historical simultaneous-release screen.
         """
         if CFG.balloons_task_generation == "original":
             from predicators.envs.balloons_original_tasks import \
                 solution_subset  # pylint: disable=import-outside-toplevel
             return solution_subset(self, state)
         candidates = self.candidate_outcomes(state)
+        if self.is_bundled(state):
+            candidates = {
+                subset: outcomes
+                for subset, outcomes in candidates.items() if len(subset) >= 2
+            }
         ranked = [(0, len(subset), subset)
                   for subset, outcomes in candidates.items()
                   if outcomes and all(outcome.won for outcome in outcomes)]
-        if CFG.balloons_test_composition:
-            robust = {subset for _, _, subset in ranked}
-            ranked += [(1, len(subset), subset)
-                       for subset, outcomes in candidates.items()
-                       if subset not in robust and any(o.won
-                                                       for o in outcomes)]
+        robust = {subset for _, _, subset in ranked}
+        ranked += [(1, len(subset), subset)
+                   for subset, outcomes in candidates.items()
+                   if subset not in robust and any(o.won for o in outcomes)]
         return min(ranked)[2] if ranked else None
 
     def reference_order(self, state: State, subset: Tuple[int,
@@ -533,11 +642,7 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
         weakest-first order when it wins, else the first winning order in
         ``permutations`` order, else weakest-first (the oracle then fails on
         this level)."""
-        colors = [
-            int(round(state.get(b, "color")))
-            for b in self._active_balloons(state)
-        ]
-        order = self.weakest_first_order(colors, subset)
+        order = self.weakest_first_order(self.unit_colors(state), subset)
         outcomes = self.candidate_outcomes(state).get(subset, [])
         if not outcomes or self._order_outcome(outcomes, subset, order).won:
             return order
@@ -547,11 +652,11 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
         return order
 
     @classmethod
-    def weakest_first_order(cls, colors: Sequence[int],
+    def weakest_first_order(cls, unit_colors: Sequence[Sequence[int]],
                             subset: Tuple[int, ...]) -> List[int]:
-        """The subset's balloons, weakest lift at table height first: the
-        oracle's release order."""
-        return sorted(subset, key=lambda i: cls.lift_at_ground(colors[i]))
+        """The subset's clips, weakest pull at table height first: the oracle's
+        release order on a rack of singles."""
+        return sorted(subset, key=lambda i: cls.unit_lift(unit_colors[i]))
 
     @staticmethod
     def _order_outcome(outcomes: Sequence[BalloonsProbeOutcome],
@@ -561,35 +666,37 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
         ``candidate_outcomes`` lists the orders as ``permutations`` does."""
         return outcomes[list(permutations(subset)).index(tuple(order))]
 
-    def _train_racks(self) -> List[Tuple[int, FrozenSet[int]]]:
-        """(box material, balloon colours) of every train level."""
+    def _train_racks(self) -> List[Tuple[int, Tuple[int, ...]]]:
+        """(box material, sorted balloon colours) of every train level."""
         return [(int(round(task.init.get(self._box, "color"))),
-                 frozenset(
-                     int(round(task.init.get(b, "color")))
-                     for b in self._active_balloons(task.init)))
+                 tuple(
+                     sorted(
+                         int(round(task.init.get(b, "color")))
+                         for b in self._active_balloons(task.init))))
                 for task in self.get_train_tasks()]
 
-    @staticmethod
-    def _rack_seen(subset: Tuple[int,
-                                 ...], colors: Sequence[int], box_color: int,
-                   train_racks: Sequence[Tuple[int, FrozenSet[int]]]) -> bool:
-        """Whether some train rack on this box held every colour of ``subset``,
-        so training could have measured its rest height."""
-        palette = frozenset(colors[i] for i in subset)
-        return any(box == box_color and palette <= rack
+    @classmethod
+    def _rack_seen(cls, subset: Tuple[int, ...],
+                   unit_colors: Sequence[Sequence[int]], box_color: int,
+                   train_racks: Sequence[Tuple[int, Tuple[int, ...]]]) -> bool:
+        """Whether some train rack on this box held every colour the clips of
+        ``subset`` free, as many times over, so training could have measured
+        their rest height."""
+        palette = Counter(cls.union_colors(unit_colors, subset))
+        return any(box == box_color and not palette - Counter(rack)
                    for box, rack in train_racks)
 
     def _could_compose(
-            self, in_band: Sequence[Tuple[int, ...]], colors: Sequence[int],
-            box_color: int,
-            train_racks: Sequence[Tuple[int, FrozenSet[int]]]) -> bool:
+            self, in_band: Sequence[Tuple[int, ...]],
+            unit_colors: Sequence[Sequence[int]], box_color: int,
+            train_racks: Sequence[Tuple[int, Tuple[int, ...]]]) -> bool:
         """Analytic pre-screen of a composition level, before any rollout:
 
         some unseen in-band subset frees two or more balloons.
         """
         return any(
-            len(subset) >= 2
-            and not self._rack_seen(subset, colors, box_color, train_racks)
+            len(self.union_colors(unit_colors, subset)) >= 2 and
+            not self._rack_seen(subset, unit_colors, box_color, train_racks)
             for subset in in_band)
 
     def naive_release_bursts(self, state: State, subset: Tuple[int,
@@ -597,17 +704,13 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
         """Whether freeing ``subset`` weakest lift first, letting the box
         settle between releases, bursts a balloon: the order and timing of an
         agent that reads rest heights alone and plays safe."""
-        colors = [
-            int(round(state.get(b, "color")))
-            for b in self._active_balloons(state)
-        ]
-        order = self.weakest_first_order(colors, subset)
+        order = self.weakest_first_order(self.unit_colors(state), subset)
         return self._run_release_sequence(state, order, settled=True).burst
 
     def composition_decoy(
         self, candidates: Dict[Tuple[int, ...], List[BalloonsProbeOutcome]],
-        colors: Sequence[int], box_color: int,
-        train_racks: Sequence[Tuple[int, FrozenSet[int]]]
+        unit_colors: Sequence[Sequence[int]], box_color: int,
+        train_racks: Sequence[Tuple[int, Tuple[int, ...]]]
     ) -> Optional[Tuple[int, ...]]:
         """The in-band subset a static reading picks, or None.
 
@@ -620,18 +723,125 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
         """
 
         def seen(subset: Tuple[int, ...]) -> bool:
-            return self._rack_seen(subset, colors, box_color, train_racks)
+            return self._rack_seen(subset, unit_colors, box_color, train_racks)
 
         def hover(subset: Tuple[int, ...]) -> float:
-            z = self.hover_height(box_color, [colors[i] for i in subset])
+            z = self.hover_height(box_color,
+                                  self.union_colors(unit_colors, subset))
             assert z is not None
             return z
 
         for subset, outcomes in candidates.items():
-            if any(o.won
-                   for o in outcomes) and (len(subset) < 2 or seen(subset)):
+            if any(o.won for o in outcomes) and (
+                    len(self.union_colors(unit_colors, subset)) < 2
+                    or seen(subset)):
                 return None
         return min(candidates, key=hover)
+
+    def _could_bundle(
+            self, in_band: Sequence[Tuple[int, ...]],
+            reachable: Sequence[Tuple[Tuple[int, ...], float]],
+            unit_colors: Sequence[Sequence[int]], box_color: int,
+            band: Tuple[float, float],
+            train_racks: Sequence[Tuple[int, Tuple[int, ...]]]) -> bool:
+        """Analytic pre-screen of a bundle level, before any rollout: an unseen
+        in-band subset of two or more clips whose stack rests clear of the
+        ceiling, an in-band single clip (the decoy), and two clips resting
+        below the band that each belong to some multi-clip in-band subset (the
+        first cut and the tempting clip)."""
+
+        def clears_ceiling(subset: Tuple[int, ...]) -> bool:
+            return band[1] + 0.02 <= self.burst_height(len(subset))
+
+        if not any(
+                len(subset) >= 2 and clears_ceiling(subset) and not self.
+                _rack_seen(subset, unit_colors, box_color, train_racks)
+                for subset in in_band):
+            return False
+        if not any(len(subset) == 1 for subset in in_band):
+            return False
+        rest = {subset[0]: z for subset, z in reachable if len(subset) == 1}
+        below = [
+            clip for clip, z in rest.items()
+            if z < band[0] and any(clip in subset and len(subset) >= 2
+                                   for subset in in_band)
+        ]
+        return len(below) >= 2
+
+    def _bundle_report(
+            self, state: State,
+            candidates: Dict[Tuple[int, ...],
+                             List[BalloonsProbeOutcome]]) -> str:
+        """One line per in-band candidate order: its witnessed status."""
+        units = self.unit_colors(state)
+        box_color = int(round(state.get(self._box, "color")))
+        lines = []
+        for subset, outcomes in candidates.items():
+            z = self.hover_height(box_color, self.union_colors(units, subset))
+            for order, outcome in zip(permutations(subset), outcomes):
+                lines.append(f"{list(order)} rest {z:.3f}: {outcome.status}")
+        return "; ".join(lines)
+
+    def bundle_level(
+        self, state: State, candidates: Dict[Tuple[int, ...],
+                                             List[BalloonsProbeOutcome]],
+        train_racks: Sequence[Tuple[int, Tuple[int, ...]]]
+    ) -> Optional[Tuple[List[int], int, int]]:
+        """(reference order, decoy clip, tempting clip) when ``state`` is a
+        bundle level by the module doc's conditions, else None.
+
+        ``candidates`` are the settled outcomes of every order of every
+        analytic in-band clip subset. The decoy clip rests in the band
+        by the analytic law and bursts when cut first; the tempting clip
+        rests below the band, above the reference's first cut, and has
+        an analytic in-band continuation that loses.
+        """
+        box_color = int(round(state.get(self._box, "color")))
+        units = self.unit_colors(state)
+        lo = float(state.get(self._band, "lo"))
+        winning = {
+            subset: [
+                list(order)
+                for order, outcome in zip(permutations(subset), outcomes)
+                if outcome.won
+            ]
+            for subset, outcomes in candidates.items()
+        }
+        winning = {s: orders for s, orders in winning.items() if orders}
+        if not winning or any(
+                self._rack_seen(s, units, box_color, train_racks)
+                for s in winning):
+            return None
+        firsts = {order[0] for orders in winning.values() for order in orders}
+        if len(firsts) != 1:
+            return None
+        first = firsts.pop()
+        if all(len(s) < 2 for s in winning):
+            return None
+        weakest = min(range(len(units)),
+                      key=lambda i: self.unit_lift(units[i]))
+        if first == weakest:
+            return None
+        decoys = sorted(s[0] for s, outcomes in candidates.items()
+                        if len(s) == 1 and any(o.burst for o in outcomes))
+        if not decoys:
+            return None
+        rest = {
+            i: self.hover_height(box_color, units[i])
+            for i in range(len(units))
+        }
+        first_rest = rest[first]
+        if first_rest is None or first_rest >= lo:
+            return None
+        tempting = sorted(
+            i for i, z in rest.items()
+            if i != first and z is not None and first_rest < z < lo and any(
+                i in s and len(s) >= 2 for s in candidates))
+        reference = self.solution_subset(state)
+        if reference is None:
+            return None
+        return (self.reference_order(state, reference), decoys[0],
+                tempting[0] if tempting else -1)
 
     def _hold_action(self) -> Action:
         """A no-op action that holds the robot at its initial joints, for
@@ -672,9 +882,12 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
             state: State,
             max_steps: int,
             history: Optional[List[State]] = None) -> BalloonsProbeOutcome:
-        """Check every frame for success; only sustained rest ends failure."""
-        evaluator = BalloonsEvaluator(
-            {GroundAtom(self._InBand, [self._box, self._band])})
+        """Check every frame for success; only sustained rest ends failure.
+
+        ``history`` is the trailing window of states the evaluator's
+        dwell needs (the frames of the releases that preceded the wait).
+        """
+        evaluator = self._evaluator()
         history = list(history) if history is not None else [state]
         positions: List[np.ndarray] = []
         supported = 0
@@ -709,6 +922,11 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                 history = history[-evaluator.dwell_steps - 1:]
         return self._probe_outcome(state, max_steps, "unresolved")
 
+    def _evaluator(self) -> BalloonsEvaluator:
+        """The evaluator of the current band goal, for the probes."""
+        return BalloonsEvaluator(
+            {GroundAtom(self._InBand, [self._box, self._band])})
+
     def assess_subset(self, state: State,
                       subset: Tuple[int, ...]) -> BalloonsProbeOutcome:
         """Free a subset simultaneously and classify the observed rollout.
@@ -742,17 +960,20 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
         result = self.assess_subset(state, subset)
         return result.won, result.burst
 
-    def release_sequence_outcome(self, state: State,
-                                 order: Sequence[int]) -> BalloonsProbeOutcome:
+    def release_sequence_outcome(
+            self,
+            state: State,
+            order: Sequence[int],
+            settled: bool = False) -> BalloonsProbeOutcome:
         """Classify a sequence, verifying contact failures counterfactually.
 
         Vertical wall contact by itself does not prove the wall caused a
         failure. Call it a jam only if the same sequence wins when box-
         wall collisions are disabled in a diagnostic replay. Restore
         collisions even if that replay fails; the task's actual physics
-        is unchanged.
+        is unchanged. With ``settled`` the box rests between releases.
         """
-        result = self._run_release_sequence(state, order)
+        result = self._run_release_sequence(state, order, settled)
         if result.status != "resting_outside" or not result.wall_supported:
             return result
         try:
@@ -823,8 +1044,7 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
         current = self._get_state()
         self._current_observation = current
         history = [current]
-        evaluator = BalloonsEvaluator(
-            {GroundAtom(self._InBand, [self._box, self._band])})
+        evaluator = self._evaluator()
         release = probe_release_option()
         steps = 0
         for index in order:
@@ -907,24 +1127,53 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
         # Retry draws can revisit identical candidates. Cache classifications
         # only within this generation call, with exact band bounds.
         rejected_levels: Set[Tuple[Any, ...]] = set()
-        compose = not train and CFG.balloons_test_composition
-        train_racks = self._train_racks() if compose else []
+        # Every test level is a composition level (see the module doc); with
+        # bundle sizes configured it is a bundle level instead.
+        bundle_sizes = [int(s) for s in CFG.balloons_test_bundle_sizes
+                        ] if not train else []
+        compose = not train and not bundle_sizes
+        train_racks = self._train_racks() if not train else []
         for _ in range(num_tasks):
             found = None
-            for attempt in range(attempts):
+            fallback: Optional[Tuple[State, Tuple[int, ...],
+                                     Optional[Tuple[int, ...]]]] = None
+            # A bundle level keeps drawing past the nominal attempts while
+            # it has nothing at all, and stops at the first fallback then.
+            for attempt in range(attempts * 3 if bundle_sizes else attempts):
+                if attempt >= attempts and fallback is not None:
+                    break
                 n = int(rng.choice(counts))
+                clip_of: Optional[List[int]] = None
                 # The covering draw first; a free draw for the last
                 # quarter of the attempts, so a rack the filters below
                 # keep rejecting does not sink the level.
                 if train and attempt < 3 * attempts // 4:
                     box_color, colors = self._draw_covering(
                         rng, n, box_colors, palette, seen_boxes, seen_colors)
+                elif bundle_sizes:
+                    # A bundle rack: the configured bundle sizes in a random
+                    # rack order, repeating colours once the rack outgrows
+                    # the palette.
+                    sizes = [int(s) for s in rng.permutation(bundle_sizes)]
+                    n = sum(sizes)
+                    colors = [
+                        int(c) for c in rng.choice(
+                            palette, size=n, replace=n > len(palette))
+                    ]
+                    clip_of = [
+                        clip for clip, size in enumerate(sizes)
+                        for _ in range(size)
+                    ]
                 else:
                     box_color = int(rng.choice(box_colors))
                     colors = [
                         int(c)
                         for c in rng.choice(palette, size=n, replace=False)
                     ]
+                if bundle_sizes:
+                    box_color = int(rng.choice(box_colors))
+                units = self.unit_colors(
+                    self.level_state(box_color, colors, (0.0, 0.0), clip_of))
                 # Reachable equilibria. The transient (not a static stack-
                 # clearance) decides whether a subset overshoots into the
                 # ceiling, so each equilibrium-in-band candidate is rolled
@@ -944,7 +1193,7 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                                  half)
                 reachable = [
                     (subset, z)
-                    for subset, z in self.lifting_subsets(box_color, colors)
+                    for subset, z in self.lifting_subsets(box_color, units)
                     if reach_min <= z <= reach_max
                 ]
                 # Nearby analytic equilibria provide candidate bands.
@@ -956,7 +1205,7 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                     for b in range(a + 1, len(reachable))
                     if abs(reachable[a][1] - reachable[b][1]) <= 2 * half
                 ]
-                if train:
+                if train or bundle_sizes:
                     centers += [z for _, z in reachable]
                 if not train and CFG.balloons_require_jam_decoy:
                     # The strict contact challenge also tests bands centred
@@ -973,13 +1222,18 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                     if not train and len(in_band) < 2:
                         continue
                     if compose and not self._could_compose(
-                            in_band, colors, box_color, train_racks):
+                            in_band, units, box_color, train_racks):
                         continue
-                    level_key = (box_color, tuple(colors), band)
+                    if bundle_sizes and not self._could_bundle(
+                            in_band, reachable, units, box_color, band,
+                            train_racks):
+                        continue
+                    level_key = (box_color, tuple(colors), tuple(clip_of
+                                                                 or ()), band)
                     if level_key in rejected_levels:
                         continue
                     rejected_levels.add(level_key)
-                    state = self.level_state(box_color, colors, band)
+                    state = self.level_state(box_color, colors, band, clip_of)
                     if compose and not all(
                             self.naive_release_bursts(state, subset)
                             for subset in in_band):
@@ -993,12 +1247,13 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                     # including every intermediate frame and release order.
                     candidates = self.candidate_outcomes(state)
                     reference = self.solution_subset(state)
-                    if compose:
+                    if compose or bundle_sizes:
                         logging.info(
-                            "Balloons composition candidate: box %d rack %s "
+                            "Balloons %s candidate: box %d rack %s clips %s "
                             "band %.3f-%.3f in-band %s reference %s",
-                            box_color, colors, band[0], band[1], in_band,
-                            reference)
+                            "bundle" if bundle_sizes else "composition",
+                            box_color, colors, clip_of, band[0], band[1],
+                            in_band, reference)
                     if reference is None:
                         continue
                     decoys = [(subset, outcome)
@@ -1017,9 +1272,30 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                         continue
                     decoy = None
                     if compose:
-                        decoy = self.composition_decoy(candidates, colors,
+                        decoy = self.composition_decoy(candidates, units,
                                                        box_color, train_racks)
                         if decoy is None:
+                            continue
+                    if bundle_sizes:
+                        verdict = self.bundle_level(state, candidates,
+                                                    train_racks)
+                        if verdict is None:
+                            logging.info(
+                                "Balloons bundle candidate rejected: %s",
+                                self._bundle_report(state, candidates))
+                            continue
+                        _, decoy_clip, tempting_clip = verdict
+                        decoy = (decoy_clip, )
+                        if tempting_clip < 0 and solve_level(
+                                self, state) is not None:
+                            # A level without a tempting bundle serves if
+                            # the remaining draws find none with one.
+                            if fallback is None:
+                                fallback = (state, reference, decoy)
+                            logging.info(
+                                "Balloons bundle candidate kept as fallback "
+                                "(no tempting bundle): %s",
+                                self._bundle_report(state, candidates))
                             continue
                     if not train and CFG.balloons_require_jam_decoy:
                         eqz = dict(reachable)
@@ -1040,11 +1316,17 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                     break
                 if found is not None:
                     break
+            if found is None and fallback is not None:
+                logging.info(
+                    "Balloons bundle level: no draw with a tempting "
+                    "bundle in %d attempts; using the fallback", attempts)
+                found = fallback
             if found is None:
                 raise RuntimeError(
                     "No balloon level with a verified winning reference and "
                     f"verified decoys in {attempts} draws "
-                    f"(require_jam_decoy={CFG.balloons_require_jam_decoy}). "
+                    f"(require_jam_decoy={CFG.balloons_require_jam_decoy}, "
+                    f"bundle_sizes={bundle_sizes}). "
                     "Unresolved rollouts are not failures; the requested "
                     "decoy property may be unavailable under this physics.")
             state, subset, decoy = found
@@ -1052,21 +1334,36 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
             seen_colors.update(colors)
             goal = {GroundAtom(self._InBand, [self._box, self._band])}
             balloons = self._active_balloons(state)
-            names = ", ".join(
-                f"{self.balloon_color_name(state.get(b, 'color'))} "
-                f"({b.name}, clip{i})" for i, b in enumerate(balloons))
+            bundles = self.bundles(state)
+            if self.is_bundled(state):
+                names = "; ".join(f"clip{clip} frees " + " and ".join(
+                    f"{self.balloon_color_name(state.get(b, 'color'))} "
+                    f"({b.name})" for b in (balloons[i] for i in bundle))
+                                  for clip, bundle in enumerate(bundles))
+                holding = (
+                    f"The balloons are tied in bundles, one clip per "
+                    f"bundle, each bundle racked in a row behind its clip; "
+                    f"opening a clip frees every balloon of its bundle at "
+                    f"once, and each balloon's clip feature names its clip: "
+                    f"{names}.")
+            else:
+                names = ", ".join(
+                    f"{self.balloon_color_name(state.get(b, 'color'))} "
+                    f"({b.name}, clip{i})" for i, b in enumerate(balloons))
+                holding = (f"Each balloon is held by the clip in front of "
+                           f"it: {names}.")
             goal_nl = (
                 f"Open clips to free balloons so that the "
                 f"{self.box_color_name(box_color)} box floats up and hangs "
                 f"still with its centre inside the green band "
                 f"({state.get(self._band, 'lo'):.2f} to "
-                f"{state.get(self._band, 'hi'):.2f} m). Each balloon is "
-                f"held by the clip in front of it: {names}. A balloon that "
-                f"reaches the ceiling bursts and the level is lost; a freed "
-                f"balloon cannot be clipped back. Success requires remaining "
-                f"inside the band at speed below {CFG.balloons_settle_speed:g} "
-                f"m/s for {CFG.balloons_goal_dwell_steps} consecutive "
-                f"environment steps.")
+                f"{state.get(self._band, 'hi'):.2f} m). {holding} A balloon "
+                f"that reaches the ceiling bursts and the level is lost; a "
+                f"freed balloon cannot be clipped back. Success requires "
+                f"remaining inside the band at speed below "
+                f"{CFG.balloons_settle_speed:g} m/s for "
+                f"{CFG.balloons_goal_dwell_steps} consecutive environment "
+                f"steps.")
             if CFG.balloons_scene == "hatch":
                 dims = tuple(2 * size for size in self.box_half_extents())
                 goal_nl += (
@@ -1078,19 +1375,37 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                     "The hatch panels collide with the payload. "
                     "The target band is above the hatch.")
             metrics = {
-                f"solution_{b.name}": float(i in subset)
-                for i, b in enumerate(balloons)
+                f"solution_{b.name}":
+                float(self.clip_index(state, b) in subset)
+                for b in balloons
             }
+            metrics.update({
+                f"solution_clip{clip}": float(clip in subset)
+                for clip in range(len(bundles))
+            })
             metrics["task_generation_version"] = (4.0 if CFG.balloons_scene
                                                   == "hatch" else 3.0)
+            metrics["goal_dwell_steps"] = float(CFG.balloons_goal_dwell_steps)
             metrics["validated_motion_planning"] = float(
                 CFG.skill_phase_use_motion_planning)
-            if compose:
+            if compose or bundle_sizes:
                 assert decoy is not None
                 metrics.update({
-                    f"decoy_{b.name}": float(i in decoy)
-                    for i, b in enumerate(balloons)
+                    f"decoy_{b.name}":
+                    float(self.clip_index(state, b) in decoy)
+                    for b in balloons
                 })
+            if bundle_sizes:
+                verdict = self.bundle_level(state,
+                                            self.candidate_outcomes(state),
+                                            train_racks)
+                assert verdict is not None
+                order, decoy_clip, tempting = verdict
+                metrics["bundle_level"] = 1.0
+                metrics["bundle_decoy_clip"] = float(decoy_clip)
+                metrics["bundle_tempting_clip"] = float(tempting)
+                metrics["bundle_reference_cuts"] = float(len(order))
+                metrics["bundle_reference_first_clip"] = float(order[0])
             metrics["witnessed_winning_candidate_subsets"] = float(
                 sum(
                     any(o.won for o in results)

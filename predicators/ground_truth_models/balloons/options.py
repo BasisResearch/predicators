@@ -79,15 +79,6 @@ class PyBulletBalloonsGroundTruthOptionFactory(GroundTruthOptionFactory):
         )
 
     @classmethod
-    def get_primitive_skill_context(
-            cls, env_name: str,
-            types: Dict[str, Type]) -> Optional[Tuple[SkillConfig, Type]]:
-        del env_name  # unused
-        simulator = shared_skill_simulator(cls.env_cls) \
-            if CFG.skill_phase_use_motion_planning else None
-        return cls.skill_config(simulator), types["robot"]
-
-    @classmethod
     def configured_release_option(
             cls, types: Dict[str, Type]) -> ParameterizedOption:
         """The public Release controller, also used for task certification."""
@@ -95,6 +86,15 @@ class PyBulletBalloonsGroundTruthOptionFactory(GroundTruthOptionFactory):
             if CFG.skill_phase_use_motion_planning else None
         config = cls.skill_config(simulator)
         return cls.release_option(types, config, plan_transit=None)
+
+    @classmethod
+    def get_primitive_skill_context(
+            cls, env_name: str,
+            types: Dict[str, Type]) -> Optional[Tuple[SkillConfig, Type]]:
+        del env_name  # unused
+        simulator = shared_skill_simulator(cls.env_cls) \
+            if CFG.skill_phase_use_motion_planning else None
+        return cls.skill_config(simulator), types["robot"]
 
     @classmethod
     def get_options(cls, env_name: str, types: Dict[str, Type],
@@ -110,10 +110,11 @@ class PyBulletBalloonsGroundTruthOptionFactory(GroundTruthOptionFactory):
 def probe_release_option() -> ParameterizedOption:
     """Certify with the public Release controller and its configured timing.
 
-    Motion-planned transit can change which release sequences pass the
-    hatch. A faster controller cannot certify the public controller.
-    Construct a fresh option so config changes cannot retain an old
-    robot or transit mode; the underlying physics clients are shared.
+    Motion-planned transit changes the release timing and which
+    sequences pass the hatch, and a faster controller cannot certify the
+    public one. Construct a fresh option so config changes cannot retain
+    an old robot or transit mode; the underlying physics clients are
+    shared.
     """
     # pylint: disable=protected-access
     types = {
