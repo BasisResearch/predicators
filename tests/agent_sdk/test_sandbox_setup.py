@@ -12,7 +12,8 @@ import pytest
 
 from predicators.agent_sdk.sandbox_setup import export_trajectories, \
     find_repo_root, git_commit_all, pyguard_env, rollback_sandbox, \
-    snapshot_sandbox, trajectories_path, write_pyguard
+    setup_sandbox_directory, snapshot_sandbox, trajectories_path, \
+    write_pyguard
 from predicators.structs import LowLevelTrajectory
 
 
@@ -25,6 +26,27 @@ def _run(code: str, sandbox: str) -> subprocess.CompletedProcess:
                           text=True,
                           check=False,
                           timeout=120)
+
+
+def test_reopened_sandbox_removes_retired_controller_source(tmp_path) -> None:
+    """Reopening removes previously exported private controller references."""
+    sandbox = tmp_path / "sandbox"
+    ref = sandbox / "reference"
+    (ref / "skill_factories").mkdir(parents=True)
+    (ref / "options.py").write_text("hidden attachment implementation")
+    (ref / "skill_factories" /
+     "base.py").write_text("private collision geometry")
+    setup_sandbox_directory(
+        sandbox_dir=str(sandbox),
+        repo_root=str(find_repo_root()),
+        extra_reference_files={
+            "skills.md": "predicators/agent_sdk/prompts/public_skills.md"
+        },
+        claude_md_content="public contract",
+        system_prompt="public contract",
+        log_dir=str(tmp_path))
+    assert sorted(p.name for p in ref.iterdir()) == ["skills.md"]
+    assert (ref / "skills.md").read_text().startswith("# Skill API")
 
 
 def test_pyguard_blocks_hidden_modules_and_sources(tmp_path) -> None:

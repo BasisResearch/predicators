@@ -415,7 +415,15 @@ def build_continual_tools(
                                  "further environment interaction is "
                                  "possible. Stop.")
         logging.exception("[continual tools] unexpected error")
-        return _error_result(f"Error: {type(e).__name__}: {e}" + _footer())
+        if isinstance(e, (ValueError, TypeError)):
+            # The agent's own request was malformed (a wrong action shape,
+            # an unparseable plan line): the message is about its input,
+            # not about the environment, so it is safe and useful to show.
+            return _error_result(f"Error: {type(e).__name__}: {e}" + _footer())
+        # Anything else comes from inside the harness or a controller and
+        # may carry private geometry; the details stay in the host log.
+        return _error_result("The request could not be completed. Inspect "
+                             "the observation before continuing." + _footer())
 
     env_predicates = list(session.env_predicates)
 
