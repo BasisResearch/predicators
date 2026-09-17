@@ -641,8 +641,8 @@ def test_play_tool_names_drop_raw_control_when_disabled() -> None:
 
 
 def test_skill_gate_refuses_without_charging(tmp_path: Any) -> None:
-    """An installed ``ctx.skill_gate`` makes both skill tools refuse with
-    its reason and charge nothing; with no gate they proceed."""
+    """An installed ``ctx.skill_gate`` makes both skill tools refuse with its
+    reason and charge nothing; with no gate they proceed."""
     env, approach, ctx = _setup(tmp_path)
     driver = _Driver()
 

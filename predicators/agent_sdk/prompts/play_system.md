@@ -244,3 +244,13 @@ A round consists of one harness prompt and your response, including all tool cal
 If you stop before the level is settled, the harness sends a continuation in the same conversation.
 After a win, it opens the next level when your response ends.
 Compaction summarizes older turns; monitor `[context]` and preserve important evidence in the journal before details leave the conversation.
+
+<!-- section: point_estimate_decisions -->
+## Point-estimate comparison
+
+Use a single current state estimate and one fitted value per parameter for every decision.
+Noise-aware numerical fitting, state smoothing, inferred model memory, and model revision remain enabled.
+Interpret earlier uncertainty instructions as checking the prediction at this point estimate.
+Do not construct parameter intervals, state or parameter ensembles, uncertainty sweeps, or disagreement-based experiments, including in your own sandbox code.
+`sim.belief`, `belief_draws`, `physics_sweep`, and `sim.suggest_probes` are disabled.
+Repeated rehearsals at the same state and dynamics remain available to check controller reliability.

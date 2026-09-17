@@ -332,6 +332,15 @@ class BaseEnv(abc.ABC):
         assert not goal or isinstance(next(iter(goal)), GroundAtom)
         return all(goal_atom.holds(self._current_state) for goal_atom in goal)
 
+    def episode_terminated(self, observations: Sequence[Observation]) -> bool:
+        """Use the task's temporal criterion at an episode boundary."""
+        evaluator = self._current_task.evaluator
+        if evaluator is not None and all(
+                isinstance(o, State) for o in observations):
+            states = [o for o in observations if isinstance(o, State)]
+            return evaluator.terminated_trajectory(states)
+        return self.goal_reached()
+
     @staticmethod
     def _extract_episode(
         observations: Sequence[Observation], actions: Sequence[Action]
@@ -397,7 +406,7 @@ class BaseEnv(abc.ABC):
                 return EpisodeEvaluation(
                     reward=evaluator.reward(states, step_options,
                                             sim_env=self),
-                    terminated=evaluator.terminated(states[-1]),
+                    terminated=evaluator.terminated_trajectory(states),
                     reason=reason,
                     offline_metrics=evaluator.offline_metrics(
                         states, step_options))

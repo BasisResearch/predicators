@@ -109,7 +109,9 @@ class PyBulletBoilGroundTruthOptionFactory(_BoilLegacyOptionsMixin,
 
         # ---------------------------------------------------------------
         # Helper: find the switch object associated with a faucet/burner.
-        # The env sets obj.switch_id in _set_state.
+        # Resolved by name through the env, from the state the skill runs
+        # on: the grounding's Object instances belong to the caller's
+        # view and carry none of the env's simulator attributes.
         # ---------------------------------------------------------------
         def _get_switch_pose(
             state: State,
@@ -119,11 +121,11 @@ class PyBulletBoilGroundTruthOptionFactory(_BoilLegacyOptionsMixin,
         ) -> Tuple[float, float, float, float]:
             del params, config
             _, obj = objects
-            switch = next((s for s in state.get_objects(switch_type)
-                           if s.id == obj.switch_id), None)
-            if switch is None:
+            try:
+                switch = env_cls.get_switch(state, obj)
+            except KeyError as e:
                 raise utils.OptionExecutionFailure(
-                    f"No switch found for {obj} (switch_id={obj.switch_id})")
+                    f"No switch found for {obj}: {e}") from e
             return (state.get(switch, "x"), state.get(switch, "y"),
                     state.get(switch, "z"), state.get(switch, "rot"))
 

@@ -568,10 +568,12 @@ def test_resume_rebuilds_the_workbench_from_the_recording(
 
 @pytest.mark.slow
 def test_model_gate_on_a_test_level(tmp_path: Any) -> None:
-    """Under ``continual_require_model_on_test`` the skill tools refuse on
-    a test level, charging nothing, until the sandbox's simulator.py
-    exists and declares RESIDUAL_FEATURES; then they run, fitted or not.
-    env_step is not gated."""
+    """Under ``continual_require_model_on_test`` the skill tools refuse on a
+    test level, charging nothing, until the sandbox's simulator.py exists and
+    declares RESIDUAL_FEATURES; then they run, fitted or not.
+
+    env_step is not gated.
+    """
     # pylint: disable=protected-access
     _config(tmp_path,
             continual_levels="test_only",

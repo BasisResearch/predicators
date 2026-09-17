@@ -27,6 +27,10 @@ def _make_env(**overrides):
         "num_train_tasks": 1,
         "num_test_tasks": 1,
         "skill_phase_use_motion_planning": False,
+        # Task validation certifies every release order against the
+        # evaluator's dwell; the default 25-step dwell makes validated
+        # generation take many minutes per level. The pilots run dwell 1.
+        "balloons_goal_dwell_steps": 1,
     }
     config.update(overrides)
     utils.reset_config(config)

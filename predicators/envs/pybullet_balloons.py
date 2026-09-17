@@ -88,6 +88,23 @@ class BalloonsEvaluator(TaskEvaluator):
     """Win when the box hangs at rest inside the band; a burst balloon loses
     the level."""
 
+    def __init__(self, goal: Set[GroundAtom]) -> None:
+        super().__init__(goal)
+        self.dwell_steps = int(CFG.balloons_goal_dwell_steps)
+        if self.dwell_steps < 1:
+            raise ValueError("balloons_goal_dwell_steps must be positive")
+
+    def terminated_trajectory(self, states: Sequence[State]) -> bool:
+        if not states:
+            return False
+        if any_popped(states[-1]) is not None:
+            return True
+        # N complete real step intervals require N+1 endpoint observations.
+        window = states[-self.dwell_steps - 1:]
+        return len(window) == self.dwell_steps + 1 and all(
+            self.terminated(state) and any_popped(state) is None
+            for state in window)
+
     def terminated(self, state: State) -> bool:
         if any_popped(state) is not None:
             return True
@@ -106,9 +123,13 @@ class BalloonsEvaluator(TaskEvaluator):
         return True, ""
 
     def objective_description(self) -> str:
-        return ("The level is won when the box hangs at rest with its centre "
-                "inside the band. A balloon that reaches the ceiling bursts "
-                "and ends the level.")
+        speed_limit = CFG.balloons_settle_speed
+        return (
+            "The level is won when the box hangs at rest with its centre "
+            f"inside the band for {self.dwell_steps} consecutive environment "
+            f"steps, with speed below {speed_limit:g} m/s throughout. "
+            "A balloon that reaches the ceiling bursts "
+            "and ends the level.")
 
 
 @dataclass(frozen=True)
@@ -142,6 +163,15 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
     """A balloon puzzle whose lifts, fade and box masses must be learned."""
 
     def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
+        if CFG.balloons_task_generation not in ("original", "validated"):
+            raise ValueError("balloons_task_generation must be "
+                             "original or validated")
+        if (CFG.balloons_task_generation == "original"
+                and CFG.balloons_scene != "chute"):
+            raise ValueError(
+                "Original task generation requires balloons_scene=chute")
+        self._original_solution_cache: Dict[Tuple[Any, ...],
+                                            Optional[Tuple[int, ...]]] = {}
         self._candidate_cache: Dict[Tuple[Any, ...],
                                     Dict[Tuple[int, ...],
                                          List[BalloonsProbeOutcome]]] = {}
@@ -395,7 +425,7 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
         init[self._box] = {
             "x": self.box_xy[0],
             "y": self.box_xy[1],
-            "z": self.box_z,
+            "z": self.table_height + self.box_half_extents()[2],
             "color": float(box_color),
             "speed": 0.0,
         }
@@ -416,6 +446,10 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                 "rot": self.clip_rot,
                 "is_on": 0.0,
             }
+        if CFG.balloons_scene == "hatch":
+            for obj, features in init.items():
+                if obj.type.name in {"box", "balloon"}:
+                    features.update(roll=0.0, pitch=0.0, yaw=0.0)
         init[self._band] = {
             "x": self.box_xy[0] + self.band_offset_x,
             "y": self.box_xy[1],
@@ -443,7 +477,11 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                tuple(CFG.balloons_box_masses), CFG.balloons_fade_height,
                CFG.balloons_drag, CFG.balloons_probe_max_steps,
                CFG.balloons_probe_rest_steps, CFG.balloons_probe_rest_tol,
-               CFG.balloons_settle_speed,
+               CFG.balloons_settle_speed, CFG.balloons_scene,
+               self.box_half_extents(), tuple(self.obstacle_geometry()),
+               CFG.balloons_hatch_attach_span,
+               CFG.skill_phase_use_motion_planning, CFG.seed,
+               CFG.balloons_push_approach, CFG.balloons_push_contact_z,
                tuple(sorted(self._param_overrides.items())))
         if key not in self._candidate_cache:
             clean = self.level_state(box_color, colors, (lo, hi))
@@ -469,8 +507,14 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
         winning order also qualifies, ranked after the order-robust
         ones, because a composition level may hang on the release order
         (see ``reference_order``). Multiple winning subsets are allowed
-        and scored by the same evaluator.
+        and scored by the same evaluator. Original tasks
+        (``balloons_task_generation=original``) retain the historical
+        simultaneous-release screen.
         """
+        if CFG.balloons_task_generation == "original":
+            from predicators.envs.balloons_original_tasks import \
+                solution_subset  # pylint: disable=import-outside-toplevel
+            return solution_subset(self, state)
         candidates = self.candidate_outcomes(state)
         ranked = [(0, len(subset), subset)
                   for subset, outcomes in candidates.items()
@@ -623,9 +667,15 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                     return True
         return False
 
-    def _wait_probe(self, state: State,
-                    max_steps: int) -> BalloonsProbeOutcome:
+    def _wait_probe(
+            self,
+            state: State,
+            max_steps: int,
+            history: Optional[List[State]] = None) -> BalloonsProbeOutcome:
         """Check every frame for success; only sustained rest ends failure."""
+        evaluator = BalloonsEvaluator(
+            {GroundAtom(self._InBand, [self._box, self._band])})
+        history = list(history) if history is not None else [state]
         positions: List[np.ndarray] = []
         supported = 0
         action = Action(
@@ -633,7 +683,7 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
         for step in range(max_steps + 1):
             if any_popped(state) is not None:
                 return self._probe_outcome(state, step, "burst")
-            if self._InBand_holds(state, [self._box, self._band]):
+            if evaluator.terminated_trajectory(history):
                 return self._probe_outcome(state, step, "won")
             angular = p.getBaseVelocity(
                 self._box.id, physicsClientId=self._physics_client_id)[1]
@@ -643,7 +693,8 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                         [state.get(self._box, f) for f in ("x", "y", "z")]))
                 positions = positions[-CFG.balloons_probe_rest_steps:]
                 supported = supported + 1 if self._wall_support() else 0
-                if (len(positions) == CFG.balloons_probe_rest_steps
+                if (not self._InBand_holds(state, [self._box, self._band])
+                        and len(positions) == CFG.balloons_probe_rest_steps
                         and np.max(np.ptp(positions, axis=0)) <=
                         CFG.balloons_probe_rest_tol):
                     return self._probe_outcome(
@@ -654,6 +705,8 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                 supported = 0
             if step < max_steps:
                 state = self.simulate(state, action)
+                history.append(state)
+                history = history[-evaluator.dwell_steps - 1:]
         return self._probe_outcome(state, max_steps, "unresolved")
 
     def assess_subset(self, state: State,
@@ -723,22 +776,30 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                     physicsClientId=self._physics_client_id)
         return replace(result, wall_free_won=without_wall.won)
 
-    def _hold_until_rest(self,
-                         state: State) -> Tuple[State, int, Optional[str]]:
+    def _hold_until_rest(
+            self, state: State, history: List[State],
+            evaluator: BalloonsEvaluator) -> Tuple[State, int, Optional[str]]:
         """Hold the arm still until the box rests, a balloon bursts or the band
-        is reached: (final state, steps, terminal status or None)."""
+        is held for the evaluator's dwell: (final state, steps, terminal status
+        or None).
+
+        ``history`` is extended in place with every frame this hold
+        simulates.
+        """
         action = Action(
             np.array(self._pybullet_robot.get_joints(), dtype=np.float32))
         rest = 0
         for step in range(int(CFG.balloons_probe_max_steps)):
             if any_popped(state) is not None:
                 return state, step, "burst"
-            if self._InBand_holds(state, [self._box, self._band]):
+            if evaluator.terminated_trajectory(history):
                 return state, step, "won"
             rest = rest + 1 if box_at_rest(state, self._box) else 0
             if rest >= int(CFG.balloons_probe_rest_steps):
                 return state, step, None
             state = self.simulate(state, action)
+            history.append(state)
+            del history[:-evaluator.dwell_steps - 1]
         return state, int(CFG.balloons_probe_max_steps), None
 
     def _run_release_sequence(self,
@@ -761,6 +822,9 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
         self._set_state(state)
         current = self._get_state()
         self._current_observation = current
+        history = [current]
+        evaluator = BalloonsEvaluator(
+            {GroundAtom(self._InBand, [self._box, self._band])})
         release = probe_release_option()
         steps = 0
         for index in order:
@@ -775,21 +839,25 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                     current = self._step_once(option.policy(current))
                     self._current_observation = current
                     steps += 1
+                    history.append(current)
+                    history = history[-evaluator.dwell_steps - 1:]
                     if any_popped(current) is not None:
                         return self._probe_outcome(current, steps, "burst")
-                    if self._InBand_holds(current, [self._box, self._band]):
+                    if evaluator.terminated_trajectory(history):
                         return self._probe_outcome(current, steps, "won")
                 else:
                     return self._probe_outcome(current, steps, "unresolved")
             except utils.OptionExecutionFailure:
                 return self._probe_outcome(current, steps, "skill_failed")
             if settled and index != order[-1]:
-                current, held, status = self._hold_until_rest(current)
+                current, held, status = self._hold_until_rest(
+                    current, history, evaluator)
                 self._current_observation = current
                 steps += held
                 if status is not None:
                     return self._probe_outcome(current, steps, status)
-        result = self._wait_probe(current, int(CFG.balloons_probe_max_steps))
+        result = self._wait_probe(current, int(CFG.balloons_probe_max_steps),
+                                  history)
         return BalloonsProbeOutcome(result.status, result.steps + steps,
                                     result.height, result.speed,
                                     result.wall_supported)
@@ -819,6 +887,10 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                     train: bool) -> List[EnvironmentTask]:
         # pylint: disable-next=import-outside-toplevel
         from predicators.ground_truth_models.balloons.oracle import solve_level
+        if CFG.balloons_task_generation == "original":
+            from predicators.envs.balloons_original_tasks import \
+                make_tasks  # pylint: disable=import-outside-toplevel
+            return make_tasks(self, num_tasks, rng, train)
         counts = list(CFG.balloons_num_balloons_train if train else CFG.
                       balloons_num_balloons_test)
         box_colors = list(CFG.balloons_box_colors_train if train else CFG.
@@ -862,10 +934,18 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                 # between them.
                 reach_max = min(self.ceiling_z - self.ceiling_half_extents[2],
                                 self.chute_z_hi) - 0.06
+                reach_min = self.table_height + 0.12
+                if CFG.balloons_scene == "hatch":
+                    # Put the entire payload above the hatch at the goal,
+                    # including at its most tilted orientation.
+                    reach_min = (CFG.balloons_hatch_z +
+                                 CFG.balloons_hatch_half_thickness +
+                                 np.linalg.norm(self.box_half_extents()) +
+                                 half)
                 reachable = [
                     (subset, z)
                     for subset, z in self.lifting_subsets(box_color, colors)
-                    if self.table_height + 0.12 <= z <= reach_max
+                    if reach_min <= z <= reach_max
                 ]
                 # Nearby analytic equilibria provide candidate bands.
                 # Executable rollouts below establish the reference and
@@ -927,6 +1007,14 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                               if outcome.burst or outcome.jammed]
                     if not train and not decoys:
                         continue
+                    if not train and CFG.balloons_scene == "hatch" and not any(
+                            len(subset) == len(reference) and outcomes and any(
+                                outcome.jammed for outcome in outcomes)
+                            for subset, outcomes in candidates.items()):
+                        # Equal counts prevent a fewest-balloons shortcut.
+                        # Contact depends on release order; certify a losing
+                        # sequence without claiming all orders of a set lose.
+                        continue
                     decoy = None
                     if compose:
                         decoy = self.composition_decoy(candidates, colors,
@@ -975,12 +1063,28 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                 f"{state.get(self._band, 'hi'):.2f} m). Each balloon is "
                 f"held by the clip in front of it: {names}. A balloon that "
                 f"reaches the ceiling bursts and the level is lost; a freed "
-                f"balloon cannot be clipped back.")
+                f"balloon cannot be clipped back. Success requires remaining "
+                f"inside the band at speed below {CFG.balloons_settle_speed:g} "
+                f"m/s for {CFG.balloons_goal_dwell_steps} consecutive "
+                f"environment steps.")
+            if CFG.balloons_scene == "hatch":
+                dims = tuple(2 * size for size in self.box_half_extents())
+                goal_nl += (
+                    f" The payload dimensions are {dims} m. "
+                    f"A horizontal hatch at z={CFG.balloons_hatch_z:g} m "
+                    f"has an opening {2 * CFG.balloons_hatch_half_gap:g} m "
+                    f"wide, centred at x="
+                    f"{self.box_xy[0] + CFG.balloons_hatch_offset_x:g} m. "
+                    "The hatch panels collide with the payload. "
+                    "The target band is above the hatch.")
             metrics = {
                 f"solution_{b.name}": float(i in subset)
                 for i, b in enumerate(balloons)
             }
-            metrics["task_generation_version"] = 2.0
+            metrics["task_generation_version"] = (4.0 if CFG.balloons_scene
+                                                  == "hatch" else 3.0)
+            metrics["validated_motion_planning"] = float(
+                CFG.skill_phase_use_motion_planning)
             if compose:
                 assert decoy is not None
                 metrics.update({

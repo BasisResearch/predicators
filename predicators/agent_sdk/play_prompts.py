@@ -148,6 +148,8 @@ def build_play_system_prompt(tool_names: Sequence[str],
         sections.append(render("play_system", "model", base_sim_refs=refs))
         if model_contract:
             sections.append(model_contract)
+    if model and not CFG.continual_uncertainty_decisions:
+        sections.append(render("play_system", "point_estimate_decisions"))
     return "\n\n".join(section.strip() for section in sections)
 
 
@@ -182,7 +184,7 @@ def build_model_contract(
     if physical_params_section:
         parts.append(physical_params_section)
     if declared_params_only:
-        parts.append(render("learn_system", "declared_params"))
+        parts.append(render("play_model_contract", "no_numerical_fitting"))
     parts.append(render("play_model_contract", "predicates"))
     if partially_observable:
         parts.append(render("play_model_contract", "predicates_latent"))

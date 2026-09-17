@@ -245,10 +245,10 @@ def test_both_arms_start_with_no_predicates(tmp_path: Any) -> None:
                          ["agent_continual", "agent_continual_model_free"])
 def test_play_round_under_the_primitive_library(tmp_path: Any,
                                                 name: str) -> None:
-    """Both arms start and play a round under skill_library=primitive with
-    raw control withheld: the offline-dataset step and the run's setup
-    survive (the Sept 16, 2026 pilots crashed there), the library is the
-    five primitives, env_step is absent, and a primitive skill runs."""
+    """Both arms start and play a round under skill_library=primitive with raw
+    control withheld: the offline-dataset step and the run's setup survive (the
+    Sept 16, 2026 pilots crashed there), the library is the five primitives,
+    env_step is absent, and a primitive skill runs."""
     # pylint: disable=protected-access
     _config(tmp_path, skill_library="primitive", continual_raw_control=False)
     try:

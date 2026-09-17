@@ -32,10 +32,10 @@ from predicators.observation_noise import ObservationNoise, noise_or_none, \
     step_rng
 from predicators.run import paths
 from predicators.run.episode import EpisodeOver, EpisodeRunner, EpisodeState, \
-    InvocationOutcome, StepOutcome
+    InvocationOutcome, StepOutcome, public_skill_failure
 from predicators.run.interaction import InteractionExecutor
-from predicators.run.recording import LevelRecording, sanitize_state, \
-    states_close
+from predicators.run.recording import LevelRecording, restore_actions, \
+    sanitize_state, states_close
 from predicators.run.scorecard import EpisodeRecord, LevelCard, RunCard
 from predicators.settings import CFG
 from predicators.structs import Action, Dataset, EnvironmentTask, \
@@ -687,6 +687,9 @@ class ContinualRun:
             true_state, lv.index, self._episode_index(), runner.num_steps)
         if not truth:
             frame = self._execution_frame(frame)
+        belief = None if truth else self.belief()
+        if belief is not None and not CFG.continual_uncertainty_decisions:
+            frame = belief.frame
         evaluation = None
         if runner.episode_state is not EpisodeState.NOT_FINISHED:
             evaluation = runner.evaluate()
@@ -700,7 +703,7 @@ class ContinualRun:
             evaluation=evaluation,
             ledger=self.ledger(),
             skills=self.skills,
-            belief=None if truth else self.belief(),
+            belief=belief,
         )
 
     def ledger(self) -> Ledger:
@@ -825,7 +828,12 @@ class ContinualRun:
         present = set(expected_absent or set()) & atoms_after
         fractions: Dict[GroundAtom, float] = {}
         belief = self.belief()
-        if belief is not None and (expected or expected_absent):
+        if belief is not None and not CFG.continual_uncertainty_decisions:
+            point_atoms = runner.abstract(belief.frame)
+            missing = set(expected) - point_atoms
+            present = set(expected_absent or set()) & point_atoms
+        if (belief is not None and CFG.continual_uncertainty_decisions
+                and (expected or expected_absent)):
             # The likelihood test: an expected atom is missing when it
             # holds on fewer than half the draws of the belief, so a
             # frame's own noise never reads as a divergence.
@@ -923,7 +931,7 @@ class ContinualRun:
                     exhausted = bool(info.get("plan_exhausted")) or \
                         "exhausted" in str(e).lower()
                     status = "succeeded" if exhausted else "failed"
-                    reason = str(e.args[0]) if e.args else ""
+                    reason = "" if exhausted else public_skill_failure(e)
                     break
                 option = act.get_option() if act.has_option() else None
                 if option is not current:
@@ -1054,8 +1062,8 @@ class ContinualRun:
 
     def previous_level_episodes(self,
                                 level_index: int) -> List[Dict[str, Any]]:
-        """A finished level's episodes from its recording (actions lose their
-        skill labels; prefer the arm's own memory when it has it)."""
+        """A finished level's episodes with portable recorded skill
+        identities."""
         path = paths.level_dir(self._run_dir, level_index)
         if not os.path.isdir(path):
             return []
@@ -1078,10 +1086,8 @@ class ContinualRun:
                     self._observed(s, level_index, ep["episode"], k)
                     for k, s in enumerate(ep["states"])
                 ],
-                "actions": [
-                    Action(np.array(a["arr"], dtype=np.float32))
-                    for a in ep["actions"]
-                ],
+                "actions":
+                restore_actions(ep["actions"], ep["states"][0], self.skills),
                 "end":
                 ep.get("end", "in_progress"),
                 "reward":
@@ -1183,7 +1189,8 @@ class ContinualRun:
         lv = self._card.levels[k]
         ckpt = self._recording.load_checkpoint()
         assert ckpt is not None
-        episode, action_arrs = self._recording.read_current_episode()
+        episode, action_records = self._recording.read_current_action_records()
+        action_arrs = [a["arr"] for a in action_records]
         now = time.time()
         lv.resumes += 1
         lv.preemptions += 1
@@ -1195,9 +1202,8 @@ class ContinualRun:
         self._replaying = True
         try:
             self._runner.reset(spec.split, spec.task_idx)
-            actions = [
-                Action(np.array(a, dtype=np.float32)) for a in action_arrs
-            ]
+            actions = restore_actions(action_records,
+                                      self._runner.observation(), self.skills)
             self._runner.replay(actions)
         finally:
             self._replaying = False
@@ -1384,10 +1390,9 @@ class ContinualRun:
                     ep["end"],
                     "states":
                     list(ep["states"]),
-                    "actions": [
-                        Action(np.array(a["arr"], dtype=np.float32))
-                        for a in ep["actions"]
-                    ],
+                    "actions":
+                    restore_actions(ep["actions"], ep["states"][0],
+                                    self.skills),
                 })
         if episodes and episodes[-1]["end"] == "in_progress":
             # Replace the live episode with the replayed one: same

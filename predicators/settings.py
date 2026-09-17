@@ -175,6 +175,8 @@ class GlobalSettings:
     # certifies a placement over where its target may really be. Off,
     # or an exact channel: the raw frame, the hard atom check and no
     # belief draws.
+    # Keep point-state smoothing when explicit uncertainty decisions are off.
+    continual_uncertainty_decisions = True
     continual_belief_frame = False
     continual_belief_window = 8
     continual_belief_sigmas = 3.0
@@ -1387,8 +1389,20 @@ class GlobalSettings:
     # with the lifts and box masses.
     balloons_drag = 2.2
     # Half the band's height.
+    # Match the scene and sampling controls used in the frozen MB/MF sweep.
+    balloons_scene = "chute"
+    balloons_task_generation = "validated"
+    balloons_hatch_box_half_extents = [0.10, 0.035, 0.018]
+    balloons_hatch_attach_span = 0.09
+    balloons_hatch_half_gap = 0.085
+    balloons_hatch_offset_x = 0.012
+    balloons_hatch_z = 0.57
+    balloons_hatch_half_thickness = 0.008
+    balloons_hatch_panel_half_width = 0.16
+    balloons_hatch_half_depth = 0.16
     balloons_band_half = 0.025
     # The box is at rest below this speed (m/s).
+    balloons_goal_dwell_steps = 25
     balloons_settle_speed = 0.01
     # The push skill's approach and contact-height parameters that open
     # a clip, for the oracle's and the generator's probes.
@@ -1855,6 +1869,10 @@ class GlobalSettings:
     cnn_refinement_estimator_crop = False  # True
     cnn_refinement_estimator_crop_bounds = (320, 400, 100, 650)
     cnn_refinement_estimator_downsample = 2
+
+    # Span counts for train/test task distributions; the body pool is their max.
+    bridge_train_span_blocks = 3
+    bridge_test_span_blocks = 3
 
     # bridge policy parameters
     bridge_policy = "learned_ldl"  # default bridge policy
