@@ -6,9 +6,7 @@ successful runs only.
 """
 import argparse
 import hashlib
-import importlib.util
 import json
-import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -43,14 +41,10 @@ COLORS = [
 
 def capture(paper: Path, target: Path) -> None:
     """Verify every selected final scorecard before freezing plot inputs."""
-    sys.path.insert(0, str(paper / 'scripts'))
-    spec = importlib.util.spec_from_file_location(
-        'paper_artifacts', paper / 'scripts/build_artifacts.py')
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    rows, _ = module.verified_reported_rows()
+    del paper  # Inputs are the consolidated sweep's archived reports.
+    rows = []
     reports = [
+        ROOT / 'docs/uncertainty-results/noisy-sweep-snapshot.json',
         ROOT / 'docs/comparisons/continual-results.json',
         ROOT / 'docs/comparisons/bridge-three-span-results.json'
     ]
@@ -58,9 +52,10 @@ def capture(paper: Path, target: Path) -> None:
     for index, report in enumerate(reports):
         document = json.loads(report.read_text())
         for row in document['rows']:
-            if (row['domain'] == 'Bridge') != (index == 1):
+            if index > 0 and (row['domain'] == 'Bridge') != (index == 2):
                 continue
-            assert row['finished'] and row['approach'] in ARMS
+            arm = row['arm'] if index == 0 else row['approach']
+            assert row['finished'] and arm in ARMS
             path = Path(row['scorecard'])
             raw = path.read_bytes()
             card = json.loads(raw)
@@ -69,9 +64,10 @@ def capture(paper: Path, target: Path) -> None:
                 'all_levels_won', 'level_lost', 'level_not_won', 'agent_ended',
                 'step_cap', 'wall_clock_cap'
             }
-            assert card['seed'] == row['seed'] and card['arm'] == row[
-                'approach']
-            assert document['source_commit'].startswith(card['git_sha'])
+            assert card['seed'] == row['seed']
+            if index > 0:
+                assert card['arm'] == arm
+                assert document['source_commit'].startswith(card['git_sha'])
             assert totals['total_steps'] == row['steps'] == sum(
                 l['steps'] for l in card['levels'])
             assert totals['total_resets'] == row['resets'] == sum(
@@ -81,7 +77,7 @@ def capture(paper: Path, target: Path) -> None:
             assert totals['levels_total'] == row['levels']
             rows.append(
                 dict(domain=row['domain'],
-                     arm=row['approach'],
+                     arm=arm,
                      seed=row['seed'],
                      won=row['wins'],
                      levels=row['levels'],
@@ -96,20 +92,22 @@ def capture(paper: Path, target: Path) -> None:
             'sha256':
             hashlib.sha256(report.read_bytes()).hexdigest()
         })
-    assert len(rows) == 115
-    assert len({(r['domain'], r['arm'], r['seed']) for r in rows}) == 115
+    assert len(rows) == 120
+    assert len({(r['domain'], r['arm'], r['seed']) for r in rows}) == 120
     for domain in DOMAINS:
         for arm in ARMS:
-            assert sum(r['domain'] == domain and r['arm'] == arm
-                       for r in rows) == (2 if arm == 'MF' else 3)
+            assert {
+                r['seed']
+                for r in rows if r['domain'] == domain and r['arm'] == arm
+            } == {0, 1, 2}
     payload = {
         'generated_by':
         'scripts/plotting/plot_continual_comparisons.py',
         'policy':
-        ('Preserve paper MB (3) and historical MF (2); add six comparison '
-         'arms (3 each). Bridge uses three-span integrity-fixed cohort. '
-         'Steps: whole-run successes only; solve: all levels; resets: all '
-         'finished runs.'),
+        ('Use the consolidated eight-agent sweep, three seeds per arm and '
+         'domain. Bridge comparisons use the three-span integrity-fixed '
+         'cohort. Steps: whole-run successes only; solve: fraction of runs '
+         'winning every level; resets: all finished runs.'),
         'sources':
         sources,
         'records':
@@ -153,9 +151,8 @@ def render(snapshot: Path, output: Path) -> None:
                 eligible = [r for r in group if r['won'] == r['levels']
                             ] if field == 'steps' else group
                 vals = [
-                    100 * r['won'] /
-                    r['levels'] if field == 'solve' else r[field]
-                    for r in eligible
+                    100 * int(r['won'] == r['levels'])
+                    if field == 'solve' else r[field] for r in eligible
                 ]
                 avg = float(np.mean(vals)) if vals else None
                 summary.append(
@@ -206,7 +203,7 @@ def render(snapshot: Path, output: Path) -> None:
                              fontweight='bold',
                              color='#203744',
                              pad=12)
-                ax.set_xlabel('Levels solved (%)', fontsize=11)
+                ax.set_xlabel('Successful runs (%)', fontsize=11)
             elif field == 'steps':
                 maximum = max(
                     (r['steps'] for r in rows
