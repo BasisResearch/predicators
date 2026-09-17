@@ -629,3 +629,53 @@ RESIDUAL_ENV = Counter
                                                            approach)).run()
     assert card.levels[0].steps == 1 and card.levels[0].split == "test"
     assert approach._tool_context.skill_gate is None
+
+
+@pytest.mark.slow
+def test_skill_preflight_rehearses_in_the_base_physics(tmp_path: Any) -> None:
+    """Before any simulator.py exists, ``sim`` rolls the real skill controllers
+    on the base physics, and every skill request is rehearsed there first: a
+    Place with nothing held is refused, charging nothing, with the controller's
+    reason; ``force=true`` runs it anyway; a feasible PickJug passes the
+    rehearsal and runs."""
+    # pylint: disable=protected-access
+    _config(tmp_path, continual_levels="train_only")
+    env, approach = _make_approach()
+    assert "Every skill request is rehearsed first" in \
+        approach._play_system_prompt()
+    seen: Dict[str, Any] = {}
+
+    def fake_query(message: str, **kwargs: Any) -> List[Dict[str, Any]]:
+        del kwargs
+        assert "runs the real skill controllers" in message
+        out = _call(approach,
+                    "run_python",
+                    code="r = sim.reset(task_idx=0).run("
+                    "'PickJug(robot:robot, jug0:jug)[0.05]', render=False)\n"
+                    "print('steps', len(r.steps), 'fail', "
+                    "r.steps[0]['failure'])")
+        assert "steps 1 fail None" in out, out
+        place = "Place(robot:robot)[1.1, 1.6, 0.6, 0.0]"
+        refused = _call(approach, "skills_invoke", skill=place)
+        assert refused.startswith("ERROR"), refused
+        assert "Rehearsed in `sim` (no model yet" in refused
+        assert "got stuck" in refused
+        assert "Nothing was charged" in refused and "force=true" in refused
+        seen["refused"] = refused
+        forced = _call(approach, "skills_invoke", skill=place, force=True)
+        assert "Nothing was charged" not in forced
+        out = _call(approach,
+                    "skills_invoke",
+                    skill="PickJug(robot:robot, jug0:jug)[0.05]")
+        assert "Nothing was charged" not in out
+        assert "succeeded" in out, out
+        assert "Give-up recorded" in _call(approach, "give_up", note="done")
+        return _result()
+
+    approach._query_agent_sync = fake_query  # type: ignore[method-assign]
+    approach.prepare_for_continual(Dataset([]))
+    card = ContinualRun(env, approach, create_level_player(env,
+                                                           approach)).run()
+    assert "refused" in seen
+    assert card.levels[0].steps > 0
+    assert approach._tool_context.skill_preflight is None

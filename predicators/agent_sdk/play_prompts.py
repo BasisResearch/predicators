@@ -78,13 +78,25 @@ def build_minimal_play_system_prompt(*, model_based: bool) -> str:
     return "\n\n".join(section.strip() for section in sections)
 
 
+# Appended to the skill tools' blurbs for the model arm (the one with
+# `sim`) under continual_skill_preflight.
+_PREFLIGHT_BLURB = (" Rehearsed in `sim` from the last observation first; "
+                    "a controller failure there refuses the request, "
+                    "charging nothing, and `force=true` skips the "
+                    "rehearsal.")
+
+
 def render_tool_list(tool_names: Iterable[str]) -> str:
     """One bullet per tool the session exposes."""
+    names = list(tool_names)
+    preflight = "run_python" in names and CFG.continual_skill_preflight
     lines = []
-    for name in tool_names:
+    for name in names:
         blurb = TOOL_BLURBS.get(name)
         if blurb is None:
             continue
+        if preflight and name in ("skills_invoke", "skills_execute_plan"):
+            blurb += _PREFLIGHT_BLURB
         lines.append(f"- `{name}`: {blurb}")
     return "\n".join(lines)
 
@@ -126,6 +138,8 @@ def build_play_system_prompt(tool_names: Sequence[str],
             render("play_system", "workflow", adaptive_info_seeking=adaptive))
         if CFG.continual_require_model_on_test:
             sections.append(render("play_system", "model_gate"))
+        if CFG.continual_skill_preflight:
+            sections.append(render("play_system", "skill_preflight"))
         if CFG.agent_model_repair:
             sections.append(render("play_system", "model_repair"))
     else:

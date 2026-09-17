@@ -102,6 +102,26 @@ class GlobalSettings:
     # (continual_raw_control governs that). Off keeps modelling
     # advisory. The model-free arm has no model and is never gated.
     continual_require_model_on_test = False
+    # Whether the model arm rehearses every skills_invoke /
+    # skills_execute_plan request in its sim before real steps are
+    # charged: the candidate ./simulator.py when one loads, else the
+    # visible base physics with hidden mechanisms disabled, rolled from
+    # the last real observation. The sim runs the real skill
+    # controllers, so a controller failure there (a grasp pose in
+    # contact, no collision-free path, a lift that leaves the object
+    # behind) refuses the request, charging nothing, and returns the
+    # controller's diagnostic, which the real env withholds.
+    # force=true on the request runs it anyway. Bridge seed 2 of the
+    # Sept 17, 2026 Sonnet pilots spent 79 failed real picks, most of
+    # them on a knocked-over leg, that the base physics refuses. On
+    # every level; the model-free arm has no sim.
+    continual_skill_preflight = True
+    # Belief draws per preflight when observation noise is declared and
+    # continual_uncertainty_decisions is on: the request is also rolled
+    # from this many plausible poses of the objects, and a request that
+    # fails on more than half of them is refused too. 0 disables the
+    # draws (the point rehearsal still runs).
+    continual_skill_preflight_draws = 4
     # Active wall-clock cap per env run, in hours (6.5).
     continual_wall_clock_hours = 48.0
     # One directory per run (predicators/run/paths.py):

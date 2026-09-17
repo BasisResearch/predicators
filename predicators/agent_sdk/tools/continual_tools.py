@@ -362,6 +362,22 @@ def build_continual_tools(
             return None
         return _error_result(reason + " Nothing was charged." + _footer())
 
+    def _preflight(plan_text: str,
+                   args: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """The arm's skill preflight, when it installed one: the request
+        rehearsed in its sim from the last real observation.
+
+        A refusal charges nothing and carries the sim's diagnostic;
+        ``force`` on the request skips the rehearsal.
+        """
+        if ctx.skill_preflight is None or bool(args.get("force", False)):
+            return None
+        reason = ctx.skill_preflight(plan_text)
+        if reason is None:
+            return None
+        return _error_result(reason + " Nothing was charged; pass "
+                             "force=true to run it anyway." + _footer())
+
     def _resets_allowed() -> bool:
         try:
             return session.resets_allowed
@@ -640,7 +656,10 @@ def build_continual_tools(
         "skills_invoke",
         "Invoke ONE skill from one plan line and run it to termination. "
         "Counts the steps it took. Annotate the expected outcome with "
-        "`-> {atoms}` so a divergence is recorded.", {
+        "`-> {atoms}` so a divergence is recorded. The model arm first "
+        "rehearses the line in `sim` from the last observation: a skill "
+        "whose controller fails there is refused, charging nothing, with "
+        "the controller's diagnostic.", {
             "type": "object",
             "properties": {
                 "skill": {
@@ -650,6 +669,13 @@ def build_continual_tools(
                 "note": {
                     "type": "string",
                     "description": "what this invocation tests (recorded)"
+                },
+                "force": {
+                    "type":
+                    "boolean",
+                    "description":
+                    "run the skill even when its rehearsal in `sim` "
+                    "fails (default false)"
                 }
             },
             "required": ["skill"],
@@ -671,6 +697,9 @@ def build_continual_tools(
             return _error_result("skills_invoke takes exactly one line; use "
                                  "skills_execute_plan for several." +
                                  _footer())
+        refused = _preflight(str(args.get("skill", "")), args)
+        if refused is not None:
+            return refused
         option, expected, absent = parsed[0]
         try:
             progress = ExecutionProgress()
@@ -691,7 +720,10 @@ def build_continual_tools(
         "Execute a plan: one skill per line, in order. Stops at a failed "
         "skill, at a divergence from an annotated expected outcome "
         "(unless stop_on_divergence is false), at WIN or at GAME_OVER. "
-        "Counts the steps taken.", {
+        "Counts the steps taken. The model arm first rehearses the plan "
+        "in `sim` from the last observation: a plan whose controller "
+        "fails there is refused, charging nothing, with the controller's "
+        "diagnostic.", {
             "type": "object",
             "properties": {
                 "plan": {
@@ -705,6 +737,13 @@ def build_continual_tools(
                 "note": {
                     "type": "string",
                     "description": "what this plan tests (recorded)"
+                },
+                "force": {
+                    "type":
+                    "boolean",
+                    "description":
+                    "run the plan even when its rehearsal in `sim` "
+                    "fails (default false)"
                 }
             },
             "required": ["plan"],
@@ -721,6 +760,9 @@ def build_continual_tools(
                                       _level_task())
         except ValueError as e:
             return _error_result(f"Could not parse the plan: {e}" + _footer())
+        refused = _preflight(str(args.get("plan", "")), args)
+        if refused is not None:
+            return refused
         stop = bool(args.get("stop_on_divergence", True))
         note = str(args.get("note", ""))
         progress = ExecutionProgress()

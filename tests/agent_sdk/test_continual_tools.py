@@ -668,3 +668,58 @@ def test_skill_gate_refuses_without_charging(tmp_path: Any) -> None:
 
     driver.body = body
     ContinualRun(env, approach, driver).run()
+
+
+def test_skill_preflight_refuses_without_charging_unless_forced(
+        tmp_path: Any) -> None:
+    """An installed ``ctx.skill_preflight`` sees the request's plan text and
+    makes both skill tools refuse with its reason, charging nothing;
+    ``force=true`` skips it, and a preflight that returns None lets the request
+    through.
+
+    An unparseable line never reaches the rehearsal.
+    """
+    env, approach, ctx = _setup(tmp_path)
+    first_task = env.get_train_tasks()[0].task
+    line = _oracle_plan_text(approach, first_task).splitlines()[0]
+    driver = _Driver()
+    seen: List[str] = []
+
+    def body(session: ProtocolSession) -> None:
+
+        def preflight(plan_text: str) -> Any:
+            seen.append(plan_text)
+            return "Rehearsed in `sim`: skill 1 fails there: pose in contact."
+
+        ctx.skill_preflight = preflight
+        tools = build_continual_tools(ctx,
+                                      session,
+                                      PlayState(),
+                                      save_render=lambda tag: None)
+        assert "Could not parse" in _call(tools, "skills_invoke", skill="x")
+        assert "Could not parse" in _call(tools,
+                                          "skills_execute_plan",
+                                          plan="x")
+        assert not seen
+        for name, args in (("skills_invoke", {
+                "skill": line
+        }), ("skills_execute_plan", {
+                "plan": line
+        })):
+            out = _call(tools, name, **args)
+            assert out.startswith("ERROR")
+            assert "pose in contact" in out
+            assert "Nothing was charged" in out and "force=true" in out
+        assert seen == [line, line]
+        assert session.observe().ledger.level_steps == 0
+        out = _call(tools, "skills_invoke", skill=line, force=True)
+        assert "Nothing was charged" not in out
+        assert seen == [line, line]
+        assert session.observe().ledger.level_steps > 0
+        ctx.skill_preflight = lambda text: None
+        out = _call(tools, "skills_execute_plan", plan=line)
+        assert "Nothing was charged" not in out
+        ctx.skill_preflight = None
+
+    driver.body = body
+    ContinualRun(env, approach, driver).run()

@@ -80,6 +80,13 @@ class ToolContext:
     # deployable, fitted simulator.py on a test level), or None when
     # a skill may run. Nothing is charged for a refusal.
     skill_gate: Optional[Callable[[], Optional[str]]] = None
+    # Installed by the model arm under continual_skill_preflight: given
+    # the plan text of a skills_invoke / skills_execute_plan request,
+    # rehearses it in the arm's sim from the last real observation and
+    # returns the refusal text (the controller's diagnostic) when a
+    # skill fails there, or None when the request may run. Nothing is
+    # charged for a refusal; force=true on the request skips it.
+    skill_preflight: Optional[Callable[[str], Optional[str]]] = None
     # Synthesis-session ``sim.residuals`` backend: computes the
     # per-feature residual report for the current simulator.py rules
     # (see ``SynthesisToolkit.residuals_runner``). None in solve

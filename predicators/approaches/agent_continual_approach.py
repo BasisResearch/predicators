@@ -31,8 +31,8 @@ import hashlib
 import logging
 import os
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, FrozenSet, List, Optional, Set, \
-    Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, FrozenSet, List, \
+    Optional, Set, Tuple
 
 from predicators.agent_sdk import journal as journal_mod
 from predicators.agent_sdk.fit_status import format_fit_status
@@ -52,7 +52,8 @@ from predicators.approaches.continual_play_mixin import ContinualPlayMixin
 from predicators.code_sim_learning.rollout_env import dispose_env
 from predicators.code_sim_learning.utils import LearnedSimulator, apply_rules
 from predicators.envs import create_new_env
-from predicators.option_model import _OptionModelBase
+from predicators.observation_noise import ObservationNoise
+from predicators.option_model import _OptionModelBase, _OracleOptionModel
 from predicators.run.episode import EpisodeOver
 from predicators.settings import CFG
 from predicators.structs import Action, LowLevelTrajectory, Predicate, State
@@ -253,10 +254,26 @@ class AgentContinualApproach(ContinualPlayMixin,
         )
         self._install_extra_synthesis_surfaces(exec_ns, base_pred_triples,
                                                inferred_hint, extra_paths)
-        ctx.probe_option_model_provider = \
-            self._make_candidate_probe_model_provider(
-                paths.simulator_file, trajectories, base_pred_triples,
-                inferred_hint)
+        candidate_provider = self._make_candidate_probe_model_provider(
+            paths.simulator_file, trajectories, base_pred_triples,
+            inferred_hint)
+
+        def probe_model() -> _OptionModelBase:
+            # Before a candidate exists the probe runs the real skill
+            # controllers over the visible base physics (hidden
+            # mechanisms disabled), as the prompt says: reach, grasp
+            # and collision feasibility rehearse from the first round.
+            # Bridge seed 2 of the Sept 17, 2026 Sonnet pilots never
+            # wrote a model and never rehearsed a pick; a `sim` that
+            # raised without a file gave it no reason to.
+            if os.path.isfile(paths.simulator_file):
+                return candidate_provider()
+            ctx.probe_param_status = (
+                "no model yet: the visible base physics with hidden "
+                "mechanisms disabled, running the real skill controllers")
+            return self._base_physics_probe_model()
+
+        ctx.probe_option_model_provider = probe_model
         ctx.probe_fit_provider = toolkit.fit_runner
         ctx.probe_validation_provider = toolkit.validation_runner
         ctx.probe_residuals_provider = toolkit.residuals_runner
@@ -278,6 +295,9 @@ class AgentContinualApproach(ContinualPlayMixin,
         probe_ns = build_probe_namespace(ctx)
         exec_ns["sim"] = probe_ns["sim"]
         exec_ns["BeliefProbe"] = probe_ns["BeliefProbe"]
+        ctx.skill_preflight = (self._make_skill_preflight(
+            session, probe_ns["BeliefProbe"])
+                               if CFG.continual_skill_preflight else None)
         self._load_probe_extension(exec_ns, paths.base)
         declared = set(self._get_synthesis_tool_names() or ())
         return [t for t in toolkit.tools if getattr(t, "name", "") in declared]
@@ -410,6 +430,7 @@ class AgentContinualApproach(ContinualPlayMixin,
         ctx.probe_residuals_provider = None
         ctx.current_observation_provider = None
         ctx.skill_gate = None
+        ctx.skill_preflight = None
         ctx.probe_param_status = None
         ctx.probe_artifact_loaders.clear()
         ctx.learn_cycle_index = None
@@ -480,6 +501,97 @@ class AgentContinualApproach(ContinualPlayMixin,
                     "the subclass (the observation features your dynamics "
                     "own; `{}` if none) first.")
         return None
+
+    def _base_physics_probe_model(self) -> _OracleOptionModel:
+        """The probe's model before a candidate ``simulator.py`` exists: the
+        real skill controllers over the stock planning base env, the visible
+        physics with hidden mechanisms disabled.
+
+        A subclass model an earlier file installed is cleared first so
+        the env is the stock one. Cached per base env instance.
+        """
+        self._install_residual_env_cls(None)
+        cache = getattr(self, "_base_physics_model_cache", None)
+        if cache is None or cache[0] is not self._base_env:
+            model = _OracleOptionModel(self._initial_options,
+                                       self._base_env.simulate)
+            model.sim_env = self._base_env
+            cache = (self._base_env, model)
+            setattr(self, "_base_physics_model_cache", cache)
+        return cache[1]
+
+    def _make_skill_preflight(
+            self, session: ProtocolSession,
+            probe_factory: Callable[[],
+                                    Any]) -> Callable[[str], Optional[str]]:
+        """The ``ToolContext.skill_preflight`` of this round under
+        ``continual_skill_preflight``: the request's plan text rehearsed
+        on a private probe from the last real observation, against the
+        candidate ``simulator.py`` or the base physics before one exists.
+
+        The sim runs the real skill controllers, so a controller failure
+        there (a grasp pose in contact, no collision-free path, a lift
+        that leaves the object behind) is the refusal, carrying the
+        controller's diagnostic that the real env withholds. When the
+        observation channel is noisy and uncertainty decisions are on,
+        the request is also rolled from ``continual_skill_preflight_draws``
+        plausible poses; failing on more than half refuses it too. A
+        rehearsal that cannot run (no observation yet, the probe's
+        budget spent, a broken candidate) never blocks the request: the
+        failure is logged and the skill runs.
+        """
+        ctx = self._tool_context
+
+        def _fails(step: Dict[str, Any]) -> bool:
+            failure = step.get("failure")
+            # "0 actions" alone is an option that terminated at once, not
+            # a controller failure.
+            return bool(failure) and failure != "0 actions"
+
+        def preflight(plan_text: str) -> Optional[str]:
+            try:
+                session.observe()
+            except EpisodeOver:
+                return None
+            try:
+                probe = probe_factory()
+                probe.reset(current=True)
+                result = probe.run(plan_text, render=False)
+            except Exception as e:  # pylint: disable=broad-except
+                logging.warning(
+                    "[Continual agent] skill preflight skipped: %s: %s",
+                    type(e).__name__, e)
+                return None
+            model = ctx.probe_param_status or "the current model"
+            head = f"Rehearsed in `sim` ({model}) from the last observation: "
+            for i, step in enumerate(result.steps):
+                if _fails(step):
+                    return (head + f"skill {i + 1} ({step['option']}) fails "
+                            f"there: {step['failure']}")
+            draws = int(CFG.continual_skill_preflight_draws)
+            noise = ObservationNoise.from_cfg()
+            if not (draws > 0 and CFG.continual_uncertainty_decisions
+                    and noise.enabled and noise.declared):
+                return None
+            try:
+                probe.reset(current=True)
+                belief = probe.run(plan_text, render=False, belief_draws=draws)
+            except Exception as e:  # pylint: disable=broad-except
+                logging.warning(
+                    "[Continual agent] skill preflight belief draws "
+                    "skipped: %s: %s",
+                    type(e).__name__, e)
+                return None
+            failing = [d for d in belief.draws if _fails(d)]
+            if len(failing) * 2 > len(belief.draws):
+                return (head + f"the request fails on {len(failing)} of "
+                        f"{len(belief.draws)} plausible poses of the "
+                        f"objects (first: {failing[0]['failure']}). Look "
+                        "again from rest so the belief narrows, or choose "
+                        "parameters with margin over the spread.")
+            return None
+
+        return preflight
 
     def _append_model_journal(self, paths: Any, outcome: str) -> None:
         journal_mod.append_entry(

@@ -80,7 +80,10 @@ Recorded features carry the same noise.
    Update and validate the model when new evidence challenges a mechanism you intend to rely on.
    Before acting on a test level, have a fitted `simulator.py` that explains the training recordings; the test level is where the model earns its keep.
    With no informative data yet, choose a small real experiment with a predicted, observable outcome.
-3. Rehearse candidate actions in the model, including uncertain parameters and poses where supported.
+3. Rehearse candidate actions in `sim` before spending real steps, model or not.
+   `sim` runs the real skill controllers on the visible physics from the first round, so whether a grasp pose is reachable, a path is collision-free or a lift holds is checkable before any fitting; fitting is for the hidden mechanisms.
+   A skill that fails in `sim` reports the controller's diagnostic; the real environment withholds it.
+   Rehearse uncertain parameters and poses where supported.
    Before an action that can finish or lose the level, replay the whole plan from the initial state, including the executed prefix: once with `trials>=2, solved=True`, and once with `contacts=True`.
    Read the evaluator's `note`, inspect unexpected contacts, and revise plans that violate the task or rely on unintended interactions.
 4. Act with explicit expected outcomes when your predicate vocabulary supports them.
@@ -111,6 +114,16 @@ On a test level, `skills_invoke` and `skills_execute_plan` refuse, charging noth
 Fitting and validating it before you rely on it is still your decision.
 The refusal says which condition is unmet.
 Train levels are not gated: collect evidence there first.
+Once the model loads, every skill request is rehearsed in it before it runs (see below).
+
+<!-- section: skill_preflight -->
+### Every skill request is rehearsed first
+
+Before `skills_invoke` or `skills_execute_plan` charges a real step, the request is rehearsed in `sim` from the last observation: against `./simulator.py` when it loads, else against the visible base physics.
+A skill whose controller fails in the rehearsal is refused, charging nothing, and the refusal carries the controller's diagnostic: which contact blocks the pose, that no collision-free path exists, that the lift left the object behind.
+Under declared observation noise the request is also rolled from several plausible poses of the objects; failing on most of them refuses it too.
+Fix the parameters or the plan and request again, or pass `force=true` when you have a reason to believe the rehearsal is wrong (a mechanism the model lacks).
+A rehearsal that passes is conditional on the model; it does not prove the real outcome.
 
 <!-- section: model_repair -->
 ### When the model disagrees with evidence
@@ -187,7 +200,7 @@ No simulator is supplied.
 `run_python` provides `sim`, `trajectories`, `describe_trajectory`, `train_tasks`, `np`, and `ParamSpec` in a persistent namespace.
 The data refreshes after charged environment calls.
 Model files load on the next probe call; edits and rollouts do not implicitly fit parameters.
-Before a model exists, rollouts use the visible base physics with hidden mechanisms disabled.
+Before a model exists, rollouts run the real skill controllers on the visible base physics with hidden mechanisms disabled.
 After an edit, the candidate uses carried or declared values until explicitly fitted; inspect the report's parameter values and validation status.
 
 | Task | API and meaning |

@@ -105,7 +105,7 @@ This arm has no belief model.
 Recorded episodes so far: __N_EPISODES__ (__N_STEPS__ steps), in `./data/trajectories.pkl`.
 
 <!-- section: no_model -->
-No model yet: `sim` uses the visible base physics with hidden mechanisms disabled.
+No model yet: `sim` runs the real skill controllers on the visible base physics with hidden mechanisms disabled, so reach, grasp and collision checks already work.
 Build `./simulator.py` (and `./predicates.py` if useful) in `run_python` and call `sim.fit()` before you act on a test level.
 Recorded episodes so far: __N_EPISODES__ (__N_STEPS__ steps).
 
