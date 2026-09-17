@@ -515,6 +515,14 @@ class GlobalSettings:
     # 0 mm) - while resting and released assemblies keep normal
     # constraint physics (plus any env re-anchoring machinery).
     pybullet_pin_held_weld_assemblies = False
+    # Strength of the gripper-to-held-object JOINT_FIXED constraint
+    # (PyBullet's maxForce); None keeps PyBullet's default of 500. The
+    # default sags under a cantilevered payload: a welded span row
+    # carried by an end block tilted 15.9 deg at the grasp with the far
+    # block 55 mm low (Bridge four-span audit, 2026-09-13). The welds are
+    # enforced at 10000 and pinned partners follow the held root
+    # rigidly, so the grasp was the one compliant link of the carry.
+    pybullet_grasp_max_force: Optional[float] = None
 
     # IKFast parameters
     ikfast_max_time = 0.05
@@ -665,15 +673,6 @@ class GlobalSettings:
 
     # skill phase parameters
     skill_phase_use_motion_planning = False
-    # EE yaw relative to the pushed object's yaw during Push. None (the
-    # default) takes it from the robot.
-    skill_push_ee_yaw_offset = None
-    # Place settle-stroke preload (N): when > 0, the guarded settle ends
-    # at this much support normal force instead of first touch, pressing
-    # the arm's position-control sag out against the support before the
-    # release (see create_place_skill's settle_preload_force). 0 keeps
-    # the first-touch behavior. Read by envs whose place skill enables
-    # the settle stroke (currently pybullet_bridge).
     # Which skill library get_gt_options builds for the PyBullet
     # continual envs. "composite" (the default) is each env's own
     # factory-built skills (PickJug, SwitchFaucetOn, Push, Release, ...),
@@ -684,6 +683,15 @@ class GlobalSettings:
     # get_primitive_skill_context, with the grasp points, push strokes
     # and release moments left to the agent.
     skill_library = "composite"
+    # EE yaw relative to the pushed object's yaw during Push. None (the
+    # default) takes it from the robot.
+    skill_push_ee_yaw_offset = None
+    # Place settle-stroke preload (N): when > 0, the guarded settle ends
+    # at this much support normal force instead of first touch, pressing
+    # the arm's position-control sag out against the support before the
+    # release (see create_place_skill's settle_preload_force). 0 keeps
+    # the first-touch behavior. Read by envs whose place skill enables
+    # the settle stroke (currently pybullet_bridge).
     skill_place_settle_preload_force = 0.0
 
     # coffee env parameters
@@ -1901,6 +1909,16 @@ class GlobalSettings:
     # Span counts for train/test task distributions; the body pool is their max.
     bridge_train_span_blocks = 3
     bridge_test_span_blocks = 3
+    # Four-span repairs, opt-in: a cohort that sets them is not
+    # comparable with earlier Bridge cohorts.
+    # Place lifts straight up at the pick's xy before the transit at
+    # transport height, so a carried row clears the standing legs
+    # instead of sweeping across them from the pick height.
+    bridge_lift_before_transit = False
+    # Certify a candidate bridge only once every robot link is at least
+    # this far from every block (0 = certify at the release step), so
+    # the settle check never runs against a gripper still on the row.
+    bridge_goal_robot_clearance = 0.0
 
     # bridge policy parameters
     bridge_policy = "learned_ldl"  # default bridge policy

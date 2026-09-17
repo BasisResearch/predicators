@@ -941,3 +941,189 @@ def test_planning_context_sees_command_welds():
     finally:
         _SHARED_SIMULATOR_CACHE.pop(PyBulletBridgeEnv, None)
         p.disconnect(env._physics_client_id)
+
+
+def _welded_row_state(env, state, spans, x0, y, z, held=None):
+    """``spans`` lying in a butted row from ``x0`` in +x at height ``z``, every
+    butt joint cured; ``held`` (a span) carried by the gripper."""
+    s = state.copy()
+    for k, blk in enumerate(spans):
+        s.set(blk, "x", x0 + k * 2 * env.span_half_extents[0])
+        s.set(blk, "y", y)
+        s.set(blk, "z", z)
+        for feat in ("roll", "pitch", "yaw"):
+            s.set(blk, feat, 0.0)
+        s.set(blk, "is_held", 1.0 if blk == held else 0.0)
+    for left, right in zip(spans, spans[1:]):
+        s.set(left, "attached_end_b", float(env._block_index[right.name]))
+        s.set(right, "attached_end_a", float(env._block_index[left.name]))
+    return s
+
+
+def test_row_complete_is_the_whole_row(env_and_task):
+    """RowComplete(first, last) holds when a cured path from first to last runs
+    through every span of the task: a three-span chain is not the row of a
+    four-span task, a toppled (lying, unwelded) leg does not block it, the ends
+    read in either order, and extra edges never hide it."""
+    env, task = env_and_task
+    blocks = task.init.get_objects(env._block_type)
+    by_name = {b.name: b for b in blocks}
+    legs = [by_name["leg0"], by_name["leg1"]]
+    spans = [by_name[f"span{i}"] for i in range(3)]
+    row = next(p_ for p_ in env.predicates if p_.name == "RowComplete")
+    lying = next(p_ for p_ in env.predicates if p_.name == "Lying")
+    standing = next(p_ for p_ in env.predicates if p_.name == "Standing")
+    attached = next(p_ for p_ in env.predicates if p_.name == "Attached")
+
+    def atoms(chain, lying_legs=()):
+        out = {GroundAtom(lying, [b]) for b in spans + list(lying_legs)}
+        out |= {
+            GroundAtom(standing, [leg])
+            for leg in legs if leg not in lying_legs
+        }
+        for left, right in zip(chain, chain[1:]):
+            out.add(GroundAtom(attached, [left, right]))
+            out.add(GroundAtom(attached, [right, left]))
+        return out
+
+    full = atoms(spans)
+    assert row.holds(full, [spans[0], spans[2]])
+    assert row.holds(full, [spans[2], spans[0]])
+    assert not row.holds(full, [spans[0], spans[1]])
+    assert not row.holds(full, [spans[1], spans[2]])
+    assert not row.holds(full, [spans[0], spans[0]])
+    # A chain short of one span is not the row.
+    assert not row.holds(atoms(spans[:2]), [spans[0], spans[1]])
+    # A toppled leg lies loose: it does not break the row.
+    assert row.holds(atoms(spans, lying_legs=[legs[0]]), [spans[0], spans[2]])
+    # Extra cured edges never hide the row (the planner's delete
+    # relaxation evaluates the predicate on a superset of the atoms).
+    dense = full | {
+        GroundAtom(attached, [spans[0], spans[2]]),
+        GroundAtom(attached, [spans[2], spans[0]])
+    }
+    assert row.holds(dense, [spans[0], spans[2]])
+    assert row.holds(dense, [spans[0], spans[1]])
+
+
+def test_four_span_task_abstracts_only_the_four_span_row():
+    """In a four-span task the welded three-span chain never satisfies
+    RowComplete (so SeatSpan3 cannot ground there), and the full chain does;
+    the operators for both row lengths coexist in one process set."""
+    utils.reset_config({
+        "env": "pybullet_bridge",
+        "seed": 0,
+        "num_train_tasks": 0,
+        "num_test_tasks": 1,
+        "bridge_train_span_blocks": 3,
+        "bridge_test_span_blocks": 4,
+    })
+    from predicators.envs.pybullet_bridge import \
+        PyBulletBridgeEnv  # pylint: disable=import-outside-toplevel
+    from predicators.ground_truth_models import \
+        get_gt_options  # pylint: disable=import-outside-toplevel
+    from predicators.ground_truth_models.bridge.processes import \
+        PyBulletBridgeGroundTruthProcessFactory  # pylint: disable=import-outside-toplevel
+    env = PyBulletBridgeEnv(use_gui=False)
+    try:
+        task = env._generate_test_tasks()[0]
+        state = task.init
+        blocks = state.get_objects(env._block_type)
+        by_name = {b.name: b for b in blocks}
+        spans = [by_name[f"span{i}"] for i in range(4)]
+        assert len(blocks) == 6
+        row = next(p_ for p_ in env.predicates if p_.name == "RowComplete")
+        z = env.table_height + env.span_half_extents[2]
+        partial = _welded_row_state(env, state, spans[:3], 0.45, 1.14, z)
+        full = _welded_row_state(env, state, spans, 0.45, 1.14, z)
+        assert not any(a.predicate == row
+                       for a in utils.abstract(partial, env.predicates))
+        full_atoms = utils.abstract(full, env.predicates)
+        assert GroundAtom(row, [spans[0], spans[3]]) in full_atoms
+        assert GroundAtom(row, [spans[3], spans[0]]) in full_atoms
+        assert not any(
+            a.predicate == row and set(a.objects) != {spans[0], spans[3]}
+            for a in full_atoms)
+        preds = {p_.name: p_ for p_ in env.predicates}
+        opts = {o.name: o for o in get_gt_options(env.get_name())}
+        types = {t.name: t for t in env.types}
+        processes = PyBulletBridgeGroundTruthProcessFactory.get_processes(
+            env.get_name(), types, preds, opts)
+        names = {proc.name for proc in processes}
+        assert {"PickRow3", "PickRow4", "SeatSpan3", "SeatSpan4"} <= names
+        seat4 = next(proc for proc in processes if proc.name == "SeatSpan4")
+        assert len(seat4.parameters) == 9
+        # The grasped span is the third of four, a balanced carry.
+        held = next(a for a in seat4.condition_at_start
+                    if a.predicate.name == "Holding").variables[1]
+        assert held == seat4.parameters[3]
+    finally:
+        env.dispose()
+
+
+def test_rigid_grasp_carries_a_cantilevered_row_level():
+    """With ``pybullet_grasp_max_force`` set, a four-span welded row carried by
+    its END block hangs level: the grasp no longer sags under the 30 cm
+    cantilever (the default-strength grasp tilted the row 15.9 deg with the far
+    block 55 mm low in the four-span audit)."""
+    utils.reset_config({
+        "env": "pybullet_bridge",
+        "seed": 0,
+        "num_train_tasks": 0,
+        "num_test_tasks": 1,
+        "bridge_train_span_blocks": 4,
+        "bridge_test_span_blocks": 4,
+        "pybullet_pin_held_weld_assemblies": True,
+        "pybullet_grasp_max_force": 10000.0,
+    })
+    from predicators.envs.pybullet_bridge import \
+        PyBulletBridgeEnv  # pylint: disable=import-outside-toplevel
+    env = PyBulletBridgeEnv(use_gui=False)
+    try:
+        task = env._generate_test_tasks()[0]
+        env._set_state(task.init)
+        state = env._get_state()
+        blocks = state.get_objects(env._block_type)
+        by_name = {b.name: b for b in blocks}
+        spans = [by_name[f"span{i}"] for i in range(4)]
+        robot = env._robot
+        # Hang the row from the gripper by span0, 3 cm under the EE, the
+        # rest of the row cantilevered out in +x; legs parked away.
+        rx, ry, rz = 0.55, 1.30, 0.62
+        s = _welded_row_state(env,
+                              state,
+                              spans,
+                              rx,
+                              ry,
+                              rz - 0.03,
+                              held=spans[0])
+        s.set(robot, "x", rx)
+        s.set(robot, "y", ry)
+        s.set(robot, "z", rz)
+        s.set(robot, "fingers", env.closed_fingers)
+        for i, blk in enumerate(blocks):
+            if blk not in spans:
+                s.set(blk, "x", 2.0 + 0.2 * i)
+                s.set(blk, "y", 2.0)
+        env._set_state(s)
+        assert env._held_obj_id == spans[0].id
+        info = p.getConstraintInfo(env._held_constraint_id,
+                                   physicsClientId=env._physics_client_id)
+        assert info[10] == 10000.0
+        for _ in range(60):
+            env.step(_hold_action(env))
+        final = env._get_state()
+        for blk in spans:
+            assert abs(final.get(blk, "pitch")) < np.deg2rad(1.0), blk
+            assert abs(final.get(blk, "roll")) < np.deg2rad(1.0), blk
+        # The far block rides at the held block's height.
+        assert abs(final.get(spans[3], "z") - final.get(spans[0], "z")) < 0.005
+        assert final.get(spans[0], "is_held") > 0.5
+    finally:
+        env.dispose()
+        utils.reset_config({
+            "env": "pybullet_bridge",
+            "seed": 0,
+            "num_train_tasks": 1,
+            "num_test_tasks": 0,
+        })

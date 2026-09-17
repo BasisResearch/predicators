@@ -2469,6 +2469,14 @@ class PyBulletEnv(BaseEnv):
             parentFrameOrientation=[0, 0, 0, 1],
             childFrameOrientation=self._held_obj_to_base_link[1],
             physicsClientId=self._physics_client_id)
+        if CFG.pybullet_grasp_max_force is not None:
+            # A carried assembly is only as rigid as this constraint:
+            # welded partners are pinned to the held root each step, but
+            # the root itself sags under a cantilever at the default
+            # strength (see settings.pybullet_grasp_max_force).
+            p.changeConstraint(self._held_constraint_id,
+                               maxForce=CFG.pybullet_grasp_max_force,
+                               physicsClientId=self._physics_client_id)
 
     def _fingers_closing(self, action: Action) -> bool:
         """True if this action's finger target is below current position.

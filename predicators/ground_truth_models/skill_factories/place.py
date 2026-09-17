@@ -138,6 +138,7 @@ def create_place_skill(
     settle_preload_force: Optional[float] = None,
     verify_xy_tol: Optional[float] = None,
     verify_max_retries: int = 2,
+    lift_before_move_above: bool = False,
 ) -> ParameterizedOption:
     """Create a multi-phase place skill that releases a held object.
 
@@ -175,6 +176,13 @@ def create_place_skill(
         types: Ordered object types.  First element must be the robot type.
         config: Shared skill configuration (``config.transport_z`` is used).
         use_move_above: If True, add a MoveAbove phase before descending.
+        lift_before_move_above: Lift straight up at the current xy to
+            ``config.transport_z`` before the MoveAbove transit, which
+            then crosses at transport height. A held assembly that
+            starts its transit from the pick height sweeps through
+            whatever stands between the pick and the target; the lift
+            separates clearing the pick site from the transit. Requires
+            ``use_move_above``.
         param_defs: Optional override for the continuous parameter
             definitions (``(description, low, high)`` triples). Must keep
             the canonical order ``(target_x, target_y, release_z,
@@ -417,6 +425,26 @@ def create_place_skill(
         return squared_dist < cfg.move_to_pose_tol
 
     phases = []
+    if lift_before_move_above:
+        assert use_move_above, "lift_before_move_above needs a MoveAbove"
+
+        def _lift_pose(state: State, objects: Sequence[Object], params: Array,
+                       cfg: SkillConfig) -> Tuple[float, float, float, float]:
+            del params
+            robot = objects[0]
+            return (state.get(robot, "x"), state.get(robot, "y"),
+                    max(cfg.transport_z,
+                        state.get(robot, "z")), state.get(robot, "wrist"))
+
+        # Straight up by incremental IK from the pick pose, target frozen
+        # at phase entry so the lift never chases the arm's own motion.
+        phases.append(
+            make_move_to_phase("LiftBeforeTransit",
+                               _lift_pose,
+                               "closed",
+                               allow_shallow_held_object_contacts=True,
+                               direct_descend=True,
+                               freeze_target=True))
     # A place's first move starts right after a pick, where a shallow
     # lift plus grasp-constraint droop can leave the held object modeled
     # grazing the surface it was picked from; allow those shallow start
@@ -424,10 +452,15 @@ def create_place_skill(
     # rejecting the whole plan at the start config.
     if use_move_above:
         phases.append(
-            make_move_to_phase("MoveAbove",
-                               _above_pose,
-                               "closed",
-                               allow_shallow_held_object_contacts=True))
+            make_move_to_phase(
+                "MoveAbove",
+                _above_pose,
+                "closed",
+                # After a lift the transit is a straight
+                # move at transport height, never a
+                # planned joint-space arc (see Descend).
+                direct_descend=lift_before_move_above,
+                allow_shallow_held_object_contacts=True))
     phases.append(
         make_move_to_phase(
             "Descend" if use_move_above else "MoveToDrop",

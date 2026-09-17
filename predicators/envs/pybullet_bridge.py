@@ -62,6 +62,8 @@ Example command (oracle demo via bilevel process planning)::
 """
 
 import itertools
+import json
+import logging
 from typing import Any, ClassVar, Dict, FrozenSet, List, Optional, Sequence, \
     Set, Tuple
 
@@ -519,6 +521,20 @@ class PyBulletBridgeEnv(PyBulletEnv):
             "EndsFree", [self._block_type],
             self._EndsFree_holds_from_atoms,
             auxiliary_predicates={self._NextToEnd, self._Attached})
+        # RowComplete(first, last) = a cured Attached path from first to
+        # last runs through exactly the task's span count of lying
+        # blocks. DERIVED from Lying / Standing / Attached atoms,
+        # and required of the outer spans by PickRow / SeatSpan: Bridged
+        # needs every span in the row, so a seat operator over fewer
+        # spans than the task has would add a fictional Bridged (the
+        # planner seated a welded three-span chain in a four-span task
+        # and then had to dismantle the seated row to add the fourth).
+        # Role-free like Bridged: a toppled leg lies but is not welded,
+        # so it neither joins nor blocks the row.
+        self._RowComplete = DerivedPredicate(
+            "RowComplete", [self._block_type, self._block_type],
+            self._RowComplete_holds_from_atoms,
+            auxiliary_predicates={self._Lying, self._Standing, self._Attached})
 
     @classmethod
     def get_name(cls) -> str:
@@ -531,7 +547,7 @@ class PyBulletBridgeEnv(PyBulletEnv):
             self._GlueEndB, self._NextToEnd, self._SeatedOn, self._AtSite,
             self._Bridged, self._SiteFree, self._Attached, self._Standing,
             self._Lying, self._Loose, self._Resting, self._TopFree,
-            self._EndsFree
+            self._EndsFree, self._RowComplete
         }
 
     @property
@@ -550,6 +566,63 @@ class PyBulletBridgeEnv(PyBulletEnv):
     # (~3.4 cm of drop), so this carries ample margin.
     _GOAL_SETTLE_SUBSTEPS: ClassVar[int] = 60
 
+    def episode_terminated(self, observations: Sequence[Observation]) -> bool:
+        """Let the robot withdraw before certifying a candidate bridge.
+
+        The goal atoms hold at the release step itself, while the open
+        fingers still straddle the row; with
+        ``bridge_goal_robot_clearance`` set, the certificate waits until
+        every robot link is clear of every block, so the settle below
+        judges the structure and not a gripper leaning on it.
+        """
+        if not super().episode_terminated(observations):
+            return False
+        clearance = CFG.bridge_goal_robot_clearance
+        if clearance <= 0:
+            return True
+        return not any(
+            p.getClosestPoints(self._pybullet_robot.robot_id,
+                               block.id,
+                               clearance,
+                               physicsClientId=self._physics_client_id)
+            for block in self._task_blocks() if block.id is not None)
+
+    def _task_blocks(self) -> List[Object]:
+        """The blocks of the CURRENT task: the body pool holds the larger of
+        the train and test span counts, so a three-span task in a transfer run
+        has a pooled fourth span that is in no state (reading it raised
+        KeyError from the certificate on the step that completed the
+        bridge)."""
+        state = self._get_state()
+        return [blk for blk in self._blocks if blk in state.data]
+
+    def _certificate_snapshot(self) -> Dict[str, Any]:
+        """Private diagnostics for the certificate log, never part of the
+        agent's observation."""
+        state = self._get_state()
+        return {
+            "poses": {
+                obj.name: {
+                    f: float(state.get(obj, f))
+                    for f in ("x", "y", "z", "roll", "pitch", "yaw")
+                }
+                for obj in self._blocks if obj in state.data
+            },
+            "velocities":
+            self._body_velocity_records(),
+            "joints":
+            self._pybullet_robot.get_joints(),
+            "welds": [
+                p.getConstraintInfo(cid,
+                                    physicsClientId=self._physics_client_id)
+                for cid in self._weld_constraints.values()
+            ],
+            "contacts":
+            p.getContactPoints(physicsClientId=self._physics_client_id),
+            "atoms":
+            sorted(map(str, utils.abstract(state, self.predicates))),
+        }
+
     def check_episode_trajectory(
             self, observations: Sequence[Observation],
             actions: Sequence[Action]) -> Tuple[bool, str]:
@@ -565,22 +638,41 @@ class PyBulletBridgeEnv(PyBulletEnv):
         the NextToEnd window within one action's worth of substeps.
         Raw ``stepSimulation`` on purpose - no robot actuation, no wet
         tack, no cure progression - so the structure must stand by its
-        cured joints alone. Runs once at episode end, so mutating the
-        sim is safe (the env is reset before its next use).
+        cured joints alone. The one piece of ordinary dynamics kept is
+        the anti-creep weld re-anchoring (``_relax_resting_welds``, once
+        per action's worth of substeps): it never props up an unwelded
+        span, but without it the resting welds skate exactly as they do
+        in idle play, which the certificate must not punish. Runs once
+        at episode end, so mutating the sim is safe (the env is reset
+        before its next use); the settled scene is what the runner
+        records, and the certificate logs its before/after diagnostics.
         """
         ok, reason = super().check_episode_trajectory(observations, actions)
         if not ok:
             return ok, reason
-        for _ in range(self._GOAL_SETTLE_SUBSTEPS):
+        before = self._certificate_snapshot()
+        for substep in range(self._GOAL_SETTLE_SUBSTEPS):
             p.stepSimulation(physicsClientId=self._physics_client_id)
+            if (substep + 1) % CFG.pybullet_sim_steps_per_action == 0:
+                self._relax_resting_welds()
         settled = self._get_state()
         goal = self._current_task.goal_description
         assert isinstance(goal, set)
         missing = [a for a in goal if not a.holds(settled)]
+        after = self._certificate_snapshot()
+        logging.info(
+            "[bridge certificate] %s",
+            json.dumps({
+                "before": before,
+                "after": after,
+                "substeps": self._GOAL_SETTLE_SUBSTEPS,
+                "accepted": not missing,
+            }))
         if missing:
+            lost = sorted(set(before["atoms"]) - set(after["atoms"]))
             return False, ("goal geometry did not survive settling "
-                           f"(collapsed: {sorted(map(str, missing))}); an "
-                           "unwelded row cannot stand")
+                           f"(missing: {sorted(map(str, missing))}; "
+                           f"lost relations: {lost})")
         return True, ""
 
     @property
@@ -1753,6 +1845,54 @@ class PyBulletBridgeEnv(PyBulletEnv):
                 neighbors.add(other)
         return neighbors.issubset(welded)
 
+    def _RowComplete_holds_from_atoms(self, atoms: Set[GroundAtom],
+                                      objects: Sequence[Object]) -> bool:
+        """Some simple Attached path from ``first`` to ``last`` runs through
+        exactly the task's span count of lying blocks (derived: evaluated over
+        Lying / Standing / Attached atoms).
+
+        The span count is the block count less the legs, read off the
+        atoms (every block is Lying or Standing), so a toppled leg that
+        happens to lie loose neither joins the row nor blocks it. Stated
+        as an existence so it is MONOTONE in the atoms: the planner's
+        delete-relaxed reachability evaluates it on a superset where
+        every pair is Attached, and a definition that also forbade extra
+        edges read false there and made every Bridged goal unreachable.
+        """
+        first, last = objects
+        if first == last:
+            return False
+        lying: Set[Object] = set()
+        blocks: Set[Object] = set()
+        for atom in atoms:
+            if atom.predicate == self._Lying:
+                lying.add(atom.objects[0])
+                blocks.add(atom.objects[0])
+            elif atom.predicate == self._Standing:
+                blocks.add(atom.objects[0])
+        n_spans = len(blocks) - self.n_legs
+        if first not in lying or last not in lying or n_spans < 2:
+            return False
+        adjacency: Dict[Object, Set[Object]] = {blk: set() for blk in lying}
+        for atom in atoms:
+            if atom.predicate != self._Attached:
+                continue
+            blk_a, blk_b = atom.objects
+            if blk_a != blk_b and blk_a in lying and blk_b in lying:
+                adjacency[blk_a].add(blk_b)
+                adjacency[blk_b].add(blk_a)
+
+        def _path_exists(cur: Object, visited: Set[Object]) -> bool:
+            if len(visited) == n_spans:
+                return cur == last
+            if cur == last:
+                return False
+            return any(
+                _path_exists(nxt, visited | {nxt}) for nxt in adjacency[cur]
+                if nxt not in visited)
+
+        return _path_exists(first, {first})
+
     def _Loose_holds(self, state: State, objects: Sequence[Object]) -> bool:
         """The block has no cured attachments (it can be individually picked
         and re-placed without dragging an assembly along)."""
@@ -1918,6 +2058,10 @@ class PyBulletBridgeEnv(PyBulletEnv):
                 f"sites: stand a leg on each site pad, join the {n_spans} "
                 "span blocks end-to-end into one rigid span, and seat "
                 "it resting across the two leg tops.")
+            if CFG.bridge_goal_robot_clearance > 0:
+                goal_nl += (" Finish with the robot at least "
+                            f"{CFG.bridge_goal_robot_clearance:g} m away "
+                            "from every block.")
 
             tasks.append(
                 EnvironmentTask(init_state, goal_atoms, goal_nl=goal_nl))

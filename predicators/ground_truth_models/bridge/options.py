@@ -206,6 +206,10 @@ class PyBulletBridgeGroundTruthOptionFactory(GroundTruthOptionFactory):
             types=[robot_type],
             config=config,
             use_move_above=True,
+            # Lift straight up before the transit (opt-in): a carried
+            # span row that starts its transit from the pick height
+            # sweeps across the standing legs.
+            lift_before_move_above=CFG.bridge_lift_before_transit,
             param_defs=_BRIDGE_PLACE_PARAMS,
             # Land the HELD BLOCK (not the gripper) on the sampled
             # target, on all three axes: blocks staged near the reach
