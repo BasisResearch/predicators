@@ -131,6 +131,32 @@ def _resolve_config(config_filepath: str) -> Dict[str, Any]:
     return merged
 
 
+def _resolve_extends(section: Dict[str, Any]) -> Dict[str, Any]:
+    """Expand ``EXTENDS`` entries of an ENVS or APPROACHES section.
+
+    An entry ``{EXTENDS: base, FLAGS: {...}}`` is the ``base`` entry of
+    the same section with the entry's own keys deep-merged on top, and
+    it is un-parked (``SKIP: False``) unless it says otherwise. This is
+    how a launcher gives a menu arm a round-specific experiment id: the
+    id is the entry's key, the definition stays in the menu.
+    """
+    resolved: Dict[str, Any] = {}
+    for key, entry in section.items():
+        base_key = entry.get("EXTENDS")
+        if base_key is None:
+            resolved[key] = entry
+            continue
+        if base_key not in section:
+            raise ValueError(f"{key} EXTENDS unknown entry {base_key}")
+        if "EXTENDS" in section[base_key]:
+            raise ValueError(f"{key} EXTENDS {base_key}, which itself "
+                             "EXTENDS another entry; extend menu entries")
+        derived = {k: v for k, v in entry.items() if k != "EXTENDS"}
+        merged = _deep_merge(section[base_key], {"SKIP": False})
+        resolved[key] = _deep_merge(merged, derived)
+    return resolved
+
+
 def parse_configs(config_filename: str) -> Iterator[Dict[str, Any]]:
     """Parse the YAML config file, resolving any 'includes' directives."""
     scripts_dir = os.path.dirname(os.path.realpath(__file__))
@@ -170,13 +196,15 @@ def generate_run_configs(config_filename: str,
             train_refinement_estimator = config["TRAIN_REFINEMENT_ESTIMATOR"]
         else:
             train_refinement_estimator = False
+        approaches = _resolve_extends(config["APPROACHES"])
+        envs = _resolve_extends(config["ENVS"])
         # Loop over approaches.
-        for approach_exp_id, approach_config in config["APPROACHES"].items():
+        for approach_exp_id, approach_config in approaches.items():
             if approach_config.get("SKIP", False):
                 continue
             approach = approach_config["NAME"]
             # Loop over envs.
-            for env_exp_id, env_config in config["ENVS"].items():
+            for env_exp_id, env_config in envs.items():
                 if env_config.get("SKIP", False):
                     continue
                 env = env_config["NAME"]

@@ -1,0 +1,22 @@
+# Balloons composition levels, round 2 (Sept 17, 2026): Opus and Sonnet,
+# MB (gated) against MF, on the 25-step-dwell levels from the main tree.
+# Round 1 (compose_r1, pilot worktree, dwell 1) let a swinging box win at a
+# turning point (Opus MF won train level 2 at 0.765 m against a band starting
+# at 0.763 m and a rest height of 0.756 m); not comparable.
+# python scripts/engaging/launch.py -c predicatorv3/continual_balloons_compose_r2.yaml --partition mit_preemptable --accounts b,c
+includes:
+  - continual_common.yaml
+  - envs/continual.yaml
+  - approaches/continual.yaml
+ENVS:
+  balloons:
+    SKIP: false
+APPROACHES:
+  mb_opus_compose_r2:
+    EXTENDS: mb_opus
+  mf_opus_compose_r2:
+    EXTENDS: mf_opus
+  mb_sonnet_compose_r2:
+    EXTENDS: mb_sonnet
+  mf_sonnet_compose_r2:
+    EXTENDS: mf_sonnet
