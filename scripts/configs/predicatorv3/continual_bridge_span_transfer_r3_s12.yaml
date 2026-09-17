@@ -1,0 +1,17 @@
+# Opus MB on the Bridge four-span test, seeds 1 and 2, skill preflight off
+# (Sept 17, 2026): the r2 seeds ran with the preflight on and its
+# base-physics refusals were false (no model, welds invisible). Seed 0 of
+# r2 ran without the preflight (2/2, 3302 steps) and stands.
+# python scripts/engaging/launch.py -c predicatorv3/continual_bridge_span_transfer_r3_s12.yaml --partition mit_preemptable,mit_normal --requeue --accounts c
+includes:
+  - continual_common.yaml
+  - envs/continual.yaml
+  - approaches/continual.yaml
+START_SEED: 1
+NUM_SEEDS: 2
+ENVS:
+  bridge_span_transfer:
+    SKIP: false
+APPROACHES:
+  mb_opus_span_transfer_r3:
+    EXTENDS: mb_opus
