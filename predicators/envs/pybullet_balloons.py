@@ -1110,7 +1110,11 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
             found = None
             fallback: Optional[Tuple[State, Tuple[int, ...],
                                      Optional[Tuple[int, ...]]]] = None
-            for attempt in range(attempts):
+            # A bundle level keeps drawing past the nominal attempts while
+            # it has nothing at all, and stops at the first fallback then.
+            for attempt in range(attempts * 3 if bundle_sizes else attempts):
+                if attempt >= attempts and fallback is not None:
+                    break
                 n = int(rng.choice(counts))
                 clip_of: Optional[List[int]] = None
                 # The covering draw first; a free draw for the last
