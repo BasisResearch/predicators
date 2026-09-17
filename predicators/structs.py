@@ -1158,13 +1158,23 @@ class TaskEvaluator:
         """
         return all(atom.holds(state) for atom in self.goal)
 
+    def terminated_trajectory(self, states: Sequence[State]) -> bool:
+        """Episode termination over the whole trajectory.
+
+        The default is the last state's ``terminated``. Subclasses with
+        a temporal goal (Balloons requires the box to hang in the band
+        for a dwell of consecutive steps) override this; ``reward``,
+        ``solved`` and the episode runner all judge through it.
+        """
+        return bool(states) and self.terminated(states[-1])
+
     def reward(self,
                states: Sequence[State],
                step_options: Optional[Sequence[StepOption]],
                sim_env: Optional[Any] = None) -> float:
         """Episode reward: certified-success bonus (no cost by default)."""
         ok, _ = self._certify(states, step_options, sim_env=sim_env)
-        return float(self.terminated(states[-1]) and ok)
+        return float(self.terminated_trajectory(states) and ok)
 
     def solved(self,
                states: Sequence[State],
@@ -1173,7 +1183,7 @@ class TaskEvaluator:
         """Public episode-success bit: goal atoms hold at the end AND the
         success credit was awarded (the episode certifies)."""
         ok, _ = self._certify(states, step_options, sim_env=sim_env)
-        return self.terminated(states[-1]) and ok
+        return self.terminated_trajectory(states) and ok
 
     def _certify(self,
                  states: Sequence[State],

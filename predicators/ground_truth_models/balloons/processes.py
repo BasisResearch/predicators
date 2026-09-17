@@ -38,19 +38,14 @@ class PyBulletBalloonsGroundTruthProcessFactory(GroundTruthProcessFactory):
 
         robot_type = types["robot"]
         box_type = types["box"]
-        balloon_type = types["balloon"]
         clip_type = types["clip"]
         band_type = types["band"]
 
         InBand = predicates["InBand"]
-        Tied = predicates["Tied"]
-        Untied = predicates["Untied"]
-        Intact = predicates["Intact"]
         ClipOn = predicates["ClipOn"]
         ClipOff = predicates["ClipOff"]
         Needed = predicates["Needed"]
-        Holds = predicates["Holds"]
-        AllNeededTied = predicates["AllNeededTied"]
+        AllNeededOpen = predicates["AllNeededOpen"]
 
         Release = options["Release"]
         Wait = options["Wait"]
@@ -63,30 +58,26 @@ class PyBulletBalloonsGroundTruthProcessFactory(GroundTruthProcessFactory):
 
         processes: Set[CausalProcess] = set()
 
+        # A clip frees every balloon it holds (one on a rack of singles, a
+        # whole bundle on a bundle level); the tied atoms follow from the
+        # clip's state, so the process is over clips.
         robot = Variable("?robot", robot_type)
         clip = Variable("?clip", clip_type)
-        balloon = Variable("?balloon", balloon_type)
         band = Variable("?band", band_type)
         processes.add(
-            EndogenousProcess(
-                "ReleaseClip", [robot, clip, balloon, band], {
-                    LiftedAtom(ClipOff, [clip]),
-                    LiftedAtom(Holds, [clip, balloon]),
-                    LiftedAtom(Untied, [balloon]),
-                    LiftedAtom(Intact, [balloon]),
-                    LiftedAtom(Needed, [balloon, band]),
-                }, set(), set(),
-                {LiftedAtom(ClipOn, [clip]),
-                 LiftedAtom(Tied, [balloon])},
-                {LiftedAtom(ClipOff, [clip]),
-                 LiftedAtom(Untied, [balloon])}, ConstantDelay(_RELEASE_DELAY),
-                torch.tensor(1.0), Release, [robot, clip], _release_sampler))
+            EndogenousProcess("ReleaseClip", [robot, clip, band], {
+                LiftedAtom(ClipOff, [clip]),
+                LiftedAtom(Needed, [clip, band]),
+            }, set(), set(), {LiftedAtom(ClipOn, [clip])},
+                              {LiftedAtom(ClipOff, [clip])},
+                              ConstantDelay(_RELEASE_DELAY), torch.tensor(1.0),
+                              Release, [robot, clip], _release_sampler))
 
         box = Variable("?box", box_type)
         band = Variable("?band", band_type)
         processes.add(
             ExogenousProcess("Rise",
-                             [box, band], {LiftedAtom(AllNeededTied, [band])},
+                             [box, band], {LiftedAtom(AllNeededOpen, [band])},
                              set(), set(), {LiftedAtom(InBand, [box, band])},
                              set(), ConstantDelay(_RISE_DELAY),
                              torch.tensor(1.0)))
