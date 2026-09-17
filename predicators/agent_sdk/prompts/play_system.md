@@ -119,7 +119,7 @@ Once the model loads, every skill request is rehearsed in it before it runs (see
 <!-- section: skill_preflight -->
 ### Every skill request is rehearsed first
 
-Before `skills_invoke` or `skills_execute_plan` charges a real step, the request is rehearsed in `sim` from the last observation: against `./simulator.py` when it loads, else against the visible base physics.
+Once `./simulator.py` loads, before `skills_invoke` or `skills_execute_plan` charges a real step, the request is rehearsed in `sim` from the last observation against it; until then requests run unrehearsed, and `sim` on the visible base physics is yours to rehearse in by hand.
 A skill whose controller fails in the rehearsal is refused, charging nothing, and the refusal carries the controller's diagnostic: which contact blocks the pose, that no collision-free path exists, that the lift left the object behind.
 Under declared observation noise the request is also rolled from several plausible poses of the objects; failing on most of them refuses it too.
 Fix the parameters or the plan and request again, or pass `force=true` when you have a reason to believe the rehearsal is wrong (a mechanism the model lacks).

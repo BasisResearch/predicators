@@ -105,16 +105,17 @@ class GlobalSettings:
     # Whether the model arm rehearses every skills_invoke /
     # skills_execute_plan request in its sim before real steps are
     # charged: the candidate ./simulator.py when one loads, else the
-    # visible base physics with hidden mechanisms disabled, rolled from
-    # the last real observation. The sim runs the real skill
-    # controllers, so a controller failure there (a grasp pose in
-    # contact, no collision-free path, a lift that leaves the object
-    # behind) refuses the request, charging nothing, and returns the
-    # controller's diagnostic, which the real env withholds.
-    # force=true on the request runs it anyway. Bridge seed 2 of the
-    # Sept 17, 2026 Sonnet pilots spent 79 failed real picks, most of
-    # them on a knocked-over leg, that the base physics refuses. On
-    # every level; the model-free arm has no sim.
+    # agent's candidate simulator.py, rolled from the last real
+    # observation. The sim runs the real skill controllers, so a
+    # controller failure there (a grasp pose in contact, no
+    # collision-free path, a lift that leaves the object behind) refuses
+    # the request, charging nothing, and returns the controller's
+    # diagnostic, which the real env withholds. force=true on the
+    # request runs it anyway. Before a candidate exists the request
+    # runs unrehearsed: the base physics has the hidden mechanisms
+    # disabled, and its Bridge refusals (a welded partner rehearsed as
+    # a loose block) were false. On every level; the model-free arm has
+    # no sim. The Opus menu entry switches it off (Sept 17, 2026).
     continual_skill_preflight = True
     # Belief draws per preflight when observation noise is declared and
     # continual_uncertainty_decisions is on: the request is also rolled

@@ -10,6 +10,10 @@ APPROACHES:
     FLAGS:
       agent_sdk_model_name: claude-opus-5
       continual_require_model_on_test: true
+      # Off for Opus (Sept 17, 2026): its requests were rarely refused
+      # (at most 7 per run against 24-68 for Sonnet), and the Bridge
+      # refusals were false; the prompt's rehearsal instruction stays.
+      continual_skill_preflight: false
   mb_sonnet:
     NAME: agent_continual
     SKIP: true

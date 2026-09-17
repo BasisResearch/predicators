@@ -296,7 +296,7 @@ class AgentContinualApproach(ContinualPlayMixin,
         exec_ns["sim"] = probe_ns["sim"]
         exec_ns["BeliefProbe"] = probe_ns["BeliefProbe"]
         ctx.skill_preflight = (self._make_skill_preflight(
-            session, probe_ns["BeliefProbe"])
+            session, probe_ns["BeliefProbe"], paths.simulator_file)
                                if CFG.continual_skill_preflight else None)
         self._load_probe_extension(exec_ns, paths.base)
         declared = set(self._get_synthesis_tool_names() or ())
@@ -521,13 +521,12 @@ class AgentContinualApproach(ContinualPlayMixin,
         return cache[1]
 
     def _make_skill_preflight(
-            self, session: ProtocolSession,
-            probe_factory: Callable[[],
-                                    Any]) -> Callable[[str], Optional[str]]:
+            self, session: ProtocolSession, probe_factory: Callable[[], Any],
+            simulator_file: str) -> Callable[[str], Optional[str]]:
         """The ``ToolContext.skill_preflight`` of this round under
         ``continual_skill_preflight``: the request's plan text rehearsed
         on a private probe from the last real observation, against the
-        candidate ``simulator.py`` or the base physics before one exists.
+        agent's candidate ``simulator.py``.
 
         The sim runs the real skill controllers, so a controller failure
         there (a grasp pose in contact, no collision-free path, a lift
@@ -535,10 +534,16 @@ class AgentContinualApproach(ContinualPlayMixin,
         controller's diagnostic that the real env withholds. When the
         observation channel is noisy and uncertainty decisions are on,
         the request is also rolled from ``continual_skill_preflight_draws``
-        plausible poses; failing on more than half refuses it too. A
-        rehearsal that cannot run (no observation yet, the probe's
-        budget spent, a broken candidate) never blocks the request: the
-        failure is logged and the skill runs.
+        plausible poses; failing on more than half refuses it too.
+
+        Before a candidate exists the request runs unrehearsed. The
+        probe's fallback, the base physics with the hidden mechanisms
+        disabled, is not the real env: the Opus Bridge runs of Sept 17,
+        2026 had no model, and every refusal there was false, a welded
+        partner rehearsed as a loose block. A rehearsal that cannot run
+        (no observation yet, the probe's budget spent, a broken
+        candidate) never blocks the request either: the failure is
+        logged and the skill runs.
         """
         ctx = self._tool_context
 
@@ -549,6 +554,8 @@ class AgentContinualApproach(ContinualPlayMixin,
             return bool(failure) and failure != "0 actions"
 
         def preflight(plan_text: str) -> Optional[str]:
+            if not os.path.isfile(simulator_file):
+                return None
             try:
                 session.observe()
             except EpisodeOver:

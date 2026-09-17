@@ -632,18 +632,31 @@ RESIDUAL_ENV = Counter
 
 
 @pytest.mark.slow
-def test_skill_preflight_rehearses_in_the_base_physics(tmp_path: Any) -> None:
-    """Before any simulator.py exists, ``sim`` rolls the real skill controllers
-    on the base physics, and every skill request is rehearsed there first: a
-    Place with nothing held is refused, charging nothing, with the controller's
-    reason; ``force=true`` runs it anyway; a feasible PickJug passes the
-    rehearsal and runs."""
+def test_skill_preflight_rehearses_in_the_candidate(tmp_path: Any) -> None:
+    """Once a simulator.py exists, every skill request is rehearsed in it
+    first: a Place with nothing held is refused, charging nothing, with the
+    controller's reason; ``force=true`` runs it anyway; a feasible PickJug
+    passes the rehearsal and runs. Before the file exists ``sim`` still rolls
+    the real skill controllers on the base physics for the agent, but no
+    request is rehearsed there: the same Place runs, and is charged."""
     # pylint: disable=protected-access
     _config(tmp_path, continual_levels="train_only")
     env, approach = _make_approach()
     assert "Every skill request is rehearsed first" in \
         approach._play_system_prompt()
     seen: Dict[str, Any] = {}
+    counter = '''
+class Counter(BaseSimulator):
+    AGENT_PARAM_SPECS = [ParamSpec("rate", .25, lo=0.0, hi=1.0)]
+    MODEL_STATE_INIT = {"charge": 0.0}
+    RESIDUAL_FEATURES = {}
+
+    @classmethod
+    def update_model_state(cls, observation, model_state, params, action):
+        model_state["charge"] += params["rate"]
+
+RESIDUAL_ENV = Counter
+'''
 
     def fake_query(message: str, **kwargs: Any) -> List[Dict[str, Any]]:
         del kwargs
@@ -656,9 +669,16 @@ def test_skill_preflight_rehearses_in_the_base_physics(tmp_path: Any) -> None:
                     "r.steps[0]['failure'])")
         assert "steps 1 fail None" in out, out
         place = "Place(robot:robot)[1.1, 1.6, 0.6, 0.0]"
+        unrehearsed = _call(approach, "skills_invoke", skill=place)
+        assert "Rehearsed in `sim`" not in unrehearsed, unrehearsed
+        assert "Nothing was charged" not in unrehearsed
+        path = os.path.join(approach._tool_context.sandbox_dir, "simulator.py")
+        with open(path, "w", encoding="utf-8") as file:
+            file.write(counter)
         refused = _call(approach, "skills_invoke", skill=place)
         assert refused.startswith("ERROR"), refused
-        assert "Rehearsed in `sim` (no model yet" in refused
+        assert "Rehearsed in `sim` (" in refused
+        assert "no model yet" not in refused
         assert "got stuck" in refused
         assert "Nothing was charged" in refused and "force=true" in refused
         seen["refused"] = refused
