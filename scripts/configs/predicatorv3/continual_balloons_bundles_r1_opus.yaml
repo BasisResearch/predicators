@@ -1,0 +1,17 @@
+# Opus MB (gated, with the skill preflight) and MF on the Balloons bundle
+# test levels, one seed, Sept 17, 2026: the Opus counterpart of
+# continual_balloons_bundles_r1.yaml (Sonnet: MB on the test level, MF lost
+# it to a burst). Launched from the main tree.
+# python scripts/engaging/launch.py -c predicatorv3/continual_balloons_bundles_r1_opus.yaml --partition mit_preemptable,mit_normal --requeue --accounts b,c
+includes:
+  - continual_common.yaml
+  - envs/continual.yaml
+  - approaches/continual.yaml
+ENVS:
+  balloons_bundles:
+    SKIP: false
+APPROACHES:
+  mb_opus_bundles_r1:
+    EXTENDS: mb_opus
+  mf_opus_bundles_r1:
+    EXTENDS: mf_opus
