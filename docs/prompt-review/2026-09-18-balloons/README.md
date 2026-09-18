@@ -35,7 +35,8 @@ The same command with another `--domain` (`boil`, `bridge`, `fan`, `domino_high_
 ## What differs between the arms
 
 - The identity line, the arm statement after the observation-noise rules (frozen arms), the decision workflow, the model workbench table, the model or predicate API reference, and the closing point-estimate section are all rendered per arm by `predicators/agent_sdk/play_prompts.py` from `play_system.md`, `play_frozen.md` and `play_model_contract.md`.
-- The `run_python` tool blurb names `sim.fit` only where the probe can fit.
+- The `run_python` tool description follows the arm's probe surface: fitting, model writing, alternative parameter values and uncertainty sweeps appear only where the probe accepts them.
+- The supplied models of scene-only and oracle dynamics never enter the sandbox: they run inside `sim`, and no report or file names their constants.
 - The query's model-status line is per arm: supplied models are reported as present and fixed from the first round, the zero-shot arm is told to write the model before its first action, the no-fitting arm is told to set declared values, and the standalone arm is told to write `world_model.py`.
 - The sandbox `CLAUDE.md`, the reference files and the static protocol tools are shared.
 
@@ -45,11 +46,11 @@ Word counts of the rendered text, Balloons seed 0.
 
 | Arm | System prompt | Round 1 query | Round 2 query |
 | --- | ---: | ---: | ---: |
-| `agent_continual` | 3391 | 647 | 476 |
-| `agent_continual_model_free` | 1075 | 524 | 353 |
-| `agent_continual_no_fitting` | 3460 | 656 | 485 |
-| `agent_continual_no_uncertainty` | 3397 | 560 | 389 |
-| `agent_continual_oracle_dynamics` | 1975 | 623 | 454 |
-| `agent_continual_program_world_model` | 1464 | 630 | 459 |
-| `agent_continual_scene_only` | 1991 | 621 | 452 |
-| `agent_continual_zero_shot` | 3008 | 656 | 485 |
+| `agent_continual` | 3388 | 638 | 476 |
+| `agent_continual_model_free` | 1072 | 515 | 353 |
+| `agent_continual_no_fitting` | 3457 | 647 | 485 |
+| `agent_continual_no_uncertainty` | 3394 | 551 | 389 |
+| `agent_continual_oracle_dynamics` | 1997 | 618 | 456 |
+| `agent_continual_program_world_model` | 1461 | 621 | 459 |
+| `agent_continual_scene_only` | 2013 | 616 | 454 |
+| `agent_continual_zero_shot` | 3005 | 647 | 485 |

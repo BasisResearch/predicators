@@ -75,5 +75,5 @@ Uncertainty-aware planning over your declared ranges remains available.
 <!-- section: intro_supplied -->
 ## Predicate API reference
 
-The dynamics model in `./simulator.py` is supplied and fixed; do not edit it.
+The dynamics model is supplied and fixed; it runs inside `sim` and is not exposed as source.
 Write optional monitoring predicates in `./predicates.py`.

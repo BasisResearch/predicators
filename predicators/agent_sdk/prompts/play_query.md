@@ -128,8 +128,8 @@ Write `./simulator.py` (and `./predicates.py` if useful) in `run_python` before 
 Recorded episodes so far: __N_EPISODES__ (__N_STEPS__ steps).
 
 <!-- section: model_supplied -->
-Current files: the supplied `simulator.py`, fixed for the run; `predicates.py` __PREDICATES_VERSION__.
-Model: __FIT_STATUS__.
+Model: the supplied simulator, fixed for the run and not exposed as source; `predicates.py` __PREDICATES_VERSION__.
+Calibration: __FIT_STATUS__.
 Recorded episodes so far: __N_EPISODES__ (__N_STEPS__ steps).
 
 <!-- section: model_status -->

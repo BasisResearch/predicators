@@ -1,10 +1,13 @@
 """Continual models whose dynamics are fixed before real interaction."""
 from __future__ import annotations
 
+import dataclasses
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from predicators.agent_sdk.prompt_templates import render
+from predicators.agent_sdk.tools.exploration import ProbeSurface
 from predicators.approaches.agent_continual_approach import \
     AgentContinualApproach
 from predicators.envs.pybullet_balloons_base import PyBulletBalloonsBaseEnv
@@ -54,12 +57,31 @@ class AgentContinualZeroShotApproach(AgentContinualApproach):
     def _no_model_section(self) -> str:
         return "no_model_zero_shot"
 
+    def _probe_surface(self) -> ProbeSurface:
+        return ProbeSurface(fit=False,
+                            edit_model=not self._frozen_model_supplied,
+                            sealed=not self._frozen_model_supplied,
+                            alt_params=False,
+                            uncertainty=CFG.continual_uncertainty_decisions)
+
+    def _resolve_synthesis_paths(self) -> Any:
+        # A supplied model never enters the sandbox: the agent queries it
+        # through ``sim`` and cannot read its source or constants. Its
+        # file and version snapshots live beside the sandbox instead.
+        paths = super()._resolve_synthesis_paths()
+        if not self._frozen_model_supplied:
+            return paths
+        hidden = os.path.join(self._get_log_dir(), "supplied_model")
+        return dataclasses.replace(
+            paths,
+            simulator_file=os.path.join(hidden, "simulator.py"),
+            versions_dir=os.path.join(hidden, "simulator_versions"),
+            simulator_file_for_agent="(not exposed)")
+
     def _model_status(self, session: ProtocolSession) -> str:
-        # A supplied model is installed before the first round opens but
-        # is only versioned once the probe loads it; report it as present
-        # from the first query on.
-        if (not self._frozen_model_supplied
-                or self._current_simulator_version is not None):
+        # A supplied model is present from the first round on and never
+        # changes, so its status never mentions files or fits.
+        if not self._frozen_model_supplied:
             return super()._model_status(session)
         n_eps, n_steps = self._episode_counts(session)
         status = render("play_query",
@@ -213,14 +235,20 @@ class AgentContinualSceneOnlyApproach(AgentContinualZeroShotApproach):
         }:
             raise ValueError("Scene-only calibration not audited for " +
                              CFG.env)
-        specs = ",\n        ".join(
-            f"ParamSpec({name!r}, {value!r}, lo={value!r}, hi={value!r})"
-            for name, value in sorted(params.items()))
+        # Declared as no parameter at all: the probe's reports and the
+        # predicate loader's ``params`` view then carry no constant to
+        # leak, and the file itself never enters the sandbox.
         return ("# Fixed scene geometry, articulation, and base calibration.\n"
                 "# No release, lift, curing, filling, heating or wind code.\n"
+                f"_FIXED_PARAMS = {dict(sorted(params.items()))!r}\n"
                 "class SceneOnly(BaseSimulator):\n"
-                f"    AGENT_PARAM_SPECS = [{specs}]\n"
+                "    AGENT_PARAM_SPECS = []\n"
                 "    RESIDUAL_FEATURES = {}\n"
+                "    def __init__(self, *args, **kwargs):\n"
+                "        super().__init__(*args, **kwargs)\n"
+                "        if _FIXED_PARAMS:\n"
+                "            self.apply_physical_param_overrides("
+                "dict(_FIXED_PARAMS))\n"
                 "    def _domain_specific_step(self):\n"
                 "        pass\n"
                 "RESIDUAL_ENV = SceneOnly\n")

@@ -38,6 +38,7 @@ from predicators.agent_sdk import journal as journal_mod
 from predicators.agent_sdk.fit_status import format_fit_status
 from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES, \
     play_tool_names
+from predicators.agent_sdk.tools.exploration import ProbeSurface
 from predicators.agent_sdk.tools.sandbox_guard import \
     _screen_text_for_sandbox_escape
 from predicators.agent_sdk.tools.synthesis import create_synthesis_tools
@@ -186,6 +187,12 @@ class AgentContinualApproach(ContinualPlayMixin,
         """
         return {}
 
+    def _probe_surface(self) -> ProbeSurface:
+        """What this arm's ``sim`` probe accepts (``run_python``'s
+        description)."""
+        return ProbeSurface(fit=self._fit_available(),
+                            uncertainty=CFG.continual_uncertainty_decisions)
+
     def _no_model_section(self) -> str:
         """The play_query section shown while no model file exists."""
         return "no_model"
@@ -277,6 +284,7 @@ class AgentContinualApproach(ContinualPlayMixin,
             sandbox_dir_for_agent=paths.sandbox_dir_for_agent,
             cycle_index_provider=self._learning_cycle_index,
             budget_check=lambda: _check_time_budget(self._tool_context),
+            probe_surface=self._probe_surface(),
         )
         self._install_extra_synthesis_surfaces(exec_ns, base_pred_triples,
                                                inferred_hint, extra_paths)

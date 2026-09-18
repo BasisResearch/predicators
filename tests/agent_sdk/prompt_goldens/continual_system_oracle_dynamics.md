@@ -22,7 +22,7 @@ The evaluator judges the true state; a predicate on one noisy frame can disagree
 
 ## Oracle dynamics comparison
 
-The supplied simulator.py contains the environment's mechanism dynamics and correct parameter values. The model is fixed for the entire run; do not edit it, fit parameters, or route predictions through another dynamics model. Current observations remain noisy and hidden execution state is not handed to you. You still choose experiments and actions, plan, rehearse, infer current state, and invent predicates. An oracle dynamics model does not supply an oracle controller or guarantee a successful plan from an uncertain current state.
+The supplied simulator, which runs inside `sim` and is not exposed as source, contains the environment's mechanism dynamics and correct parameter values. The model is fixed for the entire run; do not edit it, fit parameters, or route predictions through another dynamics model. Current observations remain noisy and hidden execution state is not handed to you. You still choose experiments and actions, plan, rehearse, infer current state, and invent predicates. An oracle dynamics model does not supply an oracle controller or guarantee a successful plan from an uncertain current state.
 
 ## Decision workflow
 
@@ -62,7 +62,7 @@ Files persist across levels, rounds, compaction, and resume. See `./CLAUDE.md` f
 - `./journal.md`: your durable decision record; `./attempts.md`: the harness's round summary; `./session_logs/`: earlier queries and tool results.
 - `./test_images/`: scene renders named in tool results; open them with `Read`.
 
-- `./simulator.py`: the supplied dynamics model, fixed for the run; `./predicates.py`: your predicate definitions, whose contract the predicate API reference below specifies.
+- The supplied dynamics model runs inside `sim`; there is no `./simulator.py` to read or write. `./predicates.py`: your predicate definitions, whose contract the predicate API reference below specifies.
 - `./probe_ext.py`: optional helper definitions loaded beside `sim` at the start of each round; use it to preserve reusable analysis code.
 - `./predicates_versions/`: snapshots of predicate-file writes; reports identify the version they score.
 
@@ -76,7 +76,7 @@ The run is one conversation. A round consists of one harness prompt and your res
 
 ## Model workbench
 
-`run_python` provides `sim`, `trajectories`, `describe_trajectory`, `train_tasks`, `np`, and `ParamSpec` in a persistent namespace. The data refreshes after charged environment calls. The supplied model is fixed for the run: rollouts run the real skill controllers on it, and no call fits or changes its parameters.
+`run_python` provides `sim`, `trajectories`, `describe_trajectory`, `train_tasks`, `np`, and `ParamSpec` in a persistent namespace. The data refreshes after charged environment calls. The supplied model is fixed for the run and not exposed as source: rollouts run the real skill controllers on it, and no call fits or changes its parameters.
 
 | Task | API and meaning |
 | --- | --- |
@@ -93,7 +93,7 @@ The run is one conversation. A round consists of one harness prompt and your res
 
 ## Predicate API reference
 
-The dynamics model in `./simulator.py` is supplied and fixed; do not edit it. Write optional monitoring predicates in `./predicates.py`.
+The dynamics model is supplied and fixed; it runs inside `sim` and is not exposed as source. Write optional monitoring predicates in `./predicates.py`.
 
 ### `predicates.py`
 

@@ -10,15 +10,8 @@ import ast
 import inspect
 import textwrap
 from pathlib import Path
-from typing import Dict
 
 from predicators.settings import CFG
-
-
-def _fixed_specs(params: Dict[str, float]) -> str:
-    return "[" + ", ".join(
-        f"ParamSpec({key!r}, {value!r}, lo={value!r}, hi={value!r})"
-        for key, value in sorted(params.items())) + "]"
 
 
 def oracle_source() -> str:
@@ -72,11 +65,15 @@ def oracle_source() -> str:
         tree.body.extend(ast.parse("RESIDUAL_ENV = BoilOracle").body)
         return ast.unparse(ast.fix_missing_locations(tree)) + "\n"
     if CFG.env == "pybullet_domino":
-        return ("class OracleDynamics(BaseSimulator):\n"
-                "    AGENT_PARAM_SPECS = " + _fixed_specs(
-                    {"lateral_friction": float(CFG.domino_true_friction)}) +
-                "\n"
+        friction = float(CFG.domino_true_friction)
+        return (f"_FIXED_PARAMS = {{'lateral_friction': {friction!r}}}\n"
+                "class OracleDynamics(BaseSimulator):\n"
+                "    AGENT_PARAM_SPECS = []\n"
                 "    RESIDUAL_FEATURES = {}\n"
+                "    def __init__(self, *args, **kwargs):\n"
+                "        super().__init__(*args, **kwargs)\n"
+                "        self.apply_physical_param_overrides("
+                "dict(_FIXED_PARAMS))\n"
                 "    def _domain_specific_step(self):\n        pass\n"
                 "RESIDUAL_ENV = OracleDynamics\n")
     if CFG.env == "pybullet_fan":
@@ -115,8 +112,13 @@ def oracle_source() -> str:
         for node in tree.body:
             if isinstance(node,
                           ast.ClassDef) and node.name == "BalloonsResidualEnv":
+                # The true values are module constants read through
+                # ``agent_param``, not declared parameters: nothing the
+                # probe reports or the predicate loader exposes names them.
                 node.body.extend(
                     ast.parse(
+                        "def agent_param(self, name):\n"
+                        "    return _FIXED_PARAMS[name]\n"
                         "def _box_mass_for(self, color_index):\n"
                         "    return self.agent_param("
                         "_mass_param_name(color_index))\n"
@@ -127,8 +129,20 @@ def oracle_source() -> str:
                             and isinstance(stmt.target, ast.Name)
                             and stmt.target.id == "AGENT_PARAM_SPECS"):
                         node.body[index] = ast.parse(
-                            "AGENT_PARAM_SPECS = " +
-                            _fixed_specs(params)).body[0]
+                            "AGENT_PARAM_SPECS = []").body[0]
+        # After the docstring and any ``from __future__`` import, which
+        # must lead the file.
+        def _leads(node: ast.AST) -> bool:
+            return (isinstance(node, ast.ImportFrom) and node.module
+                    == "__future__") or (isinstance(node, ast.Expr) and
+                                         isinstance(node.value, ast.Constant))
+
+        first = next(
+            (i for i, node in enumerate(tree.body) if not _leads(node)), 0)
+        tree.body.insert(
+            first,
+            ast.parse(
+                f"_FIXED_PARAMS = {dict(sorted(params.items()))!r}").body[0])
         return ast.unparse(ast.fix_missing_locations(tree)) + "\n"
     raise NotImplementedError(
         "Current continual oracle memory is not yet audited for " + CFG.env)

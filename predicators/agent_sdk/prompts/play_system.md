@@ -319,7 +319,7 @@ After an edit, the candidate uses the values written in its declarations; inspec
 | Check reliability | Repeated rehearsals at the same state and dynamics (`trials>=2`) check controller reliability. Parameter sweeps, belief draws and `sim.belief()` are disabled in this run. |
 
 <!-- section: frozen_line_supplied -->
-The supplied model is fixed for the run: rollouts run the real skill controllers on it, and no call fits or changes its parameters.
+The supplied model is fixed for the run and not exposed as source: rollouts run the real skill controllers on it, and no call fits or changes its parameters.
 
 <!-- section: frozen_line_written -->
 Your model is sealed at the first real action: until then, edits load on the next probe call; afterwards rollouts run the real skill controllers on the sealed code and values, and no call fits or changes its parameters.
@@ -399,6 +399,6 @@ Solve every level while minimizing real environment steps and resets.
 You can rehearse in that simulator in the sandbox and choose when to experiment or act within the same conversation.
 
 <!-- section: sandbox_frozen_files -->
-- `./simulator.py`: the supplied dynamics model, fixed for the run; `./predicates.py`: your predicate definitions, whose contract the predicate API reference below specifies.
+- The supplied dynamics model runs inside `sim`; there is no `./simulator.py` to read or write. `./predicates.py`: your predicate definitions, whose contract the predicate API reference below specifies.
 - `./probe_ext.py`: optional helper definitions loaded beside `sim` at the start of each round; use it to preserve reusable analysis code.
 - `./predicates_versions/`: snapshots of predicate-file writes; reports identify the version they score.

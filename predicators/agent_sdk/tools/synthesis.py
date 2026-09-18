@@ -8,6 +8,8 @@ import numpy as np
 
 from predicators.agent_sdk.synthesis_backend import SynthesisBackend
 from predicators.agent_sdk.tools.budget import suspend_budget_watchdog
+from predicators.agent_sdk.tools.exploration import ProbeSurface, \
+    belief_probe_blurb
 from predicators.agent_sdk.tools.python_exec import _make_python_exec_tool
 from predicators.agent_sdk.tools.results import _make_coercing_tool, \
     _make_spilling_text_result
@@ -191,6 +193,7 @@ def create_synthesis_tools(
     sandbox_dir_for_agent: Optional[str] = None,
     cycle_index_provider: Optional[Callable[[], int]] = None,
     budget_check: Optional[Callable[[], None]] = None,
+    probe_surface: Optional[ProbeSurface] = None,
 ) -> SynthesisToolkit:
     """Create the sim-learning synthesis agent's tool surface.
 
@@ -265,6 +268,9 @@ def create_synthesis_tools(
             instance reflects later cycle bumps. If ``None``, cycle
             defaults to 0 (still valid; produces
             ``cycle_000_vers_YYY``).
+        probe_surface: What this session's probe accepts
+            (:class:`ProbeSurface`); the ``run_python`` description offers
+            exactly that.
         budget_check: Callable raising ``ProbeBudgetExceeded`` when the
             session's wall-clock budget is spent. Long-running backends
             (the rollout-residuals sweep) call it between rollouts so a
@@ -743,54 +749,86 @@ def create_synthesis_tools(
     # synthesis (there is no other validation surface). Shared blurb,
     # so the wording cannot drift from the solve-phase run_python
     # surface.
-    # pylint: disable-next=import-outside-toplevel
-    from predicators.agent_sdk.tools.exploration import belief_probe_blurb
+    surface = probe_surface or ProbeSurface()
+    if surface.fit:
+        protocol = (
+            " Nothing the probe runs is captured; the validation protocol "
+            "before declaring the simulator done is: `sim.fit()` (canonical "
+            "fit report), `sim.refine(plan, require_goal=True)` (params "
+            "exist that reach each subgoal), then a continuous `sim.run` of "
+            "the refined plan (the forward pass; a refine-pass/run-fail "
+            "means a rule is more permissive than the data).")
+    elif surface.edit_model:
+        protocol = (
+            " Nothing the probe runs is captured; the validation protocol "
+            "before relying on the simulator is: `sim.validate()` (does the "
+            "model explain the recordings at its declared values), "
+            "`sim.refine(plan, require_goal=True)` (params exist that reach "
+            "each subgoal), then a continuous `sim.run` of the refined plan "
+            "(the forward pass; a refine-pass/run-fail means a rule is more "
+            "permissive than the data).")
+    else:
+        protocol = (
+            " Nothing the probe runs is captured; the rehearsal protocol "
+            "before acting is: `sim.refine(plan, require_goal=True)` "
+            "(params exist that reach each subgoal), then a continuous "
+            "`sim.run` of the refined plan.")
     probe_blurb = (
         " This namespace ALSO binds the candidate-simulator probe: " +
-        belief_probe_blurb(synthesis_probe=True) +
+        belief_probe_blurb(synthesis_probe=True, surface=surface) +
         " Probe rollouts are CANDIDATE-simulator predictions - do not "
-        "mix them up with the recorded real `trajectories`. Nothing the "
-        "probe runs is captured; the validation protocol before declaring "
-        "the simulator done is: `sim.fit()` (canonical fit report), "
-        "`sim.refine(plan, require_goal=True)` (params exist that reach "
-        "each subgoal), then a continuous `sim.run` of the refined plan "
-        "(the forward pass; a refine-pass/run-fail means a rule is more "
-        "permissive than the data).")
+        "mix them up with the recorded real `trajectories`." + protocol)
+    if not surface.edit_model:
+        model_note = ("The dynamics model is supplied and runs inside `sim`; "
+                      "there is no `simulator.py` to read or write.")
+    elif surface.fit:
+        model_note = ("To define a model, write `simulator.py` for that; "
+                      "`sim.fit` and `sim.residuals` load the RESIDUAL_ENV "
+                      "subclass and its AGENT_PARAM_SPECS from that file "
+                      "fresh on every call.")
+    else:
+        model_note = ("To define a model, write `simulator.py` for that; "
+                      "the probe loads the RESIDUAL_ENV subclass and its "
+                      "AGENT_PARAM_SPECS from that file fresh on every "
+                      "call.")
+    values_phrase = ("at its current fit"
+                     if surface.fit else "at its deployed values")
+    sweep_phrase = (
+        "; physics_sweep=True also scores it at every point of the "
+        "identified parameters' belief interval and reports the fraction "
+        "scored solved" if surface.uncertainty else "")
+    eval_signature = ("evaluate_trajectory(states, actions=None, task_idx=0, "
+                      "physics_sweep=False) -> {reward, solved, note[, sweep]}"
+                      if surface.uncertainty else
+                      "evaluate_trajectory(states, actions=None, task_idx=0) "
+                      "-> {reward, solved, note}")
     run_python = _make_python_exec_tool(
         tool,
         name="run_python",
-        description=
-        ("Execute Python code (`code`, or `path` to a .py file you wrote "
-         "in the sandbox) for ad-hoc data exploration. Available "
-         "variables: trajectories (List[LowLevelTrajectory]; each has "
-         "`is_demo`, `train_task_idx`, `states`, `actions`), train_tasks "
-         "(List[Task]; each has `init`, `goal`, `goal_holds(state)`), "
-         "is_goal_state (callable: state, task_idx -> bool - do the goal "
-         "atoms hold in this one STATE; reaching the goal atoms does not "
-         "by itself mean solved), describe_trajectory(traj_idx, "
-         "include_states=True, include_atoms=False, max_timesteps=10) "
-         "- a per-timestep digest of one trajectory, np, ParamSpec, "
-         "and (when the "
-         "env defines task evaluators) evaluate_trajectory(states, "
-         "actions=None, task_idx=0, physics_sweep=False) -> {reward, "
-         "solved, note[, sweep]} - the "
-         "task's reward model over a state sequence: the environment's "
-         "scoring rules, on a simulator rollout or a hand-built "
-         "sequence run against your belief simulator at its current "
-         "fit (`note` says what a replaying rule simulated and on "
-         "what; label transitions with (option, objects, params) so it "
-         "replays your action, not its canonical one; physics_sweep=True "
-         "also scores it at every point of the identified parameters' "
-         "belief interval and reports the fraction scored solved). "
-         "print() output "
-         "is returned. The namespace persists across calls. If output "
-         "exceeds ~30k chars it is saved to "
-         "`tool_outputs/run_python/call_NNNN.txt` in the sandbox and only "
-         "a head/tail preview plus that path is returned - use Read/Grep "
-         "to inspect the full file. To define a model, write "
-         "`simulator.py` for that; `sim.fit` and `sim.residuals` "
-         "load the RESIDUAL_ENV subclass and its AGENT_PARAM_SPECS from that "
-         "file fresh on every call." + probe_blurb),
+        description=(
+            "Execute Python code (`code`, or `path` to a .py file you wrote "
+            "in the sandbox) for ad-hoc data exploration. Available "
+            "variables: trajectories (List[LowLevelTrajectory]; each has "
+            "`is_demo`, `train_task_idx`, `states`, `actions`), train_tasks "
+            "(List[Task]; each has `init`, `goal`, `goal_holds(state)`), "
+            "is_goal_state (callable: state, task_idx -> bool - do the goal "
+            "atoms hold in this one STATE; reaching the goal atoms does not "
+            "by itself mean solved), describe_trajectory(traj_idx, "
+            "include_states=True, include_atoms=False, max_timesteps=10) "
+            "- a per-timestep digest of one trajectory, np, ParamSpec, "
+            "and (when the env defines task evaluators) " + eval_signature +
+            " - the task's reward model over a state sequence: the "
+            "environment's scoring rules, on a simulator rollout or a "
+            "hand-built sequence run against your belief simulator " +
+            values_phrase + " (`note` says what a replaying rule simulated "
+            "and on what; label transitions with (option, objects, params) "
+            "so it replays your action, not its canonical one" + sweep_phrase +
+            "). print() output "
+            "is returned. The namespace persists across calls. If output "
+            "exceeds ~30k chars it is saved to "
+            "`tool_outputs/run_python/call_NNNN.txt` in the sandbox and only "
+            "a head/tail preview plus that path is returned - use Read/Grep "
+            "to inspect the full file. " + model_note + probe_blurb),
         exec_ns=exec_ns,
         sandbox_dir=sandbox_dir,
         sandbox_dir_for_agent=sandbox_dir_for_agent,

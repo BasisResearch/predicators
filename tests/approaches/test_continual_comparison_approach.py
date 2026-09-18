@@ -1,7 +1,9 @@
 """Continual comparison contracts exercised through real play tools."""
+import os
+import re
 import shlex
 import sys
-from typing import Any, Dict, Iterator, Set, Tuple
+from typing import Any, Dict, Iterator, List, Set, Tuple
 
 import pybullet as p
 import pytest
@@ -14,6 +16,7 @@ from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.ground_truth_models import get_gt_options
 from predicators.run.continual import ContinualRun
 from predicators.run.level_players import create_level_player
+from predicators.settings import CFG
 from predicators.structs import Dataset
 from scripts.cluster_utils import config_to_cmd_flags, generate_run_configs
 from tests.approaches.test_agent_continual_approach import _call, _config, \
@@ -118,7 +121,8 @@ def test_ablation_play_tools(tmp_path: Any, monkeypatch: Any, arm: str,
         ctx = agent._tool_context  # pylint: disable=protected-access
         # The first query's model status matches what the arm can do.
         if arm in {"scene_only", "oracle_dynamics"}:
-            assert "the supplied `simulator.py`, fixed for the run" in message
+            assert ("the supplied simulator, fixed for the run and not "
+                    "exposed as source") in message
             assert "sim.fit()" not in message
         elif arm == "no_fitting":
             assert "the harness fits nothing" in message
@@ -129,6 +133,8 @@ def test_ablation_play_tools(tmp_path: Any, monkeypatch: Any, arm: str,
         assert "[noise]" in observation
         assert "[objects]" in observation
         prompt = agent._play_system_prompt()  # pylint: disable=protected-access
+        tool_description = next(t.description for t in ctx.extra_mcp_tools
+                                if t.name == "run_python")
         if arm == "no_uncertainty":
             assert "[belief]" not in observation
             assert "[atoms under the belief]" not in observation
@@ -152,11 +158,57 @@ def test_ablation_play_tools(tmp_path: Any, monkeypatch: Any, arm: str,
             heading = ("Scene-only comparison" if arm == "scene_only" else
                        "Oracle dynamics comparison")
             assert heading in prompt
+            assert "not exposed as source" in prompt
             assert "unavailable" in BeliefProbe(ctx).fit()
+            # The supplied model never enters the sandbox, and nothing the
+            # agent can read names its calibration constants.
+            assert ctx.sandbox_dir is not None
+            assert not os.path.exists(
+                os.path.join(ctx.sandbox_dir, "simulator.py"))
+            paths = agent._resolve_synthesis_paths()  # pylint: disable=protected-access
+            assert os.path.isfile(paths.simulator_file)
+            assert not paths.simulator_file.startswith(ctx.sandbox_dir)
+            # Parameter names appear nowhere the agent reads; the values
+            # appear in no probe report and no sandbox file name (the
+            # query and observation carry unrelated numbers such as skill
+            # ranges, so values are not checked there).
+            reports = [
+                BeliefProbe(ctx).validate(),
+                BeliefProbe(ctx).residuals(),
+                _sandbox_listing(ctx)
+            ]
+            for text in [prompt, message, observation, tool_description
+                         ] + reports:
+                leaked = _leaked_calibration(domain, text, values=False)
+                assert not leaked, (arm, leaked, text[:400])
+            for text in reports:
+                leaked = _leaked_calibration(domain, text, values=True)
+                assert not leaked, (arm, leaked, text[:400])
+            with open(paths.simulator_file, encoding="utf-8") as f:
+                assert re.search(r"AGENT_PARAM_SPECS(: [^=]+)? = \[\]",
+                                 f.read())
         else:
             assert "No harness parameter fitting" in prompt
             assert "Do not implement an optimizer" not in prompt
             assert "parameter estimation is disabled" in BeliefProbe(ctx).fit()
+        # The run_python description offers only what the arm's probe
+        # accepts.
+        if arm in {"scene_only", "oracle_dynamics", "no_fitting"}:
+            assert "sim.fit" not in tool_description
+            assert "PARAMS UNFITTED" not in tool_description
+        else:
+            assert "sim.fit(" in tool_description
+        if arm in {"scene_only", "oracle_dynamics"}:
+            assert "no `simulator.py` to read or write" in tool_description
+            assert "phys_params" not in tool_description
+        else:
+            assert "write `simulator.py`" in tool_description
+        if arm == "no_uncertainty":
+            assert "belief_draws" not in tool_description
+            assert "suggest_probes" not in tool_description
+            assert "physics_sweep=True" not in tool_description
+        else:
+            assert "belief_draws" in tool_description
         assert "step applied" in _call(agent,
                                        "env_step",
                                        action=[0.0] *
@@ -169,6 +221,35 @@ def test_ablation_play_tools(tmp_path: Any, monkeypatch: Any, arm: str,
     card = ContinualRun(env, agent, create_level_player(env, agent)).run()
     assert card.total_steps == 1
     assert card.total_resets == 0
+
+
+def _leaked_calibration(domain: str, text: str, *, values: bool) -> List[str]:
+    """Parameter names (and, with ``values``, privileged constants) of the
+    supplied model in ``text``: a value counts only as a whole number, so a
+    coordinate such as 0.5079 does not match the friction 0.5."""
+    names: List[str] = []
+    constants: List[float] = []
+    if domain == "domino":
+        names = ["lateral_friction"]
+        constants = [float(CFG.domino_true_friction)]
+    elif domain == "balloons":
+        names = ["air_drag", "mass_oak", "lift_gold", "fade_height"]
+        constants = [float(CFG.balloons_drag)] + [
+            float(m) for m in CFG.balloons_box_masses
+        ] + [float(l) for l in CFG.balloons_lifts]
+    leaked = [n for n in names if n in text]
+    for value in (constants if values else []):
+        if re.search(rf"(?<![\d.]){re.escape(repr(value))}(?![\d])", text):
+            leaked.append(repr(value))
+    return leaked
+
+
+def _sandbox_listing(ctx: Any) -> str:
+    """Every file name in the sandbox, so a stray copy of the model shows."""
+    names: List[str] = []
+    for root, _dirs, files in os.walk(ctx.sandbox_dir):
+        names.extend(os.path.join(root, f) for f in files)
+    return "\n".join(sorted(names))
 
 
 def _configure_domain_comparison(tmp_path: Any, domain: str,
@@ -332,6 +413,11 @@ def test_zero_shot_seals_before_first_charge(tmp_path: Any, monkeypatch: Any,
 
     def query(message: str, *_args: Any, **_kwargs: Any) -> Any:
         assert "the dynamics are sealed at that point" in message
+        ctx = agent._tool_context  # pylint: disable=protected-access
+        description = next(t.description for t in ctx.extra_mcp_tools
+                           if t.name == "run_python")
+        assert "seals it" in description
+        assert "sim.fit" not in description
         action = [0.0] * env.action_space.shape[0]
         result = _call(agent, "env_step", action=action)
         assert "step applied" not in result
