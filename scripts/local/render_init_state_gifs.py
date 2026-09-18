@@ -58,7 +58,8 @@ def _menu_flags(env_name: str) -> Dict[str, Any]:
 
 
 def _caption(frame: np.ndarray, text: str) -> Image.Image:
-    image = Image.fromarray(frame[:, :, :3].astype(np.uint8))
+    image = Image.fromarray(  # type: ignore[no-untyped-call]
+        frame[:, :, :3].astype(np.uint8))
     draw = ImageDraw.Draw(image)
     size = max(14, image.height // 18)
     # Pillow's bundled scalable font; system fonts vary across nodes.
