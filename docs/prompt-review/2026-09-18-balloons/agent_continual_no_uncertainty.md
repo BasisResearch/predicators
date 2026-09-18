@@ -24,7 +24,7 @@ Object features and renders describe the observed scene. `[atoms]` contains only
 
 Gaussian observation noise on every non-robot object: positions (x, y, z) sigma 0.01 m; orientations (rot, roll, pitch, yaw) sigma 0.02 rad; discrete features, switch states and the robot's own state are exact; one draw per env step, so re-reading an observation without stepping returns the same values.
 
-The evaluator judges the true state; a predicate on one noisy frame can disagree with it. Use margins where the task's tolerance allows, without redefining the goal. Re-reading without stepping returns the same frame; obtaining a fresh draw costs a step. Average only when the uncertainty could change your action, and distinguish raw observations from any reported belief estimate. Recorded features carry the same noise.
+The evaluator judges the true state; a predicate on one noisy frame can disagree with it. Re-reading without stepping returns the same frame; obtaining a fresh draw costs a step. Use the latest raw observation as the current state and fit your world model directly to the raw recorded observations. Do not average, smooth, filter, or otherwise denoise observations, including in your own sandbox code. Recorded features carry the same noise.
 
 ## Decision workflow
 
@@ -205,9 +205,9 @@ Define predicates for outcomes you rely on: they support skill expectations, div
 
 A classifier can accept a keyword argument named exactly `latent` to read inferred model memory, for example `lambda state, objs, latent=None: (latent or {}).get(objs[0].name, {}).get("charge", 0.0) >= params["done"]`. `sim.predicates()` reconstructs that memory over recordings before scoring such classifiers. Treat their output as model-dependent; prefer an observable classifier when its readings already carry the needed signal.
 
-## Point-estimate comparison
+## No explicit uncertainty handling
 
-Use a single current state estimate and one fitted value per parameter for every decision. Noise-aware numerical fitting, state smoothing, inferred model memory, and model revision remain enabled. Do not construct parameter intervals, state or parameter ensembles, uncertainty sweeps, or disagreement-based experiments, including in your own sandbox code. `sim.belief`, `belief_draws`, `physics_sweep`, and `sim.suggest_probes` are disabled. Repeated rehearsals at the same state and dynamics remain available to check controller reliability.
+Use the latest raw observation as the current state and one fitted value per parameter for every decision. Ordinary parameter fitting over multiple raw noisy transitions, inferred mechanism memory, and model revision remain enabled. Do not average, smooth, filter, or denoise observed state, infer denoised trajectory initial states, construct parameter intervals, state or parameter ensembles, uncertainty sweeps, or disagreement-based experiments, including in your own sandbox code. Mechanism memory may track action history and hidden processes, but must not denoise observed features. `sim.belief`, `belief_draws`, `physics_sweep`, and `sim.suggest_probes` are disabled. Repeated rehearsals at the same state and dynamics remain available to check controller reliability.
 
 ## Sandbox Environment
 You are running in a local sandbox environment. You have the following built-in tools available: Bash, Read, Write, Edit, Glob, Grep, Task, TaskOutput, TaskStop, TaskCreate, TaskGet, TaskUpdate, TaskList.
@@ -370,13 +370,13 @@ Round 2 of the run: you stopped, and level 1 is not settled, so it continues fro
 [noise] position sigma 0.01 m, orientation sigma 0.02 rad on object features (robot exact; one draw per step)
 [atoms] (none)
 [objects]
-  {'balloon0:balloon': {'x': 0.7137, 'y': 1.4240, 'z': 0.4422, 'color': 3.0000, 'clip': 0.0000, 'tied': 0.0000, 'popped': 0.0000},
-   'balloon1:balloon': {'x': 0.8664, 'y': 1.4068, 'z': 0.4354, 'color': 0.0000, 'clip': 1.0000, 'tied': 0.0000, 'popped': 0.0000},
-   'balloon2:balloon': {'x': 1.0322, 'y': 1.4199, 'z': 0.4257, 'color': 2.0000, 'clip': 2.0000, 'tied': 0.0000, 'popped': 0.0000},
-   'band:band': {'x': 0.3370, 'y': 1.1987, 'lo': 0.5079, 'hi': 0.5579},
-   'box:box': {'x': 0.4193, 'y': 1.1883, 'z': 0.4408, 'color': 1.0000, 'speed': 0.0007},
-   'clip0:clip': {'x': 0.7092, 'y': 1.2345, 'z': 0.3944, 'rot': -0.0015, 'is_on': 0.0000},
-   'clip1:clip': {'x': 0.8749, 'y': 1.2483, 'z': 0.3970, 'rot': 0.0189, 'is_on': 0.0000},
+  {'balloon0:balloon': {'x': 0.7162, 'y': 1.4292, 'z': 0.4479, 'color': 3.0000, 'clip': 0.0000, 'tied': 0.0000, 'popped': 0.0000},
+   'balloon1:balloon': {'x': 0.8617, 'y': 1.3989, 'z': 0.4372, 'color': 0.0000, 'clip': 1.0000, 'tied': 0.0000, 'popped': 0.0000},
+   'balloon2:balloon': {'x': 1.0214, 'y': 1.4103, 'z': 0.4284, 'color': 2.0000, 'clip': 2.0000, 'tied': 0.0000, 'popped': 0.0000},
+   'band:band': {'x': 0.3466, 'y': 1.2037, 'lo': 0.5079, 'hi': 0.5579},
+   'box:box': {'x': 0.4181, 'y': 1.1998, 'z': 0.4487, 'color': 1.0000, 'speed': 0.0007},
+   'clip0:clip': {'x': 0.7209, 'y': 1.2362, 'z': 0.3942, 'rot': 0.0033, 'is_on': 0.0000},
+   'clip1:clip': {'x': 0.8758, 'y': 1.2462, 'z': 0.3953, 'rot': 0.0105, 'is_on': 0.0000},
    'clip2:clip': {'x': 1.0428, 'y': 1.2346, 'z': 0.3662, 'rot': -0.0377, 'is_on': 0.0000},
    'robot:robot': {'x': 0.8159, 'y': 1.7651, 'z': 0.8800, 'fingers': 0.0049, 'roll': -0.2841, 'tilt': 0.2128, 'wrist': 1.5350}}
 

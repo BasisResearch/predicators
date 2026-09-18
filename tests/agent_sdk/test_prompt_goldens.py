@@ -528,7 +528,11 @@ def test_golden_continual_system_ablation(arm):
         assert "Do not implement an optimizer" not in text
         assert "have a fitted" not in text
     if arm == "no_uncertainty":
-        assert "Point-estimate comparison" in text
+        assert "No explicit uncertainty handling" in text
+        assert "latest raw observation" in text
+        assert "Do not average, smooth, filter" in text
+        assert "Average only when" not in text
+        assert "state smoothing" not in text
         assert "tests physical-parameter uncertainty" not in text
         assert "margin across models" not in text
         assert "what uncertainty could change" not in text

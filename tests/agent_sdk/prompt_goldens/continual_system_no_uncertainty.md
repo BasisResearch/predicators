@@ -18,7 +18,7 @@ Object features and renders describe the observed scene. `[atoms]` contains only
 
 Gaussian observation noise on every non-robot object: positions (x, y, z) sigma 0.01 m; orientations (rot, roll, pitch, yaw) sigma 0.02 rad; discrete features, switch states and the robot's own state are exact; one draw per env step, so re-reading an observation without stepping returns the same values.
 
-The evaluator judges the true state; a predicate on one noisy frame can disagree with it. Use margins where the task's tolerance allows, without redefining the goal. Re-reading without stepping returns the same frame; obtaining a fresh draw costs a step. Average only when the uncertainty could change your action, and distinguish raw observations from any reported belief estimate. Recorded features carry the same noise.
+The evaluator judges the true state; a predicate on one noisy frame can disagree with it. Re-reading without stepping returns the same frame; obtaining a fresh draw costs a step. Use the latest raw observation as the current state and fit your world model directly to the raw recorded observations. Do not average, smooth, filter, or otherwise denoise observations, including in your own sandbox code. Recorded features carry the same noise.
 
 ## Decision workflow
 
@@ -184,6 +184,6 @@ Define predicates for outcomes you rely on: they support skill expectations, div
 
 A classifier can accept a keyword argument named exactly `latent` to read inferred model memory, for example `lambda state, objs, latent=None: (latent or {}).get(objs[0].name, {}).get("charge", 0.0) >= params["done"]`. `sim.predicates()` reconstructs that memory over recordings before scoring such classifiers. Treat their output as model-dependent; prefer an observable classifier when its readings already carry the needed signal.
 
-## Point-estimate comparison
+## No explicit uncertainty handling
 
-Use a single current state estimate and one fitted value per parameter for every decision. Noise-aware numerical fitting, state smoothing, inferred model memory, and model revision remain enabled. Do not construct parameter intervals, state or parameter ensembles, uncertainty sweeps, or disagreement-based experiments, including in your own sandbox code. `sim.belief`, `belief_draws`, `physics_sweep`, and `sim.suggest_probes` are disabled. Repeated rehearsals at the same state and dynamics remain available to check controller reliability.
+Use the latest raw observation as the current state and one fitted value per parameter for every decision. Ordinary parameter fitting over multiple raw noisy transitions, inferred mechanism memory, and model revision remain enabled. Do not average, smooth, filter, or denoise observed state, infer denoised trajectory initial states, construct parameter intervals, state or parameter ensembles, uncertainty sweeps, or disagreement-based experiments, including in your own sandbox code. Mechanism memory may track action history and hidden processes, but must not denoise observed features. `sim.belief`, `belief_draws`, `physics_sweep`, and `sim.suggest_probes` are disabled. Repeated rehearsals at the same state and dynamics remain available to check controller reliability.

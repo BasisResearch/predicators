@@ -40,7 +40,7 @@ class AgentContinualNoFittingApproach(AgentContinualApproach):
 
 
 class AgentContinualNoUncertaintyApproach(AgentContinualApproach):
-    """Noise-aware estimation followed by point-estimate decisions."""
+    """Fit raw noisy observations and decide without uncertainty handling."""
 
     @classmethod
     def get_name(cls) -> str:
@@ -58,11 +58,10 @@ class AgentContinualNoUncertaintyApproach(AgentContinualApproach):
             "code_sim_learning_interval_belief",
             "code_sim_learning_carry_posterior",
             "agent_sim_learn_declared_params_only",
+            "code_sim_learning_rollout_noise_filter",
+            "continual_belief_frame",
         )
-        enabled = ("code_sim_learning_rollout_noise_filter",
-                   "continual_belief_frame")
         wrong = [name for name in disabled if getattr(CFG, name)]
-        wrong += [name for name in enabled if not getattr(CFG, name)]
         if wrong:
             raise ValueError("Invalid point-estimate configuration: " +
                              ", ".join(wrong))

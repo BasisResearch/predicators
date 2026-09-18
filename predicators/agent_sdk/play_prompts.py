@@ -153,6 +153,10 @@ def build_play_system_prompt(tool_names: Sequence[str],
     frozen = model and bool(frozen_section)
     supplied = frozen and frozen_model_supplied
     point_estimate = model and not CFG.continual_uncertainty_decisions
+    raw_point_estimate = (point_estimate
+                          and not CFG.agent_sim_learn_declared_params_only
+                          and not CFG.continual_belief_frame
+                          and not CFG.code_sim_learning_rollout_noise_filter)
     fit_available = (model and not frozen
                      and not CFG.agent_sim_learn_declared_params_only)
     identity = ("identity_frozen" if supplied else
@@ -167,7 +171,8 @@ def build_play_system_prompt(tool_names: Sequence[str],
     if noise.enabled and noise.declared:
         sections.append(
             render("play_system",
-                   "observation_noise" + variant,
+                   "observation_noise_raw"
+                   if raw_point_estimate else "observation_noise" + variant,
                    noise_line=noise.describe() + "."))
     if frozen:
         sections.append(frozen_section)
@@ -285,7 +290,8 @@ def build_play_system_prompt(tool_names: Sequence[str],
     if point_estimate:
         sections.append(
             render(
-                "play_system", "point_estimate_decisions_declared"
+                "play_system", "point_estimate_decisions_raw"
+                if raw_point_estimate else "point_estimate_decisions_declared"
                 if CFG.agent_sim_learn_declared_params_only else
                 "point_estimate_decisions"))
     return "\n\n".join(section.strip() for section in sections)

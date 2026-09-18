@@ -11,6 +11,8 @@ import pytest
 from predicators import utils
 from predicators.agent_sdk.belief_probe import BeliefProbe
 from predicators.approaches import create_approach
+from predicators.approaches.agent_continual_ablation_approach import \
+    AgentContinualNoUncertaintyApproach
 from predicators.envs import create_new_env
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.ground_truth_models import get_gt_options
@@ -73,6 +75,9 @@ def test_comparison_config_matches_existing_domains(monkeypatch: Any) -> None:
         parsed = utils.parse_args()
         assert parsed["env"] == cfg.env
         assert parsed["approach"] == cfg.approach
+        if cfg.approach == "agent_continual_no_uncertainty":
+            assert not cfg.flags["continual_belief_frame"]
+            assert not cfg.flags["code_sim_learning_rollout_noise_filter"]
         seeds.setdefault((cfg.env, cfg.approach), set()).add(parsed["seed"])
         # The EMPIRIC arm is the reference for the domain settings.
         reference = next(
@@ -92,13 +97,29 @@ def test_comparison_config_matches_existing_domains(monkeypatch: Any) -> None:
     assert all(s == SEEDS for s in seeds.values())
 
 
+@pytest.mark.parametrize(
+    "flag",
+    ["continual_belief_frame", "code_sim_learning_rollout_noise_filter"])
+def test_no_uncertainty_rejects_smoothing(flag: str) -> None:
+    """A config override cannot silently restore denoising in this arm."""
+    cfg = next(c for c in generate_run_configs(CONFIG, False)
+               if c.approach == "agent_continual_no_uncertainty")
+    utils.reset_config({
+        **{k: v
+           for k, v in cfg.flags.items() if k != "log"}, flag: True
+    })
+    # Contract validation must fail before constructing an environment.
+    with pytest.raises(ValueError, match=flag):
+        AgentContinualNoUncertaintyApproach()
+
+
 @pytest.mark.parametrize("domain",
                          ["boil", "bridge", "fan", "domino", "balloons"])
 @pytest.mark.parametrize(
     "arm", ["no_fitting", "no_uncertainty", "scene_only", "oracle_dynamics"])
 def test_ablation_play_tools(tmp_path: Any, monkeypatch: Any, arm: str,
                              domain: str) -> None:
-    """Real noisy observations retain means; tools enforce arm restrictions."""
+    """No-uncertainty uses raw observations; tools enforce arm restrictions."""
     cfg = next(c for c in generate_run_configs(CONFIG, False)
                if c.env == f"pybullet_{domain}" and c.approach.endswith(arm))
     _config(
@@ -138,11 +159,11 @@ def test_ablation_play_tools(tmp_path: Any, monkeypatch: Any, arm: str,
         if arm == "no_uncertainty":
             assert "[belief]" not in observation
             assert "[atoms under the belief]" not in observation
-            assert "Point-estimate comparison" in prompt
+            assert "No explicit uncertainty handling" in prompt
             session = agent._play_session  # pylint: disable=protected-access
             obs = session.observe()
-            assert obs.belief is not None
-            assert obs.frame.allclose(obs.belief.frame)
+            assert obs.belief is None
+            assert "Do not average, smooth, filter" in prompt
             probe = BeliefProbe(ctx)
             with pytest.raises(ValueError, match="Explicit uncertainty"):
                 probe.belief()

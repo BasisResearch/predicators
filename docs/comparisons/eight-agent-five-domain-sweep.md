@@ -14,6 +14,7 @@ MB Balloons seeds 0 and 1 are the explicitly reused subclass pilot runs.
 Standalone predictions in the non-Bridge cohort used the older prompt restricting engine imports; the replacement Bridge prompt permits agent-owned physics simulators.
 No harness fitting disables supplied fitting tools and permits agent-written fitting.
 Some no-explicit-uncertainty runs used agent-written uncertainty checks; the arm name identifies disabled harness features rather than proving an absence of all uncertainty reasoning.
+The September 18 revised arm also disables fitting-time observation filtering and execution-state smoothing, and prohibits agent-written denoising. The historical results below do not evaluate this broader "No explicit uncertainty handling" ablation.
 Some standalone successes lack saved-model or supplied prediction-interface use evidence.
 See the [MF integrity audit](mf-integrity-audit-20260912.md) and [comparison contract validation](domain-contract-validation.md) for the reviewed boundaries.
 The [fifteen-seed MF log review](mf-fifteen-seed-log-audit-20260915.md) also documents collision-diagnostic measurements in Fan, Domino, and Boil, and a blocked internal-configuration probe in Balloons.

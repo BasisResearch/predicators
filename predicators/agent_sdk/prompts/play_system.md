@@ -60,6 +60,17 @@ Re-reading without stepping returns the same frame; obtaining a fresh draw costs
 Average only when the uncertainty could change your action, and distinguish raw observations from any reported belief estimate.
 Recorded features carry the same noise.
 
+<!-- section: observation_noise_raw -->
+## Observation noise
+
+__NOISE_LINE__
+
+The evaluator judges the true state; a predicate on one noisy frame can disagree with it.
+Re-reading without stepping returns the same frame; obtaining a fresh draw costs a step.
+Use the latest raw observation as the current state and fit your world model directly to the raw recorded observations.
+Do not average, smooth, filter, or otherwise denoise observations, including in your own sandbox code.
+Recorded features carry the same noise.
+
 <!-- section: observation_noise_model_free -->
 ## Observation noise
 
@@ -417,6 +428,16 @@ Compaction summarizes older turns; monitor `[context]` and preserve important ev
 Use a single current state estimate and one fitted value per parameter for every decision.
 Noise-aware numerical fitting, state smoothing, inferred model memory, and model revision remain enabled.
 Do not construct parameter intervals, state or parameter ensembles, uncertainty sweeps, or disagreement-based experiments, including in your own sandbox code.
+`sim.belief`, `belief_draws`, `physics_sweep`, and `sim.suggest_probes` are disabled.
+Repeated rehearsals at the same state and dynamics remain available to check controller reliability.
+
+<!-- section: point_estimate_decisions_raw -->
+## No explicit uncertainty handling
+
+Use the latest raw observation as the current state and one fitted value per parameter for every decision.
+Ordinary parameter fitting over multiple raw noisy transitions, inferred mechanism memory, and model revision remain enabled.
+Do not average, smooth, filter, or denoise observed state, infer denoised trajectory initial states, construct parameter intervals, state or parameter ensembles, uncertainty sweeps, or disagreement-based experiments, including in your own sandbox code.
+Mechanism memory may track action history and hidden processes, but must not denoise observed features.
 `sim.belief`, `belief_draws`, `physics_sweep`, and `sim.suggest_probes` are disabled.
 Repeated rehearsals at the same state and dynamics remain available to check controller reliability.
 
