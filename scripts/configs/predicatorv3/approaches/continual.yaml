@@ -38,12 +38,12 @@ APPROACHES:
     FLAGS:
       <<: *mf_flags
       agent_sdk_model_name: claude-sonnet-5
-  # ---- The other six arms of the eight-agent comparison (Sept 12-14
-  # noisy sweep, protocol_continual_eight_agent_noisy_sweep.yaml). Their
-  # approach classes come from the continual-comparisons line (frozen
-  # worktrees, codex branches); they are not on bridge-learning until that
-  # merge lands, so these entries only resolve on a runtime that has them.
-  # Ids follow the mb_/mf_ pattern: <arm>_<model>.
+  # ---- The other six arms of the eight-agent comparison
+  # (continual_eight_agent_noisy_sweep.yaml). Their approach classes
+  # came over from the continual-comparisons line in the Sept 17 merge
+  # (agent_continual_program_approach.py, agent_continual_frozen_approach.py,
+  # agent_continual_ablation_approach.py). Ids follow the mb_/mf_
+  # pattern: <arm>_<model>.
   # Standalone: the agent writes and owns a program world model, no harness
   # fitting.
   standalone_opus:
