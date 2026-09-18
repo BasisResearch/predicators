@@ -130,3 +130,32 @@ APPROACHES:
     FLAGS:
       <<: *no_uncertainty_flags
       agent_sdk_model_name: claude-sonnet-5
+  # Agentic real-to-sim baseline (Sept 18, 2026): no domain twin. The
+  # agent gets the generic PyBulletEnv, a domain-agnostic SceneBase, the
+  # scene manifest and the asset files, and builds its own simulator;
+  # the harness fits nothing and runs no uncertainty machinery. Gated
+  # like the MB arms. Runs with the same skill library as the other
+  # arms (composite by default); set skill_library: primitive for the
+  # robot-stack variant.
+  real_to_sim_opus:
+    NAME: agent_continual_real_to_sim
+    SKIP: true
+    FLAGS: &real_to_sim_flags
+      agent_sdk_model_name: claude-opus-5
+      continual_require_model_on_test: true
+      agent_sim_learn_declared_params_only: true
+      continual_uncertainty_decisions: false
+      agent_sim_learn_param_uncertainty: false
+      agent_plan_validation_rule_param_margin: false
+      agent_plan_validation_physics_margin: false
+      agent_explorer_info_seeking: false
+      agent_explorer_info_seeking_adaptive: false
+      agent_explorer_info_seeking_noise_aware: false
+      code_sim_learning_interval_belief: false
+      code_sim_learning_carry_posterior: false
+  real_to_sim_sonnet:
+    NAME: agent_continual_real_to_sim
+    SKIP: true
+    FLAGS:
+      <<: *real_to_sim_flags
+      agent_sdk_model_name: claude-sonnet-5

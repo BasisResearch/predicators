@@ -3421,8 +3421,27 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             prior.append("`./predicates.py`")
         return learn_prompts.render_prior_state_block(prior)
 
-    @staticmethod
+    def _simulator_load_namespace(self) -> Dict[str, Any]:
+        """The names pre-injected when ``simulator.py`` is exec'd.
+
+        Every loader of the agent's model file (the deploy, the probe's
+        candidate, the readiness gate, the synthesis tools) starts from
+        this namespace, so the base class the file subclasses is decided
+        in one place. The stock arms inject the env's ``BaseSimulator``,
+        the visible physics of the domain twin; an arm that hands the
+        agent a different base overrides this.
+        """
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.code_sim_learning.base_simulator import \
+            base_simulator_class
+        return {
+            "np": np,
+            "ParamSpec": ParamSpec,
+            "BaseSimulator": base_simulator_class(getattr(CFG, "env", "")),
+        }
+
     def _load_simulator_from_module_file(
+        self,
         path: str,
         trajectories: Optional[List[LowLevelTrajectory]] = None,
     ) -> Tuple[Optional[List], Optional[List[ParamSpec]], Optional[Dict[
@@ -3443,15 +3462,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             logger.warning("No simulator file at %s.", path)
             return None, None, None, None
 
-        # pylint: disable-next=import-outside-toplevel
-        from predicators.code_sim_learning.base_simulator import \
-            base_simulator_class
-        ns: Dict[str, Any] = {
-            "np": np,
-            "ParamSpec": ParamSpec,
-            "trajectories": trajectories or [],
-            "BaseSimulator": base_simulator_class(getattr(CFG, "env", "")),
-        }
+        ns: Dict[str, Any] = dict(self._simulator_load_namespace())
+        ns["trajectories"] = trajectories or []
         with open(path, "r", encoding="utf-8") as f:
             code = f.read()
         try:

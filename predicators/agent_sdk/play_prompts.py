@@ -117,7 +117,8 @@ def build_play_system_prompt(tool_names: Sequence[str],
                              base_sim_refs: Sequence[str] = (),
                              model_contract: str = "",
                              frozen_section: str = "",
-                             frozen_model_supplied: bool = False) -> str:
+                             frozen_model_supplied: bool = False,
+                             scene_built: bool = False) -> str:
     """The system prompt of the run's conversation.
 
     The tool surface selects the variant: an arm with ``run_python``
@@ -139,7 +140,12 @@ def build_play_system_prompt(tool_names: Sequence[str],
     (``continual_uncertainty_decisions`` off) gets the workflow, repair
     and workbench variants without uncertainty sweeps, and the no-
     fitting arm (``agent_sim_learn_declared_params_only``) is told to
-    declare values rather than fit them.
+    declare values rather than fit them. ``scene_built`` (the agentic
+    real-to-sim arm) says no domain twin backs ``sim``: the agent builds
+    the scene from the engine, the manifest and the assets, so the
+    identity, the arm statement, the workflow's first-round line, the
+    workbench's before-model line and the reference listing describe
+    that.
     """
     names = set(tool_names)
     model = "run_python" in names
@@ -149,9 +155,11 @@ def build_play_system_prompt(tool_names: Sequence[str],
     point_estimate = model and not CFG.continual_uncertainty_decisions
     fit_available = (model and not frozen
                      and not CFG.agent_sim_learn_declared_params_only)
+    identity = ("identity_frozen" if supplied else
+                "identity_real_to_sim" if scene_built else "identity" +
+                variant)
     sections = [
-        render("play_system",
-               "identity_frozen" if supplied else "identity" + variant),
+        render("play_system", identity),
         render("play_system", "protocol"),
         render("play_system", "observations" + variant),
     ]
@@ -163,6 +171,8 @@ def build_play_system_prompt(tool_names: Sequence[str],
                    noise_line=noise.describe() + "."))
     if frozen:
         sections.append(frozen_section)
+    if scene_built:
+        sections.append(render("play_system", "arm_real_to_sim"))
     adaptive = ""
     if (model and not frozen and not point_estimate
             and CFG.agent_explorer_info_seeking
@@ -172,7 +182,20 @@ def build_play_system_prompt(tool_names: Sequence[str],
     if frozen:
         sections.append(render("play_system", "workflow_frozen"))
     elif point_estimate:
-        sections.append(render("play_system", "workflow_point_estimate"))
+        declared = CFG.agent_sim_learn_declared_params_only
+        sections.append(
+            render(
+                "play_system",
+                "workflow_point_estimate",
+                model_ready=render(
+                    "play_system", "model_ready_declared"
+                    if declared else "model_ready_fitted"),
+                sim_first_round=render(
+                    "play_system", "sim_first_round_scene"
+                    if scene_built else "sim_first_round_twin"),
+                rehearse_line=render(
+                    "play_system",
+                    "rehearse_declared" if declared else "rehearse_fitted")))
     elif model:
         ready = ("model_ready_declared"
                  if CFG.agent_sim_learn_declared_params_only else
@@ -188,10 +211,17 @@ def build_play_system_prompt(tool_names: Sequence[str],
         if CFG.continual_skill_preflight:
             sections.append(render("play_system", "skill_preflight"))
         if CFG.agent_model_repair and not frozen:
-            sections.append(
-                render(
-                    "play_system", "model_repair_point_estimate"
-                    if point_estimate else "model_repair"))
+            if point_estimate:
+                sections.append(
+                    render("play_system",
+                           "model_repair_point_estimate",
+                           repair_reference="the engine"
+                           if scene_built else "the visible base",
+                           repair_values="declared"
+                           if CFG.agent_sim_learn_declared_params_only else
+                           "fitted"))
+            else:
+                sections.append(render("play_system", "model_repair"))
     else:
         sections.append(render("play_system", "workflow_model_free"))
     files = ("sandbox_frozen_files" if supplied else "sandbox" + variant +
@@ -211,7 +241,7 @@ def build_play_system_prompt(tool_names: Sequence[str],
     if model:
         refs = ("" if not base_sim_refs else render(
             "play_system",
-            "base_sim_refs",
+            "scene_refs" if scene_built else "base_sim_refs",
             ref_listing="\n".join(f"- `{r}`" for r in base_sim_refs)))
         robustness = render(
             "play_system", "robustness_point_estimate"
@@ -239,6 +269,9 @@ def build_play_system_prompt(tool_names: Sequence[str],
             sections.append(
                 render("play_system",
                        "model",
+                       before_model_line=render(
+                           "play_system", "before_model_scene"
+                           if scene_built else "before_model_twin"),
                        after_edit_line=render("play_system",
                                               "after_edit_" + fit_variant),
                        fit_rows=render(
@@ -250,7 +283,11 @@ def build_play_system_prompt(tool_names: Sequence[str],
         if model_contract:
             sections.append(model_contract)
     if point_estimate:
-        sections.append(render("play_system", "point_estimate_decisions"))
+        sections.append(
+            render(
+                "play_system", "point_estimate_decisions_declared"
+                if CFG.agent_sim_learn_declared_params_only else
+                "point_estimate_decisions"))
     return "\n\n".join(section.strip() for section in sections)
 
 
@@ -261,6 +298,7 @@ def build_model_contract(
     declared_params_only: bool = False,
     frozen: bool = False,
     supplied_model: bool = False,
+    scene_built: bool = False,
 ) -> str:
     """The contract of the model files, for the model arm's system prompt
     (``play_model_contract.md``).
@@ -274,7 +312,9 @@ def build_model_contract(
     fit. ``frozen`` (the zero-shot arm) drops the fitting guidance,
     since the model is sealed at the first action. ``supplied_model``
     (scene-only, oracle dynamics) keeps only the predicate contract: the
-    agent never writes ``simulator.py``.
+    agent never writes ``simulator.py``. ``scene_built`` (the agentic
+    real-to-sim arm) replaces the domain-twin subclass contract with the
+    ``SceneBase`` one: the agent loads the scene itself.
     """
     if supplied_model:
         parts = [
@@ -286,11 +326,15 @@ def build_model_contract(
         return _join_contract(parts)
     parts = [
         render("play_model_contract", "intro"),
-        render("subclass_model", "simulator"),
+        render("subclass_model",
+               "simulator_scene" if scene_built else "simulator"),
         render("subclass_model", "dynamics"),
     ]
     if partially_observable:
-        parts.append(render("subclass_model", "memory"))
+        parts.append(
+            render("subclass_model",
+                   "memory",
+                   base_class="SceneBase" if scene_built else "BaseSimulator"))
     parts.append(render("play_model_contract", "paramspec"))
     noise = ObservationNoise.from_cfg()
     if noise.enabled and noise.declared and not frozen:
@@ -301,7 +345,12 @@ def build_model_contract(
     if physical_params_section:
         parts.append(physical_params_section)
     if declared_params_only:
-        parts.append(render("play_model_contract", "no_harness_fitting"))
+        # Without uncertainty decisions the declared ranges drive nothing.
+        parts.append(
+            render(
+                "play_model_contract",
+                "no_harness_fitting" if CFG.continual_uncertainty_decisions
+                else "no_harness_fitting_point_estimate"))
     parts.append(render("play_model_contract", "predicates"))
     if partially_observable:
         parts.append(render("play_model_contract", "predicates_latent"))

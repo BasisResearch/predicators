@@ -1115,9 +1115,9 @@ class BeliefProbe:
         ctx = self._ctx
         cur = self._require_state()
         ctx.test_call_id += 1
+        if ctx.env is None:
+            raise ValueError("No environment available for rendering.")
         if annotations:
-            if ctx.env is None:
-                raise ValueError("No environment available for rendering.")
             ctx.env._set_state(cur)  # pylint: disable=protected-access
             physics_id = ctx.env._physics_client_id  # pylint: disable=protected-access
             debug_ids: List[int] = []

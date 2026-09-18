@@ -1,5 +1,5 @@
 """predicatorsbullet_helpers.objects module."""
-from typing import List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pybullet as p
@@ -11,6 +11,19 @@ from predicators.utils import _Geom2D
 
 # import numpy as np
 default_orn: Quaternion = (0.0, 0.0, 0.0, 1.0)
+
+# The asset each body was loaded from, keyed by (physics client, body id):
+# the asset path relative to the env assets directory and the global
+# scaling create_object applied. The scene manifest of the real-to-sim arm
+# reads it, so an agent building its own scene gets the same files.
+LOADED_ASSETS: Dict[Tuple[int, int], Tuple[str, float]] = {}
+
+
+def loaded_asset(physics_client_id: int,
+                 obj_id: int) -> Optional[Tuple[str, float]]:
+    """The ``(asset path, scale)`` a body was created from by
+    :func:`create_object`, or None for bodies built from primitive shapes."""
+    return LOADED_ASSETS.get((physics_client_id, obj_id))
 
 
 def create_object(asset_path: str,
@@ -26,6 +39,7 @@ def create_object(asset_path: str,
                         useFixedBase=use_fixed_base,
                         globalScaling=scale,
                         physicsClientId=physics_client_id)
+    LOADED_ASSETS[(physics_client_id, obj_id)] = (asset_path, float(scale))
     p.resetBasePositionAndOrientation(obj_id,
                                       position,
                                       orientation,

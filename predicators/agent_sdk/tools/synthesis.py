@@ -348,11 +348,16 @@ def create_synthesis_tools(
         if err is not None:
             return None, None, None, None, None, None, err
         assert raw is not None and version_tag is not None
-        ns: Dict[str, Any] = {
-            "np": np,
-            "ParamSpec": ParamSpec,
-            "BaseSimulator": base_simulator_class(getattr(CFG, "env", ""))
-        }
+        # The bound approach decides which base class the file
+        # subclasses (the domain twin, or a scene base the agent builds
+        # on); unbound sessions get the twin.
+        loader = getattr(approach, "_simulator_load_namespace", None)
+        ns: Dict[str, Any] = (
+            dict(loader()) if callable(loader) else {
+                "np": np,
+                "ParamSpec": ParamSpec,
+                "BaseSimulator": base_simulator_class(getattr(CFG, "env", ""))
+            })
         try:
             exec(raw.decode("utf-8"), ns)  # pylint: disable=exec-used
         except Exception:  # pylint: disable=broad-except

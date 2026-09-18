@@ -37,6 +37,46 @@ A supplied base model requires no task-generation or predicate boilerplate.
 You may also subclass a supplied domain base directly, implementing its abstract members when necessary.
 Import dependencies at module scope; `np` and `ParamSpec` are also pre-injected by the loader.
 
+<!-- section: simulator_scene -->
+## `simulator.py`: a scene simulator subclass
+
+Export `RESIDUAL_ENV`, a subclass of the supplied `SceneBase`, from `./simulator.py`.
+`SceneBase` is pre-injected when the file loads; its source is at `reference/base_sim/scene_base.py`, read-only.
+It supplies the robot, its home pose and gripper conventions, the observation types, the render camera, and the binding of observed object names to the bodies you load; it holds no scene, no mechanism and no calibration.
+Override the classmethod `initialize_pybullet(cls, using_gui)`: call `super()` (it connects the engine and loads the ground plane and the robot), load every body the manifest lists with `p.loadURDF(cls.asset(path), globalScaling=scale, useFixedBase=..., physicsClientId=client)` or `p.createMultiBody` for primitive shapes, and return the bodies dict with each observed object's body id under its observed name (`None` under the name of an observed object that has no body).
+Observed poses set body poses through the base; features no pose carries (a switch reading, a level, a flag) round-trip through the base's feature store unless you override `_set_domain_specific_state` and `_get_domain_specific_feature` to back them with joints or your own state, calling `super()` for the rest.
+Implement the mechanisms in `_domain_specific_step(self)`; ordinary Python functions and methods can keep simple mechanisms small.
+
+Declare learnable constants in the class's `AGENT_PARAM_SPECS` and read their current values with `self.agent_param(name)`; masses, frictions and other engine properties you set are constants of your scene until you declare them.
+Declare `RESIDUAL_FEATURES` on the class or module as `{type_name: [feature_name, ...]}` to name the observed quantities your model owns; the deployment gate requires it (`{}` if none).
+Export only `RESIDUAL_ENV` as the dynamics implementation.
+
+```python
+# SceneBase, np and ParamSpec are supplied by the loader.
+import pybullet as p
+
+class MyScene(SceneBase):
+    AGENT_PARAM_SPECS = [ParamSpec("rate", 0.03, lo=0.0, hi=0.1)]
+    RESIDUAL_FEATURES = {"widget": ["progress"]}
+
+    @classmethod
+    def initialize_pybullet(cls, using_gui):
+        client, robot, bodies = super().initialize_pybullet(using_gui)
+        bodies["widget0"] = p.loadURDF(cls.asset("urdf/widget.urdf"),
+                                       globalScaling=0.2,
+                                       physicsClientId=client)
+        return client, robot, bodies
+
+    def _domain_specific_step(self):
+        update_widgets(self, self.agent_param("rate"))
+
+RESIDUAL_ENV = MyScene
+```
+
+`widget` and `update_widgets` above illustrate the structure; use this environment's manifest, types and features.
+A URDF may place a body's origin away from the observed pose reference; check that `sim.reset(current=True)` reconstructs the initial observation before relying on the scene.
+When a level's scene changes, edit `initialize_pybullet` to load the new bodies; the harness rebuilds your world when the file changes.
+
 <!-- section: dynamics -->
 ## Step and restoration behavior
 
@@ -71,7 +111,7 @@ Store counters, accumulated quantities, previous observed values for edge detect
 Key object-specific entries by `obj.name` and pair-specific entries by both names.
 
 ```python
-class MyDynamics(BaseSimulator):
+class MyDynamics(__BASE_CLASS__):
     AGENT_PARAM_SPECS = [ParamSpec("rate", 0.03, lo=0.0, hi=0.1)]
     MODEL_STATE_INIT = {}
 

@@ -457,7 +457,7 @@ def test_golden_continual_query(kind):
 
 @pytest.mark.parametrize("arm", [
     "scene_only", "oracle_dynamics", "zero_shot", "no_fitting",
-    "no_uncertainty"
+    "no_uncertainty", "real_to_sim"
 ])
 def test_golden_continual_system_ablation(arm):
     """Each comparison arm's prompt describes only what that arm can do."""
@@ -466,9 +466,9 @@ def test_golden_continual_system_ablation(arm):
         "continual_obs_noise_orientation": 0.02,
         "agent_model_repair": True,
     }
-    if arm == "no_fitting":
+    if arm in ("no_fitting", "real_to_sim"):
         flags["agent_sim_learn_declared_params_only"] = True
-    if arm == "no_uncertainty":
+    if arm in ("no_uncertainty", "real_to_sim"):
         flags.update({
             "continual_uncertainty_decisions": False,
             "agent_sim_learn_param_uncertainty": False,
@@ -478,17 +478,27 @@ def test_golden_continual_system_ablation(arm):
     utils.reset_config(flags)
     tools = ["run_python"] + list(CONTINUAL_TOOL_NAMES)
     frozen = arm in ("scene_only", "oracle_dynamics", "zero_shot")
+    scene_built = arm == "real_to_sim"
     contract = play_prompts.build_model_contract(
         partially_observable=True,
-        declared_params_only=arm == "no_fitting",
+        declared_params_only=arm in ("no_fitting", "real_to_sim"),
         frozen=frozen,
-        supplied_model=arm in ("scene_only", "oracle_dynamics"))
+        supplied_model=arm in ("scene_only", "oracle_dynamics"),
+        scene_built=scene_built)
     options = {}
     if frozen:
         options = {
             "frozen_section": render("play_frozen", arm),
             "frozen_model_supplied": arm != "zero_shot",
         }
+    if scene_built:
+        options = {"scene_built": True}
+        tools_refs = [
+            "./reference/base_sim/pybullet_env.py",
+            "./reference/base_sim/scene_base.py",
+            "./reference/scene/scene_manifest.json (9 bodies)",
+        ]
+        options["base_sim_refs"] = tools_refs
     text = play_prompts.build_play_system_prompt(tools,
                                                  model_contract=contract,
                                                  **options)
@@ -498,6 +508,15 @@ def test_golden_continual_system_ablation(arm):
         assert "sim.fit" not in text
         assert "When the model disagrees" not in text
         assert "earns its keep" not in text
+    if scene_built:
+        # sim.fit is named once, as disabled; it is never offered.
+        assert "sim.fit()" not in text and "call sim.fit" not in text
+        assert "BaseSimulator" not in text
+        assert "visible base physics" not in text
+        assert "visible physics" not in text
+        assert "SceneBase" in text and "scene_manifest.json" in text
+        assert "declared parameter values" in text
+        assert "physical parameter menu" not in text
     if arm in ("scene_only", "oracle_dynamics"):
         assert "Model API reference" not in text
         assert "Predicate API reference" in text

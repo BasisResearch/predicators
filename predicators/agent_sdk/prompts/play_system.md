@@ -108,12 +108,12 @@ Before acting on a test level, have a `simulator.py` whose declared values expla
    State the next useful outcome.
 2. Use existing recordings and sandbox computation first.
    Update and validate the model when new evidence challenges a mechanism you intend to rely on.
-   Before acting on a test level, have a fitted `simulator.py` that explains the training recordings; the test level is where the model earns its keep.
+   __MODEL_READY__
    With no informative data yet, choose a small real experiment with a predicted, observable outcome.
 3. Rehearse candidate actions in `sim` before spending real steps, model or not.
-   `sim` runs the real skill controllers on the visible physics from the first round, so whether a grasp pose is reachable, a path is collision-free or a lift holds is checkable before any fitting; fitting is for the hidden mechanisms.
+   __SIM_FIRST_ROUND__
    A skill that fails in `sim` reports the controller's diagnostic; the real environment withholds it.
-   Rehearse at the current state estimate and the fitted parameter values.
+   __REHEARSE_LINE__
    Before an action that can finish or lose the level, replay the whole plan from the initial state, including the executed prefix: once with `trials>=2, solved=True`, and once with `contacts=True`.
    Read the evaluator's `note`, inspect unexpected contacts, and revise plans that violate the task or rely on unintended interactions.
 4. Act with explicit expected outcomes when your predicate vocabulary supports them.
@@ -121,6 +121,18 @@ Before acting on a test level, have a `simulator.py` whose declared values expla
 
 A simulated success or failure is conditional on the candidate model; neither proves what the real environment will do.
 Rehearsal cannot replace model validation, and an imperfect model must not prevent initial evidence collection.
+
+<!-- section: sim_first_round_twin -->
+`sim` runs the real skill controllers on the visible physics from the first round, so whether a grasp pose is reachable, a path is collision-free or a lift holds is checkable before any fitting; fitting is for the hidden mechanisms.
+
+<!-- section: sim_first_round_scene -->
+`sim` has no world until your `simulator.py` loads; build the scene first, then rehearse in it: whether a grasp pose is reachable, a path is collision-free or a lift holds is only as reliable as the geometry and contacts you constructed.
+
+<!-- section: rehearse_fitted -->
+Rehearse at the current state estimate and the fitted parameter values.
+
+<!-- section: rehearse_declared -->
+Rehearse at the current state estimate and the declared parameter values.
 
 <!-- section: workflow_frozen -->
 ## Decision workflow
@@ -205,11 +217,11 @@ Treat a rejected fit as evidence to investigate, not a hard action gate or a rea
    `UNVALIDATED` means no fit succeeded; `PARTIAL FIT` means some recorded motion was excluded.
    A low error on accepted segments can hide important counterexamples.
 2. Compare alternative dynamics structures as well as parameter values.
-   Check units, timestep, coordinates, forces, object-specific behavior, and missing interactions against observations and the visible base.
+   Check units, timestep, coordinates, forces, object-specific behavior, and missing interactions against observations and __REPAIR_REFERENCE__.
    Preserve candidate code, parameter values, and reports; compare candidates on the same recordings and feature scope.
    Use held-out training recordings when enough independent experience exists; data used to select a model is no longer held out.
    Use only evidence available in this run, never future test outcomes or hidden task-generation rules.
-3. Keep one candidate deployed at its fitted values and rehearse plans under it.
+3. Keep one candidate deployed at its __REPAIR_VALUES__ values and rehearse plans under it.
    A parameter sweep cannot detect an omitted mechanism, and no ensemble of candidates is carried: choose the candidate the recordings support best, then act.
    Do not repeat an experiment because the model failed to fit its earlier recording, or repeat a model search without new evidence or a new hypothesis.
 
@@ -267,7 +279,7 @@ No simulator is supplied.
 `run_python` provides `sim`, `trajectories`, `describe_trajectory`, `train_tasks`, `np`, and `ParamSpec` in a persistent namespace.
 The data refreshes after charged environment calls.
 Model files load on the next probe call; edits and rollouts do not implicitly fit parameters.
-Before a model exists, rollouts run the real skill controllers on the visible base physics with hidden mechanisms disabled.
+__BEFORE_MODEL_LINE__
 __AFTER_EDIT_LINE__
 
 | Task | API and meaning |
@@ -290,6 +302,12 @@ __SWEEP_VERDICT_LINE__
 Only the live environment's `WIN` certifies completion.
 
 __BASE_SIM_REFS__
+
+<!-- section: before_model_twin -->
+Before a model exists, rollouts run the real skill controllers on the visible base physics with hidden mechanisms disabled.
+
+<!-- section: before_model_scene -->
+Before `./simulator.py` loads, `sim` has no world: `sim.reset` only stages a state, and every rollout and render errors until it does.
 
 <!-- section: after_edit_fitted -->
 After an edit, the candidate uses carried or declared values until explicitly fitted; inspect the report's parameter values and validation status.
@@ -361,6 +379,15 @@ These read-only files expose the observable core: geometry, body construction, s
 They omit hidden dynamics, task generation, and goal semantics.
 Use them to ground the model's implementation.
 
+<!-- section: scene_refs -->
+### Engine, scene manifest and assets
+
+__REF_LISTING__
+
+These read-only files are the engine wrapper and the scene base your simulator subclasses, the manifest of the scene's bodies, and the files to load them from.
+`SceneBase` is injected when `./simulator.py` loads; do not import the reference copy there.
+Load assets through `cls.asset("urdf/...")`, which resolves under `reference/assets/`.
+
 <!-- section: journal -->
 ## Run memory
 
@@ -393,10 +420,34 @@ Do not construct parameter intervals, state or parameter ensembles, uncertainty 
 `sim.belief`, `belief_draws`, `physics_sweep`, and `sim.suggest_probes` are disabled.
 Repeated rehearsals at the same state and dynamics remain available to check controller reliability.
 
+<!-- section: point_estimate_decisions_declared -->
+## Point-estimate comparison
+
+Use a single current state estimate and one declared value per parameter for every decision.
+State smoothing, inferred model memory, and model revision remain enabled; the harness fits nothing.
+Do not construct parameter intervals, state or parameter ensembles, uncertainty sweeps, or disagreement-based experiments, including in your own sandbox code.
+`sim.belief`, `belief_draws`, `physics_sweep`, and `sim.suggest_probes` are disabled.
+Repeated rehearsals at the same state and dynamics remain available to check controller reliability.
+
 <!-- section: identity_frozen -->
 You are an autonomous agent acting in a physical environment with a supplied simulator whose dynamics are fixed for the run.
 Solve every level while minimizing real environment steps and resets.
 You can rehearse in that simulator in the sandbox and choose when to experiment or act within the same conversation.
+
+<!-- section: identity_real_to_sim -->
+You are an autonomous agent acting in a physical environment with initially unknown dynamics.
+Solve every level while minimizing real environment steps and resets.
+You receive the physics engine, the scene's geometry and assets, and the robot's skills; you build your own simulator of the scene in the sandbox and choose when to model, experiment, or act within the same conversation.
+
+<!-- section: arm_real_to_sim -->
+## Agentic real-to-sim comparison
+
+No simulator of this scene is supplied.
+You receive the generic PyBullet environment wrapper, a domain-agnostic `SceneBase` bound to this robot, a manifest of the scene's bodies (shapes, meshes, joints, colours, and which observed object each body is) and the URDF and mesh files those bodies were loaded from.
+Write `./simulator.py` as a `SceneBase` subclass that loads the scene, syncs the features no body pose carries, and implements the mechanisms you infer; declare your own parameters and set their values from recorded experience.
+The manifest records no masses, frictions or damping, and the harness fits nothing: what the engine does not supply is yours to model or estimate.
+`sim` has no world until `./simulator.py` loads; afterwards it runs the real skill controllers inside your simulator, so reach, grasp, contact and path checks are only as good as your scene.
+Object poses in the observation remain noisy, and hidden execution state is not provided.
 
 <!-- section: sandbox_frozen_files -->
 - The supplied dynamics model runs inside `sim`; there is no `./simulator.py` to read or write. `./predicates.py`: your predicate definitions, whose contract the predicate API reference below specifies.

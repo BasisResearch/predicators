@@ -137,3 +137,16 @@ Prepared replacement configs are `protocol_continual_standalone_engine_noisy_r2.
 They preserve every prior run flag, with twelve non-Bridge seeds and three Bridge transfer seeds.
 Whether to replace the existing standalone cohort is pending the user's preference; no replacement agent runs have been submitted.
 Validation artifacts are in `/home/ycliang/predicators/logs/standalone_engine_contract_20260913/`.
+
+
+## Agentic real-to-sim baseline, 2026-09-18
+
+The user asked for a more realistic real-to-sim baseline than the domain twin: "just the PyBullet class and the URDFs".
+The arm is `agent_continual_real_to_sim` (menu keys `real_to_sim_opus` and `real_to_sim_sonnet`, launcher `continual_real_to_sim_benchmark_r1.yaml`).
+It receives the generic `PyBulletEnv` and `BaseEnv` sources, a domain-agnostic `SceneBase` bound to the robot's placement, home pose, finger conventions and the observation types, a manifest of the scene's bodies (shapes, mesh files, joints, colours, and which observed object each body is) and the URDF and mesh files those bodies and the robot were loaded from.
+The manifest records no masses, frictions, restitution or damping.
+The agent writes `simulator.py` as a `SceneBase` subclass whose `initialize_pybullet` loads the scene, syncs the features no body pose carries, implements the mechanisms it infers and declares its own parameters; the harness fits nothing and runs no uncertainty machinery, and `sim` has no world until the file loads.
+The model gate on the test level stays on.
+The menu runs the composite skill library, like the other arms of the Sept 18 benchmark; `skill_library: primitive` is the robot-stack variant.
+Review copy: `docs/prompt-review/2026-09-18-balloons/agent_continual_real_to_sim.md`.
+No runs have been submitted yet.

@@ -1,6 +1,6 @@
-# Prompt review of the eight comparison arms, 2026-09-18
+# Prompt review of the comparison arms, 2026-09-18
 
-One review copy per arm of the eight-agent benchmark sweep (`scripts/configs/predicatorv3/continual_eight_agent_noisy_sweep.yaml`), rendered on the Balloons benchmark setting (composition test levels with the 25-step dwell, seed 0).
+One review copy per arm of the eight-agent benchmark sweep (`scripts/configs/predicatorv3/continual_eight_agent_noisy_sweep.yaml`), plus the agentic real-to-sim baseline added later that day (`continual_real_to_sim_benchmark_r1.yaml`), rendered on the Balloons benchmark setting (composition test levels with the 25-step dwell, seed 0).
 Each copy holds everything the agent is sent at the start of a run, in the order the harness assembles it:
 
 1. The full system prompt, including the sandbox suffix appended by the local sandbox session.
@@ -17,7 +17,7 @@ Regenerate them with:
 python -m scripts.dump_continual_arm_prompts --config predicatorv3/continual_eight_agent_noisy_sweep.yaml --domain balloons --out docs/prompt-review/2026-09-18-balloons
 ```
 
-The same command with another `--domain` (`boil`, `bridge`, `fan`, `domino_high_friction_turn`) renders the other benchmark settings.
+The same command with another `--domain` (`boil`, `bridge`, `fan`, `domino_high_friction_turn`) renders the other benchmark settings, and `--config predicatorv3/continual_real_to_sim_benchmark_r1.yaml` renders the real-to-sim arm.
 
 ## Arms
 
@@ -31,6 +31,7 @@ The same command with another `--domain` (`boil`, `bridge`, `fan`, `domino_high_
 | Zero-shot model | [agent_continual_zero_shot.md](agent_continual_zero_shot.md) | Write `simulator.py` once before the first real action; the dynamics are sealed at that point; no fitting afterwards. |
 | No harness fitting | [agent_continual_no_fitting.md](agent_continual_no_fitting.md) | Write and revise the model, but the harness fits nothing: declared values deploy as written, and the agent may estimate them in its own sandbox code. |
 | No explicit uncertainty | [agent_continual_no_uncertainty.md](agent_continual_no_uncertainty.md) | Fit and revise the model at a point estimate: no belief draws, parameter sweeps, `sim.belief` or `sim.suggest_probes`. |
+| Agentic real-to-sim | [agent_continual_real_to_sim.md](agent_continual_real_to_sim.md) | No domain twin: build `simulator.py` on `SceneBase` from the generic engine wrapper, the scene manifest and the URDF and mesh files; declare and set parameters yourself; no harness fitting, no uncertainty machinery; `sim` has no world until the file loads. |
 
 ## What differs between the arms
 
@@ -38,7 +39,8 @@ The same command with another `--domain` (`boil`, `bridge`, `fan`, `domino_high_
 - The `run_python` tool description follows the arm's probe surface: fitting, model writing, alternative parameter values and uncertainty sweeps appear only where the probe accepts them.
 - The supplied models of scene-only and oracle dynamics never enter the sandbox: they run inside `sim`, and no report or file names their constants.
 - The query's model-status line is per arm: supplied models are reported as present and fixed from the first round, the zero-shot arm is told to write the model before its first action, the no-fitting arm is told to set declared values, and the standalone arm is told to write `world_model.py`.
-- The sandbox `CLAUDE.md`, the reference files and the static protocol tools are shared.
+- The real-to-sim arm's references are the engine sources (`base_sim/pybullet_env.py`, `base_env.py`, `scene_base.py`), `scene/scene_manifest.json` (bodies, shapes, mesh files, joints, colours, the observed object of each body; no masses, frictions or damping) and `assets/` (the URDF and mesh files those bodies and the robot were loaded from); the other model arms get the domain base-simulator sources instead.
+- The sandbox `CLAUDE.md` and the static protocol tools are shared.
 
 ## Size
 
@@ -54,3 +56,4 @@ Word counts of the rendered text, Balloons seed 0.
 | `agent_continual_program_world_model` | 1461 | 621 | 459 |
 | `agent_continual_scene_only` | 2013 | 616 | 454 |
 | `agent_continual_zero_shot` | 3005 | 647 | 485 |
+| `agent_continual_real_to_sim` | 3655 | 556 | 394 |

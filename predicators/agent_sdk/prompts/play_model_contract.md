@@ -72,6 +72,14 @@ Set and revise those declarations yourself from recorded experience.
 You may estimate values in your own sandbox code by any method, from qualitative checks against recordings and model rollouts to fits you write against `trajectories`; the result only takes effect once you write it into the declaration.
 Uncertainty-aware planning over your declared ranges remains available.
 
+<!-- section: no_harness_fitting_point_estimate -->
+### No harness parameter fitting
+
+The harness estimates nothing in this run: `sim.fit`, fitted residuals, and automatic parameter sweeps are disabled, and the deployed model uses each declaration's `init_value` exactly as written.
+Set and revise those declarations yourself from recorded experience.
+You may estimate values in your own sandbox code by any method, from qualitative checks against recordings and model rollouts to fits you write against `trajectories`; the result only takes effect once you write it into the declaration.
+Plans are rehearsed at the declared values; there are no belief draws or parameter sweeps.
+
 <!-- section: intro_supplied -->
 ## Predicate API reference
 

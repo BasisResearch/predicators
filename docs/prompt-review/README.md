@@ -1,6 +1,6 @@
 # Continual prompt review
 
-- [2026-09-18: the eight comparison arms on Balloons](2026-09-18-balloons/README.md), one review copy per arm with the system prompt, sandbox notes, tools, and the first two queries.
+- [2026-09-18: the eight comparison arms and the agentic real-to-sim baseline on Balloons](2026-09-18-balloons/README.md), one review copy per arm with the system prompt, sandbox notes, tools, and the first two queries.
 - 2026-09-09: the prompt cleanup below, with the Balloons review copies [balloons-system-after.md](balloons-system-after.md) and [balloons-first-round-after.md](balloons-first-round-after.md).
 
 ## Continual prompt review, 2026-09-09

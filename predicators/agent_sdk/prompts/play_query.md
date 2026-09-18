@@ -122,6 +122,11 @@ No model yet: `sim` runs the real skill controllers on the visible base physics 
 Build `./simulator.py` (and `./predicates.py` if useful) in `run_python` and set its declared values from the recordings before you act on a test level; the harness fits nothing.
 Recorded episodes so far: __N_EPISODES__ (__N_STEPS__ steps).
 
+<!-- section: no_model_scene -->
+No model yet: `sim` has no world until `./simulator.py` loads.
+Build the scene in `./simulator.py` from `reference/scene/scene_manifest.json` and `reference/assets/` (and `./predicates.py` if useful) in `run_python`, check that `sim.reset(current=True)` reconstructs the observation, and set declared values from the recordings before you act on a test level; the harness fits nothing.
+Recorded episodes so far: __N_EPISODES__ (__N_STEPS__ steps).
+
 <!-- section: no_model_zero_shot -->
 No model yet: `sim` runs the real skill controllers on the visible base physics with hidden mechanisms disabled, so reach, grasp and collision checks already work.
 Write `./simulator.py` (and `./predicates.py` if useful) in `run_python` before your first real action or reset; the dynamics are sealed at that point and no call fits them.

@@ -55,7 +55,8 @@ def build_learn_system_prompt(
         *extra_sections,
     ]
     if partially_observable:
-        parts.append(render("subclass_model", "memory"))
+        parts.append(
+            render("subclass_model", "memory", base_class="BaseSimulator"))
         parts.extend(latent_extra_sections)
     parts += [
         render("learn_system", "plan_format"),
