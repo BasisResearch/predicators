@@ -68,14 +68,15 @@ APPROACHES:
     SKIP: true
     FLAGS:
       agent_sdk_model_name: claude-sonnet-5
-  # Oracle scene: the true scene parameters are given, the model is learned.
-  oracle_scene_opus:
-    NAME: agent_continual_oracle_scene
+  # Scene-only: the exact scene twin with corrected base calibration and
+  # no mechanism code, frozen for the run (formerly "oracle scene").
+  scene_only_opus:
+    NAME: agent_continual_scene_only
     SKIP: true
     FLAGS:
       agent_sdk_model_name: claude-opus-5
-  oracle_scene_sonnet:
-    NAME: agent_continual_oracle_scene
+  scene_only_sonnet:
+    NAME: agent_continual_scene_only
     SKIP: true
     FLAGS:
       agent_sdk_model_name: claude-sonnet-5
@@ -91,7 +92,8 @@ APPROACHES:
     FLAGS:
       agent_sdk_model_name: claude-sonnet-5
   # No fitting: the MB agent with only its declared parameters, no
-  # harness parameter fitting. Gated like the MB arms.
+  # harness parameter fitting (the agent may fit in its own sandbox
+  # code). Gated like the MB arms.
   no_fitting_opus:
     NAME: agent_continual_no_fitting
     SKIP: true

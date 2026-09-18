@@ -169,14 +169,15 @@ def moving_feature_scope(
 # surface refuses with the same note, so the agent is told once what
 # replaces it rather than left to discover a silently absent tool.
 _NO_ESTIMATION_NOTE = (
-    "{what} is unavailable: parameter estimation is disabled in this "
-    "run. Every ParamSpec / PHYSICAL_PARAM_SPECS entry is used exactly as "
-    "declared - init_value as the point estimate, [lo, hi] as the "
-    "plausible interval the validation gate and the exploration "
+    "{what} is unavailable: harness parameter estimation is disabled in "
+    "this run. Every ParamSpec / PHYSICAL_PARAM_SPECS entry is used "
+    "exactly as declared - init_value as the point estimate, [lo, hi] as "
+    "the plausible interval the validation gate and the exploration "
     "ensemble sample from. Choose them from your knowledge of the "
-    "mechanism and from qualitative checks at the declared values "
-    "(sim.residuals() with no fit, sim.run / sim.refine rollouts, "
-    "describe_trajectory), then edit simulator.py.")
+    "mechanism, from checks at the declared values (sim.residuals() "
+    "with no fit, sim.run / sim.refine rollouts, describe_trajectory), "
+    "or from an estimator you write yourself against trajectories, "
+    "then edit simulator.py.")
 
 
 def create_synthesis_tools(

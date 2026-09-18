@@ -1,4 +1,9 @@
-# Continual prompt review, 2026-09-09
+# Continual prompt review
+
+- [2026-09-18: the eight comparison arms on Balloons](2026-09-18-balloons/README.md), one review copy per arm with the system prompt, sandbox notes, tools, and the first two queries.
+- 2026-09-09: the prompt cleanup below, with the Balloons review copies [balloons-system-after.md](balloons-system-after.md) and [balloons-first-round-after.md](balloons-first-round-after.md).
+
+## Continual prompt review, 2026-09-09
 
 The reviewed run is `balloons-agent_continual_hatch_v4_mb/seed4/run_20260909_145816`.
 Its recorded system prompt mixes workflow, protocol rules, API details, and repeated warnings.
@@ -7,7 +12,7 @@ The existing native simulator implementation, shared subclass contract, and visi
 The integration preserves the newer level-player and conversation-round names.
 Running experiment worktrees and historical logs were not edited.
 
-## Review copies
+### Review copies
 
 - [Revised system prompt](balloons-system-after.md), rendered with the run's noise settings and supplied physical-parameter menu.
 - [Revised first round](balloons-first-round-after.md), rendered with the recorded task, observation, skill signatures, and object vocabulary.
@@ -22,7 +27,7 @@ The first-round preview retains the full scene and belief data.
 | System, including sandbox appendix | 5,000 words | 3,177 words | 36.5% |
 | First round | 817 words | 591 words | 27.7% |
 
-## Organization
+### Organization
 
 The system prompt presents run rules, observation semantics, and a short decision workflow before tools and implementation details.
 The workbench API is grouped by purpose, followed by the simulator and predicate contracts.
@@ -31,7 +36,7 @@ The sandbox document owns filesystem and Python mechanics.
 Each full query shows its goal and budget once; continuations retain the goal in the observation.
 Ordinary tool results still include their goal and budget fields.
 
-## Corrections beyond shortening
+### Corrections beyond shortening
 
 - The ordinary simulator contract consistently uses `RESIDUAL_ENV` and `AGENT_PARAM_SPECS`.
 - Supplied environment predicates are distinguished from invented predicates without claiming either that every environment atom is visible or that no supplied predicates can exist.
@@ -47,7 +52,7 @@ Ordinary tool results still include their goal and budget fields.
 The prompt cleanup itself leaves tools, evaluators, budgets, model fitting, and action execution unchanged; the prerequisite commits supply the runtime already used by the reviewed experiment.
 These are prompt and presentation changes; their effect on agent performance has not been measured in a new sweep.
 
-## Validation in the isolated worktree
+### Validation in the isolated worktree
 
 Focused prompt and continual integration tests passed across the corrected reruns, including scripted MB/MF interaction, all four round kinds, noisy observations, model-repair gating, and minimal agents.
 The checks preserve tool access and verify that full and continuation queries carry one ledger and context block.
@@ -55,7 +60,7 @@ The rendered prompt tests passed after regeneration and review.
 Mypy passed on all 886 source files; lint passed on the nine changed Python files; pinned formatter checks and `git diff --check` passed.
 Logs are under `/home/ycliang/predicators/logs/prompt_streamline_checks-*.out`, with final functional/type results in `22410650` and the final prompt-test lint correction in `22411050`.
 
-## Main-worktree integration validation
+### Main-worktree integration validation
 
 The integrated code passed 95 focused tests, including native subclass fitting, model-state tracking, prompt rendering, and scripted continual agents.
 Mypy passed on all 885 source files in the primary checkout.

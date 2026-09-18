@@ -91,6 +91,20 @@ class AgentContinualProgramWorldModelApproach(ContinualPlayMixin,
     def _get_agent_system_prompt(self) -> str:
         return self._play_system_prompt()
 
+    def _model_status(self, session: ProtocolSession) -> str:
+        n_eps, n_steps = self._episode_counts(session)
+        if self._program is None:
+            return render("play_query",
+                          "no_world_model",
+                          n_episodes=str(n_eps),
+                          n_steps=str(n_steps))
+        return render("play_query",
+                      "world_model_status",
+                      world_model_version=self._current_simulator_version
+                      or "unversioned",
+                      n_episodes=str(n_eps),
+                      n_steps=str(n_steps))
+
     def _round_extra_tools(self, session: ProtocolSession) -> List[Any]:
         self._refresh_arm_data(session)
         paths = self._resolve_synthesis_paths()

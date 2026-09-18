@@ -157,20 +157,46 @@ class AgentContinualApproach(ContinualPlayMixin,
 
     def _play_system_prompt(self) -> str:
         # pylint: disable-next=import-outside-toplevel
-        from predicators.agent_sdk.play_prompts import build_model_contract, \
-            build_play_system_prompt
-
-        # The contract of the model files (docs/protocol/design.md,
-        # 5): model memory follows CFG.partially_observable, the
-        # system-identification menu is the base env's.
-        contract = build_model_contract(
-            partially_observable=CFG.partially_observable,
-            physical_params_section=self._physical_params_prompt_section(),
-            declared_params_only=CFG.agent_sim_learn_declared_params_only)
+        from predicators.agent_sdk.play_prompts import build_play_system_prompt
         return build_play_system_prompt(
             self._continual_tool_names(),
             base_sim_refs=self._base_sim_reference_paths(),
-            model_contract=contract)
+            model_contract=self._play_model_contract(),
+            **self._play_prompt_options())
+
+    def _play_model_contract(self, **options: Any) -> str:
+        """The contract of the model files (docs/protocol/design.md, 5).
+
+        Model memory follows CFG.partially_observable, the system-
+        identification menu is the base env's. ``options`` are the
+        frozen arms' keyword arguments for build_model_contract.
+        """
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.play_prompts import build_model_contract
+        return build_model_contract(
+            partially_observable=CFG.partially_observable,
+            physical_params_section=self._physical_params_prompt_section(),
+            declared_params_only=CFG.agent_sim_learn_declared_params_only,
+            **options)
+
+    def _play_prompt_options(self) -> Dict[str, Any]:
+        """Extra keyword arguments for build_play_system_prompt.
+
+        The frozen arms pass their arm statement here.
+        """
+        return {}
+
+    def _no_model_section(self) -> str:
+        """The play_query section shown while no model file exists."""
+        return "no_model"
+
+    def _fit_available(self) -> bool:
+        """Whether the harness fits parameters in this arm.
+
+        Frozen and no-fitting arms return False, so the query never asks
+        for a refit that the probe would refuse.
+        """
+        return True
 
     def _model_status(self, session: ProtocolSession) -> str:
         n_eps, n_steps = self._episode_counts(session)
@@ -178,13 +204,13 @@ class AgentContinualApproach(ContinualPlayMixin,
         from predicators.agent_sdk.prompt_templates import render
         if self._current_simulator_version is None:
             status = render("play_query",
-                            "no_model",
+                            self._no_model_section(),
                             n_episodes=str(n_eps),
                             n_steps=str(n_steps))
         else:
             new = max(0, n_eps - self._episodes_at_last_fit)
             refit_note = (" Refit with `sim.fit()` before you rely on the "
-                          "model." if new else "")
+                          "model." if new and self._fit_available() else "")
             status = render("play_query",
                             "model_status",
                             simulator_version=self._current_simulator_version,

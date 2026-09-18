@@ -1,7 +1,7 @@
 # The eight-agent benchmark sweep (Sept 18, 2026): the two main agents,
 # model-based (EMPIRIC, agent_continual) and model-free (the direct
 # agent, agent_continual_model_free), plus the six ablation arms
-# (standalone program world model, oracle dynamics, oracle scene, zero
+# (standalone program world model, oracle dynamics, scene-only, zero
 # shot, no harness fitting, no explicit uncertainty), all on Opus, on
 # the five benchmark test settings, three seeds each: 8 approaches x 5
 # domains x 3 seeds = 120 runs. Envs and arms come from the menus
@@ -18,7 +18,7 @@
 #
 # Forty Slurm arrays of three seeds; the Opus arms saturate one Claude
 # account's session limit in about an hour, so spread the accounts:
-# python scripts/engaging/launch.py -c predicatorv3/continual_eight_agent_noisy_sweep.yaml --partition mit_preemptable,mit_normal --requeue --accounts c,d
+# python scripts/engaging/launch.py -c predicatorv3/continual_eight_agent_noisy_sweep.yaml --partition mit_preemptable,mit_normal --requeue --accounts b,c
 includes:
   - continual_common.yaml
   - envs/continual.yaml
@@ -45,8 +45,8 @@ APPROACHES:
     EXTENDS: standalone_opus
   oracle_dynamics_opus_benchmark_r1:
     EXTENDS: oracle_dynamics_opus
-  oracle_scene_opus_benchmark_r1:
-    EXTENDS: oracle_scene_opus
+  scene_only_opus_benchmark_r1:
+    EXTENDS: scene_only_opus
   zero_shot_opus_benchmark_r1:
     EXTENDS: zero_shot_opus
   no_fitting_opus_benchmark_r1:

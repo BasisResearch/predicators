@@ -1281,8 +1281,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                 fit=False)
             if CFG.agent_sim_learn_declared_params_only:
                 status = ("at the DECLARED values of the current "
-                          "simulator.py (parameter estimation is disabled "
-                          "in this run)")
+                          "simulator.py (harness parameter estimation is "
+                          "disabled in this run)")
             elif fit_state.get("digest") == digest:
                 status = format_fit_status(fit_state)
             else:

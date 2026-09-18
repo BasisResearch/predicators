@@ -23,7 +23,7 @@ The evaluator judges the true state; a predicate on one noisy frame can disagree
 ## Decision workflow
 
 1. Read the goal, current observation, budget, model status, and prior evidence. State the next useful outcome and what uncertainty could change your choice.
-2. Use existing recordings and sandbox computation first. Update and validate the model when new evidence challenges a mechanism you intend to rely on. Before acting on a test level, have a fitted `simulator.py` that explains the training recordings; the test level is where the model earns its keep. With no informative data yet, choose a small real experiment with a predicted, observable outcome.
+2. Use existing recordings and sandbox computation first. Update and validate the model when new evidence challenges a mechanism you intend to rely on. Before acting on a test level, have a `simulator.py` whose declared values explain the training recordings; the test level is where the model earns its keep. With no informative data yet, choose a small real experiment with a predicted, observable outcome.
 3. Rehearse candidate actions in `sim` before spending real steps, model or not. `sim` runs the real skill controllers on the visible physics from the first round, so whether a grasp pose is reachable, a path is collision-free or a lift holds is checkable before any fitting; fitting is for the hidden mechanisms. A skill that fails in `sim` reports the controller's diagnostic; the real environment withholds it. Rehearse uncertain parameters and poses where supported. Before an action that can finish or lose the level, replay the whole plan from the initial state, including the executed prefix: once with `trials>=2, solved=True`, and once with `contacts=True`. Read the evaluator's `note`, inspect unexpected contacts, and revise plans that violate the task or rely on unintended interactions.
 4. Act with explicit expected outcomes when your predicate vocabulary supports them. Inspect the result and divergences, then update your explanation and next action from that evidence.
 
@@ -42,7 +42,7 @@ Record candidate comparisons, rejected hypotheses, and unresolved uncertainty in
 
 ## Tools
 
-- `run_python`: code in the sandbox with the `sim` probe over your model files (`sim.fit`, `sim.residuals`, `sim.run`, `sim.refine`, ...). Free.
+- `run_python`: code in the sandbox with the `sim` probe over your model files (`sim.residuals`, `sim.run`, `sim.refine`, ...). Free.
 - `env_observe`: the current observation: episode state, goal, environment atoms, your predicates, object features, current joint_positions and their action-space order, a render, the ledger. Free.
 - `env_step`: one primitive action (a low-level action vector). One step.
 - `env_reset`: restart the current level from its initial state. One step and one reset, and a last resort. The only valid action after GAME_OVER on a level with resets.
@@ -83,13 +83,12 @@ The run is one conversation. A round consists of one harness prompt and your res
 
 ## Model workbench
 
-`run_python` provides `sim`, `trajectories`, `describe_trajectory`, `train_tasks`, `np`, and `ParamSpec` in a persistent namespace. The data refreshes after charged environment calls. Model files load on the next probe call; edits and rollouts do not implicitly fit parameters. Before a model exists, rollouts run the real skill controllers on the visible base physics with hidden mechanisms disabled. After an edit, the candidate uses carried or declared values until explicitly fitted; inspect the report's parameter values and validation status.
+`run_python` provides `sim`, `trajectories`, `describe_trajectory`, `train_tasks`, `np`, and `ParamSpec` in a persistent namespace. The data refreshes after charged environment calls. Model files load on the next probe call; edits and rollouts do not implicitly fit parameters. Before a model exists, rollouts run the real skill controllers on the visible base physics with hidden mechanisms disabled. After an edit, the candidate uses the values written in its declarations; inspect the report's parameter values and validation status.
 
 | Task | API and meaning |
 | --- | --- |
-| Estimate parameters | `sim.fit()` fits and publishes declared parameters from the available recordings. With no learnable constants, skip fitting and validate directly. |
-| Check recorded behavior | `sim.validate()` replays recordings at deployed values, including recordings rejected by a robust fit. `sim.residuals()` locates errors; read which parameter values its report scores. |
-| Compare hypotheses | `sim.fit(traj_idxs=[...])` reports a fit without publishing it. Pass those values to `sim.validate(traj_idxs=[...], params={...})` to compare candidates on identical data. |
+| Check recorded behavior | `sim.validate()` replays recordings at the declared values and `sim.residuals()` locates errors; read which parameter values its report scores. |
+| Compare hypotheses | `sim.validate(traj_idxs=[...], params={...})` replays recordings under candidate values without editing the file, so alternatives are compared on identical data. A value takes effect once you write it into the declaration. |
 | Load predicates | `sim.predicates()` reloads and installs the current definitions and reports their behavior on recorded episodes. Call it after editing predicates. |
 | Choose a start | `sim.reset()` uses the current level's initial state; `sim.reset(current=True)` uses the latest real observation and available model-memory estimate. `sim.reset(task_idx=i, mods={...})` stages a chosen task and feature modifications. |
 | Refine and rehearse | `sim.refine(plan, require_goal=True)` searches skill parameters; run the refined plan continuously with `sim.run(plan, solved=True)`. |
@@ -98,7 +97,7 @@ The run is one conversation. A round consists of one harness prompt and your res
 
 ### Interpreting task verdicts
 
-`is_goal_state(state, task_idx)` and `evaluate_trajectory(states, actions=None, task_idx=0)` expose the task's reward model. `sim.run(...).states` supplies a continuous predicted trajectory to score. Where evaluation includes a physical replay, it uses your candidate simulator; even a verdict on recorded states can depend on that model. Pass action labels for tasks whose evaluator replays an action: one `("Skill", ("obj", ...), (param, ...))` per transition, or `None` for an unlabeled transition. Without labels the evaluator may use a canonical action; read the verdict's `note` to see what it actually scored. `evaluate_trajectory(states, actions, physics_sweep=True)` checks replay verdicts across the identified physical-parameter range. Only the live environment's `WIN` certifies completion.
+`is_goal_state(state, task_idx)` and `evaluate_trajectory(states, actions=None, task_idx=0)` expose the task's reward model. `sim.run(...).states` supplies a continuous predicted trajectory to score. Where evaluation includes a physical replay, it uses your candidate simulator; even a verdict on recorded states can depend on that model. Pass action labels for tasks whose evaluator replays an action: one `("Skill", ("obj", ...), (param, ...))` per transition, or `None` for an unlabeled transition. Without labels the evaluator may use a canonical action; read the verdict's `note` to see what it actually scored. `evaluate_trajectory(states, actions, physics_sweep=True)` checks replay verdicts across the declared parameter range. Only the live environment's `WIN` certifies completion.
 
 ## Model API reference
 
@@ -165,9 +164,13 @@ ParamSpec(name, init_value, lo=None, hi=None, scale="linear", discrete=False)
 
 Declare learnable constants in `AGENT_PARAM_SPECS` with finite, plausible bounds. Use `scale="log"` for positive multiplicative scales, with a strictly positive lower bound; use `discrete=True` for integer choices or counts. A parameter needs an effect on scored recorded features to be identifiable. Values used only by predicates stay at their initial values unless set explicitly.
 
-### Observation noise and the fit
+### Observation noise and the declared values
 
-Do not smooth or filter the data before `sim.fit`; retain the raw recorded features. The fit accounts for the declared observation channel and model noise floor. Inspect residuals relative to that noise model and the report's units. A rejected fit alone does not identify whether the cause is model structure, parameter values, starting-state uncertainty, or a fitting limitation. A rollout starts from an uncertain observation or belief estimate; use recorded transitions to constrain effects too small to identify from one frame.
+Retain the raw recorded features; the declared observation channel and model noise floor set the scale on which residuals are judged. Inspect residuals relative to that noise model and the report's units. A mismatch alone does not identify whether the cause is model structure, declared values, starting-state uncertainty, or a limitation of an estimator you wrote. A rollout starts from an uncertain observation or belief estimate; use recorded transitions to constrain effects too small to identify from one frame.
+
+### No harness parameter fitting
+
+The harness estimates nothing in this run: `sim.fit`, fitted residuals, and automatic parameter sweeps are disabled, and the deployed model uses each declaration's `init_value` and `[lo, hi]` exactly as written. Set and revise those declarations yourself from recorded experience. You may estimate values in your own sandbox code by any method, from qualitative checks against recordings and model rollouts to fits you write against `trajectories`; the result only takes effect once you write it into the declaration. Uncertainty-aware planning over your declared ranges remains available.
 
 ### `predicates.py`
 

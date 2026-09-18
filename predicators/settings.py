@@ -2788,10 +2788,11 @@ class GlobalSettings:
     # the info-seeking disagreement score have nothing to score). Fits
     # still run; only their point estimates are used.
     agent_sim_learn_param_uncertainty = True
-    # Ablation A4 ("no parameter fitting"): when True, no parameter
-    # estimation runs anywhere - not sim.fit (it refuses), not the
-    # harness-side fallback fit, not the residual report's fit_params /
-    # sweep_params. Each parameter's
+    # Ablation A4 ("no harness parameter fitting"): when True, no
+    # harness-side parameter estimation runs - not sim.fit (it refuses),
+    # not the deployment-time fit, not the residual report's fit_params /
+    # sweep_params. The agent may still estimate values in its own
+    # sandbox code and write them into its declarations. Each parameter's
     # declared init_value is its point estimate and its declared
     # [lo, hi] box is its plausible interval: the physics-margin points
     # span the box and the rule-parameter ensemble is drawn uniformly

@@ -453,3 +453,63 @@ def test_golden_continual_query(kind):
     _check_golden(f"continual_query_{kind}", text)
     assert text.count("[ledger]") == text.count("[context]") == 1
     assert "[episode] NOT_FINISHED" in text
+
+
+@pytest.mark.parametrize("arm", [
+    "scene_only", "oracle_dynamics", "zero_shot", "no_fitting",
+    "no_uncertainty"
+])
+def test_golden_continual_system_ablation(arm):
+    """Each comparison arm's prompt describes only what that arm can do."""
+    flags = {
+        "continual_obs_noise_position": 0.01,
+        "continual_obs_noise_orientation": 0.02,
+        "agent_model_repair": True,
+    }
+    if arm == "no_fitting":
+        flags["agent_sim_learn_declared_params_only"] = True
+    if arm == "no_uncertainty":
+        flags.update({
+            "continual_uncertainty_decisions": False,
+            "agent_sim_learn_param_uncertainty": False,
+            "agent_explorer_info_seeking": False,
+            "agent_explorer_info_seeking_adaptive": False,
+        })
+    utils.reset_config(flags)
+    tools = ["run_python"] + list(CONTINUAL_TOOL_NAMES)
+    frozen = arm in ("scene_only", "oracle_dynamics", "zero_shot")
+    contract = play_prompts.build_model_contract(
+        partially_observable=True,
+        declared_params_only=arm == "no_fitting",
+        frozen=frozen,
+        supplied_model=arm in ("scene_only", "oracle_dynamics"))
+    options = {}
+    if frozen:
+        options = {
+            "frozen_section": render("play_frozen", arm),
+            "frozen_model_supplied": arm != "zero_shot",
+        }
+    text = play_prompts.build_play_system_prompt(tools,
+                                                 model_contract=contract,
+                                                 **options)
+    _check_golden(f"continual_system_{arm}", text)
+    assert "__" not in text.replace("__init__", "")
+    if arm in ("scene_only", "oracle_dynamics", "zero_shot"):
+        assert "sim.fit" not in text
+        assert "When the model disagrees" not in text
+        assert "earns its keep" not in text
+    if arm in ("scene_only", "oracle_dynamics"):
+        assert "Model API reference" not in text
+        assert "Predicate API reference" in text
+        assert "supplied dynamics model" in text
+    else:
+        assert "Model API reference" in text
+    if arm == "no_fitting":
+        assert "No harness parameter fitting" in text
+        assert "Do not implement an optimizer" not in text
+        assert "have a fitted" not in text
+    if arm == "no_uncertainty":
+        assert "Point-estimate comparison" in text
+        assert "tests physical-parameter uncertainty" not in text
+        assert "margin across models" not in text
+        assert "what uncertainty could change" not in text

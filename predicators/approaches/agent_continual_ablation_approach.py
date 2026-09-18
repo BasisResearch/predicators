@@ -12,7 +12,13 @@ from predicators.settings import CFG
 
 
 class AgentContinualNoFittingApproach(AgentContinualApproach):
-    """Revise declared values and ranges without numerical estimation."""
+    """Revise declared values and ranges without the harness estimator.
+
+    Only the harness-side fitting is removed (sim.fit, fitted residuals,
+    parameter sweeps, the deployment-time fit). The agent may estimate
+    values in its own sandbox code; they take effect through the
+    declarations.
+    """
 
     @classmethod
     def get_name(cls) -> str:
@@ -23,8 +29,14 @@ class AgentContinualNoFittingApproach(AgentContinualApproach):
             raise ValueError("No-fitting arm requires declared_params_only")
         super().__init__(*args, **kwargs)
 
+    def _no_model_section(self) -> str:
+        return "no_model_declared"
+
     def _fit_status_text(self) -> str:
-        return "agent-declared parameter values and ranges; no numerical fit"
+        return "agent-declared parameter values and ranges; no harness fit"
+
+    def _fit_available(self) -> bool:
+        return False
 
 
 class AgentContinualNoUncertaintyApproach(AgentContinualApproach):

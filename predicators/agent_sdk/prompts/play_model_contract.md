@@ -31,6 +31,14 @@ Inspect residuals relative to that noise model and the report's units.
 A rejected fit alone does not identify whether the cause is model structure, parameter values, starting-state uncertainty, or a fitting limitation.
 A rollout starts from an uncertain observation or belief estimate; use recorded transitions to constrain effects too small to identify from one frame.
 
+<!-- section: observation_noise_declared -->
+## Observation noise and the declared values
+
+Retain the raw recorded features; the declared observation channel and model noise floor set the scale on which residuals are judged.
+Inspect residuals relative to that noise model and the report's units.
+A mismatch alone does not identify whether the cause is model structure, declared values, starting-state uncertainty, or a limitation of an estimator you wrote.
+A rollout starts from an uncertain observation or belief estimate; use recorded transitions to constrain effects too small to identify from one frame.
+
 <!-- section: predicates -->
 ## `predicates.py`
 
@@ -56,12 +64,16 @@ A classifier can accept a keyword argument named exactly `latent` to read inferr
 `sim.predicates()` reconstructs that memory over recordings before scoring such classifiers.
 Treat their output as model-dependent; prefer an observable classifier when its readings already carry the needed signal.
 
-<!-- section: no_numerical_fitting -->
-### No numerical parameter fitting
+<!-- section: no_harness_fitting -->
+### No harness parameter fitting
 
-Set and revise parameter point estimates and plausible ranges yourself from recorded experience.
-The harness uses each declaration's `init_value` and `[lo, hi]` directly.
-`sim.fit`, fitted residuals, and automatic parameter sweeps are disabled.
-Do not implement an optimizer or a numerical parameter search in sandbox code.
-Use qualitative checks against recordings and model rollouts to revise the declarations.
+The harness estimates nothing in this run: `sim.fit`, fitted residuals, and automatic parameter sweeps are disabled, and the deployed model uses each declaration's `init_value` and `[lo, hi]` exactly as written.
+Set and revise those declarations yourself from recorded experience.
+You may estimate values in your own sandbox code by any method, from qualitative checks against recordings and model rollouts to fits you write against `trajectories`; the result only takes effect once you write it into the declaration.
 Uncertainty-aware planning over your declared ranges remains available.
+
+<!-- section: intro_supplied -->
+## Predicate API reference
+
+The dynamics model in `./simulator.py` is supplied and fixed; do not edit it.
+Write optional monitoring predicates in `./predicates.py`.

@@ -23,14 +23,18 @@ from matplotlib.ticker import FuncFormatter, MaxNLocator
 ROOT = Path(__file__).resolve().parent.parent.parent
 DOMAINS = ['Boil', 'Domino', 'Fan', 'Bridge', 'Balloons']
 ARMS = [
-    'MB', 'MF', 'agent_continual_program_world_model',
-    'agent_continual_oracle_dynamics', 'agent_continual_oracle_scene',
-    'agent_continual_zero_shot', 'agent_continual_no_fitting',
+    'MB',
+    'MF',
+    'agent_continual_program_world_model',
+    'agent_continual_oracle_dynamics',
+    'agent_continual_oracle_scene',  # scene-only arm, Sept 12-14 log name
+    'agent_continual_zero_shot',
+    'agent_continual_no_fitting',
     'agent_continual_no_uncertainty'
 ]
 LABELS = [
     'EMPIRIC', 'Direct agent', 'Standalone sim.', 'Oracle dynamics',
-    'Oracle scene', 'Zero-shot model', 'No harness fitting',
+    'Scene only', 'Zero-shot model', 'No harness fitting',
     'No explicit uncert.'
 ]
 COLORS = [

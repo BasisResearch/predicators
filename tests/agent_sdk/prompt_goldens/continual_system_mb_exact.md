@@ -70,7 +70,7 @@ The run is one conversation. A round consists of one harness prompt and your res
 
 | Task | API and meaning |
 | --- | --- |
-| Estimate parameters | `sim.fit()` fits and publishes declared parameters from the available recordings when estimation is enabled. With no learnable constants, skip fitting and validate directly. |
+| Estimate parameters | `sim.fit()` fits and publishes declared parameters from the available recordings. With no learnable constants, skip fitting and validate directly. |
 | Check recorded behavior | `sim.validate()` replays recordings at deployed values, including recordings rejected by a robust fit. `sim.residuals()` locates errors; read which parameter values its report scores. |
 | Compare hypotheses | `sim.fit(traj_idxs=[...])` reports a fit without publishing it. Pass those values to `sim.validate(traj_idxs=[...], params={...})` to compare candidates on identical data. |
 | Load predicates | `sim.predicates()` reloads and installs the current definitions and reports their behavior on recorded episodes. Call it after editing predicates. |

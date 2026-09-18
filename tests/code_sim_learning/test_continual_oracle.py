@@ -334,7 +334,7 @@ def test_bridge_oracle_process_and_observed_memory(mode: str,
 
 @pytest.mark.parametrize("domain",
                          ["bridge", "fan", "domino", "boil", "balloons"])
-def test_oracle_scene_physical_calibration(domain: str) -> None:
+def test_scene_only_physical_calibration(domain: str) -> None:
     """Match native body and articulation calibration without hidden
     effects."""
     import copy  # pylint: disable=import-outside-toplevel
@@ -342,13 +342,13 @@ def test_oracle_scene_physical_calibration(domain: str) -> None:
     import pybullet as p  # pylint: disable=import-outside-toplevel
 
     from predicators.approaches.agent_continual_frozen_approach import \
-        AgentContinualOracleSceneApproach  # pylint: disable=import-outside-toplevel
+        AgentContinualSceneOnlyApproach  # pylint: disable=import-outside-toplevel
     from scripts.cluster_utils import \
         generate_run_configs  # pylint: disable=import-outside-toplevel
     config = next(c for c in generate_run_configs(
-        "predicatorv3/protocol_continual_comparisons_noisy_r1.yaml", False)
+        "predicatorv3/continual_eight_agent_noisy_sweep.yaml", False)
                   if c.env == f"pybullet_{domain}"
-                  and c.approach == "agent_continual_oracle_scene")
+                  and c.approach == "agent_continual_scene_only")
     utils.reset_config({
         **{k: v
            for k, v in config.flags.items() if k != "log"}, "env": config.env,
@@ -359,7 +359,7 @@ def test_oracle_scene_physical_calibration(domain: str) -> None:
         "BaseSimulator": base_simulator_class(CFG.env),
         "ParamSpec": ParamSpec
     }
-    exec(AgentContinualOracleSceneApproach._scene_source(), namespace)  # pylint: disable=exec-used
+    exec(AgentContinualSceneOnlyApproach._scene_source(), namespace)  # pylint: disable=exec-used
     model = namespace["RESIDUAL_ENV"](use_gui=False)
     initial = real.get_train_tasks()[0].init
     real._set_state(copy.deepcopy(initial))
