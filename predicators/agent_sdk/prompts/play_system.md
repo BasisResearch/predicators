@@ -434,10 +434,10 @@ Repeated rehearsals at the same state and dynamics remain available to check con
 <!-- section: point_estimate_decisions_raw -->
 ## No explicit uncertainty handling
 
-Use the latest raw observation as the current state and one fitted value per parameter for every decision.
-Ordinary parameter fitting over multiple raw noisy transitions, inferred mechanism memory, and model revision remain enabled.
-Do not average, smooth, filter, or denoise observed state, infer denoised trajectory initial states, construct parameter intervals, state or parameter ensembles, uncertainty sweeps, or disagreement-based experiments, including in your own sandbox code.
-Mechanism memory may track action history and hidden processes, but must not denoise observed features.
+Use the latest observation as the current state and one fitted value per parameter for every decision.
+Parameter fitting over the recorded transitions, inferred mechanism memory, and model revision remain enabled.
+Take observed features as given: do not average, smooth, or filter observed state, or re-estimate trajectory initial states, and do not construct parameter intervals, state or parameter ensembles, uncertainty sweeps, or disagreement-based experiments, including in your own sandbox code.
+Mechanism memory may track action history and hidden processes, but must not re-estimate observed features.
 `sim.belief`, `belief_draws`, `physics_sweep`, and `sim.suggest_probes` are disabled.
 Repeated rehearsals at the same state and dynamics remain available to check controller reliability.
 

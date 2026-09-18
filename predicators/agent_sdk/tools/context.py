@@ -2,7 +2,8 @@
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Iterator, List, Optional, Set
+from typing import Any, Callable, Dict, FrozenSet, Iterator, List, Optional, \
+    Set
 
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
@@ -61,6 +62,12 @@ class ToolContext:
     probe_fit_provider: Optional[Callable[..., str]] = None
     # Standalone program models cannot request engine replay diagnostics.
     probe_engine_available: bool = True
+    # ``sim`` calls this session refuses: method names (``refine``,
+    # ``predicates``, ``render``, ...) plus the ``run`` modes ``trials``
+    # (more than one trial) and ``render`` (per-step scene images, which
+    # need the real engine). A comparison arm lists what its surface
+    # withholds; the probe raises on a listed call instead of serving it.
+    probe_disabled: FrozenSet[str] = frozenset()
     # Synthesis-session loaders behind ``sim.predicates()`` and
     # ``sim.samplers()``: each reloads the agent-authored file fresh
     # (predicates.py / samplers.py), installs the result into the

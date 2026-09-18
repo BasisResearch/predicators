@@ -803,3 +803,26 @@ def test_skill_preflight_refuses_without_charging_unless_forced(
 
     driver.body = body
     ContinualRun(env, approach, driver).run()
+
+
+@pytest.mark.parametrize("preflight", [False, True])
+def test_skill_tools_mention_the_preflight_only_when_it_is_on(
+        tmp_path: Any, preflight: bool) -> None:
+    """The skill tools describe a rehearsal and offer ``force`` only when the
+    skill preflight is on; otherwise no arm rehearses a request first."""
+    env, approach, ctx = _setup(tmp_path, continual_skill_preflight=preflight)
+    driver = _Driver()
+
+    def body(session: ProtocolSession) -> None:
+        tools = {
+            t.name: t
+            for t in build_continual_tools(
+                ctx, session, PlayState(), save_render=lambda tag: None)
+        }
+        for name in ("skills_invoke", "skills_execute_plan"):
+            tool = tools[name]
+            assert ("first rehearses" in tool.description) is preflight
+            assert ("force" in tool.input_schema["properties"]) is preflight
+
+    driver.body = body
+    ContinualRun(env, approach, driver).run()

@@ -129,7 +129,7 @@ class MyDynamics(__BASE_CLASS__):
 
 Implement the illustrative helper above to turn inferred memory into observable outputs or engine effects.
 The runtime carries independent copies in `State.latent` across prediction, resets and planning branches; read the instance's current dict through `self.model_state`.
-Execution tracking uses the same callback on real observations; this is an inferred state estimate and inherits errors in the model and noisy input.
+Execution tracking uses the same callback on real observations; this is an inferred state estimate and inherits __ESTIMATE_ERRORS__.
 Do not treat it as measured truth or as a particle filter.
 Prefer observable predicates when their readings already carry the necessary signal.
 

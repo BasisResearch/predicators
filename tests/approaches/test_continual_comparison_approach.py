@@ -3,7 +3,7 @@ import os
 import re
 import shlex
 import sys
-from typing import Any, Dict, Iterator, List, Set, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Set, Tuple
 
 import pybullet as p
 import pytest
@@ -75,9 +75,12 @@ def test_comparison_config_matches_existing_domains(monkeypatch: Any) -> None:
         parsed = utils.parse_args()
         assert parsed["env"] == cfg.env
         assert parsed["approach"] == cfg.approach
-        if cfg.approach == "agent_continual_no_uncertainty":
+        no_uncertainty = cfg.approach == "agent_continual_no_uncertainty"
+        if no_uncertainty:
             assert not cfg.flags["continual_belief_frame"]
             assert not cfg.flags["code_sim_learning_rollout_noise_filter"]
+            # Same noise as every arm, but not declared to this one.
+            assert not cfg.flags["continual_obs_noise_declared"]
         seeds.setdefault((cfg.env, cfg.approach), set()).add(parsed["seed"])
         # The EMPIRIC arm is the reference for the domain settings.
         reference = next(
@@ -93,15 +96,19 @@ def test_comparison_config_matches_existing_domains(monkeypatch: Any) -> None:
             "continual_levels"
         ]
         for key in keys:
+            if no_uncertainty and key == "continual_obs_noise_declared":
+                continue
             assert cfg.flags[key] == reference.flags[key], (cfg.env, key)
     assert all(s == SEEDS for s in seeds.values())
 
 
-@pytest.mark.parametrize(
-    "flag",
-    ["continual_belief_frame", "code_sim_learning_rollout_noise_filter"])
+@pytest.mark.parametrize("flag", [
+    "continual_belief_frame", "code_sim_learning_rollout_noise_filter",
+    "continual_obs_noise_declared"
+])
 def test_no_uncertainty_rejects_smoothing(flag: str) -> None:
-    """A config override cannot silently restore denoising in this arm."""
+    """A config override cannot silently restore denoising, or the noise
+    declaration, in this arm."""
     cfg = next(c for c in generate_run_configs(CONFIG, False)
                if c.approach == "agent_continual_no_uncertainty")
     utils.reset_config({
@@ -151,7 +158,8 @@ def test_ablation_play_tools(tmp_path: Any, monkeypatch: Any, arm: str,
         else:
             assert "call `sim.fit()`" in message
         observation = _call(agent, "env_observe")
-        assert "[noise]" in observation
+        # The no-uncertainty arm is not told about the noise at all.
+        assert ("[noise]" in observation) is (arm != "no_uncertainty")
         assert "[objects]" in observation
         prompt = agent._play_system_prompt()  # pylint: disable=protected-access
         tool_description = next(t.description for t in ctx.extra_mcp_tools
@@ -163,7 +171,9 @@ def test_ablation_play_tools(tmp_path: Any, monkeypatch: Any, arm: str,
             session = agent._play_session  # pylint: disable=protected-access
             obs = session.observe()
             assert obs.belief is None
-            assert "Do not average, smooth, filter" in prompt
+            assert "do not average, smooth, or filter" in prompt
+            for word in ("Observation noise", "sigma", "noisy", "denoise"):
+                assert word not in prompt, word
             probe = BeliefProbe(ctx)
             with pytest.raises(ValueError, match="Explicit uncertainty"):
                 probe.belief()
@@ -386,6 +396,26 @@ def transition(obs, latent, option, rng):
         result = probe.run(plan, render=False)
         assert result is not None
         assert live_bodies() == before
+        # Close to WorldCoder: score and one rollout at a time; plan
+        # search, repeated trials, predicate scoring and engine renders
+        # are refused, and the descriptions do not offer them.
+        assert probe.run(plan) is not None  # text-only rollout
+        refusals: List[Callable[[], Any]] = [
+            lambda: probe.refine(plan), lambda: probe.run(plan, trials=2),
+            probe.predicates, lambda: probe.render("x"),
+            lambda: probe.suggest_probes(plan), probe.belief
+        ]
+        for refused in refusals:
+            with pytest.raises(RuntimeError, match="unavailable"):
+                refused()
+        tools = {t.name: t for t in ctx.extra_mcp_tools}
+        desc = tools["run_python"].description
+        for absent in ("sim.refine", "trials=", "sim.predicates", "sim.render",
+                       "evaluate_trajectory"):
+            assert absent not in desc, absent
+        assert "sim.score" in desc and "sim.run(plan_text)" in desc
+        assert "sim.refine" not in prompt
+        assert "first rehearses" not in prompt
         for kwargs in ({
                 "solved": True
         }, {

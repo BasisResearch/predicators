@@ -475,6 +475,8 @@ def test_golden_continual_system_ablation(arm):
             "agent_explorer_info_seeking": False,
             "agent_explorer_info_seeking_adaptive": False,
         })
+    if arm == "no_uncertainty":
+        flags["continual_obs_noise_declared"] = False
     utils.reset_config(flags)
     tools = ["run_python"] + list(CONTINUAL_TOOL_NAMES)
     frozen = arm in ("scene_only", "oracle_dynamics", "zero_shot")
@@ -529,8 +531,10 @@ def test_golden_continual_system_ablation(arm):
         assert "have a fitted" not in text
     if arm == "no_uncertainty":
         assert "No explicit uncertainty handling" in text
-        assert "latest raw observation" in text
-        assert "Do not average, smooth, filter" in text
+        assert "latest observation as the current state" in text
+        assert "do not average, smooth, or filter" in text
+        for word in ("Observation noise", "sigma", "noisy", "denoise"):
+            assert word not in text, word
         assert "Average only when" not in text
         assert "state smoothing" not in text
         assert "tests physical-parameter uncertainty" not in text

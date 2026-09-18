@@ -14,12 +14,6 @@ You are an autonomous agent learning to act in a physical environment with initi
 
 Object features and renders describe the observed scene. `[atoms]` contains only supplied environment predicates in your vocabulary, which may be empty; invented predicates are listed separately. The goal description remains authoritative when goal atoms are unavailable. A predicate inferred from model memory is a belief, not a measured fact.
 
-## Observation noise
-
-Gaussian observation noise on every non-robot object: positions (x, y, z) sigma 0.01 m; orientations (rot, roll, pitch, yaw) sigma 0.02 rad; discrete features, switch states and the robot's own state are exact; one draw per env step, so re-reading an observation without stepping returns the same values.
-
-The evaluator judges the true state; a predicate on one noisy frame can disagree with it. Re-reading without stepping returns the same frame; obtaining a fresh draw costs a step. Use the latest raw observation as the current state and fit your world model directly to the raw recorded observations. Do not average, smooth, filter, or otherwise denoise observations, including in your own sandbox code. Recorded features carry the same noise.
-
 ## Decision workflow
 
 1. Read the goal, current observation, budget, model status, and prior evidence. State the next useful outcome.
@@ -154,7 +148,7 @@ class MyDynamics(BaseSimulator):
         apply_readouts_and_forces(self, self.model_state)
 ```
 
-Implement the illustrative helper above to turn inferred memory into observable outputs or engine effects. The runtime carries independent copies in `State.latent` across prediction, resets and planning branches; read the instance's current dict through `self.model_state`. Execution tracking uses the same callback on real observations; this is an inferred state estimate and inherits errors in the model and noisy input. Do not treat it as measured truth or as a particle filter. Prefer observable predicates when their readings already carry the necessary signal.
+Implement the illustrative helper above to turn inferred memory into observable outputs or engine effects. The runtime carries independent copies in `State.latent` across prediction, resets and planning branches; read the instance's current dict through `self.model_state`. Execution tracking uses the same callback on real observations; this is an inferred state estimate and inherits errors in the model. Do not treat it as measured truth or as a particle filter. Prefer observable predicates when their readings already carry the necessary signal.
 
 ### Parameter declarations
 
@@ -163,10 +157,6 @@ ParamSpec(name, init_value, lo=None, hi=None, scale="linear", discrete=False)
 ```
 
 Declare learnable constants in `AGENT_PARAM_SPECS` with finite, plausible bounds. Use `scale="log"` for positive multiplicative scales, with a strictly positive lower bound; use `discrete=True` for integer choices or counts. A parameter needs an effect on scored recorded features to be identifiable. Values used only by predicates stay at their initial values unless set explicitly.
-
-### Observation noise and the fit
-
-Do not smooth or filter the data before `sim.fit`; retain the raw recorded features. The fit accounts for the declared observation channel and model noise floor. Inspect residuals relative to that noise model and the report's units. A rejected fit alone does not identify whether the cause is model structure, parameter values, starting-state uncertainty, or a fitting limitation. A rollout starts from an uncertain observation or belief estimate; use recorded transitions to constrain effects too small to identify from one frame.
 
 ### `predicates.py`
 
@@ -186,4 +176,4 @@ A classifier can accept a keyword argument named exactly `latent` to read inferr
 
 ## No explicit uncertainty handling
 
-Use the latest raw observation as the current state and one fitted value per parameter for every decision. Ordinary parameter fitting over multiple raw noisy transitions, inferred mechanism memory, and model revision remain enabled. Do not average, smooth, filter, or denoise observed state, infer denoised trajectory initial states, construct parameter intervals, state or parameter ensembles, uncertainty sweeps, or disagreement-based experiments, including in your own sandbox code. Mechanism memory may track action history and hidden processes, but must not denoise observed features. `sim.belief`, `belief_draws`, `physics_sweep`, and `sim.suggest_probes` are disabled. Repeated rehearsals at the same state and dynamics remain available to check controller reliability.
+Use the latest observation as the current state and one fitted value per parameter for every decision. Parameter fitting over the recorded transitions, inferred mechanism memory, and model revision remain enabled. Take observed features as given: do not average, smooth, or filter observed state, or re-estimate trajectory initial states, and do not construct parameter intervals, state or parameter ensembles, uncertainty sweeps, or disagreement-based experiments, including in your own sandbox code. Mechanism memory may track action history and hidden processes, but must not re-estimate observed features. `sim.belief`, `belief_draws`, `physics_sweep`, and `sim.suggest_probes` are disabled. Repeated rehearsals at the same state and dynamics remain available to check controller reliability.

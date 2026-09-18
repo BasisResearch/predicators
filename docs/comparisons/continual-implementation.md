@@ -149,4 +149,21 @@ The agent writes `simulator.py` as a `SceneBase` subclass whose `initialize_pybu
 The model gate on the test level stays on.
 The menu runs the composite skill library, like the other arms of the Sept 18 benchmark; `skill_library: primitive` is the robot-stack variant.
 Review copy: `docs/prompt-review/2026-09-18-balloons/agent_continual_real_to_sim.md`.
-No runs have been submitted yet.
+Seed 0 on the five benchmark settings was launched on Sept 18 from a frozen worktree at `5ea35c91c` (`continual_real_to_sim_benchmark_r1.yaml`).
+
+## Standalone and no-uncertainty revisions, 2026-09-18
+
+The standalone arm's `sim` probe is now kept close to WorldCoder.
+It scores the agent's `world_model.py` on the recorded data (`sim.score`), resets to a train task or the last observation, reads and banks the state, and rolls a plan through the program once (`sim.run`, text only).
+Plan search (`sim.refine`), repeated-trial rollouts, predicate scoring (`sim.predicates`), renders of predicted states, belief draws, probe suggestions and policy rollouts are withheld: the probe refuses them (`ToolContext.probe_disabled`), and neither the `run_python` description nor the play prompt offers them.
+The agent may write any search, sampling or diagnostics in its own code.
+
+The no-explicit-uncertainty arm no longer has the observation noise declared (`continual_obs_noise_declared: false`).
+Its prompt has no noise section, its observations carry no `[noise]` line, and the harness fit models none of the noise; the noise itself is the same as in every other arm.
+The arm refuses a configuration that declares it.
+
+The skill tools mention a rehearsal in `sim`, and offer `force`, only when the skill preflight is on; it has been off by default since Sept 18, so the earlier text was inaccurate for every arm.
+
+Both arms were relaunched for seed 0 on the five benchmark settings under the `_benchmark_r2` round keys (`continual_standalone_no_uncertainty_r2.yaml`).
+The earlier rounds, with the fuller probe and the declared noise, keep their logs under `_benchmark_r1` and `_raw_obs_opus_r1`.
+

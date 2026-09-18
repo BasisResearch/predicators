@@ -40,7 +40,7 @@ class AgentContinualNoFittingApproach(AgentContinualApproach):
 
 
 class AgentContinualNoUncertaintyApproach(AgentContinualApproach):
-    """Fit raw noisy observations and decide without uncertainty handling."""
+    """Fit raw observations, undeclared noise, no uncertainty handling."""
 
     @classmethod
     def get_name(cls) -> str:
@@ -60,6 +60,8 @@ class AgentContinualNoUncertaintyApproach(AgentContinualApproach):
             "agent_sim_learn_declared_params_only",
             "code_sim_learning_rollout_noise_filter",
             "continual_belief_frame",
+            # The arm is not told about the observation noise.
+            "continual_obs_noise_declared",
         )
         wrong = [name for name in disabled if getattr(CFG, name)]
         if wrong:

@@ -25,12 +25,12 @@ The same command with another `--domain` (`boil`, `bridge`, `fan`, `domino_high_
 | --- | --- | --- |
 | EMPIRIC (model-based) | [agent_continual.md](agent_continual.md) | Write and revise `simulator.py`, fit it with `sim.fit`, plan under parameter and pose uncertainty, repair the model when it disagrees with recordings. |
 | Direct agent (model-free) | [agent_continual_model_free.md](agent_continual_model_free.md) | Act with the skill library and the sandbox; no simulator, no `run_python` workbench. |
-| Standalone program world model | [agent_continual_program_world_model.md](agent_continual_program_world_model.md) | Write `world_model.py` over skill transitions without the base physics; `sim.score`, `sim.run`, `sim.refine` on that program; no engine diagnostics. |
+| Standalone program world model | [agent_continual_program_world_model.md](agent_continual_program_world_model.md) | Write `world_model.py` over skill transitions without the base physics; `sim.score` and single text-only `sim.run` rollouts on that program, as in WorldCoder; no plan search, repeated trials, predicate scoring, renders or engine diagnostics. |
 | Oracle dynamics | [agent_continual_oracle_dynamics.md](agent_continual_oracle_dynamics.md) | The supplied simulator carries the true mechanisms and parameters, fixed for the run; predicates only; no fitting, no model edits. |
 | Scene-only | [agent_continual_scene_only.md](agent_continual_scene_only.md) | The supplied simulator is the exact scene twin with corrected base calibration and no mechanism code, fixed for the run; predicates only; no fitting, no model edits. |
 | Zero-shot model | [agent_continual_zero_shot.md](agent_continual_zero_shot.md) | Write `simulator.py` once before the first real action; the dynamics are sealed at that point; no fitting afterwards. |
 | No harness fitting | [agent_continual_no_fitting.md](agent_continual_no_fitting.md) | Write and revise the model, but the harness fits nothing: declared values deploy as written, and the agent may estimate them in its own sandbox code. |
-| No explicit uncertainty handling | [agent_continual_no_uncertainty.md](agent_continual_no_uncertainty.md) | Fit raw noisy transitions and plan from the latest raw observation: no observation smoothing or denoising, belief draws, parameter sweeps, `sim.belief` or `sim.suggest_probes`, including agent-written substitutes. |
+| No explicit uncertainty handling | [agent_continual_no_uncertainty.md](agent_continual_no_uncertainty.md) | Observation noise is not declared anywhere in the prompt; fit the recorded transitions and plan from the latest observation: no observation smoothing or denoising, belief draws, parameter sweeps, `sim.belief` or `sim.suggest_probes`, including agent-written substitutes. |
 | Agentic real-to-sim | [agent_continual_real_to_sim.md](agent_continual_real_to_sim.md) | No domain twin: build `simulator.py` on `SceneBase` from the generic engine wrapper, the scene manifest and the URDF and mesh files; declare and set parameters yourself; no harness fitting, no uncertainty machinery; `sim` has no world until the file loads. |
 
 ## What differs between the arms
@@ -51,9 +51,9 @@ Word counts of the rendered text, Balloons seed 0.
 | `agent_continual` | 3388 | 638 | 476 |
 | `agent_continual_model_free` | 1072 | 515 | 353 |
 | `agent_continual_no_fitting` | 3457 | 647 | 485 |
-| `agent_continual_no_uncertainty` | 3432 | 542 | 380 |
+| `agent_continual_no_uncertainty` | 3224 | 524 | 362 |
 | `agent_continual_oracle_dynamics` | 1997 | 618 | 456 |
-| `agent_continual_program_world_model` | 1461 | 621 | 459 |
+| `agent_continual_program_world_model` | 1490 | 621 | 459 |
 | `agent_continual_scene_only` | 2013 | 616 | 454 |
 | `agent_continual_zero_shot` | 3005 | 647 | 485 |
 | `agent_continual_real_to_sim` | 3655 | 556 | 394 |

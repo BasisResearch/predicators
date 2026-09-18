@@ -8,7 +8,8 @@ No prepared physical scene or base simulator is supplied underneath this model; 
 You may use PyBullet or other available simulation libraries to build your own predictive model from observations and recorded interactions.
 Within this conversation you can collect evidence, edit the model, score it on recordings, rehearse plans, and act.
 Use `run_python` to access `trajectories`, `describe_trajectory`, and the `sim` probe.
-`sim.score()` scores world_model.py against recorded skill transitions; `sim.run` and `sim.refine` predict using that program.
+`sim.score()` scores world_model.py against recorded skill transitions, and `sim.run` predicts a plan once through that program.
+The harness offers no plan search, repeated-trial rollouts, predicate scoring or renders of predicted states; write any search, sampling or diagnostics you need in your own code.
 The supplied residual-fitting API, physical contact diagnostics, and engine-based evaluator replays are unavailable.
 You may implement fitting and diagnostics for your own model.
 An environment win is authoritative; a predicted goal alone cannot certify it.

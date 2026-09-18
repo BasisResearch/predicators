@@ -1,0 +1,37 @@
+# Relaunch of two comparison arms on the five benchmark settings, seed 0
+# only (Sept 18, 2026); more seeds follow once these look right.
+#
+# - Standalone sim, closer to WorldCoder: the run_python probe scores the
+#   agent's world_model.py on the recorded data and rolls a plan through
+#   it once; plan search (sim.refine), repeated-trial rollouts, predicate
+#   scoring and engine renders of predicted states are withheld.
+# - No explicit uncertainty, with the observation noise undeclared: no
+#   noise section, no [noise] line, and the harness fit models none of it.
+#
+# The r1 rounds of these arms had the fuller probe and the declared noise;
+# their logs stay under the _benchmark_r1 and _raw_obs_opus_r1 keys.
+#
+# Launched from a frozen worktree:
+# python scripts/engaging/launch.py -c predicatorv3/continual_standalone_no_uncertainty_r2.yaml --partition mit_preemptable,mit_normal --requeue --accounts a,b,c,d
+includes:
+  - continual_common.yaml
+  - envs/continual.yaml
+  - approaches/continual.yaml
+START_SEED: 0
+NUM_SEEDS: 1
+ENVS:
+  balloons:
+    SKIP: false
+  bridge:
+    SKIP: false
+  boil:
+    SKIP: false
+  fan:
+    SKIP: false
+  domino_high_friction_turn:
+    SKIP: false
+APPROACHES:
+  standalone_opus_benchmark_r2:
+    EXTENDS: standalone_opus
+  no_uncertainty_opus_benchmark_r2:
+    EXTENDS: no_uncertainty_opus

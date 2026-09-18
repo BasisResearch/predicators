@@ -336,13 +336,16 @@ def build_model_contract(
                "simulator_scene" if scene_built else "simulator"),
         render("subclass_model", "dynamics"),
     ]
+    noise = ObservationNoise.from_cfg()
     if partially_observable:
+        # With undeclared noise the prompt never mentions noise at all.
         parts.append(
             render("subclass_model",
                    "memory",
-                   base_class="SceneBase" if scene_built else "BaseSimulator"))
+                   base_class="SceneBase" if scene_built else "BaseSimulator",
+                   estimate_errors="errors in the model and noisy input"
+                   if noise.declared else "errors in the model"))
     parts.append(render("play_model_contract", "paramspec"))
-    noise = ObservationNoise.from_cfg()
     if noise.enabled and noise.declared and not frozen:
         parts.append(
             render(
