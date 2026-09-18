@@ -115,8 +115,11 @@ class GlobalSettings:
     # runs unrehearsed: the base physics has the hidden mechanisms
     # disabled, and its Bridge refusals (a welded partner rehearsed as
     # a loose block) were false. On every level; the model-free arm has
-    # no sim. The Opus menu entry switches it off (Sept 17, 2026).
-    continual_skill_preflight = True
+    # no sim. Off by default (Sept 18, 2026): the Opus agent's requests
+    # were rarely refused (at most 7 per run against 24-68 for Sonnet)
+    # and it won the Bridge four-span test 3/3 without it; the prompt's
+    # own rehearse-in-sim instruction stays either way.
+    continual_skill_preflight = False
     # Belief draws per preflight when observation noise is declared and
     # continual_uncertainty_decisions is on: the request is also rolled
     # from this many plausible poses of the objects, and a request that

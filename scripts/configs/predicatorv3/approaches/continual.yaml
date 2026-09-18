@@ -2,7 +2,9 @@
 # un-parks arms, usually under a round-specific key with EXTENDS (see
 # continual_common.yaml). MB arms are gated on a deployable model on the
 # test level (continual_require_model_on_test). MF arms switch off the
-# model-side machinery so the two differ only in the model.
+# model-side machinery so the two differ only in the model. The skill
+# preflight (continual_skill_preflight) is off by default since Sept 18,
+# 2026; a launcher that wants the Sept 17 Sonnet setting sets it to true.
 APPROACHES:
   mb_opus:
     NAME: agent_continual
@@ -10,10 +12,6 @@ APPROACHES:
     FLAGS:
       agent_sdk_model_name: claude-opus-5
       continual_require_model_on_test: true
-      # Off for Opus (Sept 17, 2026): its requests were rarely refused
-      # (at most 7 per run against 24-68 for Sonnet), and the Bridge
-      # refusals were false; the prompt's rehearsal instruction stays.
-      continual_skill_preflight: false
   mb_sonnet:
     NAME: agent_continual
     SKIP: true

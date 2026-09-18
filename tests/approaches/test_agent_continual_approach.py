@@ -640,7 +640,9 @@ def test_skill_preflight_rehearses_in_the_candidate(tmp_path: Any) -> None:
     the real skill controllers on the base physics for the agent, but no
     request is rehearsed there: the same Place runs, and is charged."""
     # pylint: disable=protected-access
-    _config(tmp_path, continual_levels="train_only")
+    _config(tmp_path,
+            continual_levels="train_only",
+            continual_skill_preflight=True)
     env, approach = _make_approach()
     assert "Every skill request is rehearsed first" in \
         approach._play_system_prompt()
