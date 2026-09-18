@@ -58,7 +58,11 @@ def _solve_near(robot: SingleArmPyBulletRobot, pose: Pose,
     ``prev``, sampling the redundant joint only nearby. None when no
     such configuration exists -- then the branch change is real."""
     old = CFG.ikfast_max_distance
-    utils.update_config({"ikfast_max_distance": float(max_joint_step)})
+    # Set the field directly: ``utils.update_config`` re-applies every
+    # per-env default before the given keys, so calling it with a partial
+    # dict here clobbered CLI overrides such as ``--horizon`` back to
+    # their env defaults on every near-IK solve.
+    CFG.ikfast_max_distance = float(max_joint_step)
     try:
         robot.set_joints(list(prev))
         solved = robot.inverse_kinematics(pose, validate=True,
@@ -66,7 +70,7 @@ def _solve_near(robot: SingleArmPyBulletRobot, pose: Pose,
     except InverseKinematicsError:
         return None
     finally:
-        utils.update_config({"ikfast_max_distance": old})
+        CFG.ikfast_max_distance = old
     return [float(v) for v in solved]
 
 

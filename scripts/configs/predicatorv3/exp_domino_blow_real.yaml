@@ -65,10 +65,12 @@ ENVS:
       # Open the take in front of the press: the pick-and-place before it
       # is not evidence, the gust is.
       real_robot_record_from_option: "Press"
-      # The exported scene stands in for the cameras. "zed" is the marker
-      # pipeline; the bench's block has no markers.
+      # A live look per episode: the markerless read (fan_scene.sh) for
+      # the block, the scene file for the fixtures. "zed" is the marker
+      # pipeline and the bench's block has no markers; "scene_file"
+      # replays the export, which puts the arm where the block WAS.
       real_robot_perception: "scene_file"
-      real_robot_human_reset: False
+      real_robot_human_reset: True
       real_robot_record_episodes: False
       real_robot_process_takes: False
       real_robot_pick_boxes_at_start: False

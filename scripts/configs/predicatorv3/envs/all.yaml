@@ -393,7 +393,7 @@ ENVS:
       domino_use_skill_factories: True
       # The exported fan-bench scene: one block plus fixtures. Re-export
       # after the fan, button or goal marker is moved.
-      domino_real_scene: "/home/amberli/babyrobot/BabyRobotPredicator/scenes/fan_bench_20260912.json"
+      domino_real_scene: "/home/datnguyen/babyrobot/predicators/.claude/worktrees/eb-fan-domino/submodules/BabyRobotPredicator/scenes/fan_bench_20260915.json"
       # Rest the closed fingers at the 0.029 m real domino's faces.
       pybullet_closed_fingers: 0.015
       # How long the button is held: the gust, in seconds, on the arm.
