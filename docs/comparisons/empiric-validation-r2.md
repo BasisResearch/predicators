@@ -8,6 +8,20 @@ All finished outcomes count, including failures; an unfinished run is not a fail
 
 ## Validation policy
 
+### Required follow-up after completion
+
+The user requested a post-run decision about whether preflight should become the default (September 19, 2026).
+Once all ten EMPIRIC r2 runs finish, review every scorecard and pair each available prediction with its execution outcome in `agent/validation_audit.jsonl`.
+Check harmful actions missed by validation, successful actions that would have been refused, task-certificate rejections, restoration mismatches, missing checks, and diagnostic-budget exhaustion.
+Report coverage and overhead separately from real-action sample cost, and inspect the failures rather than relying on aggregate solve rate alone.
+Use the Oracle r2 results as supporting evidence, keeping its model-specific repairs distinct from EMPIRIC's learned dynamics.
+Recommend one of: retain nonblocking validation, evaluate selective enforcement on matched seeds, or adopt a justified default after sufficient validation.
+Shadow outcomes alone cannot establish how an agent would recover from a refusal or that enforcement improves solve rate.
+Do not change defaults, frozen runtimes, or running jobs as part of the review without a subsequent implementation decision.
+This pending review is saved in project memory; the figure monitor does not itself invoke an agent to conduct it.
+
+### Current r2 settings
+
 Legacy blocking skill preflight remains off.
 The new audit is nonblocking: it does not reject actions or send predictions to the agent.
 It rehearses skill requests and individual raw actions in an isolated candidate world, then records the real execution outcome under the same identifier.
