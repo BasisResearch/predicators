@@ -52,4 +52,20 @@ Compute-node checks passed: 59 runtime/tool/configuration tests plus 31 prompt c
 Targeted mypy checks passed, and the final source lint check passed after correcting report-generator line wrapping (`23106124`).
 Pinned formatter checks also passed.
 These are overlapping targeted regression batches, not the full repository CI suite.
-Frozen-runtime and experiment job identifiers are recorded below after submission.
+The frozen runtime is `f2ed37aef`, at `/home/ycliang/predicators-empiric-r2-frozen-20260919`.
+The same checkout passed all six frozen smoke tests (`23106203`) before submission.
+All five arrays use indices `3-4`, `mit_preemptable`, eight CPUs and 16 GB per task, automatic checkpoint resume, and requeue.
+Slurm allocations are 12 hours with the launcher's pre-timeout requeue; the run's active wall-clock allowance remains 48 hours.
+
+| Domain | Array job | Seeds |
+|---|---|---|
+| Balloons | `23106296` | 3, 4 |
+| Bridge | `23106297` | 3, 4 |
+| Boil | `23106299` | 3, 4 |
+| Fan | `23106301` | 3, 4 |
+| Domino | `23106302` | 3, 4 |
+
+Figure/report monitor `23106204` replaces `23104366` to load the new EMPIRIC r2 entry.
+It checks every 60 seconds on a compute node and updates the main figure and Markdown report when finished scorecards change.
+Its requested allocation is 48 hours; it does not launch additional experiments or change running code.
+The historical runs and the already-running Oracle repair cohort retain their original frozen runtimes.

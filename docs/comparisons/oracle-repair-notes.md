@@ -14,10 +14,10 @@ Account `c` hit its weekly limit before Bridge seed 2 took any actions; that see
 Domino seed 1 had also selected `c`; its task-generation job was stopped before agent play and resubmitted as `23104122_1` on configured account `a`.
 The remaining original array tasks are unchanged, and both replacements use the same frozen runtime and round keys.
 Both arrays run on `mit_preemptable`, with automatic checkpoint resume and requeue.
-The figure/report monitor was resubmitted as compute-node job `23104366` to load the separate Oracle dynamics r2 entry in the main figure, replacing `23104071`.
+The figure/report monitor was resubmitted as compute-node job `23106204` to load both separate r2 entries in the main figure, replacing `23104366` (previously `23104071`).
 It checks every 60 seconds with a requested 48-hour allocation.
 It does not launch further experiments, cancel jobs, or automatically commit generated updates.
-Its status file is `logs/benchmark_monitor/status.json`; its output is `logs/benchmark_monitor/slurm-23104366.out`.
+Its status file is `logs/benchmark_monitor/status.json`; its output is `logs/benchmark_monitor/slurm-23106204.out`.
 The final targeted static, lint, and formatter checks completed successfully in compute-node job `23103985`.
 
 ## Changes
