@@ -55,3 +55,33 @@ def test_oracle_r2_finished_only_and_report(tmp_path: Path,
     assert unfinished.count("Oracle dynamics r2") == 6
     assert "| Boil (two-jug) | 2. Oracle dynamics r2" not in report
     assert monitor.report_text(report, rows, vars(plot), "test") == report
+
+
+def test_empiric_r2_seed_ids_and_completion_count(tmp_path: Path,
+                                                  monkeypatch: Any) -> None:
+    """Report actual prospective seed IDs and the two-seed cohort size."""
+    monkeypatch.setattr(plot, "LOGS", str(tmp_path))
+    directory = dict(plot.DOMAINS)["Domino"]["MB_r2"][0]
+    run = tmp_path / directory / "run_20260919"
+    run.mkdir(parents=True)
+    (run / "scorecard.json").write_text(json.dumps({
+        "end_reason": "all_levels_won",
+        "levels": [{
+            "won": True
+        }],
+        "totals": {
+            "total_steps": 265,
+            "total_resets": 0
+        }
+    }),
+                                        encoding="utf-8")
+    rows = plot.records()
+    assert len(rows) == 1 and rows[0]["seed"] == 3
+    report = monitor.report_text(monitor.REPORT.read_text(), rows, vars(plot),
+                                 "test")
+    averages = report.split("## Per-seed results", 1)[0]
+    assert "| 265 (n=1) | 0 | 1/2 |" in averages
+    details, unfinished = report.split("## Unfinished runs", 1)
+    assert "| 4. EMPIRIC r2 | 3 | 1/1 | 265 |" in details
+    assert "| Domino (high-friction turn) | 4. EMPIRIC r2 | 4 |" in unfinished
+    assert "| Domino (high-friction turn) | 4. EMPIRIC r2 | 3 |" not in unfinished

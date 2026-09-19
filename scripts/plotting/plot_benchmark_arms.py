@@ -13,6 +13,7 @@ import glob
 import json
 import os
 import sys
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import matplotlib
@@ -191,7 +192,8 @@ def records() -> List[Row]:
     rows = []
     for domain, arm_dirs in DOMAINS:
         for arm, dirs in arm_dirs.items():
-            for seed, sd in enumerate(dirs):
+            for sd in dirs:
+                seed = int(Path(sd).name.removeprefix("seed"))
                 r = pick(sd)
                 card = _card(r) if r else None
                 if card is None or not _finished(card):

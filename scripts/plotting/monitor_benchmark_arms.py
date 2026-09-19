@@ -68,7 +68,8 @@ def report_text(original: str, rows: List[Row], plot: Dict[str, Any],
                 r for r in rows if r["domain"] == domain and r["arm"] == arm
             ]
             done = {r["seed"] for r in group}
-            for seed, directory in enumerate(directories[arm]):
+            for directory in directories[arm]:
+                seed = int(Path(directory).name.removeprefix("seed"))
                 if seed in done:
                     continue
                 run = plot["pick"](directory)
@@ -91,7 +92,8 @@ def report_text(original: str, rows: List[Row], plot: Dict[str, Any],
                 f"| {title} | {labels[arm]} | {len(successes)}/{count} "
                 f"({number(100 * len(successes) / count)}%) | {won}/{levels} "
                 f"({number(100 * won / levels)}%) | {steps} "
-                f"(n={len(successes)}) | {resets} | {count}/3 |")
+                f"(n={len(successes)}) | {resets} | "
+                f"{count}/{len(directories[arm])} |")
             for row in sorted(group, key=lambda r: r["seed"]):
                 source = row["source"]
                 details.append(
