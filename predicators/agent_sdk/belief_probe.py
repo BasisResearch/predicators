@@ -798,6 +798,17 @@ class BeliefProbe:
             } for name, feats in mods.items()]
         return list(mods)
 
+    def check_restore(self) -> Dict[str, Any]:
+        """Check current candidate memory/poses across fresh worlds, no ticks.
+
+        This checks reconstruction, not whether the inferred state is
+        true. Use after model edits and on held assemblies before
+        trusting lifts.
+        """
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.restoration import check_restore
+        return check_restore(self._ctx, self._require_state())
+
     def snapshot(self) -> int:
         """Bank a copy of the current state; returns an id for restore.
 

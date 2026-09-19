@@ -138,6 +138,7 @@ Do not discard notices when deciding whether a check is trustworthy.
 | `reset(current=True)` | Start from the latest recorded real observation. |
 | `reset(mods=...)` | Apply object-feature modifications to a copy of the starting state. |
 | `snapshot()` / `restore(id)` | Save and restore probe state for branching experiments. |
+| `check_restore()` | Check observables, inferred memory, registered attachments, and attachment frames across fresh candidate worlds, without advancing physics. |
 | `drop(id)` / `clear_snapshots()` | Release saved snapshots. |
 | `task()` | Describe the selected task. |
 | `state()` / `state("object_name")` | Inspect full-precision state features. |
@@ -146,6 +147,17 @@ Do not discard notices when deciding whether a check is trustworthy.
 | `belief(draws=None)` | Inspect the observation belief and estimated atom frequencies. |
 
 These operations do not reset, modify, or execute actions in the live environment.
+
+`sim.reset(current=True).check_restore()` checks the model's reconstructed state, not whether its inferred hidden state is correct.
+It returns `accepted`, `rejected`, or `unavailable` with component diagnostics; an exception is an error, not a pass.
+Orientation comparisons use quaternion distance so equivalent Euler representations are not reported as different physical orientations.
+It cannot detect an attachment the model never inferred or registered in either world.
+
+Candidate subclasses can implement `restore_model_state(self)` to realize their own inferred engine state immediately after reset, before a skill controller checks collisions or plans a lift.
+The hook must be idempotent and must not advance physics, change poses, or infer new mechanism events.
+`restore_model_attachments([(name_a, name_b), ...])` registers the candidate's inferred rigid links with the assembly-aware controller and preserves them across steps and snapshots.
+The helper supplies no glue rules and reads no hidden execution state.
+Prediction snapshots preserve local joint frames; observation-only reconstruction must obtain link identities from the candidate's observation-driven memory.
 
 ## Search and parallel rollouts
 

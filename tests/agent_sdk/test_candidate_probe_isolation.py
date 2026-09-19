@@ -81,6 +81,10 @@ def test_candidate_public_trials_are_isolated(monkeypatch: Any) -> None:
         single = BeliefProbe(ctx).reset(task_idx=0).run(plan, fresh=True)
         assert single.steps
         assert len(worlds) == 3
+        restored = BeliefProbe(ctx).reset(task_idx=0).check_restore()
+        assert restored["attachments_preserved"]
+        assert restored["snapshot"]["memory_preserved"]
+        assert candidate._get_state().allclose(before)
         # Exception cleanup restores all bindings, not just successful runs.
         with pytest.raises(RuntimeError, match="injected"):
             with approach._fresh_candidate_validation_scope():

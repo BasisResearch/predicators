@@ -10,12 +10,15 @@ import pickle
 from pathlib import Path
 from typing import Any, Dict
 
+import numpy as np
+
 from predicators.agent_sdk.belief_probe import BeliefProbe
 from predicators.agent_sdk.tools.context import ToolContext
 from predicators.approaches.agent_sim_learning_approach import \
     AgentSimLearningApproach
 from predicators.code_sim_learning.base_simulator import base_simulator_class
 from predicators.code_sim_learning.continual_oracle import oracle_source
+from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.code_sim_learning.latent_tracker import \
     make_subclass_latent_tracker
 from predicators.envs import create_new_env
@@ -34,14 +37,24 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("run", type=Path)
     parser.add_argument("--step", type=int, default=1267)
+    parser.add_argument(
+        "--candidate",
+        type=Path,
+        help="Trusted saved agent-written simulator to diagnose")
+    parser.add_argument("--exact-observations",
+                        action="store_true",
+                        help="Offline diagnostic only; never used by an agent")
     args = parser.parse_args()
     load_run_config(args.run)
     assert CFG.env == "pybullet_bridge"
     real: Any = create_new_env(CFG.env, do_cache=False)
     namespace: Dict[str, Any] = {
-        "BaseSimulator": base_simulator_class(CFG.env)
+        "BaseSimulator": base_simulator_class(CFG.env),
+        "np": np,
+        "ParamSpec": ParamSpec
     }
-    exec(oracle_source(), namespace)  # pylint: disable=exec-used
+    source = args.candidate.read_text() if args.candidate else oracle_source()
+    exec(source, namespace)  # pylint: disable=exec-used
     cls = namespace["RESIDUAL_ENV"]
     model = cls(use_gui=False)
     options = get_gt_options(CFG.env, skill_library="composite")
@@ -56,7 +69,8 @@ def main() -> None:
         assert tracker is not None
         frames = []
         for index, state in enumerate(states[:args.step + 1]):
-            observed = noise.perturb(state, step_rng(CFG.seed, 1, 0, index))
+            observed = (state.copy() if args.exact_observations else
+                        noise.perturb(state, step_rng(CFG.seed, 1, 0, index)))
             frames.append(observed)
             tracker.attach(observed,
                            None if index == 0 else actions[index - 1])
@@ -64,7 +78,8 @@ def main() -> None:
         belief = smooth_frames(frames[-CFG.continual_belief_window:], noise,
                                CFG.continual_belief_window,
                                CFG.continual_belief_sigmas)
-        current = belief.frame.copy()
+        current = (frames[-1].copy()
+                   if args.exact_observations else belief.frame.copy())
         current.latent = tracker.latent
         model._set_state(current)  # pylint: disable=protected-access
         restored = model._get_state()  # pylint: disable=protected-access
@@ -77,12 +92,18 @@ def main() -> None:
             json.dumps({
                 "step":
                 args.step,
+                "candidate":
+                str(args.candidate) if args.candidate else "oracle",
+                "parameters":
+                "declared defaults, not a recovered historical fit",
+                "exact_observations":
+                args.exact_observations,
                 "max_restore_feature_error":
                 pose_error,
                 "largest_errors":
                 errors[-6:],
                 "welds":
-                len(model._weld_constraints),  # pylint: disable=protected-access
+                len(model._weld_constraint_edges()),  # pylint: disable=protected-access
                 "held": [
                     o.name for o in restored
                     if "is_held" in o.type.feature_names
