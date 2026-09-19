@@ -2868,6 +2868,12 @@ class GlobalSettings:
     # the base-sim rollouts execute. Envs that declare no source files
     # are unaffected.
     agent_sim_provide_base_sim_source = False
+    # The continual model arm's copy of what the agentic real-to-sim arm
+    # receives: the generic engine wrapper (pybullet_env.py, base_env.py),
+    # the scene manifest (bodies, shapes, joints, colours; no masses,
+    # frictions or damping) and the URDF and mesh files, under
+    # ./reference/. The domain twin still backs the model.
+    continual_provide_scene_package = False
 
     @classmethod
     def get_arg_specific_settings(cls, args: Dict[str, Any]) -> Dict[str, Any]:

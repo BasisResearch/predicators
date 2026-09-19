@@ -455,6 +455,35 @@ def test_golden_continual_query(kind):
     assert "[episode] NOT_FINISHED" in text
 
 
+def test_golden_continual_system_scene_package():
+    """The model arm with the real-to-sim arm's references lists them as the
+    twin's scene package, not as a scene to build."""
+    utils.reset_config({
+        "continual_obs_noise_position": 0.01,
+        "continual_obs_noise_orientation": 0.02,
+        "agent_model_repair": True,
+    })
+    tools = ["run_python"] + list(CONTINUAL_TOOL_NAMES)
+    contract = play_prompts.build_model_contract(partially_observable=True)
+    refs = [
+        "./reference/base_sim/pybullet_fan_base.py",
+        "./reference/base_sim/pybullet_env.py",
+        "./reference/base_sim/base_env.py",
+        "./reference/scene/scene_manifest.json (9 bodies)",
+        "./reference/assets/ (4 URDF and mesh files, named in the manifest)",
+    ]
+    text = play_prompts.build_play_system_prompt(tools,
+                                                 base_sim_refs=refs,
+                                                 model_contract=contract,
+                                                 scene_package=True)
+    _check_golden("continual_system_scene_package", text)
+    assert "__" not in text.replace("__init__", "")
+    assert "scene_manifest.json" in text and "URDF and mesh files" in text
+    assert "already builds this scene" in text
+    assert "SceneBase" not in text
+    assert "sim.fit" in text
+
+
 @pytest.mark.parametrize("arm", [
     "scene_only", "oracle_dynamics", "zero_shot", "no_fitting",
     "no_uncertainty", "real_to_sim"

@@ -167,3 +167,11 @@ The skill tools mention a rehearsal in `sim`, and offer `force`, only when the s
 Both arms were relaunched for seed 0 on the five benchmark settings under the `_benchmark_r2` round keys (`continual_standalone_no_uncertainty_r2.yaml`).
 The earlier rounds, with the fuller probe and the declared noise, keep their logs under `_benchmark_r1` and `_raw_obs_opus_r1`.
 
+
+## EMPIRIC with the scene package, 2026-09-18
+
+The user asked for EMPIRIC to receive everything the agentic real-to-sim arm receives, and for a rerun on the benchmark runtime.
+`continual_provide_scene_package` gives the model arm the generic engine wrapper (`pybullet_env.py`, `base_env.py`), the scene manifest and the URDF and mesh files under `./reference/`, next to the domain twin that still backs the model.
+The menu entry `mb_scene_package_opus` also sets `agent_sim_provide_base_sim_source`, which adds the twin's own core module where the domain declares a split one (Fan and Balloons).
+Boil, Bridge and Domino declare none: their env modules hold the hidden mechanisms, so their twin source stays out of the sandbox.
+The launcher is `continual_empiric_scene_package_benchmark_r1.yaml` (5 domains x seeds 0-2), on the same menus as the other benchmark arms, so the skill preflight is off.

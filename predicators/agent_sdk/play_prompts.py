@@ -118,7 +118,8 @@ def build_play_system_prompt(tool_names: Sequence[str],
                              model_contract: str = "",
                              frozen_section: str = "",
                              frozen_model_supplied: bool = False,
-                             scene_built: bool = False) -> str:
+                             scene_built: bool = False,
+                             scene_package: bool = False) -> str:
     """The system prompt of the run's conversation.
 
     The tool surface selects the variant: an arm with ``run_python``
@@ -145,7 +146,9 @@ def build_play_system_prompt(tool_names: Sequence[str],
     the scene from the engine, the manifest and the assets, so the
     identity, the arm statement, the workflow's first-round line, the
     workbench's before-model line and the reference listing describe
-    that.
+    that. ``scene_package`` (a twin-backed arm that also receives the
+    engine, the manifest and the assets) describes that reference
+    listing instead.
     """
     names = set(tool_names)
     model = "run_python" in names
@@ -246,7 +249,8 @@ def build_play_system_prompt(tool_names: Sequence[str],
     if model:
         refs = ("" if not base_sim_refs else render(
             "play_system",
-            "scene_refs" if scene_built else "base_sim_refs",
+            "scene_refs" if scene_built else
+            "twin_scene_refs" if scene_package else "base_sim_refs",
             ref_listing="\n".join(f"- `{r}`" for r in base_sim_refs)))
         robustness = render(
             "play_system", "robustness_point_estimate"

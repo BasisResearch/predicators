@@ -390,6 +390,16 @@ These read-only files expose the observable core: geometry, body construction, s
 They omit hidden dynamics, task generation, and goal semantics.
 Use them to ground the model's implementation.
 
+<!-- section: twin_scene_refs -->
+### Visible base simulator, scene manifest and assets
+
+__REF_LISTING__
+
+These read-only files are the engine wrapper, the supplied base simulator's observable core where one is listed, the manifest of the scene's bodies, and the URDF and mesh files those bodies were loaded from.
+The supplied base simulator already builds this scene; your subclass does not load it again.
+They omit hidden dynamics, task generation, and goal semantics.
+Use them to ground the model's implementation.
+
 <!-- section: scene_refs -->
 ### Engine, scene manifest and assets
 

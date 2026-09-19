@@ -31,6 +31,7 @@ import hashlib
 import logging
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, FrozenSet, List, \
     Optional, Set, Tuple
 
@@ -51,6 +52,8 @@ from predicators.approaches.agent_sim_predicate_invention_approach import \
     AgentSimPredicateInventionApproach
 from predicators.approaches.continual_play_mixin import ContinualPlayMixin
 from predicators.code_sim_learning.rollout_env import dispose_env
+from predicators.code_sim_learning.scene_manifest import \
+    build_scene_manifest, write_scene_manifest
 from predicators.code_sim_learning.utils import LearnedSimulator, apply_rules
 from predicators.envs import create_new_env
 from predicators.observation_noise import ObservationNoise
@@ -129,6 +132,8 @@ class AgentContinualApproach(ContinualPlayMixin,
         # paths are set in _round_extra_tools and consumed in
         # _after_round.
         self._workbench = _Workbench()
+        # (bodies, asset files) of the last scene manifest, for the prompt.
+        self._scene_package_summary: Tuple[int, int] = (0, 0)
         self._round_model: Optional[_RoundModel] = None
         self._fit_version_before: Optional[str] = None
         self._episodes_at_last_fit = 0
@@ -185,6 +190,8 @@ class AgentContinualApproach(ContinualPlayMixin,
 
         The frozen arms pass their arm statement here.
         """
+        if CFG.continual_provide_scene_package:
+            return {"scene_package": True}
         return {}
 
     def _probe_surface(self) -> ProbeSurface:
@@ -715,19 +722,108 @@ class AgentContinualApproach(ContinualPlayMixin,
         opened on first use."""
         if not obs_triples:
             return []
+        return self._compute_base_pred_triples(obs_triples,
+                                               self._workbench_env())
+
+    def _workbench_env(self) -> Any:
+        """The workbench's own base-sim world (the visible physics with no
+        hidden mechanism), opened on first use and released with the round."""
         bench = self._workbench
         if bench.env is None:
             bench.env = create_new_env(CFG.env,
                                        do_cache=False,
                                        use_gui=False,
                                        skip_residual_dynamics=True)
-        return self._compute_base_pred_triples(obs_triples, bench.env)
+        return bench.env
 
     def _release_workbench_env(self) -> None:
         bench = self._workbench
         if bench.env is not None:
             dispose_env(bench.env)
             bench.env = None
+
+    # -- The scene package (engine, manifest, assets) -----------------------
+
+    def _scene_state(self) -> State:
+        """The initial state of the level being played (the run's first train
+        task before any level starts): what the manifest describes."""
+        task = self._tool_context.current_task
+        if task is None:
+            task = self._train_tasks[0]
+        return task.init
+
+    @staticmethod
+    def _standalone_source(name: str, directory: Path) -> Path:
+        """A copy of one engine module whose imports point at the copies beside
+        it, so the reference reads as a self-contained package."""
+        package = Path(__file__).resolve().parents[1]
+        sources = {
+            "pybullet_env.py": package / "envs" / "pybullet_env.py",
+            "scene_base.py": package / "code_sim_learning" / "scene_base.py",
+        }
+        text = sources[name].read_text(encoding="utf-8")
+        rebinds = {
+            "from predicators.envs import BaseEnv\n":
+            "from reference.base_sim.base_env import BaseEnv\n",
+            "from predicators.envs.pybullet_env import PyBulletEnv\n":
+            "from reference.base_sim.pybullet_env import PyBulletEnv\n",
+        }
+        for original, replacement in rebinds.items():
+            if text.count(original) == 1:
+                text = text.replace(original, replacement)
+        target = directory / name
+        target.write_text(text, encoding="utf-8")
+        return target
+
+    def _scene_package_files(self) -> Dict[str, str]:
+        """Sandbox reference path -> source file of the engine wrapper, the
+        scene manifest of the level being played and the asset files its bodies
+        were loaded from (what the agentic real-to-sim arm builds its scene
+        from)."""
+        package = Path(__file__).resolve().parents[1]
+        directory = Path(self._get_log_dir()) / "reference_sources"
+        directory.mkdir(parents=True, exist_ok=True)
+        files = {
+            "base_sim/base_env.py":
+            str(package / "envs" / "base_env.py"),
+            "base_sim/pybullet_env.py":
+            str(self._standalone_source("pybullet_env.py", directory)),
+        }
+        manifest, assets = build_scene_manifest(self._workbench_env(),
+                                                self._scene_state())
+        files["scene/scene_manifest.json"] = write_scene_manifest(
+            manifest, str(directory / "scene_manifest.json"))
+        files.update(assets)
+        self._scene_package_summary = (len(manifest["bodies"]), len(assets))
+        return files
+
+    def _scene_package_paths(self) -> List[str]:
+        """Agent-visible paths of :meth:`_scene_package_files`."""
+        bodies, assets = self._scene_package_summary
+        return [
+            "./reference/base_sim/pybullet_env.py",
+            "./reference/base_sim/base_env.py",
+            f"./reference/scene/scene_manifest.json ({bodies} bodies)",
+            f"./reference/assets/ ({assets} URDF and mesh files, named in "
+            "the manifest)",
+        ]
+
+    def _get_sandbox_reference_files(self) -> Dict[str, str]:
+        files = super()._get_sandbox_reference_files()
+        if CFG.continual_provide_scene_package:
+            files.update(self._scene_package_files())
+        return files
+
+    def _base_sim_reference_paths(self) -> List[str]:
+        paths = super()._base_sim_reference_paths()
+        if not CFG.continual_provide_scene_package:
+            return paths
+        package = self._scene_package_paths()
+        names = {os.path.basename(path.split(" ")[0]) for path in package}
+        # The twin's own core modules first, then the package; the
+        # engine wrapper is listed once.
+        return [path for path in paths if os.path.basename(path) not in names
+                ] + package
 
     def _fit_status_text(self) -> str:
         """The last fit as one line for the prompt: the point estimate per

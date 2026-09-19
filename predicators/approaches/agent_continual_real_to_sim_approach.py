@@ -21,9 +21,6 @@ from predicators.agent_sdk.tools.exploration import ProbeSurface
 from predicators.approaches.agent_continual_ablation_approach import \
     AgentContinualNoFittingApproach
 from predicators.code_sim_learning.scene_base import scene_base_class
-from predicators.code_sim_learning.scene_manifest import \
-    build_scene_manifest, write_scene_manifest
-from predicators.envs import create_new_env
 from predicators.settings import CFG
 from predicators.structs import State
 
@@ -54,8 +51,6 @@ class AgentContinualRealToSimApproach(AgentContinualNoFittingApproach):
                              "machinery; switch off " + ", ".join(wrong))
         super().__init__(*args, **kwargs)
         self._scene_base: Optional[type] = None
-        # (bodies, asset files) of the last manifest, for the prompt.
-        self._reference_summary: Tuple[int, int] = (0, 0)
         # The domain twin never renders or predicts for this arm: the
         # probe has no world until the agent's simulator loads.
         self._tool_context.env = None
@@ -80,80 +75,20 @@ class AgentContinualRealToSimApproach(AgentContinualNoFittingApproach):
         namespace["SceneBase"] = self._scene_base_class()
         return namespace
 
-    def _scene_state(self) -> State:
-        """The initial state of the level being played (the run's first train
-        task before any level starts): what the manifest describes."""
-        task = self._tool_context.current_task
-        if task is None:
-            task = self._train_tasks[0]
-        return task.init
-
-    def _inspection_env(self) -> Any:
-        """A deployment world for reading geometry, opened on first use and
-        released with the workbench.
-
-        It never predicts anything.
-        """
-        bench = self._workbench
-        if bench.env is None:
-            bench.env = create_new_env(CFG.env,
-                                       do_cache=False,
-                                       use_gui=False,
-                                       skip_residual_dynamics=True)
-        return bench.env
-
-    def _standalone_source(self, name: str, directory: Path) -> Path:
-        """A copy of one engine module whose imports point at the copies beside
-        it, so the reference reads as a self-contained package."""
-        package = Path(__file__).resolve().parents[1]
-        sources = {
-            "pybullet_env.py": package / "envs" / "pybullet_env.py",
-            "scene_base.py": package / "code_sim_learning" / "scene_base.py",
-        }
-        text = sources[name].read_text(encoding="utf-8")
-        rebinds = {
-            "from predicators.envs import BaseEnv\n":
-            "from reference.base_sim.base_env import BaseEnv\n",
-            "from predicators.envs.pybullet_env import PyBulletEnv\n":
-            "from reference.base_sim.pybullet_env import PyBulletEnv\n",
-        }
-        for original, replacement in rebinds.items():
-            if text.count(original) == 1:
-                text = text.replace(original, replacement)
-        target = directory / name
-        target.write_text(text, encoding="utf-8")
-        return target
-
     def _get_sandbox_reference_files(self) -> Dict[str, str]:
-        package = Path(__file__).resolve().parents[1]
-        directory = Path(self._get_log_dir()) / "reference_sources"
-        directory.mkdir(parents=True, exist_ok=True)
-        files = {
-            "base_sim/base_env.py":
-            str(package / "envs" / "base_env.py"),
-            "base_sim/pybullet_env.py":
-            str(self._standalone_source("pybullet_env.py", directory)),
-            "base_sim/scene_base.py":
-            str(self._standalone_source("scene_base.py", directory)),
-        }
-        manifest, assets = build_scene_manifest(self._inspection_env(),
-                                                self._scene_state())
-        files["scene/scene_manifest.json"] = write_scene_manifest(
-            manifest, str(directory / "scene_manifest.json"))
-        files.update(assets)
-        self._reference_summary = (len(manifest["bodies"]), len(assets))
+        # The scene package plus the scene base the simulator subclasses;
+        # no domain twin, so none of the twin's core modules.
+        files = self._scene_package_files()
+        files["base_sim/scene_base.py"] = str(
+            self._standalone_source(
+                "scene_base.py",
+                Path(self._get_log_dir()) / "reference_sources"))
         return files
 
     def _base_sim_reference_paths(self) -> List[str]:
-        bodies, assets = self._reference_summary
-        return [
-            "./reference/base_sim/pybullet_env.py",
-            "./reference/base_sim/base_env.py",
-            "./reference/base_sim/scene_base.py",
-            f"./reference/scene/scene_manifest.json ({bodies} bodies)",
-            f"./reference/assets/ ({assets} URDF and mesh files, named in "
-            "the manifest)",
-        ]
+        paths = self._scene_package_paths()
+        paths.insert(2, "./reference/base_sim/scene_base.py")
+        return paths
 
     # -- The prompt ---------------------------------------------------------
 

@@ -18,6 +18,18 @@ APPROACHES:
     FLAGS:
       agent_sdk_model_name: claude-sonnet-5
       continual_require_model_on_test: true
+  # EMPIRIC with what the agentic real-to-sim arm receives (Sept 18,
+  # 2026): the engine wrapper, the scene manifest and the URDF and mesh
+  # files, plus the twin's own core module where the domain declares one
+  # (Fan and Balloons). The domain twin still backs the model.
+  mb_scene_package_opus:
+    NAME: agent_continual
+    SKIP: true
+    FLAGS:
+      agent_sdk_model_name: claude-opus-5
+      continual_require_model_on_test: true
+      agent_sim_provide_base_sim_source: true
+      continual_provide_scene_package: true
   mf_opus:
     NAME: agent_continual_model_free
     SKIP: true
