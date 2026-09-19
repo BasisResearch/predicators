@@ -31,7 +31,6 @@ import hashlib
 import logging
 import os
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, FrozenSet, List, \
     Optional, Set, Tuple
 
@@ -51,9 +50,8 @@ from predicators.approaches.agent_sim_learning_approach import \
 from predicators.approaches.agent_sim_predicate_invention_approach import \
     AgentSimPredicateInventionApproach
 from predicators.approaches.continual_play_mixin import ContinualPlayMixin
+from predicators.approaches.scene_package_mixin import ScenePackageMixin
 from predicators.code_sim_learning.rollout_env import dispose_env
-from predicators.code_sim_learning.scene_manifest import \
-    build_scene_manifest, write_scene_manifest
 from predicators.code_sim_learning.utils import LearnedSimulator, apply_rules
 from predicators.envs import create_new_env
 from predicators.observation_noise import ObservationNoise
@@ -118,7 +116,7 @@ class _Workbench:
 _RoundModel = Tuple[_Workbench, Any, Dict[str, str]]
 
 
-class AgentContinualApproach(ContinualPlayMixin,
+class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
                              AgentSimPredicateInventionApproach):
     """C1's learner (hybrid simulator, parameter fit, predicate invention)
     playing under the continual protocol, modelling in the rounds it plays."""
@@ -132,8 +130,6 @@ class AgentContinualApproach(ContinualPlayMixin,
         # paths are set in _round_extra_tools and consumed in
         # _after_round.
         self._workbench = _Workbench()
-        # (bodies, asset files) of the last scene manifest, for the prompt.
-        self._scene_package_summary: Tuple[int, int] = (0, 0)
         self._round_model: Optional[_RoundModel] = None
         self._fit_version_before: Optional[str] = None
         self._episodes_at_last_fit = 0
@@ -744,69 +740,9 @@ class AgentContinualApproach(ContinualPlayMixin,
 
     # -- The scene package (engine, manifest, assets) -----------------------
 
-    def _scene_state(self) -> State:
-        """The initial state of the level being played (the run's first train
-        task before any level starts): what the manifest describes."""
-        task = self._tool_context.current_task
-        if task is None:
-            task = self._train_tasks[0]
-        return task.init
-
-    @staticmethod
-    def _standalone_source(name: str, directory: Path) -> Path:
-        """A copy of one engine module whose imports point at the copies beside
-        it, so the reference reads as a self-contained package."""
-        package = Path(__file__).resolve().parents[1]
-        sources = {
-            "pybullet_env.py": package / "envs" / "pybullet_env.py",
-            "scene_base.py": package / "code_sim_learning" / "scene_base.py",
-        }
-        text = sources[name].read_text(encoding="utf-8")
-        rebinds = {
-            "from predicators.envs import BaseEnv\n":
-            "from reference.base_sim.base_env import BaseEnv\n",
-            "from predicators.envs.pybullet_env import PyBulletEnv\n":
-            "from reference.base_sim.pybullet_env import PyBulletEnv\n",
-        }
-        for original, replacement in rebinds.items():
-            if text.count(original) == 1:
-                text = text.replace(original, replacement)
-        target = directory / name
-        target.write_text(text, encoding="utf-8")
-        return target
-
-    def _scene_package_files(self) -> Dict[str, str]:
-        """Sandbox reference path -> source file of the engine wrapper, the
-        scene manifest of the level being played and the asset files its bodies
-        were loaded from (what the agentic real-to-sim arm builds its scene
-        from)."""
-        package = Path(__file__).resolve().parents[1]
-        directory = Path(self._get_log_dir()) / "reference_sources"
-        directory.mkdir(parents=True, exist_ok=True)
-        files = {
-            "base_sim/base_env.py":
-            str(package / "envs" / "base_env.py"),
-            "base_sim/pybullet_env.py":
-            str(self._standalone_source("pybullet_env.py", directory)),
-        }
-        manifest, assets = build_scene_manifest(self._workbench_env(),
-                                                self._scene_state())
-        files["scene/scene_manifest.json"] = write_scene_manifest(
-            manifest, str(directory / "scene_manifest.json"))
-        files.update(assets)
-        self._scene_package_summary = (len(manifest["bodies"]), len(assets))
-        return files
-
-    def _scene_package_paths(self) -> List[str]:
-        """Agent-visible paths of :meth:`_scene_package_files`."""
-        bodies, assets = self._scene_package_summary
-        return [
-            "./reference/base_sim/pybullet_env.py",
-            "./reference/base_sim/base_env.py",
-            f"./reference/scene/scene_manifest.json ({bodies} bodies)",
-            f"./reference/assets/ ({assets} URDF and mesh files, named in "
-            "the manifest)",
-        ]
+    def _scene_manifest_env(self) -> Tuple[Any, bool]:
+        # The workbench's own base-sim world, released with the round.
+        return self._workbench_env(), False
 
     def _get_sandbox_reference_files(self) -> Dict[str, str]:
         files = super()._get_sandbox_reference_files()
@@ -867,7 +803,7 @@ class AgentContinualApproach(ContinualPlayMixin,
             save_dict.get("episodes_at_last_fit", 0))
 
 
-class AgentContinualModelFreeApproach(ContinualPlayMixin,
+class AgentContinualModelFreeApproach(ContinualPlayMixin, ScenePackageMixin,
                                       AgentModelFreeApproach):
     """The model-free baseline of the continual protocol: the env and skill
     tools, the sandbox and the journal, and nothing else.
@@ -901,6 +837,24 @@ class AgentContinualModelFreeApproach(ContinualPlayMixin,
         """No simulator, whatever ``agent_planner_use_simulator`` says: the arm
         has no ``run_python`` and must never hold a model of the env."""
         return None
+
+    # -- The scene package ------------------------------------------------
+
+    def _get_sandbox_reference_files(self) -> Dict[str, str]:
+        files = super()._get_sandbox_reference_files()
+        if CFG.continual_provide_scene_package:
+            files.update(self._scene_package_files())
+        return files
+
+    def _play_system_prompt(self) -> str:
+        if not CFG.continual_provide_scene_package:
+            return super()._play_system_prompt()
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.play_prompts import build_play_system_prompt
+        return build_play_system_prompt(
+            self._continual_tool_names(),
+            base_sim_refs=self._scene_package_paths(),
+            scene_package=True)
 
     # -- Parent-specific overrides ---------------------------------------
 

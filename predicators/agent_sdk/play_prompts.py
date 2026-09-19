@@ -148,7 +148,8 @@ def build_play_system_prompt(tool_names: Sequence[str],
     workbench's before-model line and the reference listing describe
     that. ``scene_package`` (a twin-backed arm that also receives the
     engine, the manifest and the assets) describes that reference
-    listing instead.
+    listing instead; for the model-free arm it adds that listing as
+    plain files to use however the agent likes, with no simulator.
     """
     names = set(tool_names)
     model = "run_python" in names
@@ -246,6 +247,11 @@ def build_play_system_prompt(tool_names: Sequence[str],
         render("play_system", "journal" + variant),
         render("play_system", "context"),
     ]
+    if not model and scene_package and base_sim_refs:
+        sections.append(
+            render("play_system",
+                   "scene_refs_model_free",
+                   ref_listing="\n".join(f"- `{r}`" for r in base_sim_refs)))
     if model:
         refs = ("" if not base_sim_refs else render(
             "play_system",

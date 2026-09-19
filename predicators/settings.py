@@ -2872,7 +2872,9 @@ class GlobalSettings:
     # receives: the generic engine wrapper (pybullet_env.py, base_env.py),
     # the scene manifest (bodies, shapes, joints, colours; no masses,
     # frictions or damping) and the URDF and mesh files, under
-    # ./reference/. The domain twin still backs the model.
+    # ./reference/. The domain twin still backs the model. On the direct
+    # agent (agent_continual_model_free) the files are plain references:
+    # no simulator, no model files, no gate; the agent only solves levels.
     continual_provide_scene_package = False
 
     # Realistic sim gap (predicators/pybullet_helpers/world_gap.py): the

@@ -409,6 +409,15 @@ These read-only files are the engine wrapper and the scene base your simulator s
 `SceneBase` is injected when `./simulator.py` loads; do not import the reference copy there.
 Load assets through `cls.asset("urdf/...")`, which resolves under `reference/assets/`.
 
+<!-- section: scene_refs_model_free -->
+## Scene files
+
+__REF_LISTING__
+
+These read-only files are the PyBullet environment wrapper the robot runs in, a manifest of the scene's bodies (shapes, meshes, joints, colours, and which observed object each body is) and the URDF and mesh files those bodies were loaded from.
+The manifest records no masses, frictions or damping, and the files omit hidden dynamics, task generation and goal semantics.
+`pybullet` is importable in sandbox `python3`; use these files however you find useful.
+
 <!-- section: journal -->
 ## Run memory
 
