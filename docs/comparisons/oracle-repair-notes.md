@@ -5,6 +5,20 @@ It uses new `oracle_dynamics_opus_benchmark_r2` run keys so the original recordi
 The other domains are not part of this launch.
 The parsed launch flags match the recorded original Oracle commands except for the new round key and explicitly specifying the already-disabled preflight flag.
 
+## Launch receipt
+
+Frozen runtime: `d7e8ce408`, at `/home/ycliang/predicators-oracle-validation-frozen-20260919`.
+Bridge array: `23104058`, seeds 0-2.
+Domino array: `23104059`, seeds 0-2.
+Account `c` hit its weekly limit before Bridge seed 2 took any actions; that seed resumed as `23104110_2` on configured account `d`.
+Domino seed 1 had also selected `c`; its task-generation job was stopped before agent play and resubmitted as `23104122_1` on configured account `a`.
+The remaining original array tasks are unchanged, and both replacements use the same frozen runtime and round keys.
+Both arrays run on `mit_preemptable`, with automatic checkpoint resume and requeue.
+The figure/report monitor is compute-node job `23104071`, checking every 60 seconds with a 48-hour allocation.
+It does not launch further experiments, cancel jobs, or automatically commit generated updates.
+Its status file is `logs/benchmark_monitor/status.json`; its output is `logs/benchmark_monitor/slurm-23104071.out`.
+The final targeted static, lint, and formatter checks completed successfully in compute-node job `23103985`.
+
 ## Changes
 
 - Domino certification now resolves deployment skills for supplied and learned subclasses and can run against scene-built candidates.
