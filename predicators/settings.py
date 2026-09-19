@@ -2890,6 +2890,12 @@ class GlobalSettings:
     sim_gap_solver_iterations = 0
     sim_gap_substeps = 0
     sim_gap_seed_offset = 0
+    # The planning twin's calibration menu (world_gap.CalibrationMenu):
+    # per-type mass_scale_<type> / friction_scale_<type> for movable
+    # object types plus friction_scale_support, multipliers on the
+    # nominal values the harness fits with the rest of the physical
+    # parameters. Meant for the model arm under sim_gap.
+    sim_calibration_menu = False
 
     @classmethod
     def get_arg_specific_settings(cls, args: Dict[str, Any]) -> Dict[str, Any]:

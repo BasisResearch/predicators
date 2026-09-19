@@ -374,6 +374,16 @@ class PyBulletEnv(BaseEnv):
         for value in list(vars(self).values()):
             if value is not self._body_objects:
                 collect_objects(value)
+        # With CFG.sim_calibration_menu, a world without a sim gap (the
+        # planning twin) exposes per-type mass and friction scales for
+        # the harness to fit (world_gap.CalibrationMenu).
+        self._calibration: Optional[world_gap.CalibrationMenu] = None
+        if CFG.sim_calibration_menu and self._world_gap is None:
+            self._calibration = world_gap.CalibrationMenu(
+                type_name for body, type_name in self._body_types().items()
+                if p.getDynamicsInfo(
+                    body, -1, physicsClientId=self._physics_client_id)[0] > 0.0
+            )
         # Texture any table(s) the env registered (every env uses the
         # "table_id"/"table_id2" convention) with the studio wood texture.
         studio_visuals.apply_table_textures(type(self),
@@ -870,6 +880,10 @@ class PyBulletEnv(BaseEnv):
             if self._world_gap is not None:
                 self._world_gap.apply_dynamics(self._physics_client_id,
                                                [self._pybullet_robot.robot_id])
+            elif self._calibration is not None:
+                self._calibration.apply(self._physics_client_id,
+                                        [self._pybullet_robot.robot_id],
+                                        self._body_types())
             for _ in range(CFG.pybullet_sim_steps_per_action):
                 # Residual physics commands act during this one action
                 # (applyExternalForce is cleared by each stepSimulation,
@@ -976,7 +990,38 @@ class PyBulletEnv(BaseEnv):
         """
         info = dict(super().get_physical_param_info())
         info.update(self._agent_param_info())
+        info.update(self._calibration_info())
         return info
+
+    def _calibration_info(self) -> Dict[str, Dict]:
+        """The calibration menu's entries, or none when it is off.
+
+        Domain envs that define their own menu merge these in too.
+        """
+        calibration = getattr(self, "_calibration", None)
+        return calibration.info() if calibration is not None else {}
+
+    def _take_calibration_params(self,
+                                 params: Dict[str, float]) -> Dict[str, float]:
+        """Store the calibration menu's values; return the other params."""
+        calibration = getattr(self, "_calibration", None)
+        return calibration.take(params) if calibration is not None else \
+            dict(params)
+
+    def _body_types(self) -> Dict[int, str]:
+        """Body id -> object type name of every object with a body other than
+        the robot."""
+        client = self._physics_client_id
+        live = {
+            p.getBodyUniqueId(i, physicsClientId=client)
+            for i in range(p.getNumBodies(physicsClientId=client))
+        }
+        live.discard(self._pybullet_robot.robot_id)
+        return {
+            obj.id: obj.type.name
+            for obj in self._body_objects.values()
+            if getattr(obj, "id", None) in live
+        }
 
     def apply_physical_param_overrides(self, params: Dict[str, float]) -> None:
         """Accept AGENT_PARAM_SPECS overrides here; pass the rest through.
@@ -987,6 +1032,7 @@ class PyBulletEnv(BaseEnv):
         ``AGENT_PARAM_SPECS`` means nothing is peeled off and the call
         is the stock env's.
         """
+        params = self._take_calibration_params(params)
         agent_names = {spec.name for spec in type(self).AGENT_PARAM_SPECS}
         mine = {k: float(v) for k, v in params.items() if k in agent_names}
         rest = {k: v for k, v in params.items() if k not in agent_names}

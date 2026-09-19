@@ -17,7 +17,7 @@ whatever the domain code last set, so a domain that resets a body's
 dynamics at a task boundary is deviated again rather than restored.
 """
 import logging
-from typing import Dict, Iterable, Optional, Tuple
+from typing import Callable, Dict, Iterable, Optional, Tuple
 
 import numpy as np
 import pybullet as p
@@ -40,10 +40,7 @@ class WorldGap:
         self.friction = friction
         self.solver_iterations = solver_iterations
         self.substeps = substeps
-        # (body, link) -> (mass, lateral friction) this gap last set, to
-        # tell its own values from a domain's reset of the nominal ones.
-        self._applied: Dict[Tuple[int, int], Tuple[Optional[float],
-                                                   Optional[float]]] = {}
+        self._scaler = DynamicsScaler()
 
     @classmethod
     def from_cfg(cls) -> "WorldGap":
@@ -78,17 +75,6 @@ class WorldGap:
             return 1.0
         return 1.0 + self.geometry * self._uniform(_GEOMETRY, body_key)
 
-    def _deviate(self, current: float, last: Optional[float], salt: int,
-                 key: int, magnitude: float) -> float:
-        """The deviated value of one quantity: ``current`` itself when it is
-        the value this gap last set, else ``current`` read as the new nominal
-        value and scaled (a zero mass stays static)."""
-        if last is not None and np.isclose(current, last):
-            return current
-        if salt == _MASS and current <= 0.0:
-            return current
-        return current * self._factor(salt, key, magnitude)
-
     def configure_engine(self, physics_client_id: int) -> None:
         """Apply the solver settings the gap names; zero keeps a default."""
         settings = {}
@@ -103,7 +89,34 @@ class WorldGap:
     def apply_dynamics(self, physics_client_id: int,
                        skip_bodies: Iterable[int]) -> None:
         """Deviate every link's mass and lateral friction from the value the
-        domain last set; a value this gap set itself is left alone."""
+        domain last set."""
+        self._scaler.apply(
+            physics_client_id, skip_bodies, lambda body, link: self._factor(
+                _MASS, body * 1000 + link + 1, self.mass), lambda body, link:
+            self._factor(_FRICTION, body * 1000 + link + 1, self.friction))
+
+
+class DynamicsScaler:
+    """Scales every link's mass and lateral friction over its nominal value.
+
+    The nominal value is whatever the domain code last set: a value that
+    differs from the one this scaler set is read as a new nominal (a
+    domain reset at a task boundary), per quantity, so a domain that
+    resets one quantity leaves the other's scaling in place and nothing
+    compounds. A zero mass stays static.
+    """
+
+    def __init__(self) -> None:
+        # (body, link) -> (mass set, friction set, nominal mass, nominal
+        # friction).
+        self._record: Dict[Tuple[int, int], Tuple[float, float, float,
+                                                  float]] = {}
+
+    def apply(self, physics_client_id: int, skip_bodies: Iterable[int],
+              mass_factor: Callable[[int, int], float],
+              friction_factor: Callable[[int, int], float]) -> None:
+        """Set every non-skipped link to its nominal values times the
+        factors."""
         skip = set(skip_bodies)
         for index in range(p.getNumBodies(physicsClientId=physics_client_id)):
             body = p.getBodyUniqueId(index, physicsClientId=physics_client_id)
@@ -115,21 +128,102 @@ class WorldGap:
                 info = p.getDynamicsInfo(body,
                                          link,
                                          physicsClientId=physics_client_id)
-                key = body * 1000 + link + 1
-                last = self._applied.get((body, link), (None, None))
-                # Each quantity separately: a domain that resets one of
-                # them leaves the other's deviation in place.
-                mass = self._deviate(float(info[0]), last[0], _MASS, key,
-                                     self.mass)
-                friction = self._deviate(float(info[1]), last[1], _FRICTION,
-                                         key, self.friction)
-                if (mass, friction) != (float(info[0]), float(info[1])):
+                current = (float(info[0]), float(info[1]))
+                record = self._record.get((body, link))
+                nominal_mass, nominal_friction = current
+                if record is not None:
+                    if np.isclose(current[0], record[0]):
+                        nominal_mass = record[2]
+                    if np.isclose(current[1], record[1]):
+                        nominal_friction = record[3]
+                mass = nominal_mass
+                if mass > 0.0:
+                    mass *= mass_factor(body, link)
+                friction = nominal_friction * friction_factor(body, link)
+                if not np.allclose((mass, friction), current):
                     p.changeDynamics(body,
                                      link,
                                      mass=mass,
                                      lateralFriction=friction,
                                      physicsClientId=physics_client_id)
-                self._applied[(body, link)] = (mass, friction)
+                self._record[(body, link)] = (mass, friction, nominal_mass,
+                                              nominal_friction)
+
+
+class CalibrationMenu:
+    """Per-type mass and friction scales a planning twin exposes for fitting.
+
+    With ``CFG.sim_calibration_menu`` on, a world without a gap (the
+    planning twin) offers, for every object type with a movable body,
+    ``mass_scale_<type>`` and ``friction_scale_<type>``, plus
+    ``friction_scale_support`` for every static body (tables, walls,
+    fixtures). Each is a multiplier on the nominal value, 1.0 by
+    default, fitted like any other physical parameter, so the harness's
+    system identification and uncertainty cover the quantities a sim gap
+    deviates.
+    """
+
+    LO, HI = 0.5, 2.0
+
+    def __init__(self, movable_types: Iterable[str]) -> None:
+        self.types = sorted(set(movable_types))
+        self.values: Dict[str, float] = {name: 1.0 for name in self.names()}
+        self._scaler = DynamicsScaler()
+
+    def names(self) -> list:
+        """The parameter names, per type then the support scale."""
+        names = []
+        for type_name in self.types:
+            names += [f"mass_scale_{type_name}", f"friction_scale_{type_name}"]
+        return names + ["friction_scale_support"]
+
+    def info(self) -> Dict[str, Dict]:
+        """The menu entries, in get_physical_param_info's format."""
+        out: Dict[str, Dict] = {}
+        for name in self.names():
+            if name == "friction_scale_support":
+                what = ("lateral friction of every static body (tables, "
+                        "walls, fixtures)")
+            else:
+                quantity, type_name = name.split("_scale_")
+                what = (
+                    f"{'mass' if quantity == 'mass' else 'lateral friction'}"
+                    f" of every {type_name} body")
+            out[name] = {
+                "default": 1.0,
+                "lo": self.LO,
+                "hi": self.HI,
+                "scale": "log",
+                "description": f"multiplier on the nominal {what}",
+            }
+        return out
+
+    def take(self, params: Dict[str, float]) -> Dict[str, float]:
+        """Store the menu's values from ``params`` and return the rest."""
+        rest = {}
+        for name, value in params.items():
+            if name in self.values:
+                self.values[name] = float(value)
+            else:
+                rest[name] = value
+        return rest
+
+    def apply(self, physics_client_id: int, skip_bodies: Iterable[int],
+              body_types: Dict[int, str]) -> None:
+        """Scale every body's mass and friction by its type's values."""
+        movable = set(self.types)
+
+        def mass_factor(body: int, _link: int) -> float:
+            return self.values.get(f"mass_scale_{body_types.get(body)}", 1.0)
+
+        def friction_factor(body: int, _link: int) -> float:
+            type_name = body_types.get(body)
+            if type_name in movable:
+                return self.values[f"friction_scale_{type_name}"]
+            return self.values["friction_scale_support"]
+
+        self._scaler.apply(physics_client_id, skip_bodies, mass_factor,
+                           friction_factor)
 
 
 # Live worlds with a gap, by physics client. While an env builds its

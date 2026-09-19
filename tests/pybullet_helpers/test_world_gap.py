@@ -171,3 +171,76 @@ def test_each_benchmark_domain_runs_with_a_gap(env_name: str) -> None:
         assert engine["numSolverIterations"] == 100
     finally:
         env.dispose()
+
+
+def _twin_with_menu(seed: int = 0) -> Any:
+    utils.reset_config({
+        **_BASE, "seed": seed,
+        "sim_gap": True,
+        "sim_calibration_menu": True
+    })
+    env = PyBulletBridgeEnv(use_gui=False, skip_residual_dynamics=True)
+    env._set_state(env._generate_train_tasks()[0].init)
+    return env
+
+
+def test_calibration_menu_is_a_no_op_until_fitted(worlds: Any) -> None:
+    """The twin lists per-type scales at 1.0 and, unfitted, steps exactly like
+    a twin without the menu; the gapped live world lists none."""
+    twin = _twin_with_menu()
+    try:
+        info = twin.get_physical_param_info()
+        scales = {k: v for k, v in info.items() if "_scale_" in k}
+        assert "friction_scale_support" in scales
+        assert any(k.startswith("mass_scale_") for k in scales)
+        assert not any(k.endswith("_robot") for k in scales)
+        assert all(v["default"] == 1.0 for v in scales.values())
+        plain = worlds(0, False, twin=True)
+        _step(twin)
+        _step(plain)
+        assert _bodies(twin) == _bodies(plain)
+        utils.reset_config({
+            **_BASE, "seed": 0,
+            "sim_gap": True,
+            "sim_calibration_menu": True
+        })
+        live = PyBulletBridgeEnv(use_gui=False)
+        try:
+            assert live._calibration is None
+            assert not any("_scale_" in k
+                           for k in live.get_physical_param_info())
+        finally:
+            live.dispose()
+    finally:
+        twin.dispose()
+
+
+def test_fitted_scales_apply_per_type_and_never_compound(worlds: Any) -> None:
+    """A fitted mass scale multiplies every body of its type, the support scale
+    every static body, and repeated steps keep the values."""
+    twin = _twin_with_menu()
+    try:
+        nominal = _bodies(worlds(0, False, twin=True))
+        types = twin._body_types()
+        name = next(k for k in twin.get_physical_param_info()
+                    if k.startswith("mass_scale_"))
+        type_name = name[len("mass_scale_"):]
+        twin.apply_physical_param_overrides({
+            name: 1.5,
+            "friction_scale_support": 0.5
+        })
+        for _ in range(3):
+            _step(twin)
+        after = _bodies(twin)
+        for body, (_, mass, friction) in nominal.items():
+            if types.get(body) == type_name:
+                assert np.isclose(after[body][1], 1.5 * mass)
+            elif mass == 0.0:
+                assert np.isclose(after[body][2], 0.5 * friction)
+        twin.apply_physical_param_overrides({name: 1.0})
+        _step(twin)
+        for body, (_, mass, _) in nominal.items():
+            if types.get(body) == type_name:
+                assert np.isclose(_bodies(twin)[body][1], mass)
+    finally:
+        twin.dispose()
