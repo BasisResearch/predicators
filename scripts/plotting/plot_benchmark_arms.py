@@ -28,22 +28,28 @@ LOGS = os.path.normpath(
                  "logs"))
 MB = "agent_continual"
 MF = "agent_continual_model_free"
-# Paper order, labels and colours
-# (scripts/plotting/plot_continual_comparisons.py).
+# Highlighted arms first, followed by the de-emphasised arms.
+# Oracle dynamics is the grey reference; no uncertainty uses green.
 ARMS = [
-    "MB", "mb_scene_package", "MF", "mf_scene_package", "standalone",
-    "oracle_dynamics", "scene_only", "zero_shot", "no_fitting",
-    "no_uncertainty", "real_to_sim"
+    "oracle_dynamics", "MB", "MF", "mf_scene_package", "standalone",
+    "no_fitting", "no_uncertainty", "mb_scene_package", "scene_only",
+    "zero_shot", "real_to_sim"
 ]
 LABELS = [
-    "EMPIRIC", "EMPIRIC + scene pkg.", "Direct agent",
-    "Direct agent + scene files", "Standalone sim.", "Oracle dynamics",
-    "Scene only", "Zero-shot model", "No harness fitting",
-    "No explicit uncert.", "Agentic real-to-sim"
+    "Oracle dynamics", "EMPIRIC", "Direct agent",
+    "Direct agent + scene assets", "Standalone sim.", "No harness fitting",
+    "No explicit uncert.", "EMPIRIC + scene pkg.", "Scene only",
+    "Zero-shot model", "Agentic real-to-sim"
 ]
 COLORS = [
-    "#087f8c", "#0b4f6c", "#bd5929", "#7a3312", "#7467a6", "#397957",
-    "#6b9483", "#5588ad", "#b19658", "#88929d", "#a5573f"
+    "#88929d", "#087f8c", "#bd5929", "#7a3312", "#7467a6", "#b19658",
+    "#397957", "#0b4f6c", "#6b9483", "#5588ad", "#a5573f"
+]
+GROUPS = [
+    ("Oracle reference", 0, 1),
+    ("Methods", 1, 5),
+    ("EMPIRIC ablations", 5, 7),
+    ("Additional comparisons", 7, 11),
 ]
 APPROACH_DIR = {
     "mb_scene_package": "agent_continual",
@@ -121,10 +127,11 @@ for _domain, _dirs in DOMAINS:
         _dirs[_arm] = [f"{_approach}/{_key}/seed{s}" for s in range(3)]
 # Column order for the figure.
 _ORDER = [
-    "Boil (2-jug)", "Domino", "Fan (maze)", "Bridge (4-span)",
-    "Balloons (composition)"
+    "Boil (2-jug)", "Domino", "Balloons (composition)", "Bridge (4-span)",
+    "Fan (maze)"
 ]
 DOMAINS.sort(key=lambda d: _ORDER.index(d[0]))
+DISPLAY_TITLE = {domain: domain.split(" (", 1)[0] for domain in _ORDER}
 # Arms shown de-emphasised (grey bars and labels).
 GREYED = {"mb_scene_package", "scene_only", "zero_shot", "real_to_sim"}
 GREY = "#c3c9cd"
@@ -250,7 +257,13 @@ def render(rows: List[Row], output: str) -> None:
         "font.size": 9,
         "pdf.fonttype": 42
     })
-    fig, axes = plt.subplots(3, 5, figsize=(13.5, 11.5), sharey="row")
+    columns = len(DOMAINS)
+    fig, axes = plt.subplots(3,
+                             columns,
+                             figsize=(3.5 + 2 * columns,
+                                      11.5 if len(ARMS) > 8 else 6.8),
+                             sharey="row",
+                             squeeze=False)
     summary = []
     for col, (domain, _) in enumerate(DOMAINS):
         for metric, field in enumerate(["solve", "steps", "resets"]):
@@ -277,8 +290,6 @@ def render(rows: List[Row], output: str) -> None:
                          mean=avg,
                          n=len(vals),
                          values=vals))
-                if i % 2 == 0:
-                    ax.axhspan(i - .48, i + .48, color="#f3f6f7", zorder=0)
                 if vals:
                     ax.barh(i, avg, height=.56, zorder=2, color=colour(arm, i))
                     jitter = np.linspace(-.15, .15,
@@ -305,8 +316,13 @@ def render(rows: List[Row], output: str) -> None:
                                       edgecolor="none",
                                       pad=.6))
             ax.set_ylim(len(ARMS) - .4, -.7)
+            for group_index, (_, start, end) in enumerate(GROUPS):
+                if group_index % 2 == 0:
+                    ax.axhspan(start - .5, end - .5, color="#f2f4f5", zorder=0)
             ax.set_yticks(range(len(ARMS)), LABELS, fontsize=10)
             for tick, arm in zip(ax.get_yticklabels(), ARMS):
+                if arm == "MB":
+                    tick.set_fontweight("bold")
                 if arm in GREYED:
                     tick.set_color("#9aa3a8")
             ax.spines[["top", "right", "left"]].set_visible(False)
@@ -317,7 +333,7 @@ def render(rows: List[Row], output: str) -> None:
             if field == "solve":
                 ax.set_xlim(-3, 108)
                 ax.set_xticks([0, 50, 100])
-                ax.set_title(domain,
+                ax.set_title(DISPLAY_TITLE[domain],
                              fontsize=12,
                              fontweight="bold",
                              color="#203744",
@@ -344,19 +360,29 @@ def render(rows: List[Row], output: str) -> None:
                         bottom=.05,
                         wspace=.23,
                         hspace=.45)
-    handles = [
-        plt.Line2D([], [], color=colour(a, i), lw=1.0 if a in GREYED else 2.0)
-        for i, a in enumerate(ARMS)
-    ]
-    leg = fig.legend(handles,
-                     LABELS,
-                     loc="center right",
-                     fontsize=9,
-                     frameon=False,
-                     bbox_to_anchor=(axes[1, 0].get_position().x0 - .045,
-                                     sum(axes[1, 0].get_position().intervaly) /
-                                     2))
-    for text, arm in zip(leg.get_texts(), ARMS):
+    handles = []
+    legend_labels = []
+    legend_arms = []
+    for _, start, end in GROUPS:
+        for i in range(start, end):
+            arm = ARMS[i]
+            handles.append(
+                plt.Line2D([], [],
+                           color=colour(arm, i),
+                           lw=1.0 if arm in GREYED else 2.0))
+            legend_labels.append(LABELS[i])
+            legend_arms.append(arm)
+    leg = fig.legend(
+        handles,
+        legend_labels,
+        loc="center right",
+        fontsize=9,
+        frameon=False,
+        bbox_to_anchor=(axes[1, 0].get_position().x0 - .7 / fig.get_figwidth(),
+                        sum(axes[1, 0].get_position().intervaly) / 2))
+    for text, arm in zip(leg.get_texts(), legend_arms):
+        if arm == "MB":
+            text.set_fontweight("bold")
         if arm in GREYED:
             text.set_color("#9aa3a8")
     for ext in ("png", "pdf"):

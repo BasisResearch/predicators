@@ -1,0 +1,146 @@
+{
+  "records": [
+    {
+      "domain": "Domino",
+      "arm": "oracle_old",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 543,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/domino_high_friction_turn-oracle_dynamics_opus_benchmark_r1/seed0/run_20260918_091745"
+    },
+    {
+      "domain": "Domino",
+      "arm": "oracle_old",
+      "seed": 1,
+      "won": 1,
+      "levels": 2,
+      "steps": 308,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/domino_high_friction_turn-oracle_dynamics_opus_benchmark_r1/seed1/run_20260918_091746"
+    },
+    {
+      "domain": "Domino",
+      "arm": "oracle_old",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 383,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/domino_high_friction_turn-oracle_dynamics_opus_benchmark_r1/seed2/run_20260918_091745"
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "oracle_old",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 2766,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/bridge-oracle_dynamics_opus_benchmark_r1/seed0/run_20260918_091701"
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "oracle_old",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 2747,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/bridge-oracle_dynamics_opus_benchmark_r1/seed1/run_20260918_091710"
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "oracle_old",
+      "seed": 2,
+      "won": 1,
+      "levels": 2,
+      "steps": 2747,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/bridge-oracle_dynamics_opus_benchmark_r1/seed2/run_20260918_091710"
+    }
+  ],
+  "summary": [
+    {
+      "domain": "Domino",
+      "arm": "oracle_old",
+      "metric": "solve",
+      "mean": 66.66666666666667,
+      "n": 3,
+      "values": [
+        100,
+        0,
+        100
+      ]
+    },
+    {
+      "domain": "Domino",
+      "arm": "oracle_fixed",
+      "metric": "solve",
+      "mean": null,
+      "n": 0,
+      "values": []
+    },
+    {
+      "domain": "Domino",
+      "arm": "oracle_old",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 3,
+      "values": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Domino",
+      "arm": "oracle_fixed",
+      "metric": "resets",
+      "mean": null,
+      "n": 0,
+      "values": []
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "oracle_old",
+      "metric": "solve",
+      "mean": 66.66666666666667,
+      "n": 3,
+      "values": [
+        100,
+        100,
+        0
+      ]
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "oracle_fixed",
+      "metric": "solve",
+      "mean": null,
+      "n": 0,
+      "values": []
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "oracle_old",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 3,
+      "values": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "oracle_fixed",
+      "metric": "resets",
+      "mean": null,
+      "n": 0,
+      "values": []
+    }
+  ]
+}
