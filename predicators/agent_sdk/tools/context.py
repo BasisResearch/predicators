@@ -94,6 +94,9 @@ class ToolContext:
     # skill fails there, or None when the request may run. Nothing is
     # charged for a refusal; force=true on the request skips it.
     skill_preflight: Optional[Callable[[str], Optional[str]]] = None
+    # Optional nonblocking observer of requested and executed actions.
+    # Kept separate from the legacy refusal callback, including raw routes.
+    execution_audit: Optional[Any] = None
     # Synthesis-session ``sim.residuals`` backend: computes the
     # per-feature residual report for the current simulator.py rules
     # (see ``SynthesisToolkit.residuals_runner``). None in solve

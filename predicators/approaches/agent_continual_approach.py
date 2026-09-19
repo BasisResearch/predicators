@@ -36,6 +36,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, FrozenSet, List, \
 
 from predicators.agent_sdk import journal as journal_mod
 from predicators.agent_sdk.fit_status import format_fit_status
+from predicators.agent_sdk.preflight_audit import PreflightAudit
 from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES, \
     play_tool_names
 from predicators.agent_sdk.tools.exploration import ProbeSurface
@@ -335,6 +336,10 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         ctx.skill_preflight = (self._make_skill_preflight(
             session, probe_ns["BeliefProbe"], paths.simulator_file)
                                if CFG.continual_skill_preflight else None)
+        ctx.execution_audit = (PreflightAudit(
+            ctx, session, paths.simulator_file,
+            os.path.join(self._get_log_dir(), "validation_audit.jsonl"))
+                               if CFG.continual_validation_audit else None)
         self._load_probe_extension(exec_ns, paths.base)
         declared = set(self._get_synthesis_tool_names() or ())
         return [t for t in toolkit.tools if getattr(t, "name", "") in declared]
@@ -468,6 +473,7 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         ctx.current_observation_provider = None
         ctx.skill_gate = None
         ctx.skill_preflight = None
+        ctx.execution_audit = None
         ctx.probe_param_status = None
         ctx.probe_artifact_loaders.clear()
         ctx.learn_cycle_index = None

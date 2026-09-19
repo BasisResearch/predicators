@@ -126,6 +126,12 @@ class GlobalSettings:
     # fails on more than half of them is refused too. 0 disables the
     # draws (the point rehearsal still runs).
     continual_skill_preflight_draws = 4
+    # Prospective diagnostic only: one isolated rehearsal, terminal task
+    # certification and restoration diagnostics, paired with real outcomes.
+    # Never refuses an action or sends a prediction to the agent.
+    continual_validation_audit = False
+    # Diagnostic wall-time allowance per level; no extra real-action budget.
+    continual_validation_audit_seconds = 600.0
     # Active wall-clock cap per env run, in hours (6.5).
     continual_wall_clock_hours = 48.0
     # One directory per run (predicators/run/paths.py):
