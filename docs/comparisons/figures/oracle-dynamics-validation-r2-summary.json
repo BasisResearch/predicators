@@ -31,6 +31,16 @@
       "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/domino_high_friction_turn-oracle_dynamics_opus_benchmark_r1/seed2/run_20260918_091745"
     },
     {
+      "domain": "Domino",
+      "arm": "oracle_fixed",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 374,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/domino_high_friction_turn-oracle_dynamics_opus_benchmark_r2/seed0/run_20260919_120029"
+    },
+    {
       "domain": "Bridge (4-span)",
       "arm": "oracle_old",
       "seed": 0,
@@ -78,9 +88,11 @@
       "domain": "Domino",
       "arm": "oracle_fixed",
       "metric": "solve",
-      "mean": null,
-      "n": 0,
-      "values": []
+      "mean": 100.0,
+      "n": 1,
+      "values": [
+        100
+      ]
     },
     {
       "domain": "Domino",
@@ -98,9 +110,11 @@
       "domain": "Domino",
       "arm": "oracle_fixed",
       "metric": "resets",
-      "mean": null,
-      "n": 0,
-      "values": []
+      "mean": 0.0,
+      "n": 1,
+      "values": [
+        0
+      ]
     },
     {
       "domain": "Bridge (4-span)",

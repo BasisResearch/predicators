@@ -101,6 +101,20 @@ def report_text(original: str, rows: List[Row], plot: Dict[str, Any],
                     f"| [scorecard]({source}/scorecard.json) |")
         details.append("")
     prefix = original.split("## Averages across seeds", 1)[0]
+    prefix = re.sub(r"^# Opus benchmark sweep:.*\n",
+                    "# Opus benchmark sweep: eleven agents and r2 cohorts\n",
+                    prefix,
+                    count=1)
+    empiric_note = (
+        "EMPIRIC r2 uses seeds 3 and 4 across all five domains "
+        "on the repaired runtime.\n"
+        "Legacy blocking preflight is off; bounded shadow validation "
+        "logs predictions "
+        "and outcomes without refusing actions.\n"
+        "It is a separate prospective cohort, "
+        "not a matched preflight ablation.\n\n")
+    if "EMPIRIC r2 uses seeds 3 and 4" not in prefix:
+        prefix += empiric_note
     prefix = prefix.replace(
         "All agents are Claude Opus with the composite skill library "
         "and skill preflight off.",
@@ -111,10 +125,23 @@ def report_text(original: str, rows: List[Row], plot: Dict[str, Any],
         "arms used preflight off.\n"
         "This is not a matched preflight ablation.")
     validation_link = "[Oracle repair pilot](oracle-dynamics-validation-r2.md)"
-    if validation_link not in prefix:
-        prefix += ("The " + validation_link + " reports new Domino and Bridge "
-                   "runs separately; it does not replace the historical "
-                   "Oracle results in this figure.\n\n")
+    pilot_note = (
+        "Oracle dynamics r2 is a separate entry directly below "
+        "Oracle dynamics, in dark grey.\n"
+        "Only finished Domino and Bridge r2 runs contribute; "
+        "the other domains are blank because they were not launched.\n"
+        "The " + validation_link + " also shows the two Oracle "
+        "rounds side by side.\n\n")
+    if validation_link in prefix:
+        prefix = re.sub(
+            r"(?:Oracle dynamics r2 is a separate entry.*?\n)?"
+            r"(?:Only finished Domino and Bridge r2 runs.*?\n)?"
+            r"The \[Oracle repair pilot\].*?\n\n",
+            lambda _: pilot_note,
+            prefix,
+            count=1)
+    else:
+        prefix += pilot_note
     prefix = re.sub(
         r"^Compiled .*?$",
         f"Compiled {stamp} from {len(rows)} finished scorecards on "
@@ -128,8 +155,13 @@ def report_text(original: str, rows: List[Row], plot: Dict[str, Any],
                       and r["domain"] == "Balloons (composition)"
                       for r in rows)
     no_unc_status = "finished" if no_unc_done else "unfinished"
+    oracle_r2_done = sum(r["arm"] == "oracle_dynamics_r2" for r in rows)
+    empiric_r2_done = sum(r["arm"] == "MB_r2" for r in rows)
     status = (
         "## Status at this snapshot\n\n"
+        f"- Oracle dynamics r2: {oracle_r2_done}/6 seeds finished "
+        "across Domino and Bridge.\n"
+        f"- EMPIRIC r2: {empiric_r2_done}/10 seeds finished (seeds 3 and 4).\n"
         f"- Direct agent + scene assets: {direct_done}/15 seeds finished.\n"
         f"  Unfinished: {pending}.\n"
         "- EMPIRIC + scene package: four unfinished runs remain paused "
@@ -228,8 +260,8 @@ def refresh_oracle_validation(force: bool = False) -> None:
         }))
     plot.update(DOMAINS=domains,
                 ARMS=["oracle_old", "oracle_fixed"],
-                LABELS=["Oracle original", "Oracle repaired"],
-                COLORS=["#88929d", "#087f8c"],
+                LABELS=["Oracle dynamics", "Oracle dynamics r2"],
+                COLORS=["#88929d", "#52616b"],
                 GREYED=set(),
                 GROUPS=[("Oracle", 0, 2)])
     rows = plot["records"]()

@@ -31,25 +31,25 @@ MF = "agent_continual_model_free"
 # Highlighted arms first, followed by the de-emphasised arms.
 # Oracle dynamics is the grey reference; no uncertainty uses green.
 ARMS = [
-    "oracle_dynamics", "MB", "MF", "mf_scene_package", "standalone",
-    "no_fitting", "no_uncertainty", "mb_scene_package", "scene_only",
-    "zero_shot", "real_to_sim"
+    "oracle_dynamics", "oracle_dynamics_r2", "MB", "MB_r2", "MF",
+    "mf_scene_package", "standalone", "no_fitting", "no_uncertainty",
+    "mb_scene_package", "scene_only", "zero_shot", "real_to_sim"
 ]
 LABELS = [
-    "Oracle dynamics", "EMPIRIC", "Direct agent",
-    "Direct agent + scene assets", "Standalone sim.", "No harness fitting",
-    "No explicit uncert.", "EMPIRIC + scene pkg.", "Scene only",
-    "Zero-shot model", "Agentic real-to-sim"
+    "Oracle dynamics", "Oracle dynamics r2", "EMPIRIC", "EMPIRIC r2",
+    "Direct agent", "Direct agent + scene assets", "Standalone sim.",
+    "No harness fitting", "No explicit uncert.", "EMPIRIC + scene pkg.",
+    "Scene only", "Zero-shot model", "Agentic real-to-sim"
 ]
 COLORS = [
-    "#88929d", "#087f8c", "#bd5929", "#7a3312", "#7467a6", "#b19658",
-    "#397957", "#0b4f6c", "#6b9483", "#5588ad", "#a5573f"
+    "#88929d", "#52616b", "#087f8c", "#034f4f", "#bd5929", "#7a3312",
+    "#7467a6", "#b19658", "#397957", "#0b4f6c", "#6b9483", "#5588ad", "#a5573f"
 ]
 GROUPS = [
-    ("Oracle reference", 0, 1),
-    ("Methods", 1, 5),
-    ("EMPIRIC ablations", 5, 7),
-    ("Additional comparisons", 7, 11),
+    ("Oracle reference", 0, 2),
+    ("Methods", 2, 7),
+    ("EMPIRIC ablations", 7, 9),
+    ("Additional comparisons", 9, 13),
 ]
 APPROACH_DIR = {
     "mb_scene_package": "agent_continual",
@@ -121,10 +121,19 @@ DOMAINS = [
     }),
 ]
 for _domain, _dirs in DOMAINS:
+    _dirs["MB_r2"] = [
+        f"{MB}/{ENV_KEY[_domain]}-mb_opus_benchmark_r2/seed{s}" for s in (3, 4)
+    ]
     for _arm, _approach in APPROACH_DIR.items():
         _round = ROUND_BY_DOMAIN.get((_arm, _domain), ROUND.get(_arm, 'r1'))
         _key = f"{ENV_KEY[_domain]}-{_arm}_opus_benchmark_{_round}"
         _dirs[_arm] = [f"{_approach}/{_key}/seed{s}" for s in range(3)]
+    # Keep the repair pilot distinct from r1. Empty directories mean the
+    # other domains are not launched, not three unfinished/failed seeds.
+    _dirs["oracle_dynamics_r2"] = ([
+        f"agent_continual_oracle_dynamics/{ENV_KEY[_domain]}-"
+        f"oracle_dynamics_opus_benchmark_r2/seed{s}" for s in range(3)
+    ] if _domain in ("Domino", "Bridge (4-span)") else [])
 # Column order for the figure.
 _ORDER = [
     "Boil (2-jug)", "Domino", "Balloons (composition)", "Bridge (4-span)",
@@ -321,7 +330,7 @@ def render(rows: List[Row], output: str) -> None:
                     ax.axhspan(start - .5, end - .5, color="#f2f4f5", zorder=0)
             ax.set_yticks(range(len(ARMS)), LABELS, fontsize=10)
             for tick, arm in zip(ax.get_yticklabels(), ARMS):
-                if arm == "MB":
+                if arm in ("MB", "MB_r2"):
                     tick.set_fontweight("bold")
                 if arm in GREYED:
                     tick.set_color("#9aa3a8")
@@ -381,7 +390,7 @@ def render(rows: List[Row], output: str) -> None:
         bbox_to_anchor=(axes[1, 0].get_position().x0 - .7 / fig.get_figwidth(),
                         sum(axes[1, 0].get_position().intervaly) / 2))
     for text, arm in zip(leg.get_texts(), legend_arms):
-        if arm == "MB":
+        if arm in ("MB", "MB_r2"):
             text.set_fontweight("bold")
         if arm in GREYED:
             text.set_color("#9aa3a8")
