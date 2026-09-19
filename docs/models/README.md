@@ -5,6 +5,7 @@
 | Document | Use |
 |---|---|
 | [Simulator subclass interface](subclass-simulator.md) | Base simulation, residual dynamics, hidden model state, and the fitting contract. |
+| [Simulator probe API](sim-api.md) | Agent-facing `sim` calls, result semantics, and evaluator-scored validation. |
 | [Uncertainty implementation](../uncertainty/explained.md) | The six uncertainty features and the mechanisms inside `sim.fit()`. |
 | [System identification illustrations](../sysid/README.md) | Pipeline figures, fitting landscapes, and their source scripts. |
 | [Proposed simplification](../uncertainty/simplification-proposal.md) | A proposed shared posterior and state-estimation design. |
