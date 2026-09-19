@@ -1,0 +1,19 @@
+# Repair pilot only. Retain r1 recordings; never resume them with new code.
+# Launch from a frozen worktree after compute-node validation:
+# python scripts/engaging/launch.py -c predicatorv3/continual_oracle_validation_r2.yaml --partition mit_preemptable --requeue --accounts a,b,c,d
+includes:
+  - continual_common.yaml
+  - envs/continual.yaml
+  - approaches/continual.yaml
+START_SEED: 0
+NUM_SEEDS: 3
+ENVS:
+  domino_high_friction_turn:
+    SKIP: false
+  bridge:
+    SKIP: false
+APPROACHES:
+  oracle_dynamics_opus_benchmark_r2:
+    EXTENDS: oracle_dynamics_opus
+    FLAGS:
+      continual_skill_preflight: false
