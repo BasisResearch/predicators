@@ -1,6 +1,6 @@
 # Opus benchmark sweep: eleven agents and r2 cohorts
 
-Compiled 2026-09-19T16:46:28.475418+00:00 from 146 finished scorecards on the five benchmark settings fixed on September 18.
+Compiled 2026-09-19T18:31:56.316616+00:00 from 155 finished scorecards on the five benchmark settings fixed on September 18.
 All agents are Claude Opus with the composite skill library.
 Preflight settings differ across historical cohorts: the selected EMPIRIC Boil, Domino, and Balloons runs and Fan seeds 1-2 had preflight enabled; the selected Bridge reruns and newer comparison arms used preflight off.
 This is not a matched preflight ablation.
@@ -9,10 +9,10 @@ This page is a snapshot: runs listed under "Unfinished runs" are not counted any
 
 ## Status at this snapshot
 
-- Oracle dynamics r2: 1/6 seeds finished across Domino and Bridge.
-- EMPIRIC r2: 0/10 seeds finished (seeds 3 and 4).
-- Direct agent + scene assets: 14/15 seeds finished.
-  Unfinished: Domino (high-friction turn) seed 1.
+- Oracle dynamics r2: 5/6 seeds finished across Domino and Bridge.
+- EMPIRIC r2: 4/10 seeds finished (seeds 3 and 4).
+- Direct agent + scene assets: 15/15 seeds finished.
+  Unfinished: none.
 - EMPIRIC + scene package: four unfinished runs remain paused at the user's request (Balloons seed 0, Boil seeds 0 and 2, Domino seed 0).
 - No explicit uncertainty Balloons seed 2: finished.
 - Other unfinished seeds are listed below; an unfinished scorecard does not establish whether a job is running.
@@ -92,10 +92,11 @@ The last column gives how many of the three seeds have finished; rows with fewer
 | Boil (two-jug) | 12. Zero-shot model | 1/1 (100%) | 2/2 (100%) | 828 (n=1) | 0 | 1/3 |
 | Boil (two-jug) | 13. Agentic real-to-sim | 3/3 (100%) | 6/6 (100%) | 875.7 (n=3) | 0 | 3/3 |
 | Domino (high-friction turn) | 1. Oracle dynamics | 2/3 (66.7%) | 5/6 (83.3%) | 463 (n=2) | 0 | 3/3 |
-| Domino (high-friction turn) | 2. Oracle dynamics r2 | 1/1 (100%) | 2/2 (100%) | 374 (n=1) | 0 | 1/3 |
+| Domino (high-friction turn) | 2. Oracle dynamics r2 | 3/3 (100%) | 6/6 (100%) | 342.3 (n=3) | 0 | 3/3 |
 | Domino (high-friction turn) | 3. EMPIRIC | 3/3 (100%) | 6/6 (100%) | 370.7 (n=3) | 0 | 3/3 |
+| Domino (high-friction turn) | 4. EMPIRIC r2 | 2/2 (100%) | 4/4 (100%) | 306.5 (n=2) | 0 | 2/2 |
 | Domino (high-friction turn) | 5. Direct agent | 1/3 (33.3%) | 4/6 (66.7%) | 455 (n=1) | 0 | 3/3 |
-| Domino (high-friction turn) | 6. Direct agent + scene assets | 2/2 (100%) | 4/4 (100%) | 528 (n=2) | 0 | 2/3 |
+| Domino (high-friction turn) | 6. Direct agent + scene assets | 2/3 (66.7%) | 5/6 (83.3%) | 528 (n=2) | 0 | 3/3 |
 | Domino (high-friction turn) | 7. Standalone sim. | 2/3 (66.7%) | 5/6 (83.3%) | 836 (n=2) | 0.7 | 3/3 |
 | Domino (high-friction turn) | 8. No harness fitting | 2/3 (66.7%) | 5/6 (83.3%) | 507 (n=2) | 0 | 3/3 |
 | Domino (high-friction turn) | 9. No explicit uncert. | 3/3 (100%) | 6/6 (100%) | 326 (n=3) | 0 | 3/3 |
@@ -113,6 +114,7 @@ The last column gives how many of the three seeds have finished; rows with fewer
 | Balloons (composition) | 11. Scene only | 2/3 (66.7%) | 8/9 (88.9%) | 916 (n=2) | 1.3 | 3/3 |
 | Balloons (composition) | 13. Agentic real-to-sim | 3/3 (100%) | 9/9 (100%) | 1,362 (n=3) | 3.7 | 3/3 |
 | Bridge (four-span) | 1. Oracle dynamics | 2/3 (66.7%) | 5/6 (83.3%) | 2,756.5 (n=2) | 0 | 3/3 |
+| Bridge (four-span) | 2. Oracle dynamics r2 | 2/2 (100%) | 4/4 (100%) | 3,289 (n=2) | 0 | 2/3 |
 | Bridge (four-span) | 3. EMPIRIC | 3/3 (100%) | 6/6 (100%) | 3,852.3 (n=3) | 0 | 3/3 |
 | Bridge (four-span) | 5. Direct agent | 3/3 (100%) | 6/6 (100%) | 6,134 (n=3) | 0 | 3/3 |
 | Bridge (four-span) | 6. Direct agent + scene assets | 1/3 (33.3%) | 4/6 (66.7%) | 3,380 (n=1) | 2 | 3/3 |
@@ -124,6 +126,7 @@ The last column gives how many of the three seeds have finished; rows with fewer
 | Bridge (four-span) | 13. Agentic real-to-sim | 3/3 (100%) | 6/6 (100%) | 3,177 (n=3) | 0 | 3/3 |
 | Fan (maze) | 1. Oracle dynamics | 3/3 (100%) | 6/6 (100%) | 1,236 (n=3) | 0 | 3/3 |
 | Fan (maze) | 3. EMPIRIC | 3/3 (100%) | 6/6 (100%) | 508.7 (n=3) | 0 | 3/3 |
+| Fan (maze) | 4. EMPIRIC r2 | 2/2 (100%) | 4/4 (100%) | 1,344 (n=2) | 0 | 2/2 |
 | Fan (maze) | 5. Direct agent | 3/3 (100%) | 6/6 (100%) | 1,533 (n=3) | 0 | 3/3 |
 | Fan (maze) | 6. Direct agent + scene assets | 3/3 (100%) | 6/6 (100%) | 1,526.3 (n=3) | 0 | 3/3 |
 | Fan (maze) | 7. Standalone sim. | 2/3 (66.7%) | 5/6 (83.3%) | 1,455 (n=2) | 0.7 | 3/3 |
@@ -177,13 +180,18 @@ The last column gives how many of the three seeds have finished; rows with fewer
 | 1. Oracle dynamics | 1 | 1/2 | 308 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/domino_high_friction_turn-oracle_dynamics_opus_benchmark_r1/seed1/run_20260918_091746) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/domino_high_friction_turn-oracle_dynamics_opus_benchmark_r1/seed1/run_20260918_091746/scorecard.json) |
 | 1. Oracle dynamics | 2 | 2/2 | 383 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/domino_high_friction_turn-oracle_dynamics_opus_benchmark_r1/seed2/run_20260918_091745) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/domino_high_friction_turn-oracle_dynamics_opus_benchmark_r1/seed2/run_20260918_091745/scorecard.json) |
 | 2. Oracle dynamics r2 | 0 | 2/2 | 374 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/domino_high_friction_turn-oracle_dynamics_opus_benchmark_r2/seed0/run_20260919_120029) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/domino_high_friction_turn-oracle_dynamics_opus_benchmark_r2/seed0/run_20260919_120029/scorecard.json) |
+| 2. Oracle dynamics r2 | 1 | 2/2 | 324 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/domino_high_friction_turn-oracle_dynamics_opus_benchmark_r2/seed1/run_20260919_120258) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/domino_high_friction_turn-oracle_dynamics_opus_benchmark_r2/seed1/run_20260919_120258/scorecard.json) |
+| 2. Oracle dynamics r2 | 2 | 2/2 | 329 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/domino_high_friction_turn-oracle_dynamics_opus_benchmark_r2/seed2/run_20260919_120029) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/domino_high_friction_turn-oracle_dynamics_opus_benchmark_r2/seed2/run_20260919_120029/scorecard.json) |
 | 3. EMPIRIC | 0 | 2/2 | 368 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-mb_opus_gate_r1/seed0/run_20260917_082017) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-mb_opus_gate_r1/seed0/run_20260917_082017/scorecard.json) |
 | 3. EMPIRIC | 1 | 2/2 | 285 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-mb_opus_gate_r1/seed1/run_20260917_082021) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-mb_opus_gate_r1/seed1/run_20260917_082021/scorecard.json) |
 | 3. EMPIRIC | 2 | 2/2 | 459 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-mb_opus_gate_r1/seed2/run_20260917_082021) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-mb_opus_gate_r1/seed2/run_20260917_082021/scorecard.json) |
+| 4. EMPIRIC r2 | 3 | 2/2 | 265 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-mb_opus_benchmark_r2/seed3/run_20260919_124956) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-mb_opus_benchmark_r2/seed3/run_20260919_124956/scorecard.json) |
+| 4. EMPIRIC r2 | 4 | 2/2 | 348 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-mb_opus_benchmark_r2/seed4/run_20260919_124952) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-mb_opus_benchmark_r2/seed4/run_20260919_124952/scorecard.json) |
 | 5. Direct agent | 0 | 2/2 | 455 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_opus_r1/seed0/run_20260917_082021) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_opus_r1/seed0/run_20260917_082021/scorecard.json) |
 | 5. Direct agent | 1 | 1/2 | 559 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_opus_r1/seed1/run_20260917_082017) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_opus_r1/seed1/run_20260917_082017/scorecard.json) |
 | 5. Direct agent | 2 | 1/2 | 456 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_opus_r1/seed2/run_20260917_082029) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_opus_r1/seed2/run_20260917_082029/scorecard.json) |
 | 6. Direct agent + scene assets | 0 | 2/2 | 552 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_scene_package_opus_benchmark_r1/seed0/run_20260919_040929) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_scene_package_opus_benchmark_r1/seed0/run_20260919_040929/scorecard.json) |
+| 6. Direct agent + scene assets | 1 | 1/2 | 710 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_scene_package_opus_benchmark_r1/seed1/run_20260919_040850) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_scene_package_opus_benchmark_r1/seed1/run_20260919_040850/scorecard.json) |
 | 6. Direct agent + scene assets | 2 | 2/2 | 504 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_scene_package_opus_benchmark_r1/seed2/run_20260919_040850) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_scene_package_opus_benchmark_r1/seed2/run_20260919_040850/scorecard.json) |
 | 7. Standalone sim. | 0 | 1/2 | 902 | 1 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/domino_high_friction_turn-standalone_opus_benchmark_r2/seed0/run_20260918_153933) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/domino_high_friction_turn-standalone_opus_benchmark_r2/seed0/run_20260918_153933/scorecard.json) |
 | 7. Standalone sim. | 1 | 2/2 | 650 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/domino_high_friction_turn-standalone_opus_benchmark_r2/seed1/run_20260918_162527) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/domino_high_friction_turn-standalone_opus_benchmark_r2/seed1/run_20260918_162527/scorecard.json) |
@@ -243,6 +251,8 @@ The last column gives how many of the three seeds have finished; rows with fewer
 | 1. Oracle dynamics | 0 | 2/2 | 2,766 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/bridge-oracle_dynamics_opus_benchmark_r1/seed0/run_20260918_091701) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/bridge-oracle_dynamics_opus_benchmark_r1/seed0/run_20260918_091701/scorecard.json) |
 | 1. Oracle dynamics | 1 | 2/2 | 2,747 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/bridge-oracle_dynamics_opus_benchmark_r1/seed1/run_20260918_091710) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/bridge-oracle_dynamics_opus_benchmark_r1/seed1/run_20260918_091710/scorecard.json) |
 | 1. Oracle dynamics | 2 | 1/2 | 2,747 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/bridge-oracle_dynamics_opus_benchmark_r1/seed2/run_20260918_091710) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/bridge-oracle_dynamics_opus_benchmark_r1/seed2/run_20260918_091710/scorecard.json) |
+| 2. Oracle dynamics r2 | 1 | 2/2 | 3,303 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/bridge-oracle_dynamics_opus_benchmark_r2/seed1/run_20260919_120029) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/bridge-oracle_dynamics_opus_benchmark_r2/seed1/run_20260919_120029/scorecard.json) |
+| 2. Oracle dynamics r2 | 2 | 2/2 | 3,275 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/bridge-oracle_dynamics_opus_benchmark_r2/seed2/run_20260919_120029) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/bridge-oracle_dynamics_opus_benchmark_r2/seed2/run_20260919_120029/scorecard.json) |
 | 3. EMPIRIC | 0 | 2/2 | 3,302 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/bridge-mb_opus_span_transfer_r2/seed0/run_20260916_190710) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual/bridge-mb_opus_span_transfer_r2/seed0/run_20260916_190710/scorecard.json) |
 | 3. EMPIRIC | 1 | 2/2 | 3,665 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/bridge_span_transfer-mb_opus_span_transfer_r3/seed1/run_20260917_135634) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual/bridge_span_transfer-mb_opus_span_transfer_r3/seed1/run_20260917_135634/scorecard.json) |
 | 3. EMPIRIC | 2 | 2/2 | 4,590 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/bridge_span_transfer-mb_opus_span_transfer_r3/seed2/run_20260917_135632) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual/bridge_span_transfer-mb_opus_span_transfer_r3/seed2/run_20260917_135632/scorecard.json) |
@@ -281,6 +291,8 @@ The last column gives how many of the three seeds have finished; rows with fewer
 | 3. EMPIRIC | 0 | 2/2 | 486 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_maze-mb_opus_gate_r1/seed0/run_20260916_140340) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_maze-mb_opus_gate_r1/seed0/run_20260916_140340/scorecard.json) |
 | 3. EMPIRIC | 1 | 2/2 | 475 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_maze-mb_opus_gate_r1/seed1/run_20260917_082017) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_maze-mb_opus_gate_r1/seed1/run_20260917_082017/scorecard.json) |
 | 3. EMPIRIC | 2 | 2/2 | 565 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_maze-mb_opus_gate_r1/seed2/run_20260917_082020) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_maze-mb_opus_gate_r1/seed2/run_20260917_082020/scorecard.json) |
+| 4. EMPIRIC r2 | 3 | 2/2 | 1,320 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan-mb_opus_benchmark_r2/seed3/run_20260919_124957) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan-mb_opus_benchmark_r2/seed3/run_20260919_124957/scorecard.json) |
+| 4. EMPIRIC r2 | 4 | 2/2 | 1,368 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan-mb_opus_benchmark_r2/seed4/run_20260919_124957) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan-mb_opus_benchmark_r2/seed4/run_20260919_124957/scorecard.json) |
 | 5. Direct agent | 0 | 2/2 | 1,201 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_maze-mf_opus_r1/seed0/run_20260916_140338) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_maze-mf_opus_r1/seed0/run_20260916_140338/scorecard.json) |
 | 5. Direct agent | 1 | 2/2 | 1,777 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_maze-mf_opus_r1/seed1/run_20260917_082016) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_maze-mf_opus_r1/seed1/run_20260917_082016/scorecard.json) |
 | 5. Direct agent | 2 | 2/2 | 1,621 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_maze-mf_opus_r1/seed2/run_20260917_082016) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_maze-mf_opus_r1/seed2/run_20260917_082016/scorecard.json) |
@@ -312,38 +324,29 @@ These seeds have no finished scorecard at this snapshot and are excluded above.
 
 | Domain | Approach | Seed | Latest run |
 |---|---|---:|---|
-| Boil (two-jug) | 4. EMPIRIC r2 | 0 | No run directory |
-| Boil (two-jug) | 4. EMPIRIC r2 | 1 | No run directory |
+| Boil (two-jug) | 4. EMPIRIC r2 | 3 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/boil-mb_opus_benchmark_r2/seed3/run_20260919_124957) |
+| Boil (two-jug) | 4. EMPIRIC r2 | 4 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/boil-mb_opus_benchmark_r2/seed4/run_20260919_124957) |
 | Boil (two-jug) | 10. EMPIRIC + scene pkg. | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/boil-mb_scene_package_opus_benchmark_r2/seed0/run_20260919_030130) |
 | Boil (two-jug) | 10. EMPIRIC + scene pkg. | 2 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/boil-mb_scene_package_opus_benchmark_r2/seed2/run_20260919_030126) |
 | Boil (two-jug) | 12. Zero-shot model | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_zero_shot/boil-zero_shot_opus_benchmark_r1/seed0/run_20260918_091745) |
 | Boil (two-jug) | 12. Zero-shot model | 2 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_zero_shot/boil-zero_shot_opus_benchmark_r1/seed2/run_20260918_091745) |
-| Domino (high-friction turn) | 2. Oracle dynamics r2 | 1 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/domino_high_friction_turn-oracle_dynamics_opus_benchmark_r2/seed1/run_20260919_120258) |
-| Domino (high-friction turn) | 2. Oracle dynamics r2 | 2 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/domino_high_friction_turn-oracle_dynamics_opus_benchmark_r2/seed2/run_20260919_120029) |
-| Domino (high-friction turn) | 4. EMPIRIC r2 | 0 | No run directory |
-| Domino (high-friction turn) | 4. EMPIRIC r2 | 1 | No run directory |
-| Domino (high-friction turn) | 6. Direct agent + scene assets | 1 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_scene_package_opus_benchmark_r1/seed1/run_20260919_040850) |
 | Domino (high-friction turn) | 10. EMPIRIC + scene pkg. | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-mb_scene_package_opus_benchmark_r2/seed0/run_20260919_030129) |
 | Domino (high-friction turn) | 11. Scene only | 2 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_scene_only/domino_high_friction_turn-scene_only_opus_benchmark_r1/seed2/run_20260918_074324) |
 | Domino (high-friction turn) | 12. Zero-shot model | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_zero_shot/domino_high_friction_turn-zero_shot_opus_benchmark_r1/seed0/run_20260918_091745) |
 | Domino (high-friction turn) | 12. Zero-shot model | 1 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_zero_shot/domino_high_friction_turn-zero_shot_opus_benchmark_r1/seed1/run_20260918_091745) |
 | Domino (high-friction turn) | 12. Zero-shot model | 2 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_zero_shot/domino_high_friction_turn-zero_shot_opus_benchmark_r1/seed2/run_20260918_091719) |
-| Balloons (composition) | 4. EMPIRIC r2 | 0 | No run directory |
-| Balloons (composition) | 4. EMPIRIC r2 | 1 | No run directory |
+| Balloons (composition) | 4. EMPIRIC r2 | 3 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/balloons-mb_opus_benchmark_r2/seed3/run_20260919_124956) |
+| Balloons (composition) | 4. EMPIRIC r2 | 4 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/balloons-mb_opus_benchmark_r2/seed4/run_20260919_124956) |
 | Balloons (composition) | 10. EMPIRIC + scene pkg. | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/balloons-mb_scene_package_opus_benchmark_r1/seed0/run_20260918_230621) |
 | Balloons (composition) | 12. Zero-shot model | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_zero_shot/balloons-zero_shot_opus_benchmark_r1/seed0/run_20260918_091745) |
 | Balloons (composition) | 12. Zero-shot model | 1 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_zero_shot/balloons-zero_shot_opus_benchmark_r1/seed1/run_20260918_091745) |
 | Balloons (composition) | 12. Zero-shot model | 2 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_zero_shot/balloons-zero_shot_opus_benchmark_r1/seed2/run_20260918_091746) |
 | Bridge (four-span) | 2. Oracle dynamics r2 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/bridge-oracle_dynamics_opus_benchmark_r2/seed0/run_20260919_120029) |
-| Bridge (four-span) | 2. Oracle dynamics r2 | 1 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/bridge-oracle_dynamics_opus_benchmark_r2/seed1/run_20260919_120029) |
-| Bridge (four-span) | 2. Oracle dynamics r2 | 2 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/bridge-oracle_dynamics_opus_benchmark_r2/seed2/run_20260919_120029) |
-| Bridge (four-span) | 4. EMPIRIC r2 | 0 | No run directory |
-| Bridge (four-span) | 4. EMPIRIC r2 | 1 | No run directory |
+| Bridge (four-span) | 4. EMPIRIC r2 | 3 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/bridge-mb_opus_benchmark_r2/seed3/run_20260919_124955) |
+| Bridge (four-span) | 4. EMPIRIC r2 | 4 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/bridge-mb_opus_benchmark_r2/seed4/run_20260919_124955) |
 | Bridge (four-span) | 12. Zero-shot model | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_zero_shot/bridge-zero_shot_opus_benchmark_r1/seed0/run_20260918_091745) |
 | Bridge (four-span) | 12. Zero-shot model | 1 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_zero_shot/bridge-zero_shot_opus_benchmark_r1/seed1/run_20260918_091745) |
 | Bridge (four-span) | 12. Zero-shot model | 2 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_zero_shot/bridge-zero_shot_opus_benchmark_r1/seed2/run_20260918_091745) |
-| Fan (maze) | 4. EMPIRIC r2 | 0 | No run directory |
-| Fan (maze) | 4. EMPIRIC r2 | 1 | No run directory |
 | Fan (maze) | 12. Zero-shot model | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_zero_shot/fan-zero_shot_opus_benchmark_r1/seed0/run_20260918_091745) |
 | Fan (maze) | 12. Zero-shot model | 1 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_zero_shot/fan-zero_shot_opus_benchmark_r1/seed1/run_20260918_091745) |
 | Fan (maze) | 12. Zero-shot model | 2 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_zero_shot/fan-zero_shot_opus_benchmark_r1/seed2/run_20260918_091745) |

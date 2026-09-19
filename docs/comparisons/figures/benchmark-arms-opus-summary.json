@@ -352,6 +352,26 @@
     },
     {
       "domain": "Domino",
+      "arm": "MB_r2",
+      "seed": 3,
+      "won": 2,
+      "levels": 2,
+      "steps": 265,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-mb_opus_benchmark_r2/seed3/run_20260919_124956"
+    },
+    {
+      "domain": "Domino",
+      "arm": "MB_r2",
+      "seed": 4,
+      "won": 2,
+      "levels": 2,
+      "steps": 348,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-mb_opus_benchmark_r2/seed4/run_20260919_124952"
+    },
+    {
+      "domain": "Domino",
       "arm": "mb_scene_package",
       "seed": 1,
       "won": 2,
@@ -379,6 +399,16 @@
       "steps": 552,
       "resets": 0,
       "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_scene_package_opus_benchmark_r1/seed0/run_20260919_040929"
+    },
+    {
+      "domain": "Domino",
+      "arm": "mf_scene_package",
+      "seed": 1,
+      "won": 1,
+      "levels": 2,
+      "steps": 710,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_scene_package_opus_benchmark_r1/seed1/run_20260919_040850"
     },
     {
       "domain": "Domino",
@@ -569,6 +599,26 @@
       "steps": 374,
       "resets": 0,
       "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/domino_high_friction_turn-oracle_dynamics_opus_benchmark_r2/seed0/run_20260919_120029"
+    },
+    {
+      "domain": "Domino",
+      "arm": "oracle_dynamics_r2",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 324,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/domino_high_friction_turn-oracle_dynamics_opus_benchmark_r2/seed1/run_20260919_120258"
+    },
+    {
+      "domain": "Domino",
+      "arm": "oracle_dynamics_r2",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 329,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/domino_high_friction_turn-oracle_dynamics_opus_benchmark_r2/seed2/run_20260919_120029"
     },
     {
       "domain": "Balloons (composition)",
@@ -1161,6 +1211,26 @@
       "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_real_to_sim/bridge-real_to_sim_opus_benchmark_r1/seed2/run_20260918_095755"
     },
     {
+      "domain": "Bridge (4-span)",
+      "arm": "oracle_dynamics_r2",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 3303,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/bridge-oracle_dynamics_opus_benchmark_r2/seed1/run_20260919_120029"
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "oracle_dynamics_r2",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 3275,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/bridge-oracle_dynamics_opus_benchmark_r2/seed2/run_20260919_120029"
+    },
+    {
       "domain": "Fan (maze)",
       "arm": "MB",
       "seed": 0,
@@ -1219,6 +1289,26 @@
       "steps": 1621,
       "resets": 0,
       "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_maze-mf_opus_r1/seed2/run_20260917_082016"
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "MB_r2",
+      "seed": 3,
+      "won": 2,
+      "levels": 2,
+      "steps": 1320,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/fan-mb_opus_benchmark_r2/seed3/run_20260919_124957"
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "MB_r2",
+      "seed": 4,
+      "won": 2,
+      "levels": 2,
+      "steps": 1368,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/fan-mb_opus_benchmark_r2/seed4/run_20260919_124957"
     },
     {
       "domain": "Fan (maze)",
@@ -1767,8 +1857,10 @@
       "arm": "oracle_dynamics_r2",
       "metric": "solve",
       "mean": 100.0,
-      "n": 1,
+      "n": 3,
       "values": [
+        100,
+        100,
         100
       ]
     },
@@ -1788,9 +1880,12 @@
       "domain": "Domino",
       "arm": "MB_r2",
       "metric": "solve",
-      "mean": null,
-      "n": 0,
-      "values": []
+      "mean": 100.0,
+      "n": 2,
+      "values": [
+        100,
+        100
+      ]
     },
     {
       "domain": "Domino",
@@ -1808,10 +1903,11 @@
       "domain": "Domino",
       "arm": "mf_scene_package",
       "metric": "solve",
-      "mean": 100.0,
-      "n": 2,
+      "mean": 66.66666666666667,
+      "n": 3,
       "values": [
         100,
+        0,
         100
       ]
     },
@@ -1910,8 +2006,10 @@
       "arm": "oracle_dynamics_r2",
       "metric": "resets",
       "mean": 0.0,
-      "n": 1,
+      "n": 3,
       "values": [
+        0,
+        0,
         0
       ]
     },
@@ -1931,9 +2029,12 @@
       "domain": "Domino",
       "arm": "MB_r2",
       "metric": "resets",
-      "mean": null,
-      "n": 0,
-      "values": []
+      "mean": 0.0,
+      "n": 2,
+      "values": [
+        0,
+        0
+      ]
     },
     {
       "domain": "Domino",
@@ -1952,8 +2053,9 @@
       "arm": "mf_scene_package",
       "metric": "resets",
       "mean": 0.0,
-      "n": 2,
+      "n": 3,
       "values": [
+        0,
         0,
         0
       ]
@@ -2338,9 +2440,12 @@
       "domain": "Bridge (4-span)",
       "arm": "oracle_dynamics_r2",
       "metric": "solve",
-      "mean": null,
-      "n": 0,
-      "values": []
+      "mean": 100.0,
+      "n": 2,
+      "values": [
+        100,
+        100
+      ]
     },
     {
       "domain": "Bridge (4-span)",
@@ -2482,9 +2587,12 @@
       "domain": "Bridge (4-span)",
       "arm": "oracle_dynamics_r2",
       "metric": "resets",
-      "mean": null,
-      "n": 0,
-      "values": []
+      "mean": 0.0,
+      "n": 2,
+      "values": [
+        0,
+        0
+      ]
     },
     {
       "domain": "Bridge (4-span)",
@@ -2646,9 +2754,12 @@
       "domain": "Fan (maze)",
       "arm": "MB_r2",
       "metric": "solve",
-      "mean": null,
-      "n": 0,
-      "values": []
+      "mean": 100.0,
+      "n": 2,
+      "values": [
+        100,
+        100
+      ]
     },
     {
       "domain": "Fan (maze)",
@@ -2790,9 +2901,12 @@
       "domain": "Fan (maze)",
       "arm": "MB_r2",
       "metric": "resets",
-      "mean": null,
-      "n": 0,
-      "values": []
+      "mean": 0.0,
+      "n": 2,
+      "values": [
+        0,
+        0
+      ]
     },
     {
       "domain": "Fan (maze)",
