@@ -1,0 +1,2608 @@
+{
+  "records": [
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "MB",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 1324,
+      "resets": 1,
+      "source": "/home/ycliang/predicators/logs/agent_continual/boil-mb_opus_gate_preflight_two_jug_tight_r1/seed0/run_20260917_073118"
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "MB",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 1282,
+      "resets": 1,
+      "source": "/home/ycliang/predicators/logs/agent_continual/boil-mb_opus_gate_preflight_two_jug_tight_r1/seed1/run_20260917_082805"
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "MB",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 2410,
+      "resets": 5,
+      "source": "/home/ycliang/predicators/logs/agent_continual/boil-mb_opus_gate_preflight_two_jug_tight_r1/seed2/run_20260917_082805"
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "MF",
+      "seed": 0,
+      "won": 1,
+      "levels": 2,
+      "steps": 2182,
+      "resets": 1,
+      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/boil-mf_opus_two_jug_tight_r1/seed0/run_20260917_073117"
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "MF",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 977,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/boil-mf_opus_two_jug_tight_r1/seed1/run_20260917_082806"
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "MF",
+      "seed": 2,
+      "won": 1,
+      "levels": 2,
+      "steps": 1650,
+      "resets": 1,
+      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/boil-mf_opus_two_jug_tight_r1/seed2/run_20260917_082806"
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "mb_scene_package",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 749,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual/boil-mb_scene_package_opus_benchmark_r2/seed1/run_20260919_030126"
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "mf_scene_package",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 1044,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/boil-mf_scene_package_opus_benchmark_r1/seed0/run_20260919_040839"
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "mf_scene_package",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 1424,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/boil-mf_scene_package_opus_benchmark_r1/seed1/run_20260919_040839"
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "mf_scene_package",
+      "seed": 2,
+      "won": 1,
+      "levels": 2,
+      "steps": 1576,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/boil-mf_scene_package_opus_benchmark_r1/seed2/run_20260919_040847"
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "standalone",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 1489,
+      "resets": 1,
+      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/boil-standalone_opus_benchmark_r2/seed0/run_20260918_153946"
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "standalone",
+      "seed": 1,
+      "won": 1,
+      "levels": 2,
+      "steps": 2590,
+      "resets": 2,
+      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/boil-standalone_opus_benchmark_r2/seed1/run_20260918_162515"
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "standalone",
+      "seed": 2,
+      "won": 1,
+      "levels": 2,
+      "steps": 1927,
+      "resets": 2,
+      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/boil-standalone_opus_benchmark_r2/seed2/run_20260918_162516"
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "oracle_dynamics",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 756,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_oracle_dynamics/boil-oracle_dynamics_opus_benchmark_r1/seed0/run_20260918_091710"
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "oracle_dynamics",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 775,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_oracle_dynamics/boil-oracle_dynamics_opus_benchmark_r1/seed1/run_20260918_091746"
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "oracle_dynamics",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 770,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_oracle_dynamics/boil-oracle_dynamics_opus_benchmark_r1/seed2/run_20260918_091745"
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "scene_only",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 1370,
+      "resets": 2,
+      "source": "/home/ycliang/predicators/logs/agent_continual_scene_only/boil-scene_only_opus_benchmark_r1/seed0/run_20260918_074328"
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "scene_only",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 1808,
+      "resets": 3,
+      "source": "/home/ycliang/predicators/logs/agent_continual_scene_only/boil-scene_only_opus_benchmark_r1/seed1/run_20260918_074328"
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "scene_only",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 1386,
+      "resets": 1,
+      "source": "/home/ycliang/predicators/logs/agent_continual_scene_only/boil-scene_only_opus_benchmark_r1/seed2/run_20260918_074328"
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "zero_shot",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 828,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_zero_shot/boil-zero_shot_opus_benchmark_r1/seed1/run_20260918_091745"
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "no_fitting",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 744,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/boil-no_fitting_opus_benchmark_r1/seed0/run_20260918_091719"
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "no_fitting",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 938,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/boil-no_fitting_opus_benchmark_r1/seed1/run_20260918_091719"
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "no_fitting",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 1196,
+      "resets": 1,
+      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/boil-no_fitting_opus_benchmark_r1/seed2/run_20260918_091719"
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "no_uncertainty",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 844,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/boil-no_uncertainty_opus_benchmark_r2/seed0/run_20260918_153933"
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "no_uncertainty",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 1589,
+      "resets": 1,
+      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/boil-no_uncertainty_opus_benchmark_r2/seed1/run_20260918_162806"
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "no_uncertainty",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 1483,
+      "resets": 1,
+      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/boil-no_uncertainty_opus_benchmark_r2/seed2/run_20260918_162806"
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "real_to_sim",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 781,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_real_to_sim/boil-real_to_sim_opus_benchmark_r1/seed0/run_20260918_095755"
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "real_to_sim",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 879,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_real_to_sim/boil-real_to_sim_opus_benchmark_r1/seed1/run_20260918_095755"
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "real_to_sim",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 967,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_real_to_sim/boil-real_to_sim_opus_benchmark_r1/seed2/run_20260918_095755"
+    },
+    {
+      "domain": "Domino",
+      "arm": "MB",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 368,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-mb_opus_gate_r1/seed0/run_20260917_082017"
+    },
+    {
+      "domain": "Domino",
+      "arm": "MB",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 285,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-mb_opus_gate_r1/seed1/run_20260917_082021"
+    },
+    {
+      "domain": "Domino",
+      "arm": "MB",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 459,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-mb_opus_gate_r1/seed2/run_20260917_082021"
+    },
+    {
+      "domain": "Domino",
+      "arm": "MF",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 455,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_opus_r1/seed0/run_20260917_082021"
+    },
+    {
+      "domain": "Domino",
+      "arm": "MF",
+      "seed": 1,
+      "won": 1,
+      "levels": 2,
+      "steps": 559,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_opus_r1/seed1/run_20260917_082017"
+    },
+    {
+      "domain": "Domino",
+      "arm": "MF",
+      "seed": 2,
+      "won": 1,
+      "levels": 2,
+      "steps": 456,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_opus_r1/seed2/run_20260917_082029"
+    },
+    {
+      "domain": "Domino",
+      "arm": "mb_scene_package",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 289,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-mb_scene_package_opus_benchmark_r2/seed1/run_20260919_030129"
+    },
+    {
+      "domain": "Domino",
+      "arm": "mb_scene_package",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 435,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-mb_scene_package_opus_benchmark_r2/seed2/run_20260919_030129"
+    },
+    {
+      "domain": "Domino",
+      "arm": "mf_scene_package",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 552,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_scene_package_opus_benchmark_r1/seed0/run_20260919_040929"
+    },
+    {
+      "domain": "Domino",
+      "arm": "mf_scene_package",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 504,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_scene_package_opus_benchmark_r1/seed2/run_20260919_040850"
+    },
+    {
+      "domain": "Domino",
+      "arm": "standalone",
+      "seed": 0,
+      "won": 1,
+      "levels": 2,
+      "steps": 902,
+      "resets": 1,
+      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/domino_high_friction_turn-standalone_opus_benchmark_r2/seed0/run_20260918_153933"
+    },
+    {
+      "domain": "Domino",
+      "arm": "standalone",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 650,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/domino_high_friction_turn-standalone_opus_benchmark_r2/seed1/run_20260918_162527"
+    },
+    {
+      "domain": "Domino",
+      "arm": "standalone",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 1022,
+      "resets": 1,
+      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/domino_high_friction_turn-standalone_opus_benchmark_r2/seed2/run_20260918_162527"
+    },
+    {
+      "domain": "Domino",
+      "arm": "oracle_dynamics",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 543,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_oracle_dynamics/domino_high_friction_turn-oracle_dynamics_opus_benchmark_r1/seed0/run_20260918_091745"
+    },
+    {
+      "domain": "Domino",
+      "arm": "scene_only",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 347,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_scene_only/domino_high_friction_turn-scene_only_opus_benchmark_r1/seed0/run_20260918_074325"
+    },
+    {
+      "domain": "Domino",
+      "arm": "scene_only",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 260,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_scene_only/domino_high_friction_turn-scene_only_opus_benchmark_r1/seed1/run_20260918_074324"
+    },
+    {
+      "domain": "Domino",
+      "arm": "no_fitting",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 578,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/domino_high_friction_turn-no_fitting_opus_benchmark_r1/seed0/run_20260918_091719"
+    },
+    {
+      "domain": "Domino",
+      "arm": "no_fitting",
+      "seed": 1,
+      "won": 1,
+      "levels": 2,
+      "steps": 326,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/domino_high_friction_turn-no_fitting_opus_benchmark_r1/seed1/run_20260918_091719"
+    },
+    {
+      "domain": "Domino",
+      "arm": "no_fitting",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 436,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/domino_high_friction_turn-no_fitting_opus_benchmark_r1/seed2/run_20260918_091709"
+    },
+    {
+      "domain": "Domino",
+      "arm": "no_uncertainty",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 337,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/domino_high_friction_turn-no_uncertainty_opus_benchmark_r2/seed0/run_20260918_153934"
+    },
+    {
+      "domain": "Domino",
+      "arm": "no_uncertainty",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 299,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/domino_high_friction_turn-no_uncertainty_opus_benchmark_r2/seed1/run_20260918_162807"
+    },
+    {
+      "domain": "Domino",
+      "arm": "no_uncertainty",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 342,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/domino_high_friction_turn-no_uncertainty_opus_benchmark_r2/seed2/run_20260918_162807"
+    },
+    {
+      "domain": "Domino",
+      "arm": "real_to_sim",
+      "seed": 0,
+      "won": 1,
+      "levels": 2,
+      "steps": 563,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_real_to_sim/domino_high_friction_turn-real_to_sim_opus_benchmark_r1/seed0/run_20260918_095756"
+    },
+    {
+      "domain": "Domino",
+      "arm": "real_to_sim",
+      "seed": 1,
+      "won": 1,
+      "levels": 2,
+      "steps": 213,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_real_to_sim/domino_high_friction_turn-real_to_sim_opus_benchmark_r1/seed1/run_20260918_095756"
+    },
+    {
+      "domain": "Domino",
+      "arm": "real_to_sim",
+      "seed": 2,
+      "won": 1,
+      "levels": 2,
+      "steps": 704,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_real_to_sim/domino_high_friction_turn-real_to_sim_opus_benchmark_r1/seed2/run_20260918_095756"
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "MB",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 486,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual/fan_maze-mb_opus_gate_r1/seed0/run_20260916_140340"
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "MB",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 475,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual/fan_maze-mb_opus_gate_r1/seed1/run_20260917_082017"
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "MB",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 565,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual/fan_maze-mb_opus_gate_r1/seed2/run_20260917_082020"
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "MF",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 1201,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/fan_maze-mf_opus_r1/seed0/run_20260916_140338"
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "MF",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 1777,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/fan_maze-mf_opus_r1/seed1/run_20260917_082016"
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "MF",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 1621,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/fan_maze-mf_opus_r1/seed2/run_20260917_082016"
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "mb_scene_package",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 598,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual/fan-mb_scene_package_opus_benchmark_r1/seed0/run_20260918_230621"
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "mb_scene_package",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 1009,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual/fan-mb_scene_package_opus_benchmark_r1/seed1/run_20260918_230627"
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "mb_scene_package",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 823,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual/fan-mb_scene_package_opus_benchmark_r1/seed2/run_20260918_230627"
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "mf_scene_package",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 1352,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/fan-mf_scene_package_opus_benchmark_r1/seed0/run_20260919_040847"
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "mf_scene_package",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 1271,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/fan-mf_scene_package_opus_benchmark_r1/seed1/run_20260919_040929"
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "mf_scene_package",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 1956,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/fan-mf_scene_package_opus_benchmark_r1/seed2/run_20260919_040929"
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "standalone",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 1782,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/fan-standalone_opus_benchmark_r2/seed0/run_20260918_153933"
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "standalone",
+      "seed": 1,
+      "won": 1,
+      "levels": 2,
+      "steps": 4358,
+      "resets": 2,
+      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/fan-standalone_opus_benchmark_r2/seed1/run_20260918_162531"
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "standalone",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 1128,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/fan-standalone_opus_benchmark_r2/seed2/run_20260918_162531"
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "oracle_dynamics",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 1253,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_benchmark_r1/seed0/run_20260918_091745"
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "scene_only",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 1391,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_scene_only/fan-scene_only_opus_benchmark_r1/seed0/run_20260918_074325"
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "scene_only",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 1148,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_scene_only/fan-scene_only_opus_benchmark_r1/seed1/run_20260918_074325"
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "scene_only",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 1594,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_scene_only/fan-scene_only_opus_benchmark_r1/seed2/run_20260918_074325"
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "no_fitting",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 1251,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/fan-no_fitting_opus_benchmark_r1/seed0/run_20260918_091719"
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "no_fitting",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 1348,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/fan-no_fitting_opus_benchmark_r1/seed1/run_20260918_091719"
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "no_fitting",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 1509,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/fan-no_fitting_opus_benchmark_r1/seed2/run_20260918_091719"
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "no_uncertainty",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 605,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/fan-no_uncertainty_opus_benchmark_r2/seed0/run_20260918_153940"
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "no_uncertainty",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 771,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/fan-no_uncertainty_opus_benchmark_r2/seed1/run_20260918_162807"
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "no_uncertainty",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 647,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/fan-no_uncertainty_opus_benchmark_r2/seed2/run_20260918_162807"
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "real_to_sim",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 1082,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_real_to_sim/fan-real_to_sim_opus_benchmark_r1/seed0/run_20260918_095755"
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "real_to_sim",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 767,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_real_to_sim/fan-real_to_sim_opus_benchmark_r1/seed1/run_20260918_095755"
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "real_to_sim",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 2069,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_real_to_sim/fan-real_to_sim_opus_benchmark_r1/seed2/run_20260918_095802"
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "MB",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 3302,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual/bridge-mb_opus_span_transfer_r2/seed0/run_20260916_190710"
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "MB",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 3665,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual/bridge_span_transfer-mb_opus_span_transfer_r3/seed1/run_20260917_135634"
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "MB",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 4590,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual/bridge_span_transfer-mb_opus_span_transfer_r3/seed2/run_20260917_135632"
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "MF",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 4292,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/bridge-mf_opus_span_transfer_r2/seed0/run_20260916_190651"
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "MF",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 7585,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/bridge_span_transfer-mf_opus_span_transfer_r2/seed1/run_20260917_110833"
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "MF",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 6525,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/bridge_span_transfer-mf_opus_span_transfer_r2/seed2/run_20260917_110833"
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "mb_scene_package",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 5808,
+      "resets": 1,
+      "source": "/home/ycliang/predicators/logs/agent_continual/bridge-mb_scene_package_opus_benchmark_r2/seed0/run_20260919_030129"
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "mb_scene_package",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 3004,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual/bridge-mb_scene_package_opus_benchmark_r2/seed1/run_20260919_030128"
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "mb_scene_package",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 2982,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual/bridge-mb_scene_package_opus_benchmark_r2/seed2/run_20260919_030128"
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "mf_scene_package",
+      "seed": 1,
+      "won": 1,
+      "levels": 2,
+      "steps": 3736,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/bridge-mf_scene_package_opus_benchmark_r1/seed1/run_20260919_040839"
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "mf_scene_package",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 3380,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/bridge-mf_scene_package_opus_benchmark_r1/seed2/run_20260919_040839"
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "standalone",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 4575,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/bridge-standalone_opus_benchmark_r2/seed0/run_20260918_144453"
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "standalone",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 5246,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/bridge-standalone_opus_benchmark_r2/seed1/run_20260918_162542"
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "standalone",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 3210,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/bridge-standalone_opus_benchmark_r2/seed2/run_20260918_162514"
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "oracle_dynamics",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 2766,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_oracle_dynamics/bridge-oracle_dynamics_opus_benchmark_r1/seed0/run_20260918_091701"
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "scene_only",
+      "seed": 0,
+      "won": 1,
+      "levels": 2,
+      "steps": 5482,
+      "resets": 1,
+      "source": "/home/ycliang/predicators/logs/agent_continual_scene_only/bridge-scene_only_opus_benchmark_r1/seed0/run_20260918_074329"
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "scene_only",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 3759,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_scene_only/bridge-scene_only_opus_benchmark_r1/seed1/run_20260918_074325"
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "scene_only",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 4293,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_scene_only/bridge-scene_only_opus_benchmark_r1/seed2/run_20260918_074328"
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "no_fitting",
+      "seed": 0,
+      "won": 1,
+      "levels": 2,
+      "steps": 3518,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/bridge-no_fitting_opus_benchmark_r1/seed0/run_20260918_091719"
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "no_fitting",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 2925,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/bridge-no_fitting_opus_benchmark_r1/seed1/run_20260918_091719"
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "no_fitting",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 3743,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/bridge-no_fitting_opus_benchmark_r1/seed2/run_20260918_091719"
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "no_uncertainty",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 4181,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/bridge-no_uncertainty_opus_benchmark_r2/seed0/run_20260918_153933"
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "no_uncertainty",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 4576,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/bridge-no_uncertainty_opus_benchmark_r2/seed1/run_20260918_162811"
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "no_uncertainty",
+      "seed": 2,
+      "won": 1,
+      "levels": 2,
+      "steps": 5883,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/bridge-no_uncertainty_opus_benchmark_r2/seed2/run_20260918_162811"
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "real_to_sim",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 2753,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_real_to_sim/bridge-real_to_sim_opus_benchmark_r1/seed0/run_20260918_095755"
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "real_to_sim",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 3257,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_real_to_sim/bridge-real_to_sim_opus_benchmark_r1/seed1/run_20260918_095755"
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "real_to_sim",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 3521,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_real_to_sim/bridge-real_to_sim_opus_benchmark_r1/seed2/run_20260918_095755"
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "MB",
+      "seed": 0,
+      "won": 3,
+      "levels": 3,
+      "steps": 682,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual/balloons-mb_opus_compose_r2/seed0/run_20260917_082044"
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "MB",
+      "seed": 1,
+      "won": 3,
+      "levels": 3,
+      "steps": 823,
+      "resets": 2,
+      "source": "/home/ycliang/predicators/logs/agent_continual/balloons-mb_opus_compose_r2/seed1/run_20260917_082044"
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "MB",
+      "seed": 2,
+      "won": 3,
+      "levels": 3,
+      "steps": 1766,
+      "resets": 5,
+      "source": "/home/ycliang/predicators/logs/agent_continual/balloons-mb_opus_compose_r2/seed2/run_20260917_082021"
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "MF",
+      "seed": 0,
+      "won": 3,
+      "levels": 3,
+      "steps": 652,
+      "resets": 1,
+      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/balloons-mf_opus_compose_r2/seed0/run_20260917_082019"
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "MF",
+      "seed": 1,
+      "won": 2,
+      "levels": 3,
+      "steps": 628,
+      "resets": 1,
+      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/balloons-mf_opus_compose_r2/seed1/run_20260917_082025"
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "MF",
+      "seed": 2,
+      "won": 3,
+      "levels": 3,
+      "steps": 918,
+      "resets": 1,
+      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/balloons-mf_opus_compose_r2/seed2/run_20260917_082020"
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "mb_scene_package",
+      "seed": 1,
+      "won": 2,
+      "levels": 3,
+      "steps": 590,
+      "resets": 2,
+      "source": "/home/ycliang/predicators/logs/agent_continual/balloons-mb_scene_package_opus_benchmark_r1/seed1/run_20260918_230631"
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "mb_scene_package",
+      "seed": 2,
+      "won": 3,
+      "levels": 3,
+      "steps": 1304,
+      "resets": 2,
+      "source": "/home/ycliang/predicators/logs/agent_continual/balloons-mb_scene_package_opus_benchmark_r1/seed2/run_20260918_230622"
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "mf_scene_package",
+      "seed": 0,
+      "won": 3,
+      "levels": 3,
+      "steps": 813,
+      "resets": 2,
+      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/balloons-mf_scene_package_opus_benchmark_r1/seed0/run_20260919_040841"
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "mf_scene_package",
+      "seed": 1,
+      "won": 3,
+      "levels": 3,
+      "steps": 634,
+      "resets": 1,
+      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/balloons-mf_scene_package_opus_benchmark_r1/seed1/run_20260919_040840"
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "mf_scene_package",
+      "seed": 2,
+      "won": 3,
+      "levels": 3,
+      "steps": 1010,
+      "resets": 1,
+      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/balloons-mf_scene_package_opus_benchmark_r1/seed2/run_20260919_040840"
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "standalone",
+      "seed": 0,
+      "won": 3,
+      "levels": 3,
+      "steps": 897,
+      "resets": 1,
+      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/balloons-standalone_opus_benchmark_r2/seed0/run_20260918_143351"
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "standalone",
+      "seed": 1,
+      "won": 2,
+      "levels": 3,
+      "steps": 749,
+      "resets": 2,
+      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/balloons-standalone_opus_benchmark_r2/seed1/run_20260918_162516"
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "standalone",
+      "seed": 2,
+      "won": 2,
+      "levels": 3,
+      "steps": 1773,
+      "resets": 4,
+      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/balloons-standalone_opus_benchmark_r2/seed2/run_20260918_162542"
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "oracle_dynamics",
+      "seed": 0,
+      "won": 3,
+      "levels": 3,
+      "steps": 385,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_oracle_dynamics/balloons-oracle_dynamics_opus_benchmark_r1/seed0/run_20260918_091701"
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "scene_only",
+      "seed": 0,
+      "won": 3,
+      "levels": 3,
+      "steps": 737,
+      "resets": 1,
+      "source": "/home/ycliang/predicators/logs/agent_continual_scene_only/balloons-scene_only_opus_benchmark_r1/seed0/run_20260918_074329"
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "scene_only",
+      "seed": 1,
+      "won": 2,
+      "levels": 3,
+      "steps": 746,
+      "resets": 1,
+      "source": "/home/ycliang/predicators/logs/agent_continual_scene_only/balloons-scene_only_opus_benchmark_r1/seed1/run_20260918_074329"
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "scene_only",
+      "seed": 2,
+      "won": 3,
+      "levels": 3,
+      "steps": 1095,
+      "resets": 2,
+      "source": "/home/ycliang/predicators/logs/agent_continual_scene_only/balloons-scene_only_opus_benchmark_r1/seed2/run_20260918_074329"
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "no_fitting",
+      "seed": 0,
+      "won": 2,
+      "levels": 3,
+      "steps": 669,
+      "resets": 2,
+      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/balloons-no_fitting_opus_benchmark_r1/seed0/run_20260918_091719"
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "no_fitting",
+      "seed": 1,
+      "won": 2,
+      "levels": 3,
+      "steps": 630,
+      "resets": 1,
+      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/balloons-no_fitting_opus_benchmark_r1/seed1/run_20260918_091719"
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "no_fitting",
+      "seed": 2,
+      "won": 3,
+      "levels": 3,
+      "steps": 1726,
+      "resets": 4,
+      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/balloons-no_fitting_opus_benchmark_r1/seed2/run_20260918_091719"
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "no_uncertainty",
+      "seed": 0,
+      "won": 3,
+      "levels": 3,
+      "steps": 829,
+      "resets": 2,
+      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/balloons-no_uncertainty_opus_benchmark_r2/seed0/run_20260918_153933"
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "no_uncertainty",
+      "seed": 1,
+      "won": 2,
+      "levels": 3,
+      "steps": 441,
+      "resets": 0,
+      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/balloons-no_uncertainty_opus_benchmark_r2/seed1/run_20260918_162527"
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "real_to_sim",
+      "seed": 0,
+      "won": 3,
+      "levels": 3,
+      "steps": 1268,
+      "resets": 4,
+      "source": "/home/ycliang/predicators/logs/agent_continual_real_to_sim/balloons-real_to_sim_opus_benchmark_r1/seed0/run_20260918_095755"
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "real_to_sim",
+      "seed": 1,
+      "won": 3,
+      "levels": 3,
+      "steps": 756,
+      "resets": 2,
+      "source": "/home/ycliang/predicators/logs/agent_continual_real_to_sim/balloons-real_to_sim_opus_benchmark_r1/seed1/run_20260918_095755"
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "real_to_sim",
+      "seed": 2,
+      "won": 3,
+      "levels": 3,
+      "steps": 2062,
+      "resets": 5,
+      "source": "/home/ycliang/predicators/logs/agent_continual_real_to_sim/balloons-real_to_sim_opus_benchmark_r1/seed2/run_20260918_095755"
+    }
+  ],
+  "summary": [
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "MB",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 3,
+      "values": [
+        100,
+        100,
+        100
+      ]
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "mb_scene_package",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 1,
+      "values": [
+        100
+      ]
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "MF",
+      "metric": "solve",
+      "mean": 33.333333333333336,
+      "n": 3,
+      "values": [
+        0,
+        100,
+        0
+      ]
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "mf_scene_package",
+      "metric": "solve",
+      "mean": 66.66666666666667,
+      "n": 3,
+      "values": [
+        100,
+        100,
+        0
+      ]
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "standalone",
+      "metric": "solve",
+      "mean": 33.333333333333336,
+      "n": 3,
+      "values": [
+        100,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "oracle_dynamics",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 3,
+      "values": [
+        100,
+        100,
+        100
+      ]
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "scene_only",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 3,
+      "values": [
+        100,
+        100,
+        100
+      ]
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "zero_shot",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 1,
+      "values": [
+        100
+      ]
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "no_fitting",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 3,
+      "values": [
+        100,
+        100,
+        100
+      ]
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "no_uncertainty",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 3,
+      "values": [
+        100,
+        100,
+        100
+      ]
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "real_to_sim",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 3,
+      "values": [
+        100,
+        100,
+        100
+      ]
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "MB",
+      "metric": "resets",
+      "mean": 2.3333333333333335,
+      "n": 3,
+      "values": [
+        1,
+        1,
+        5
+      ]
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "mb_scene_package",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 1,
+      "values": [
+        0
+      ]
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "MF",
+      "metric": "resets",
+      "mean": 0.6666666666666666,
+      "n": 3,
+      "values": [
+        1,
+        0,
+        1
+      ]
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "mf_scene_package",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 3,
+      "values": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "standalone",
+      "metric": "resets",
+      "mean": 1.6666666666666667,
+      "n": 3,
+      "values": [
+        1,
+        2,
+        2
+      ]
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "oracle_dynamics",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 3,
+      "values": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "scene_only",
+      "metric": "resets",
+      "mean": 2.0,
+      "n": 3,
+      "values": [
+        2,
+        3,
+        1
+      ]
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "zero_shot",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 1,
+      "values": [
+        0
+      ]
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "no_fitting",
+      "metric": "resets",
+      "mean": 0.3333333333333333,
+      "n": 3,
+      "values": [
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "no_uncertainty",
+      "metric": "resets",
+      "mean": 0.6666666666666666,
+      "n": 3,
+      "values": [
+        0,
+        1,
+        1
+      ]
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "real_to_sim",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 3,
+      "values": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Domino",
+      "arm": "MB",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 3,
+      "values": [
+        100,
+        100,
+        100
+      ]
+    },
+    {
+      "domain": "Domino",
+      "arm": "mb_scene_package",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 2,
+      "values": [
+        100,
+        100
+      ]
+    },
+    {
+      "domain": "Domino",
+      "arm": "MF",
+      "metric": "solve",
+      "mean": 33.333333333333336,
+      "n": 3,
+      "values": [
+        100,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Domino",
+      "arm": "mf_scene_package",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 2,
+      "values": [
+        100,
+        100
+      ]
+    },
+    {
+      "domain": "Domino",
+      "arm": "standalone",
+      "metric": "solve",
+      "mean": 66.66666666666667,
+      "n": 3,
+      "values": [
+        0,
+        100,
+        100
+      ]
+    },
+    {
+      "domain": "Domino",
+      "arm": "oracle_dynamics",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 1,
+      "values": [
+        100
+      ]
+    },
+    {
+      "domain": "Domino",
+      "arm": "scene_only",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 2,
+      "values": [
+        100,
+        100
+      ]
+    },
+    {
+      "domain": "Domino",
+      "arm": "zero_shot",
+      "metric": "solve",
+      "mean": null,
+      "n": 0,
+      "values": []
+    },
+    {
+      "domain": "Domino",
+      "arm": "no_fitting",
+      "metric": "solve",
+      "mean": 66.66666666666667,
+      "n": 3,
+      "values": [
+        100,
+        0,
+        100
+      ]
+    },
+    {
+      "domain": "Domino",
+      "arm": "no_uncertainty",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 3,
+      "values": [
+        100,
+        100,
+        100
+      ]
+    },
+    {
+      "domain": "Domino",
+      "arm": "real_to_sim",
+      "metric": "solve",
+      "mean": 0.0,
+      "n": 3,
+      "values": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Domino",
+      "arm": "MB",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 3,
+      "values": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Domino",
+      "arm": "mb_scene_package",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 2,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Domino",
+      "arm": "MF",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 3,
+      "values": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Domino",
+      "arm": "mf_scene_package",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 2,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Domino",
+      "arm": "standalone",
+      "metric": "resets",
+      "mean": 0.6666666666666666,
+      "n": 3,
+      "values": [
+        1,
+        0,
+        1
+      ]
+    },
+    {
+      "domain": "Domino",
+      "arm": "oracle_dynamics",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 1,
+      "values": [
+        0
+      ]
+    },
+    {
+      "domain": "Domino",
+      "arm": "scene_only",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 2,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Domino",
+      "arm": "zero_shot",
+      "metric": "resets",
+      "mean": null,
+      "n": 0,
+      "values": []
+    },
+    {
+      "domain": "Domino",
+      "arm": "no_fitting",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 3,
+      "values": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Domino",
+      "arm": "no_uncertainty",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 3,
+      "values": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Domino",
+      "arm": "real_to_sim",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 3,
+      "values": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "MB",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 3,
+      "values": [
+        100,
+        100,
+        100
+      ]
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "mb_scene_package",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 3,
+      "values": [
+        100,
+        100,
+        100
+      ]
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "MF",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 3,
+      "values": [
+        100,
+        100,
+        100
+      ]
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "mf_scene_package",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 3,
+      "values": [
+        100,
+        100,
+        100
+      ]
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "standalone",
+      "metric": "solve",
+      "mean": 66.66666666666667,
+      "n": 3,
+      "values": [
+        100,
+        0,
+        100
+      ]
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "oracle_dynamics",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 1,
+      "values": [
+        100
+      ]
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "scene_only",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 3,
+      "values": [
+        100,
+        100,
+        100
+      ]
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "zero_shot",
+      "metric": "solve",
+      "mean": null,
+      "n": 0,
+      "values": []
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "no_fitting",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 3,
+      "values": [
+        100,
+        100,
+        100
+      ]
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "no_uncertainty",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 3,
+      "values": [
+        100,
+        100,
+        100
+      ]
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "real_to_sim",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 3,
+      "values": [
+        100,
+        100,
+        100
+      ]
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "MB",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 3,
+      "values": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "mb_scene_package",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 3,
+      "values": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "MF",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 3,
+      "values": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "mf_scene_package",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 3,
+      "values": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "standalone",
+      "metric": "resets",
+      "mean": 0.6666666666666666,
+      "n": 3,
+      "values": [
+        0,
+        2,
+        0
+      ]
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "oracle_dynamics",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 1,
+      "values": [
+        0
+      ]
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "scene_only",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 3,
+      "values": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "zero_shot",
+      "metric": "resets",
+      "mean": null,
+      "n": 0,
+      "values": []
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "no_fitting",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 3,
+      "values": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "no_uncertainty",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 3,
+      "values": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Fan (maze)",
+      "arm": "real_to_sim",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 3,
+      "values": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "MB",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 3,
+      "values": [
+        100,
+        100,
+        100
+      ]
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "mb_scene_package",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 3,
+      "values": [
+        100,
+        100,
+        100
+      ]
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "MF",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 3,
+      "values": [
+        100,
+        100,
+        100
+      ]
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "mf_scene_package",
+      "metric": "solve",
+      "mean": 50.0,
+      "n": 2,
+      "values": [
+        0,
+        100
+      ]
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "standalone",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 3,
+      "values": [
+        100,
+        100,
+        100
+      ]
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "oracle_dynamics",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 1,
+      "values": [
+        100
+      ]
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "scene_only",
+      "metric": "solve",
+      "mean": 66.66666666666667,
+      "n": 3,
+      "values": [
+        0,
+        100,
+        100
+      ]
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "zero_shot",
+      "metric": "solve",
+      "mean": null,
+      "n": 0,
+      "values": []
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "no_fitting",
+      "metric": "solve",
+      "mean": 66.66666666666667,
+      "n": 3,
+      "values": [
+        0,
+        100,
+        100
+      ]
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "no_uncertainty",
+      "metric": "solve",
+      "mean": 66.66666666666667,
+      "n": 3,
+      "values": [
+        100,
+        100,
+        0
+      ]
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "real_to_sim",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 3,
+      "values": [
+        100,
+        100,
+        100
+      ]
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "MB",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 3,
+      "values": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "mb_scene_package",
+      "metric": "resets",
+      "mean": 0.3333333333333333,
+      "n": 3,
+      "values": [
+        1,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "MF",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 3,
+      "values": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "mf_scene_package",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 2,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "standalone",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 3,
+      "values": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "oracle_dynamics",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 1,
+      "values": [
+        0
+      ]
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "scene_only",
+      "metric": "resets",
+      "mean": 0.3333333333333333,
+      "n": 3,
+      "values": [
+        1,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "zero_shot",
+      "metric": "resets",
+      "mean": null,
+      "n": 0,
+      "values": []
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "no_fitting",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 3,
+      "values": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "no_uncertainty",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 3,
+      "values": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "real_to_sim",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 3,
+      "values": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "MB",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 3,
+      "values": [
+        100,
+        100,
+        100
+      ]
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "mb_scene_package",
+      "metric": "solve",
+      "mean": 50.0,
+      "n": 2,
+      "values": [
+        0,
+        100
+      ]
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "MF",
+      "metric": "solve",
+      "mean": 66.66666666666667,
+      "n": 3,
+      "values": [
+        100,
+        0,
+        100
+      ]
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "mf_scene_package",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 3,
+      "values": [
+        100,
+        100,
+        100
+      ]
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "standalone",
+      "metric": "solve",
+      "mean": 33.333333333333336,
+      "n": 3,
+      "values": [
+        100,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "oracle_dynamics",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 1,
+      "values": [
+        100
+      ]
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "scene_only",
+      "metric": "solve",
+      "mean": 66.66666666666667,
+      "n": 3,
+      "values": [
+        100,
+        0,
+        100
+      ]
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "zero_shot",
+      "metric": "solve",
+      "mean": null,
+      "n": 0,
+      "values": []
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "no_fitting",
+      "metric": "solve",
+      "mean": 33.333333333333336,
+      "n": 3,
+      "values": [
+        0,
+        0,
+        100
+      ]
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "no_uncertainty",
+      "metric": "solve",
+      "mean": 50.0,
+      "n": 2,
+      "values": [
+        100,
+        0
+      ]
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "real_to_sim",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 3,
+      "values": [
+        100,
+        100,
+        100
+      ]
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "MB",
+      "metric": "resets",
+      "mean": 2.3333333333333335,
+      "n": 3,
+      "values": [
+        0,
+        2,
+        5
+      ]
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "mb_scene_package",
+      "metric": "resets",
+      "mean": 2.0,
+      "n": 2,
+      "values": [
+        2,
+        2
+      ]
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "MF",
+      "metric": "resets",
+      "mean": 1.0,
+      "n": 3,
+      "values": [
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "mf_scene_package",
+      "metric": "resets",
+      "mean": 1.3333333333333333,
+      "n": 3,
+      "values": [
+        2,
+        1,
+        1
+      ]
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "standalone",
+      "metric": "resets",
+      "mean": 2.3333333333333335,
+      "n": 3,
+      "values": [
+        1,
+        2,
+        4
+      ]
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "oracle_dynamics",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 1,
+      "values": [
+        0
+      ]
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "scene_only",
+      "metric": "resets",
+      "mean": 1.3333333333333333,
+      "n": 3,
+      "values": [
+        1,
+        1,
+        2
+      ]
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "zero_shot",
+      "metric": "resets",
+      "mean": null,
+      "n": 0,
+      "values": []
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "no_fitting",
+      "metric": "resets",
+      "mean": 2.3333333333333335,
+      "n": 3,
+      "values": [
+        2,
+        1,
+        4
+      ]
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "no_uncertainty",
+      "metric": "resets",
+      "mean": 1.0,
+      "n": 2,
+      "values": [
+        2,
+        0
+      ]
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "real_to_sim",
+      "metric": "resets",
+      "mean": 3.6666666666666665,
+      "n": 3,
+      "values": [
+        4,
+        2,
+        5
+      ]
+    }
+  ]
+}
