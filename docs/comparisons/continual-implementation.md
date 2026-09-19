@@ -175,3 +175,13 @@ The user asked for EMPIRIC to receive everything the agentic real-to-sim arm rec
 The menu entry `mb_scene_package_opus` also sets `agent_sim_provide_base_sim_source`, which adds the twin's own core module where the domain declares a split one (Fan and Balloons).
 Boil, Bridge and Domino declare none: their env modules hold the hidden mechanisms, so their twin source stays out of the sandbox.
 The launcher is `continual_empiric_scene_package_benchmark_r1.yaml` (5 domains x seeds 0-2), on the same menus as the other benchmark arms, so the skill preflight is off.
+
+## Realistic sim gap flag, 2026-09-18
+
+The user asked for a realistic-gap setting for EMPIRIC and agentic real-to-sim, toggled by a configuration flag.
+`sim_gap` (off by default) builds the live world, and only the live world, with hidden deviations from its nominal description (`predicators/pybullet_helpers/world_gap.py`).
+Movable bodies are built up to `sim_gap_geometry` (3%) larger or smaller, every body's mass and lateral friction are scaled by a factor in [1 / (1 + x), 1 + x] with x = `sim_gap_mass` (0.25) and `sim_gap_friction` (0.3), and nonzero `sim_gap_solver_iterations` / `sim_gap_substeps` replace the engine defaults.
+The draws come from `seed + sim_gap_seed_offset`, one per body and quantity, and hold for the run; a domain that resets a body's dynamics at a task boundary is deviated again rather than restored.
+Planning twins, the scene manifest and the asset files stay nominal, so EMPIRIC's twin, its parameter menu and the real-to-sim arm's references all describe the nominal world.
+Static bodies (tables, walls, fixtures) keep their nominal shape.
+The magnitudes should be fixed before any agent results, and the oracle-dynamics arm should still solve every domain under the gap before other arms are compared on it.

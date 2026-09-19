@@ -5,7 +5,7 @@ import numpy as np
 import pybullet as p
 
 from predicators import utils
-from predicators.pybullet_helpers import retry_pybullet_call
+from predicators.pybullet_helpers import retry_pybullet_call, world_gap
 from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
 from predicators.utils import _Geom2D
 
@@ -35,9 +35,13 @@ def create_object(asset_path: str,
                   use_fixed_base: bool = False,
                   physics_client_id: int = 0) -> int:
     """Create a pot object in the environment."""
+    # The asset record keeps the nominal scale: it is what the scene
+    # manifest describes, whatever size the live world built.
+    built_scale = scale * world_gap.size_scale(physics_client_id,
+                                               movable=not use_fixed_base)
     obj_id = p.loadURDF(utils.get_env_asset_path(asset_path),
                         useFixedBase=use_fixed_base,
-                        globalScaling=scale,
+                        globalScaling=built_scale,
                         physicsClientId=physics_client_id)
     LOADED_ASSETS[(physics_client_id, obj_id)] = (asset_path, float(scale))
     p.resetBasePositionAndOrientation(obj_id,
@@ -236,6 +240,9 @@ def create_pybullet_block(
     behavior and caused boxes to freeze in unstable poses (balanced on
     an edge or corner) on contact.
     """
+    size = world_gap.size_scale(physics_client_id, movable=mass > 0.0)
+    half_extents = (half_extents[0] * size, half_extents[1] * size,
+                    half_extents[2] * size)
     collision_id = p.createCollisionShape(p.GEOM_BOX,
                                           halfExtents=half_extents,
                                           physicsClientId=physics_client_id)
@@ -318,6 +325,7 @@ def create_pybullet_sphere(
     (PyBullet's own defaults); set them explicitly only when you want a
     sphere to resist spinning or rolling on contact.
     """
+    radius *= world_gap.size_scale(physics_client_id, movable=mass > 0.0)
     collision_id = p.createCollisionShape(p.GEOM_SPHERE,
                                           radius=radius,
                                           physicsClientId=physics_client_id)

@@ -51,7 +51,8 @@ from predicators.code_sim_learning.commands import ApplyForce, ApplyTorque, \
 from predicators.code_sim_learning.model_state import advance_model_state, \
     has_model_state, initial_model_state, restored_model_state
 from predicators.envs import BaseEnv
-from predicators.pybullet_helpers import retry_pybullet_call, studio_visuals
+from predicators.pybullet_helpers import retry_pybullet_call, studio_visuals, \
+    world_gap
 from predicators.pybullet_helpers.geometry import Pose, Pose3D, Quaternion
 from predicators.pybullet_helpers.joint import JointPositions
 from predicators.pybullet_helpers.link import get_link_state
@@ -342,9 +343,19 @@ class PyBulletEnv(BaseEnv):
         # per action (re-emit-to-persist), cleared at episode reset.
         self._cmd_weld_constraints: Dict[FrozenSet[str], int] = {}
 
-        # Set up all the static PyBullet content.
-        self._physics_client_id, self._pybullet_robot, pybullet_bodies = \
-            self.initialize_pybullet(self.using_gui)
+        # Set up all the static PyBullet content. With CFG.sim_gap the
+        # live world (never a planning twin) is built with hidden
+        # deviations from its nominal description.
+        world_gap.begin_world(world_gap.WorldGap.from_cfg(
+        ) if CFG.sim_gap and not skip_residual_dynamics else None)
+        try:
+            self._physics_client_id, self._pybullet_robot, pybullet_bodies = \
+                self.initialize_pybullet(self.using_gui)
+        finally:
+            self._world_gap = world_gap.bind_world(
+                getattr(self, "_physics_client_id", -1))
+        if self._world_gap is not None:
+            self._world_gap.configure_engine(self._physics_client_id)
         self._store_pybullet_bodies(pybullet_bodies)
         # Public recordings contain names and features, never engine handles.
         # Resolve their objects against this world's roster on restoration.
@@ -856,6 +867,9 @@ class PyBulletEnv(BaseEnv):
             # reconcile once per action (create newly commanded welds,
             # remove ones whose command was not re-emitted).
             self._reconcile_commanded_attachments()
+            if self._world_gap is not None:
+                self._world_gap.apply_dynamics(self._physics_client_id,
+                                               [self._pybullet_robot.robot_id])
             for _ in range(CFG.pybullet_sim_steps_per_action):
                 # Residual physics commands act during this one action
                 # (applyExternalForce is cleared by each stepSimulation,
@@ -2696,6 +2710,7 @@ class PyBulletEnv(BaseEnv):
 
     def dispose(self) -> None:
         """Disconnect this instance's PyBullet client."""
+        world_gap.release_world(self._physics_client_id)
         p.disconnect(self._physics_client_id)
 
     # ── Task Utilities ──────────────────────────────────────────

@@ -2875,6 +2875,22 @@ class GlobalSettings:
     # ./reference/. The domain twin still backs the model.
     continual_provide_scene_package = False
 
+    # Realistic sim gap (predicators/pybullet_helpers/world_gap.py): the
+    # live world differs from its nominal description in hidden ways
+    # drawn once per run from seed + sim_gap_seed_offset. Movable bodies
+    # are built up to sim_gap_geometry larger or smaller (relative size),
+    # every body's mass and lateral friction are scaled by a factor in
+    # [1 / (1 + x), 1 + x], and nonzero solver settings replace the
+    # engine defaults. Planning twins, the scene manifest and the assets
+    # stay nominal, so every arm starts from the same description.
+    sim_gap = False
+    sim_gap_geometry = 0.03
+    sim_gap_mass = 0.25
+    sim_gap_friction = 0.3
+    sim_gap_solver_iterations = 0
+    sim_gap_substeps = 0
+    sim_gap_seed_offset = 0
+
     @classmethod
     def get_arg_specific_settings(cls, args: Dict[str, Any]) -> Dict[str, Any]:
         """A workaround for global settings that are derived from the
