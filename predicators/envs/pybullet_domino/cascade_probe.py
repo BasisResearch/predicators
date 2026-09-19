@@ -111,6 +111,47 @@ _MAX_REPLAY_STEPS = 200
 _SETTLE_STEPS = 100
 
 
+def run_model_cascade_probe(
+        model: Any, pre_push_state: State, greens: Sequence[Object],
+        goal: Set[GroundAtom],
+        push_params: Optional[Tuple[float, ...]]) -> Tuple[bool, str]:
+    """Certify a scene-built model in an isolated instance of its own class.
+
+    This is harness code, not scene reference source. Only the real
+    skill controller is reused; geometry, dynamics and deployed
+    parameters come from the candidate. The model's state-install hook
+    restores its memory. Failure to construct or restore the candidate
+    propagates as a missing verdict, never as evidence that the physical
+    plan is invalid.
+    """
+    # pylint: disable=import-outside-toplevel,protected-access
+    from predicators.ground_truth_models import get_gt_options
+
+    env_name = getattr(model, "_skill_env_name", None)
+    if env_name is None:
+        raise NotImplementedError("Model has no deployment skill binding")
+    push = next(opt
+                for opt in get_gt_options(env_name, skill_library="composite")
+                if opt.name == "Push")
+    probe_env = type(model)(use_gui=False)
+    try:
+        params = {
+            name: info["default"]
+            for name, info in model.get_physical_param_info().items()
+        }
+        probe_env.apply_physical_param_overrides(params)
+        return run_counterfactual_push_probe(
+            probe_env,
+            pre_push_state,
+            greens,
+            goal,
+            push_params,
+            push_option=push,
+            process_model_factory=model.probe_process_model_factory)
+    finally:
+        probe_env.dispose()
+
+
 def _zero_all_velocities(physics_client_id: int) -> None:
     """Kill residual velocities on every body (see the velocity-residual
     lesson: pose resets do not clear velocities)."""
@@ -134,18 +175,12 @@ def _apply_process_step(probe_env: Any, process_step: ProbeProcessStep,
     Mirrors the combined simulator's plan-time contract: the rule-merged
     state is written into the probe world (so physics continues from it,
     exactly as ``PyBulletEnv.simulate``'s allclose guard does at plan
-    time) and becomes the state the replay threads forward. Fail-soft: a
-    crashing process model leaves the base-sim state in charge for this
-    step, same as ``LearnedSimulator.predict_step``.
+    time) and becomes the state the replay threads forward. A crashing
+    process model makes certification unavailable; silently replacing it
+    with base physics would certify a different model.
     """
     # pylint: disable=protected-access
-    try:
-        merged = process_step(state, action)
-    except Exception as e:  # pylint: disable=broad-except
-        logging.debug(
-            "[cascade probe] process model step failed (%s); "
-            "using the base-sim state.", e)
-        return state
+    merged = process_step(state, action)
     if merged is not state and not merged.allclose(state):
         probe_env._set_state(merged)
     return merged
@@ -220,7 +255,7 @@ def _replay_push_skill(
             if process_step is not None:
                 state = _apply_process_step(probe_env, process_step, state,
                                             action)
-    except (utils.OptionExecutionFailure, p.error) as e:
+    except utils.OptionExecutionFailure as e:
         logging.debug("[cascade probe] push replay aborted: %s", e)
     return last_action
 

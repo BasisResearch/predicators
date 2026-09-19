@@ -241,6 +241,10 @@ class ToolContext:
     # None ⇒ validation rollouts share the session env. Gated by
     # agent_plan_validation_fresh_env.
     validation_env_scope: Optional[Callable[..., Any]] = None
+    # Candidate-aware counterpart: loads the deployed candidate before
+    # cloning its physics and rebinds its option model for the whole rollout.
+    # Never substitute the solve-time model for a synthesis candidate.
+    probe_validation_env_scope: Optional[Callable[..., Any]] = None
     # Physics-margin points for the capture gate: a zero-arg callable
     # returning the current grid of perturbations spanning +-1 posterior
     # sigma of the identified physical params (full override dicts,

@@ -99,10 +99,16 @@ def base_simulator_class(env_name: str) -> Optional[Type[PyBulletEnv]]:
             self._on_agent_params_changed()
 
     return type(
-        "BaseSimulator", (env_cls, ), {
+        "BaseSimulator",
+        (env_cls, ),
+        {
             "__module__": __name__,
             "__init__": initialize,
             "get_name": classmethod(name),
+            # Controllers belong to the deployment, not this internal
+            # class's registry name. Certificates replay those controllers
+            # on the candidate's own physics.
+            "_skill_env_name": env_name,
             "_agent_model_dynamics": True,
             "_domain_specific_step": no_dynamics,
             "_agent_param_info": agent_info,

@@ -273,6 +273,11 @@ def _refine(task,
             params = np.array([], dtype=np.float32)
         elif step.option.name == "Place":
             params = _informed_place_params(state, sketch, idx, rng_, n)
+        elif step.option.name == "Wait":
+            # Wait now exposes an unbounded duration parameter; its real
+            # execution is capped. Annotated waits need that finite horizon,
+            # not an invalid uniform draw over [0, infinity).
+            params = np.array([CFG.wait_option_max_steps], dtype=np.float32)
         else:
             low = step.option.params_space.low
             high = step.option.params_space.high
@@ -524,6 +529,28 @@ def test_fresh_validation_env_scope_applies_physics_overrides(monkeypatch):
         # Identified params first, then the perturbation on top.
         assert fresh_env.overrides == {"lateral_friction": 0.48}
         assert prev_env.overrides == {}
+    assert disposed == [fresh_env]
+
+
+def test_fresh_candidate_scope_preserves_deployed_params(monkeypatch):
+    """An unfitted candidate uses deployed values, not declaration defaults."""
+    prev_env, fresh_env = _FakeScopeEnv(), _FakeScopeEnv()
+    monkeypatch.setattr(prev_env,
+                        "_agent_param_values", {"friction": 0.63},
+                        raising=False)
+    disposed = []
+    approach = _make_scope_approach(monkeypatch, prev_env, fresh_env, disposed)
+    candidate = SimpleNamespace(_simulator=prev_env.simulate, sim_env=prev_env)
+    stale = SimpleNamespace(_simulator=prev_env.simulate, sim_env=prev_env)
+    approach._option_model = stale
+    approach._tool_context = SimpleNamespace(
+        probe_option_model_provider=lambda: candidate)
+    with approach._fresh_candidate_validation_scope():
+        assert candidate.sim_env is fresh_env
+        assert stale.sim_env is prev_env
+        assert fresh_env.overrides == {"friction": 0.63}
+    assert candidate.sim_env is prev_env
+    assert stale.sim_env is prev_env
     assert disposed == [fresh_env]
 
 

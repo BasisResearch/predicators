@@ -117,6 +117,24 @@ class DominoEvaluator(TaskEvaluator):
         if self._certify_memo is not None and self._certify_memo[0] == key:
             return self._certify_memo[1]
         probe = getattr(sim_env, "run_counterfactual_cascade_probe", None)
+        if probe is None and sim_env is not None:
+            # Scene-built simulators have no domain evaluator methods.
+            # Keep certification in the harness, not in their reference
+            # source, and replay on their own model rather than a GT twin.
+            # pylint: disable-next=import-outside-toplevel
+            from predicators.envs.pybullet_domino.cascade_probe import \
+                run_model_cascade_probe
+
+            def model_probe(
+                    pre_push_state: State, greens: Sequence[Object],
+                    goal: Set[GroundAtom],
+                    push_params: Optional[Tuple[float,
+                                                ...]]) -> Tuple[bool, str]:
+                return run_model_cascade_probe(sim_env, pre_push_state, greens,
+                                               goal, push_params)
+
+            probe = model_probe
+
         replays: List[str] = []
 
         def probe_and_note(
@@ -406,6 +424,11 @@ class PyBulletDominoComposedEnv(PyBulletDominoBaseEnv):
                 use_gui=False,
                 skip_residual_dynamics=self._skip_domain_specific_dynamics)
         probe_env = self._cascade_probe_env
+        # The constructor initializes declared parameters, but the live
+        # model may have been fitted since then. Mirror those too, not
+        # only the native component's material overrides below.
+        probe_env.apply_physical_param_overrides(dict(
+            self._agent_param_values))
         # pylint: disable-next=protected-access
         probe_component = probe_env._domino_component
         if self._domino_component is not None and probe_component is not None:
@@ -450,8 +473,8 @@ class PyBulletDominoComposedEnv(PyBulletDominoBaseEnv):
             # (CFG.skill_library): the probe's contract is this
             # controller, not the agent's interface.
             self._probe_push_option = next(opt for opt in get_gt_options(
-                self.get_name(), skill_library="composite")
-                                           if opt.name == "Push")
+                getattr(self, "_skill_env_name", self.get_name()),
+                skill_library="composite") if opt.name == "Push")
         factory = self.probe_process_model_factory
         ok, detail = cascade_probe.run_counterfactual_push_probe(
             self._get_cascade_probe_env(),

@@ -1225,6 +1225,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         to the pre-synthesis option model, which on cycle 1 wraps the
         real env (a live-physics leak into learning).
         """
+        self._tool_context.probe_validation_env_scope = \
+            self._fresh_candidate_validation_scope
         cache = self._probe_model_cache()
 
         def _provider() -> _OracleOptionModel:
@@ -3682,8 +3684,34 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             getattr(self._base_env, "_agent_param_values"))
 
     @contextmanager
+    def _fresh_candidate_validation_scope(
+        self,
+        physical_overrides: Optional[Dict[str,
+                                          float]] = None) -> Iterator[None]:
+        """Isolate the deployed candidate, without refitting or resampling."""
+        provider = self._tool_context.probe_option_model_provider
+        if provider is None:
+            raise RuntimeError("No candidate model provider")
+        # Loading may replace the base class and publish parameter values.
+        # Do this before constructing the world, not inside the fresh scope.
+        model = provider()
+        with self._fresh_model_env_scope(model, physical_overrides):
+            yield
+
+    @contextmanager
     def _fresh_validation_env_scope(
         self,
+        physical_overrides: Optional[Dict[str,
+                                          float]] = None) -> Iterator[None]:
+        """Isolate the solve-time option model's physics."""
+        with self._fresh_model_env_scope(self._option_model,
+                                         physical_overrides):
+            yield
+
+    @contextmanager
+    def _fresh_model_env_scope(
+        self,
+        model: Any,
         physical_overrides: Optional[Dict[str,
                                           float]] = None) -> Iterator[None]:
         """Run the option model on a freshly constructed base env.
@@ -3716,12 +3744,16 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         if self._identified_physical_params:
             fresh.apply_physical_param_overrides(
                 self._identified_physical_params)
+        # Candidate-declared values can differ from the last fitted values.
+        # Preserve the actual deployed subclass parameters, not their init.
+        deployed = getattr(self._base_env, "_agent_param_values", {})
+        if deployed:
+            fresh.apply_physical_param_overrides(dict(deployed))
         if physical_overrides:
             fresh.apply_physical_param_overrides(dict(physical_overrides))
         prev_env = self._base_env
         # Typed Any: sim_env and _simulator are dynamic attributes not on
         # _OptionModelBase.
-        model: Any = self._option_model
         prev_sim = getattr(model, "_simulator", None)
         rebind_sim = getattr(prev_sim, "__self__", None) is prev_env
         prev_sim_env = getattr(model, "sim_env", None)
