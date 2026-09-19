@@ -33,7 +33,8 @@ Physical layout (a tabletop, the robot at the near side):
   from a state.
 """
 
-from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, ClassVar, Dict, FrozenSet, List, Optional, Sequence, \
+    Set, Tuple
 
 import numpy as np
 import pybullet as p
@@ -57,6 +58,10 @@ class PyBulletDominoBaseEnv(PyBulletEnv):
     domain-specific step, so env discovery skips it; the concrete env
     is ``PyBulletDominoComposedEnv`` and its subclasses.
     """
+
+    # The menu below already exposes the dominoes and blocks' mass and friction.
+    CALIBRATION_COVERED_TYPES: ClassVar[FrozenSet[str]] = frozenset(
+        {"domino", "block"})
 
     @classmethod
     def get_base_sim_source_files(cls) -> List[str]:
@@ -314,7 +319,7 @@ class PyBulletDominoBaseEnv(PyBulletEnv):
         """
         comp = self._domino_component
         if comp is None:
-            return {}
+            return self._calibration_info()
         # Defaults report the believed BASELINE of this instance: the
         # post-init override snapshot when present, else the built-in
         # value. The sysID revert path restores dropped params to these
@@ -435,12 +440,14 @@ class PyBulletDominoBaseEnv(PyBulletEnv):
                 "block type) against the table and other bodies; applies "
                 "to block bodies only.",
             }
+        info.update(self._calibration_info())
         return info
 
     def apply_physical_param_overrides(self, params: Dict[str, float]) -> None:
         """Sticky in-place dynamics override (delegates to the domino
         component's ``set_physical_params``, which re-applies after every reset
         and body recreation)."""
+        params = self._take_calibration_params(params)
         unknown = set(params) - set(self.get_physical_param_info())
         if unknown:
             raise ValueError(f"Unknown physical param(s) {sorted(unknown)}.")

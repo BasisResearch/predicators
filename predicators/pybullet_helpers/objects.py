@@ -17,6 +17,40 @@ default_orn: Quaternion = (0.0, 0.0, 0.0, 1.0)
 # scaling create_object applied. The scene manifest of the real-to-sim arm
 # reads it, so an agent building its own scene gets the same files.
 LOADED_ASSETS: Dict[Tuple[int, int], Tuple[str, float]] = {}
+# The asset build each record was made in. PyBullet reuses the client and
+# body ids of a disconnected world, so a record is trusted only when the
+# world that owns its client made it (see begin_asset_build).
+_ASSET_BUILD: Dict[Tuple[int, int], int] = {}
+_CURRENT_BUILD = 0
+
+
+def begin_asset_build() -> int:
+    """Start recording the assets of a new world; return its build id."""
+    global _CURRENT_BUILD  # pylint: disable=global-statement
+    _CURRENT_BUILD += 1
+    return _CURRENT_BUILD
+
+
+def drop_stale_assets(physics_client_id: int, build: int) -> None:
+    """Forget every record on ``physics_client_id`` older than ``build``, left
+    by a disconnected world that used the same client id."""
+    for key in [k for k in LOADED_ASSETS if k[0] == physics_client_id]:
+        if _ASSET_BUILD.get(key, 0) < build:
+            LOADED_ASSETS.pop(key, None)
+            _ASSET_BUILD.pop(key, None)
+
+
+def forget_client_assets(physics_client_id: int) -> None:
+    """Forget every record of a world that is disconnecting."""
+    for key in [k for k in LOADED_ASSETS if k[0] == physics_client_id]:
+        LOADED_ASSETS.pop(key, None)
+        _ASSET_BUILD.pop(key, None)
+
+
+def forget_body_asset(physics_client_id: int, obj_id: int) -> None:
+    """Forget the record of a body id that now holds a primitive body."""
+    LOADED_ASSETS.pop((physics_client_id, obj_id), None)
+    _ASSET_BUILD.pop((physics_client_id, obj_id), None)
 
 
 def loaded_asset(physics_client_id: int,
@@ -44,6 +78,7 @@ def create_object(asset_path: str,
                         globalScaling=built_scale,
                         physicsClientId=physics_client_id)
     LOADED_ASSETS[(physics_client_id, obj_id)] = (asset_path, float(scale))
+    _ASSET_BUILD[(physics_client_id, obj_id)] = _CURRENT_BUILD
     p.resetBasePositionAndOrientation(obj_id,
                                       position,
                                       orientation,
@@ -304,6 +339,7 @@ def create_pybullet_block(
                          rollingFriction=rolling_friction,
                          physicsClientId=physics_client_id)
 
+    forget_body_asset(physics_client_id, block_id)
     return block_id
 
 
@@ -345,4 +381,5 @@ def create_pybullet_sphere(
                      spinningFriction=spinning_friction,
                      rollingFriction=rolling_friction,
                      physicsClientId=physics_client_id)
+    forget_body_asset(physics_client_id, sphere_id)
     return sphere_id

@@ -56,7 +56,8 @@ from predicators.pybullet_helpers import retry_pybullet_call, studio_visuals, \
 from predicators.pybullet_helpers.geometry import Pose, Pose3D, Quaternion
 from predicators.pybullet_helpers.joint import JointPositions
 from predicators.pybullet_helpers.link import get_link_state
-from predicators.pybullet_helpers.objects import update_object
+from predicators.pybullet_helpers.objects import begin_asset_build, \
+    drop_stale_assets, forget_client_assets, update_object
 from predicators.pybullet_helpers.real_robot_bridge import \
     GripperJointLayout, gripper_joint_layout_from_robot
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot, \
@@ -294,6 +295,10 @@ class PyBulletEnv(BaseEnv):
     _gui_background_rgb: ClassVar[Optional[Tuple[float, float, float]]] = \
         (0.82, 0.83, 0.85)
     _gui_light_position: ClassVar[Optional[Tuple[float, float, float]]] = None
+    # Object types whose mass and friction the domain's own physical-
+    # parameter menu already exposes; the calibration menu
+    # (CFG.sim_calibration_menu) adds no scales for them.
+    CALIBRATION_COVERED_TYPES: ClassVar[FrozenSet[str]] = frozenset()
     _gui_shadow_map_resolution: ClassVar[Optional[int]] = 8192
     _gui_shadow_map_world_size: ClassVar[Optional[int]] = 6
 
@@ -348,12 +353,16 @@ class PyBulletEnv(BaseEnv):
         # deviations from its nominal description.
         world_gap.begin_world(world_gap.WorldGap.from_cfg(
         ) if CFG.sim_gap and not skip_residual_dynamics else None)
+        asset_build = begin_asset_build()
         try:
             self._physics_client_id, self._pybullet_robot, pybullet_bodies = \
                 self.initialize_pybullet(self.using_gui)
         finally:
             self._world_gap = world_gap.bind_world(
                 getattr(self, "_physics_client_id", -1))
+        # Asset records a disconnected world left on this client id would
+        # mislabel this world's bodies in a scene manifest.
+        drop_stale_assets(self._physics_client_id, asset_build)
         if self._world_gap is not None:
             self._world_gap.configure_engine(self._physics_client_id)
         self._store_pybullet_bodies(pybullet_bodies)
@@ -381,7 +390,8 @@ class PyBulletEnv(BaseEnv):
         if CFG.sim_calibration_menu and self._world_gap is None:
             self._calibration = world_gap.CalibrationMenu(
                 type_name for body, type_name in self._body_types().items()
-                if p.getDynamicsInfo(
+                if type_name not in self.CALIBRATION_COVERED_TYPES
+                and p.getDynamicsInfo(
                     body, -1, physicsClientId=self._physics_client_id)[0] > 0.0
             )
         # Texture any table(s) the env registered (every env uses the
@@ -2757,6 +2767,7 @@ class PyBulletEnv(BaseEnv):
     def dispose(self) -> None:
         """Disconnect this instance's PyBullet client."""
         world_gap.release_world(self._physics_client_id)
+        forget_client_assets(self._physics_client_id)
         p.disconnect(self._physics_client_id)
 
     # ── Task Utilities ──────────────────────────────────────────

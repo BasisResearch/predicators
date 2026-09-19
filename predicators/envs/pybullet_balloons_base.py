@@ -34,7 +34,7 @@ Physical layout (a tabletop, the robot at the near side):
 - The ``ceiling``: a plate drawn over the table, at ``ceiling_z``.
   Nothing in this file says what reaching it does to a balloon.
 """
-from typing import Any, ClassVar, Dict, List, Set, Tuple
+from typing import Any, ClassVar, Dict, FrozenSet, List, Set, Tuple
 
 import numpy as np
 import pybullet as p
@@ -57,6 +57,9 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
     domain-specific step, so env discovery skips it; the concrete env is
     ``PyBulletBalloonsEnv``.
     """
+
+    # The menu below already exposes the boxes' mass and friction.
+    CALIBRATION_COVERED_TYPES: ClassVar[FrozenSet[str]] = frozenset({"box"})
 
     @classmethod
     def get_base_sim_source_files(cls) -> List[str]:
@@ -399,9 +402,10 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
             "description": ("linear damping of the box and the balloons: "
                             "the engine's velocity decay per second"),
         }
-        return {**info, **self._agent_param_info()}
+        return {**info, **self._agent_param_info(), **self._calibration_info()}
 
     def apply_physical_param_overrides(self, params: Dict[str, float]) -> None:
+        params = self._take_calibration_params(params)
         unknown = set(params) - set(self.get_physical_param_info())
         if unknown:
             raise ValueError(f"Unknown physical params: {sorted(unknown)}")

@@ -216,11 +216,19 @@ class CalibrationMenu:
         def mass_factor(body: int, _link: int) -> float:
             return self.values.get(f"mass_scale_{body_types.get(body)}", 1.0)
 
+        static: Dict[int, bool] = {}
+
         def friction_factor(body: int, _link: int) -> float:
             type_name = body_types.get(body)
             if type_name in movable:
                 return self.values[f"friction_scale_{type_name}"]
-            return self.values["friction_scale_support"]
+            if body not in static:
+                static[body] = p.getDynamicsInfo(
+                    body, -1, physicsClientId=physics_client_id)[0] == 0.0
+            # A movable body of a type the domain's own menu covers keeps
+            # the domain's value.
+            return self.values["friction_scale_support"] if static[
+                body] else 1.0
 
         self._scaler.apply(physics_client_id, skip_bodies, mass_factor,
                            friction_factor)
