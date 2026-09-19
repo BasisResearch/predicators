@@ -66,6 +66,7 @@ _FATAL_RESPONSE_PATTERNS = (
     # they can reach the consecutive-fatal terminator.
     "hit your session limit",
     "hit your usage limit",
+    "hit your weekly limit",
 )
 
 # Account usage/session limits are TRANSIENT: the banner states its own
@@ -76,9 +77,16 @@ _FATAL_RESPONSE_PATTERNS = (
 # cycle-1 learn phases (one-turn $0 sessions the loop treated as
 # completed learns). Matched case-insensitively against the fatal
 # reason.
-_USAGE_LIMIT_PATTERNS = ("hit your session limit", "hit your usage limit")
+_USAGE_LIMIT_PATTERNS = ("hit your session limit", "hit your usage limit",
+                         "hit your weekly limit")
+# A weekly limit states a reset days away ("You've hit your weekly limit
+# · resets Sep 22, 8pm (America/New_York)"): waiting it out would idle
+# the job for days, so the run hands the account off instead (see
+# account_limit_outlasts_run).
+_WEEKLY_LIMIT_PATTERNS = ("hit your weekly limit", )
 _LIMIT_RESET_RE = re.compile(
-    r"resets\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(([^)]+)\)", re.IGNORECASE)
+    r"resets\s+(?:([a-z]{3,9})\s+(\d{1,2}),?\s+)?"
+    r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(([^)]+)\)", re.IGNORECASE)
 # Fallback wait when the banner carries no parseable reset time, and the
 # slack added past the stated reset (limits lift within a minute or two
 # of the advertised time, not exactly on it).
@@ -106,42 +114,91 @@ _OVERLOAD_PATTERNS = ("overloaded", "api error: 529", "api error: 5")
 _OVERLOAD_POLL_SECS = 60.0
 
 
+def _stated_reset_seconds(reason: str, now: float) -> Optional[float]:
+    """Seconds from ``now`` to a limit banner's stated reset plus slack,
+    unclamped, or None when the banner states no parseable reset.
+
+    A time-only reset ("resets 5:10pm (zone)") is its next occurrence; a
+    dated one ("resets Sep 22, 8pm (zone)") is that date, and one
+    already past gives 0 (the banner outlived its reset).
+    """
+    m = _LIMIT_RESET_RE.search(reason)
+    if m is None:
+        return None
+    month_name, day, hour_s, minute_s, ampm, zone = m.groups()
+    hour = int(hour_s) % 12 + (12 if ampm.lower() == "pm" else 0)
+    minute = int(minute_s or 0)
+    try:
+        tz = ZoneInfo(zone.strip())
+    except Exception:  # pylint: disable=broad-except
+        return None
+    now_dt = datetime.datetime.fromtimestamp(now, tz)
+    if month_name is None:
+        reset_dt = now_dt.replace(hour=hour,
+                                  minute=minute,
+                                  second=0,
+                                  microsecond=0)
+        if reset_dt <= now_dt:
+            reset_dt += datetime.timedelta(days=1)
+    else:
+        try:
+            month = datetime.datetime.strptime(month_name[:3].title(),
+                                               "%b").month
+            reset_dt = now_dt.replace(month=month,
+                                      day=int(day),
+                                      hour=hour,
+                                      minute=minute,
+                                      second=0,
+                                      microsecond=0)
+        except ValueError:
+            return None
+        # A dated reset is never more than a week or two out, so one
+        # months behind now belongs to next year (a Dec banner read in
+        # early January is the reverse and stays past).
+        if (now_dt - reset_dt).days > 180:
+            reset_dt = reset_dt.replace(year=reset_dt.year + 1)
+        if reset_dt <= now_dt:
+            return 0.0
+    return (reset_dt - now_dt).total_seconds() + _LIMIT_RESET_SLACK_SECS
+
+
 def usage_limit_wait_seconds(reason: Optional[str],
                              now: Optional[float] = None) -> Optional[float]:
     """Seconds to wait before retrying a usage-limited query, or None.
 
-    Returns ``None`` when ``reason`` is not a usage/session-limit
+    Returns ``None`` when ``reason`` is not a usage/session/weekly-limit
     banner. When it is, the wait runs to the banner's stated reset time
-    (next occurrence of that wall-clock time in its zone, plus slack),
-    clamped to ``_LIMIT_MAX_WAIT_SECS``; an unparseable banner gets the
-    default wait.
+    (see :func:`_stated_reset_seconds`), clamped to
+    ``_LIMIT_MAX_WAIT_SECS``; an unparseable banner gets the default
+    wait.
     """
     if reason is None:
         return None
     low = reason.lower()
     if not any(p in low for p in _USAGE_LIMIT_PATTERNS):
         return None
-    m = _LIMIT_RESET_RE.search(reason)
-    if m is None:
+    wait = _stated_reset_seconds(reason, time.time() if now is None else now)
+    if wait is None:
         return _LIMIT_DEFAULT_WAIT_SECS
-    hour = int(m.group(1)) % 12
-    if m.group(3).lower() == "pm":
-        hour += 12
-    minute = int(m.group(2) or 0)
-    try:
-        tz = ZoneInfo(m.group(4).strip())
-    except Exception:  # pylint: disable=broad-except
-        return _LIMIT_DEFAULT_WAIT_SECS
-    now_ts = time.time() if now is None else now
-    now_dt = datetime.datetime.fromtimestamp(now_ts, tz)
-    reset_dt = now_dt.replace(hour=hour,
-                              minute=minute,
-                              second=0,
-                              microsecond=0)
-    if reset_dt <= now_dt:
-        reset_dt += datetime.timedelta(days=1)
-    wait = (reset_dt - now_dt).total_seconds() + _LIMIT_RESET_SLACK_SECS
     return min(wait, _LIMIT_MAX_WAIT_SECS)
+
+
+def account_limit_outlasts_run(reason: Optional[str],
+                               now: Optional[float] = None) -> Optional[float]:
+    """Seconds until a weekly-limit banner's stated reset, when that is longer
+    than a query may wait (``_LIMIT_MAX_TOTAL_WAIT_SECS``); else None.
+
+    Session limits are always waited out: their time-only banners keep
+    naming the reset that just passed, which would read as a day away.
+    """
+    if reason is None:
+        return None
+    if not any(p in reason.lower() for p in _WEEKLY_LIMIT_PATTERNS):
+        return None
+    wait = _stated_reset_seconds(reason, time.time() if now is None else now)
+    if wait is None or wait <= _LIMIT_MAX_TOTAL_WAIT_SECS:
+        return None
+    return wait
 
 
 # Session transcript file names: ``NNN_<kind>[_taskK]_<ts>.md`` (group 1)
@@ -182,6 +239,17 @@ class AgentSessionFatalError(Exception):
     (run_20260721_161159 spent 10 cycles on ~300 one-second auth-error
     queries without the agent ever running).  Every broad ``except``
     between a session query and ``main`` must re-raise it.
+    """
+
+
+class AccountLimitedError(AgentSessionFatalError):
+    """The job's Claude account is limited for longer than a query may wait (a
+    weekly limit).
+
+    The account is marked limited until its stated reset, and ``main``
+    exits with ``account_limits.ACCOUNT_LIMITED_EXIT_CODE`` so the batch
+    script requeues the task: on restart the account picker keeps off
+    the marked account and ``--auto_resume`` continues the run.
     """
 
 
@@ -748,6 +816,15 @@ class BaseAgentSessionManager:
             wait = transient_retry_wait_seconds(reason)
             if wait is None:
                 break
+            outlast = account_limit_outlasts_run(reason)
+            if outlast is not None:
+                note_query_limited(outlast)
+                logger.error(
+                    "%s query hit a limit that resets in %.1f h (%s); "
+                    "handing the run to another account.", self._log_label,
+                    outlast / 3600, reason)
+                raise AccountLimitedError(
+                    f"account limited for {outlast / 3600:.1f} h ({reason})")
             # A refused query did no work, so the time the backend took
             # to refuse it is waiting too: it is charged to nothing. A
             # turn cut short mid-work keeps its own duration.

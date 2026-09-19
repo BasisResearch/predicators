@@ -25,6 +25,11 @@ ACCOUNT_ENV_VAR = "PREDICATORS_CLAUDE_ACCOUNT"
 LIMIT_DIR_ENV_VAR = "PREDICATORS_CLAUDE_LIMIT_DIR"
 LOGIN_ACCOUNT = "login"
 DEFAULT_LIMIT_DIR = Path.home() / ".claude-tokens" / ".limited"
+# EX_TEMPFAIL: a run whose account is limited for longer than it may wait
+# exits with this, and the requeue-enabled batch script
+# (scripts/engaging/submit_engaging_job.py) requeues the task so the
+# restart picks another account.
+ACCOUNT_LIMITED_EXIT_CODE = 75
 
 
 def limit_dir(default: Optional[Path] = None) -> Path:
