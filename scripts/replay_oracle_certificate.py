@@ -16,7 +16,8 @@ from typing import Any, Dict
 
 from predicators import utils
 from predicators.agent_sdk.tools.verdicts import evaluate_states_with
-from predicators.code_sim_learning.base_simulator import base_simulator_class
+from predicators.code_sim_learning.base_simulator import \
+    oracle_base_simulator_class
 from predicators.code_sim_learning.continual_oracle import oracle_source
 from predicators.envs import create_new_env
 from predicators.envs.pybullet_domino.env import DominoEvaluator
@@ -45,7 +46,7 @@ def main() -> None:
     assert CFG.env == "pybullet_domino"
     real: Any = create_new_env(CFG.env, do_cache=False)
     namespace: Dict[str, Any] = {
-        "BaseSimulator": base_simulator_class(CFG.env)
+        "BaseSimulator": oracle_base_simulator_class(CFG.env)
     }
     exec(oracle_source(), namespace)  # pylint: disable=exec-used
     model = namespace["RESIDUAL_ENV"](use_gui=False)

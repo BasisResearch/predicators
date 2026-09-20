@@ -5,27 +5,37 @@ stays in its visible-physics mode, including its mass and material
 defaults.
 """
 from functools import lru_cache
-from typing import Any, Dict, List, Optional, Set, Type
+from typing import Any, Dict, List, Optional, Set, Tuple, Type
 
 from predicators import utils
 from predicators.envs.pybullet_balloons_base import PyBulletBalloonsBaseEnv
+from predicators.envs.pybullet_boil_base import PyBulletBoilBaseEnv
+from predicators.envs.pybullet_bridge_base import PyBulletBridgeBaseEnv
+from predicators.envs.pybullet_domino.components.domino_bodies import \
+    DominoBodiesComponent
+from predicators.envs.pybullet_domino.sim_core import PyBulletDominoBaseEnv
 from predicators.envs.pybullet_env import PyBulletEnv
-from predicators.structs import EnvironmentTask, Predicate
+from predicators.envs.pybullet_fan_base import PyBulletFanBaseEnv
+from predicators.settings import CFG
+from predicators.structs import EnvironmentTask, Object, Predicate, State
 
 
-class _BalloonsModelBase(PyBulletBalloonsBaseEnv):
-    """Concrete visible core with no inherited hidden physics or task maker."""
+class _VisibleModelMixin:
+    """No task generator, predicates, or hidden mechanism on a model base."""
 
     @classmethod
     def get_name(cls) -> str:
-        return "pybullet_balloons_visible_model"
+        """An internal name outside the environment registry."""
+        return "visible_model"
 
     @property
     def predicates(self) -> Set[Predicate]:
+        """No supplied hidden goal classifiers."""
         return set()
 
     @property
     def goal_predicates(self) -> Set[Predicate]:
+        """Goals belong to the observed task, not the model base."""
         return set()
 
     def _generate_train_tasks(self) -> List[EnvironmentTask]:
@@ -33,6 +43,84 @@ class _BalloonsModelBase(PyBulletBalloonsBaseEnv):
 
     def _generate_test_tasks(self) -> List[EnvironmentTask]:
         return []
+
+
+class _BalloonsModelBase(_VisibleModelMixin, PyBulletBalloonsBaseEnv):
+    """Balloons bodies without lift laws or tasks."""
+
+
+class _BoilModelBase(_VisibleModelMixin, PyBulletBoilBaseEnv):
+    """Kitchen bodies with passive readouts, not fill/heating laws."""
+
+    def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
+        self._passive_readouts: Dict[Tuple[str, str], float] = {}
+        super().__init__(use_gui=use_gui, **kwargs)
+
+    def _set_domain_specific_state(self, state: State) -> None:
+        self._passive_readouts = {(o.name, f): state.get(o, f)
+                                  for o in state for f in o.type.feature_names
+                                  if f in ("heat_level", "bubbling_level",
+                                           "spilled_level")}
+        super()._set_domain_specific_state(state)
+
+    def _get_domain_specific_feature(self, obj: Object, feature: str) -> float:
+        if feature in ("heat_level", "bubbling_level", "spilled_level"):
+            return self._passive_readouts.get((obj.name, feature), 0.0)
+        return super()._get_domain_specific_feature(obj, feature)
+
+
+class _FanModelBase(_VisibleModelMixin, PyBulletFanBaseEnv):
+    """Arena bodies without wind or the hidden goal classifier."""
+
+    def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
+        self._passive_readouts: Dict[str, float] = {}
+        super().__init__(use_gui=use_gui, **kwargs)
+
+    def _set_domain_specific_state(self, state: State) -> None:
+        self._passive_readouts = {
+            o.name: state.get(o, "is_hit")
+            for o in state if "is_hit" in o.type.feature_names
+        }
+        super()._set_domain_specific_state(state)
+
+    def _get_domain_specific_feature(self, obj: Object, feature: str) -> float:
+        if feature == "is_hit":
+            return self._passive_readouts.get(obj.name, 0.0)
+        return super()._get_domain_specific_feature(obj, feature)
+
+
+class _BridgeModelBase(_VisibleModelMixin, PyBulletBridgeBaseEnv):
+    """Bridge geometry and readouts without glue/cure laws or tasks."""
+
+
+class _DominoModelBodies(DominoBodiesComponent):
+    """Concrete body component without predicate/task semantics."""
+
+    def get_predicates(self) -> Set[Predicate]:
+        return set()
+
+    def get_goal_predicates(self) -> Set[Predicate]:
+        return set()
+
+
+class _DominoModelBase(_VisibleModelMixin, PyBulletDominoBaseEnv):
+    """Plain Domino bodies, not task/certificate components."""
+
+    def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
+        max_dominos = max(*CFG.domino_train_num_dominos,
+                          *CFG.domino_test_num_dominos)
+        if CFG.domino_min_block_tasks or CFG.domino_heavy_block_tasks:
+            extra = 3 if CFG.domino_heavy_block_tasks else 2
+            max_dominos = max(max_dominos,
+                              CFG.domino_min_block_num_blues + extra)
+        component = _DominoModelBodies(
+            num_dominos_max=max_dominos,
+            num_targets_max=max(*CFG.domino_train_num_targets,
+                                *CFG.domino_test_num_targets),
+            num_pivots_max=max(*CFG.domino_train_num_pivots,
+                               *CFG.domino_test_num_pivots),
+            workspace_bounds=self._default_workspace_bounds())
+        super().__init__([component], use_gui=use_gui, **kwargs)
 
 
 @lru_cache(maxsize=None)
@@ -43,7 +131,27 @@ def base_simulator_class(env_name: str) -> Optional[Type[PyBulletEnv]]:
     behavior. Generated classes do not enter the real environment's
     registry slot.
     """
-    # pylint: disable=protected-access
+    visible: Dict[str, Type[PyBulletEnv]] = {
+        "pybullet_balloons": _BalloonsModelBase,
+        "pybullet_boil": _BoilModelBase,
+        "pybullet_fan": _FanModelBase,
+        "pybullet_bridge": _BridgeModelBase,
+        "pybullet_domino": _DominoModelBase,
+    }
+    if env_name in visible:
+        return _make_model_class(env_name, visible[env_name])
+    # Preserve historical non-benchmark domains until they have visible cores.
+    return oracle_base_simulator_class(env_name)
+
+
+@lru_cache(maxsize=None)
+def oracle_base_simulator_class(env_name: str) -> Optional[Type[PyBulletEnv]]:
+    """Privileged base for harness-supplied Oracle artifacts only.
+
+    Never inject this into learned artifacts. Oracle intentionally
+    receives the correct mechanism helpers, while its source stays
+    outside the sandbox.
+    """
     candidates = [
         cls for cls in utils.get_all_subclasses(PyBulletEnv)
         if not cls.__abstractmethods__ and cls.__module__.startswith(
@@ -54,6 +162,14 @@ def base_simulator_class(env_name: str) -> Optional[Type[PyBulletEnv]]:
     assert len(candidates) == 1, env_name
     env_cls = (_BalloonsModelBase
                if env_name == "pybullet_balloons" else candidates[0])
+    return _make_model_class(env_name, env_cls)
+
+
+def _make_model_class(env_name: str,
+                      env_cls: Type[PyBulletEnv]) -> Type[PyBulletEnv]:
+    """Wrap a chosen base with the same agent parameter/step contract."""
+
+    # pylint: disable=protected-access
 
     def initialize(self: Any, use_gui: bool = False, **kwargs: Any) -> None:
         kwargs["skip_residual_dynamics"] = True

@@ -280,3 +280,12 @@ class AgentContinualOracleDynamicsApproach(AgentContinualZeroShotApproach):
 
     def _fit_status_text(self) -> str:
         return "fixed oracle mechanisms and parameters; no oracle controller"
+
+    def _simulator_load_namespace(self) -> Dict[str, Any]:
+        # Only this supplied, immutable model may inherit hidden mechanisms.
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.code_sim_learning.base_simulator import \
+            oracle_base_simulator_class
+        namespace = super()._simulator_load_namespace()
+        namespace["BaseSimulator"] = oracle_base_simulator_class(CFG.env)
+        return namespace
