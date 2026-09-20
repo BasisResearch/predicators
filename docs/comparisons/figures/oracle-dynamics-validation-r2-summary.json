@@ -3,6 +3,7 @@
     {
       "domain": "Domino",
       "arm": "oracle_old",
+      "source_arm": "oracle_old",
       "seed": 0,
       "won": 2,
       "levels": 2,
@@ -13,6 +14,7 @@
     {
       "domain": "Domino",
       "arm": "oracle_old",
+      "source_arm": "oracle_old",
       "seed": 1,
       "won": 1,
       "levels": 2,
@@ -23,6 +25,7 @@
     {
       "domain": "Domino",
       "arm": "oracle_old",
+      "source_arm": "oracle_old",
       "seed": 2,
       "won": 2,
       "levels": 2,
@@ -33,6 +36,7 @@
     {
       "domain": "Domino",
       "arm": "oracle_fixed",
+      "source_arm": "oracle_fixed",
       "seed": 0,
       "won": 2,
       "levels": 2,
@@ -43,6 +47,7 @@
     {
       "domain": "Domino",
       "arm": "oracle_fixed",
+      "source_arm": "oracle_fixed",
       "seed": 1,
       "won": 2,
       "levels": 2,
@@ -53,6 +58,7 @@
     {
       "domain": "Domino",
       "arm": "oracle_fixed",
+      "source_arm": "oracle_fixed",
       "seed": 2,
       "won": 2,
       "levels": 2,
@@ -63,6 +69,7 @@
     {
       "domain": "Bridge (4-span)",
       "arm": "oracle_old",
+      "source_arm": "oracle_old",
       "seed": 0,
       "won": 2,
       "levels": 2,
@@ -73,6 +80,7 @@
     {
       "domain": "Bridge (4-span)",
       "arm": "oracle_old",
+      "source_arm": "oracle_old",
       "seed": 1,
       "won": 2,
       "levels": 2,
@@ -83,6 +91,7 @@
     {
       "domain": "Bridge (4-span)",
       "arm": "oracle_old",
+      "source_arm": "oracle_old",
       "seed": 2,
       "won": 1,
       "levels": 2,
@@ -93,6 +102,18 @@
     {
       "domain": "Bridge (4-span)",
       "arm": "oracle_fixed",
+      "source_arm": "oracle_fixed",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 2633,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/bridge-oracle_dynamics_opus_benchmark_r2/seed0/run_20260919_120029"
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "oracle_fixed",
+      "source_arm": "oracle_fixed",
       "seed": 1,
       "won": 2,
       "levels": 2,
@@ -103,6 +124,7 @@
     {
       "domain": "Bridge (4-span)",
       "arm": "oracle_fixed",
+      "source_arm": "oracle_fixed",
       "seed": 2,
       "won": 2,
       "levels": 2,
@@ -177,8 +199,9 @@
       "arm": "oracle_fixed",
       "metric": "solve",
       "mean": 100.0,
-      "n": 2,
+      "n": 3,
       "values": [
+        100,
         100,
         100
       ]
@@ -200,8 +223,9 @@
       "arm": "oracle_fixed",
       "metric": "resets",
       "mean": 0.0,
-      "n": 2,
+      "n": 3,
       "values": [
+        0,
         0,
         0
       ]

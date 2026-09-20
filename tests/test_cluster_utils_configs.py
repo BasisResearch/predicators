@@ -8,6 +8,24 @@ import yaml
 from scripts.cluster_utils import _resolve_extends, generate_run_configs
 
 
+def test_oracle_defaults_preserve_repaired_pilot_policy() -> None:
+    """Both Oracle presets retain the validated nonblocking policy."""
+    with open("scripts/configs/predicatorv3/approaches/continual.yaml",
+              encoding="utf-8") as stream:
+        approaches = yaml.safe_load(stream)["APPROACHES"]
+    for name in ("oracle_dynamics_opus", "oracle_dynamics_sonnet"):
+        flags = approaches[name]["FLAGS"]
+        assert flags["continual_skill_preflight"] is False
+        assert flags["continual_validation_audit"] is False
+    runs = list(
+        generate_run_configs(
+            "predicatorv3/continual_oracle_validation_r2.yaml", False))
+    assert len(runs) == 6
+    for run in runs:
+        assert run.flags["continual_skill_preflight"] is False
+        assert run.flags["continual_validation_audit"] is False
+
+
 def _write(configs_dir: str, name: str, content: Dict[str, Any]) -> None:
     with open(os.path.join(configs_dir, name), "w", encoding="utf-8") as f:
         yaml.safe_dump(content, f)

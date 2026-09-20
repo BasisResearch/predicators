@@ -79,17 +79,22 @@ APPROACHES:
     FLAGS:
       agent_sdk_model_name: claude-sonnet-5
   # Oracle dynamics: the ground-truth simulator stands in for the learned
-  # model.
+  # model. Use the repaired r2 runtime with no automatic execution gate
+  # or shadow audit. See docs/comparisons/oracle-repair-notes.md.
   oracle_dynamics_opus:
     NAME: agent_continual_oracle_dynamics
     SKIP: true
     FLAGS:
       agent_sdk_model_name: claude-opus-5
+      continual_skill_preflight: false
+      continual_validation_audit: false
   oracle_dynamics_sonnet:
     NAME: agent_continual_oracle_dynamics
     SKIP: true
     FLAGS:
       agent_sdk_model_name: claude-sonnet-5
+      continual_skill_preflight: false
+      continual_validation_audit: false
   # Scene-only: the exact scene twin with corrected base calibration and
   # no mechanism code, frozen for the run (formerly "oracle scene").
   scene_only_opus:

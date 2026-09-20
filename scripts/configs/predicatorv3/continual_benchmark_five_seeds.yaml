@@ -1,0 +1,38 @@
+# Extend the paper's six comparison arms with seeds 3 and 4.
+# Freeze from f2ed37aef: repaired runtime, original benchmark geometry.
+# Do not use the later Balloons layout change for this cohort.
+# Launch with --partition mit_preemptable --requeue --accounts a,b,c,d.
+# Account dat (the user's "e") is backup only, outside normal rotation.
+includes:
+  - continual_common.yaml
+  - envs/continual.yaml
+  - approaches/continual.yaml
+START_SEED: 3
+NUM_SEEDS: 2
+FLAGS:
+  continual_skill_preflight: false
+  continual_validation_audit: false
+ENVS:
+  balloons:
+    SKIP: false
+  bridge:
+    SKIP: false
+  boil:
+    SKIP: false
+  fan:
+    SKIP: false
+  domino_high_friction_turn:
+    SKIP: false
+APPROACHES:
+  oracle_dynamics_opus_benchmark_r2:
+    EXTENDS: oracle_dynamics_opus
+  mf_opus_benchmark_r2:
+    EXTENDS: mf_opus
+  mf_scene_package_opus_benchmark_r1:
+    EXTENDS: mf_scene_package_opus
+  standalone_opus_benchmark_r2:
+    EXTENDS: standalone_opus
+  no_fitting_opus_benchmark_r1:
+    EXTENDS: no_fitting_opus
+  no_uncertainty_opus_benchmark_r2:
+    EXTENDS: no_uncertainty_opus

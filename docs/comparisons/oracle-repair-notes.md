@@ -5,7 +5,16 @@ It uses new `oracle_dynamics_opus_benchmark_r2` run keys so the original recordi
 The other domains are not part of this launch.
 The parsed launch flags match the recorded original Oracle commands except for the new round key and explicitly specifying the already-disabled preflight flag.
 
-## Launch receipt
+## Default promotion, September 19
+
+The user approved the repaired Oracle setup as the default after all six r2 pilot runs solved every level: Domino seeds 0-2 and Bridge seeds 0-2.
+The repairs described below are already unconditional in the main runtime; no legacy-model switch needs enabling.
+The shared Opus and Sonnet Oracle presets explicitly disable both automatic skill preflight and the separate EMPIRIC r2 shadow audit, preserving the pilot's validation policy.
+The six-run evidence is for Opus on Domino and Bridge, not a new validation of Sonnet or the other domains.
+Future Oracle runs should use the current repaired runtime and fresh experiment keys, not resume r1 recordings with different code.
+Historical r1 and r2 figure entries remain separate, and this promotion does not launch jobs or change existing frozen runs.
+
+## Pilot launch receipt
 
 Frozen runtime: `d7e8ce408`, at `/home/ycliang/predicators-oracle-validation-frozen-20260919`.
 Bridge array: `23104058`, seeds 0-2.

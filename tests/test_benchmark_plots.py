@@ -7,22 +7,48 @@ from scripts.plotting import monitor_benchmark_arms as monitor
 from scripts.plotting import plot_benchmark_arms as plot
 
 
+def test_paper_cohort_selection() -> None:
+    """Replace whole Oracle cohorts without pooling rounds or changing
+    input."""
+    rows = [
+        dict(domain=d, arm=a, seed=s, source=f"{d}/{a}/{s}")
+        for d, dirs in plot.DOMAINS for a, paths in dirs.items()
+        for s in [int(path.rsplit("seed", 1)[1]) for path in paths]
+    ]
+    selected = plot.paper_records(rows)
+    assert len(selected) == 5 * 7 * 5
+    assert len({(r["domain"], r["arm"], r["seed"]) for r in selected}) == 175
+    assert {r["arm"] for r in selected} == set(plot.PAPER_ARMS)
+    for row in selected:
+        expected = row["arm"]
+        assert row["source_arm"] == expected
+        assert row["source"] == f"{row['domain']}/{expected}/{row['seed']}"
+    assert all("source_arm" not in row for row in rows)
+
+
 def test_oracle_r2_layout_and_scope() -> None:
-    """Both Oracle entries lead the list, but r2 covers only its pilot."""
-    assert plot.ARMS[:2] == ["oracle_dynamics", "oracle_dynamics_r2"]
-    assert plot.LABELS[:2] == ["Oracle dynamics", "Oracle dynamics r2"]
+    """Oracle r2 covers the repair pilot and the ten prospective seeds."""
+    assert plot.ARMS[:2] == ["oracle_dynamics", "MB"]
+    assert plot.LABELS[:2] == ["Oracle dynamics", "EMPIRIC"]
     assert len(plot.ARMS) == len(plot.LABELS) == len(plot.COLORS)
     assert [i for _, start, end in plot.GROUPS
             for i in range(start, end)] == list(range(len(plot.ARMS)))
     for domain, dirs in plot.DOMAINS:
-        assert len(dirs["MB_r2"]) == 2
-        assert all("mb_opus_benchmark_r2/seed" in d for d in dirs["MB_r2"])
-        assert {d[-1] for d in dirs["MB_r2"]} == {"3", "4"}
-        assert all("benchmark_r1/" in d for d in dirs["oracle_dynamics"])
-        new = dirs["oracle_dynamics_r2"]
-        assert len(new) == (3 if domain in ("Domino",
-                                            "Bridge (4-span)") else 0)
-        assert all("benchmark_r2/" in d for d in new)
+        if domain not in plot.PAPER_DOMAINS:
+            continue
+        assert "MB_r2" not in dirs
+        assert len(dirs["MB"]) == 5
+        assert {d[-1] for d in dirs["MB"]} == set("01234")
+        assert all("mb_opus_benchmark_r2/seed" in d for d in dirs["MB"][3:])
+        if domain in ("Boil (2-jug)", "Balloons (composition)"):
+            assert dirs["MB"][2].endswith("mb_opus_benchmark_r2/seed2")
+        oracle = dirs["oracle_dynamics"]
+        assert len(oracle) == 5
+        assert "oracle_dynamics_r2" not in dirs
+        for seed, directory in enumerate(oracle):
+            round_id = "r2" if domain in (
+                "Domino", "Bridge (4-span)") or seed >= 3 else "r1"
+            assert f"benchmark_{round_id}/seed{seed}" in directory
 
 
 def test_oracle_r2_finished_only_and_report(tmp_path: Path,
@@ -30,9 +56,10 @@ def test_oracle_r2_finished_only_and_report(tmp_path: Path,
     """An unfinished r2 neither replaces r1 nor enters the denominator."""
     monkeypatch.setattr(plot, "LOGS", str(tmp_path))
     dirs = dict(plot.DOMAINS)["Domino"]
-    for arm, finished in (("oracle_dynamics", True), ("oracle_dynamics_r2",
-                                                      False)):
-        run = tmp_path / dirs[arm][0] / "run_20260919"
+    for round_id, finished in (("r1", True), ("r2", False)):
+        directory = dirs["oracle_dynamics"][0].replace(
+            "benchmark_r2/", f"benchmark_{round_id}/")
+        run = tmp_path / directory / "run_20260919"
         run.mkdir(parents=True)
         (run / "scorecard.json").write_text(json.dumps({
             "end_reason":
@@ -47,21 +74,21 @@ def test_oracle_r2_finished_only_and_report(tmp_path: Path,
         }),
                                             encoding="utf-8")
     rows = plot.records()
-    assert len(rows) == 1 and rows[0]["arm"] == "oracle_dynamics"
+    assert not rows
     original = monitor.REPORT.read_text(encoding="utf-8")
     report = monitor.report_text(original, rows, vars(plot), "test")
-    assert "Oracle dynamics r2: 0/6 seeds finished" in report
+    assert "Oracle dynamics: 0/25 seeds finished" in report
     unfinished = report.split("## Unfinished runs", 1)[1]
-    assert unfinished.count("Oracle dynamics r2") == 6
-    assert "| Boil (two-jug) | 2. Oracle dynamics r2" not in report
+    assert unfinished.count("Oracle dynamics") == 25
+    assert "| Boil (two-jug) | 1. Oracle dynamics" in report
     assert monitor.report_text(report, rows, vars(plot), "test") == report
 
 
 def test_empiric_r2_seed_ids_and_completion_count(tmp_path: Path,
                                                   monkeypatch: Any) -> None:
-    """Report actual prospective seed IDs and the two-seed cohort size."""
+    """Pool the prospective seeds while retaining their source cohort."""
     monkeypatch.setattr(plot, "LOGS", str(tmp_path))
-    directory = dict(plot.DOMAINS)["Domino"]["MB_r2"][0]
+    directory = dict(plot.DOMAINS)["Domino"]["MB"][3]
     run = tmp_path / directory / "run_20260919"
     run.mkdir(parents=True)
     (run / "scorecard.json").write_text(json.dumps({
@@ -77,11 +104,67 @@ def test_empiric_r2_seed_ids_and_completion_count(tmp_path: Path,
                                         encoding="utf-8")
     rows = plot.records()
     assert len(rows) == 1 and rows[0]["seed"] == 3
+    assert rows[0]["arm"] == "MB"
+    assert rows[0]["source_arm"] == "MB_r2"
+    assert plot.paper_records(rows)[0]["source_arm"] == "MB_r2"
     report = monitor.report_text(monitor.REPORT.read_text(), rows, vars(plot),
                                  "test")
     averages = report.split("## Per-seed results", 1)[0]
-    assert "| 265 (n=1) | 0 | 1/2 |" in averages
+    assert "| 265 (n=1) | 0 | 1/5 |" in averages
     details, unfinished = report.split("## Unfinished runs", 1)
-    assert "| 4. EMPIRIC r2 | 3 | 1/1 | 265 |" in details
-    assert "| Domino (high-friction turn) | 4. EMPIRIC r2 | 4 |" in unfinished
-    assert "| Domino (high-friction turn) | 4. EMPIRIC r2 | 3 |" not in unfinished
+    assert "| 2. EMPIRIC | 3 | 1/1 | 265 |" in details
+    assert "| Domino (high-friction turn) | 2. EMPIRIC | 4 |" in unfinished
+    assert "| Domino (high-friction turn) | 2. EMPIRIC | 3 |" not in unfinished
+    assert "EMPIRIC r2" not in plot.LABELS
+
+
+def test_fan_transfer_is_separate_and_excluded_from_paper() -> None:
+    """The pilot has two matched arms without changing paper cohorts."""
+    assert len(plot.PAPER_DOMAINS) == 5
+    assert plot.FAN_TRANSFER in dict(plot.DOMAINS)
+    directories = dict(plot.DOMAINS)[plot.FAN_TRANSFER]
+    assert set(directories) == set(plot.ARMS)
+    for arm, paths in directories.items():
+        assert len(paths) == (2 if arm in ("MB", "MF") else 0)
+        assert all("transfer_pilot_r1" in path for path in paths)
+    pilot = dict(domain=plot.FAN_TRANSFER,
+                 arm="MB",
+                 seed=0,
+                 won=2,
+                 levels=2,
+                 steps=450,
+                 resets=0,
+                 source="pilot")
+    assert not plot.paper_records([pilot])
+    report = monitor.report_text(monitor.REPORT.read_text(), [pilot],
+                                 vars(plot), "test")
+    assert "EMPIRIC: 0/25 seeds finished" in report
+    assert "Fan transfer pilot: EMPIRIC 1/2 and Direct agent 0/2" in report
+    assert "| Fan (exposed transfer) | 2. EMPIRIC | 1/1 (100%)" in report
+    unfinished = report.split("## Unfinished runs", 1)[1]
+    assert unfinished.count("Fan (exposed transfer)") == 3
+    assert monitor.report_text(report, [pilot], vars(plot), "test") == report
+
+
+def test_fan_variants_have_matched_five_seed_cohorts() -> None:
+    """Development variants pool pilots and confirmation, never paper data."""
+    for domain in plot.FAN_VARIANTS:
+        directories = dict(plot.DOMAINS)[domain]
+        for arm, paths in directories.items():
+            assert len(paths) == (5 if arm in ("MB", "MF") else 0)
+            for seed, path in enumerate(paths):
+                assert path.endswith(f"/seed{seed}")
+                assert ("pilot_r1" if seed < 2 else "confirmation_r1") in path
+        row = dict(domain=domain,
+                   arm="MB",
+                   seed=0,
+                   won=2,
+                   levels=2,
+                   steps=100,
+                   resets=0,
+                   source="development")
+        assert not plot.paper_records([row])
+        report = monitor.report_text(monitor.REPORT.read_text(), [row],
+                                     vars(plot), "test")
+        assert f"{domain}: EMPIRIC 1/1 solved, 1/5 finished" in report
+        assert monitor.report_text(report, [row], vars(plot), "test") == report
