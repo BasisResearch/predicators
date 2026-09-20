@@ -222,6 +222,7 @@ class ContinualPlayMixin:
             self._continue_current_level(session)
         finally:
             session.on_data_changed(None)
+            self._tool_context.execution_step_budget_provider = None
 
     def _continue_current_level(self, session: ProtocolSession) -> None:
         """Prompt further rounds until this level is resolved or the run
@@ -446,9 +447,11 @@ class ContinualPlayMixin:
             self._continual_level = k
             self._level_rounds = 0
         # Only the levels reached so far are visible to the arm.
-        self._train_tasks = [spec.task for spec in session.levels[:k + 1]]
+        self._train_tasks = session.observed_tasks()
         self._tool_context.train_tasks = list(self._train_tasks)
-        self._tool_context.current_task = session.levels[k].task
+        self._tool_context.current_task = self._train_tasks[k]
+        self._tool_context.execution_step_budget_provider = \
+            session.execution_step_budget
         self._tool_context.test_task_idx = None
         self._sync_level_trajectories(session)
         session.abstract_predicates = set(self._get_all_predicates())
