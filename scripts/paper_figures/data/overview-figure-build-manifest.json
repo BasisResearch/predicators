@@ -1,0 +1,39 @@
+{
+  "generated_by": "scripts/paper_figures/build_figures.py --overview; do not edit manually",
+  "inputs": {
+    "build_figures.py": "b108cf8a51a38b499298f08b95c6a93f50671341a8095a8a96cd16773219ee56",
+    "data/gui-figure-manifest.json": "5710c818b5bca7090312245386cd9292695711ed08bcd7f39693ee67a3ffdaa9",
+    "data/trajectories/figure3.json": "817b71cfe4f31af21d06c87352ad617f574f2dc02d97e2c1a85227e87898e1dc",
+    "figures/sources/benchmark_gui/117-71.png": "d598e278c536c42d9c8877bad7ab8dd618b4a62cf1060305d3476df50ac4da5b",
+    "figures/sources/benchmark_gui/117-72.png": "de16c06b20d26b40357d02bff33f0a5ad2b6aa771e5f931923c485c041c17364",
+    "figures/sources/benchmark_gui/117-84.png": "4b61c47f92a7b78df1cc141747c0d30dfdf5cbe6a980a6a098ad882c495acfa7",
+    "figures/sources/benchmark_gui/119-11.png": "4309fb379b2ca35fc1f032977e257ee768fcfe4eeb2bbec3dfe04fca1cd4a964",
+    "figures/sources/benchmark_gui/119-12.png": "ba23565b5766c3ba964752af6c820371fec92b938d0ea8e0efbdbe0b9f51039b",
+    "figures/sources/benchmark_gui/119-16.png": "b96239d39368f181cd51dabd6a6507eba5c608ce5e26ffd03b2732a039bfb17d",
+    "figures/sources/benchmark_gui/119-17.png": "034ea4737bb84f90ffc0b41de6bfe952a96d3d90f2c684a4f79719afb1a9a355",
+    "figures/sources/benchmark_gui/119-21.png": "679e5bb768a92163f93dd4e2908bc07f0b9b4a8c04b5f3902aa5e7a7edbc2eb7",
+    "figures/sources/benchmark_gui/119-22.png": "d703f1a00f66ee3e53aa61dac5a4352c9439eaecce300c1602c7ae61f3bde800",
+    "figures/sources/benchmark_gui/119-26.png": "bec9beb386d2fd339bc993122ccbeb2072f6799dfbaee9ad41d38920d1fe1b85",
+    "figures/sources/benchmark_gui/119-27.png": "8116e4f618c509ec801f688304ce1de40d422fe8b4bf3aa565ccf2a57d3a6aed",
+    "figures/sources/benchmark_gui/119-6.png": "53fd84dacd93f2d36df1bb9337984b1f5ed2e560da110b66cc2e39bfc8eb6160",
+    "figures/sources/benchmark_gui/119-7.png": "4ae44e5e7675a995c3a73a8adf8f47f7d8767dc76b0326cb7ba8f7557d891faa",
+    "figures/sources/trajectory_balloons_0.png": "cb068a0c83e6e3ed09bbcc4f8bdcdbcf5dc0c5111f3b9980665cdaaf47e9d56e",
+    "figures/sources/trajectory_balloons_1.png": "8099443cfe13b96017bd3326a8ad1a64d58e146cb0751a5e792b5eda171bf4ca",
+    "figures/sources/trajectory_balloons_2.png": "8373897eb38712bf66d9bebaca73fe45f15413a47412dfc3668a9071b01283e7",
+    "figures/sources/trajectory_balloons_3.png": "0321516b40c45d373476772ff9e13f54d0d2d1620174e53c294c91e4d41568f5",
+    "figures/sources/trajectory_balloons_4.png": "87a8b3ba8ad1c4632bb18abbd8a8402db49f3b8ac57bff850b1758a500dadfbf",
+    "figures/sources/trajectory_bridge_0.png": "69218688dfa2e3e2c896f181baa88d1ddb91add2ba37da3e81e741d7d1d8c7f7",
+    "figures/sources/trajectory_bridge_1.png": "3415edfeaf648ca3231347ec75edb55debaa7aecbb434822058c9c0e17870ec3",
+    "figures/sources/trajectory_bridge_2.png": "a666622db842802b2339d77e08fcb06be24c5214bf49db4b0fcfc262c56ee19b",
+    "figures/sources/trajectory_bridge_3.png": "0662aaf4cdf91d19f76a2fd98cf00cf54a210ba57470d336eebd49fac0af60bc",
+    "figures/sources/trajectory_bridge_4.png": "4d968cf335fd883714507cb0065ceeb20251fa2d024d06eaf241826923426e0c"
+  },
+  "outputs": {
+    "fig1_residual.pdf": "f83d4d568427907f36223def11399799f84826135930558cc24257451f886375",
+    "fig1_residual.png": "8056dc2ca936b5fcdb8b8c4fcd707ae3b15cb5aa8947ab703bf2786d3ec41852",
+    "fig1_residual.svg": "364c6550c40ab7fa4d1a2de3b44d0afd377ed7dd0e5b64ff72153de3fbda4610",
+    "fig4_environments.pdf": "e6534c3efcf52cdd242f38a5d89f07dda548bfc369f02b96165fb0518a1e62c6",
+    "fig4_environments.png": "795b57496e406969107312622a1b59717be87cbe66b6470f0373756b5faa28eb",
+    "fig4_environments.svg": "e1060d6f40af68cc064b70a3962b3dbef6e65fda3319ec1d2f09e6a4964e4655"
+  }
+}
