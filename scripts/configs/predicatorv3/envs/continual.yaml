@@ -118,9 +118,8 @@ ENVS:
       continual_obs_noise_scalar: 0.07
       continual_steps_per_level: 5000
       num_train_tasks: 1
-  # Fan: uniform 3 x 3 training positions, a 10 x 9 maze on the test level
-  # (the table's Fan (maze) row; fan_uniform below is the plain Fan row).
-  fan:
+  # Historical maze setting, retained for reproducible development configs.
+  fan_maze:
     NAME: pybullet_fan
     SKIP: true
     FLAGS:
@@ -142,6 +141,36 @@ ENVS:
       fan_maze_min_segments: 4
       fan_maze_min_path_len: 10
       fan_maze_max_segment_len: 4
+      continual_obs_noise_position: 0.005
+      continual_obs_noise_orientation: 0.02
+      continual_obs_noise_scalar: 0.0
+      continual_steps_per_level: 5000
+      num_train_tasks: 1
+  # Default benchmark Fan: reviewed 3 mm ramp with longer landing.
+  fan:
+    NAME: pybullet_fan
+    SKIP: true
+    FLAGS:
+      max_initial_demos: 0
+      excluded_objects_in_state_str: switch
+      terminate_on_goal_reached: true
+      process_planning_heuristic_weight: 10.0
+      horizon: 500
+      pybullet_birrt_path_subsample_ratio: 2
+      process_planning_max_execution_replans: 3
+      fan_train_num_pos_x: 3
+      fan_train_num_pos_y: 3
+      fan_exposed_transfer: true
+      fan_inertial_transfer: true
+      fan_ramp_transfer: true
+      fan_ramp_rise: 0.003
+      fan_ramp_landing_extension: 0.10
+      fan_train_num_walls_per_task: [0]
+      fan_test_num_walls_per_task: [0]
+      fan_test_num_pos_x: 3
+      fan_test_num_pos_y: 3
+      fan_train_task_generation: uniform
+      fan_test_task_generation: uniform
       continual_obs_noise_position: 0.005
       continual_obs_noise_orientation: 0.02
       continual_obs_noise_scalar: 0.0

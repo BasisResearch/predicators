@@ -10,7 +10,7 @@ FLAGS:
   continual_validation_audit: false
 ENVS:
   fan_inertial:
-    EXTENDS: fan
+    EXTENDS: fan_maze
     FLAGS:
       fan_exposed_transfer: true
       fan_inertial_transfer: true
