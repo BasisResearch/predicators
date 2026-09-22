@@ -165,6 +165,7 @@ def make_move_to_phase(
     step_norm_fn: Optional[Callable[[Array], float]] = None,
     on_blocked: str = "fail",
     disturbance_abort_tol: Optional[float] = None,
+    allow_approach_detour: bool = False,
 ) -> Phase:
     """Create a MOVE_TO_POSE phase for use in a ``PhaseSkill``.
 
@@ -184,6 +185,9 @@ def make_move_to_phase(
             the parked pose down to the goal configuration, accepted
             under the hard contact margin alone, or failure - never a
             planned detour.
+        allow_approach_detour: For a non-contact approach only, allow a
+            collision-planned detour when the preferred straight descent
+            cannot be constructed. Does not permit an unchecked IK fallback.
         on_blocked: What a direct path does when the arm cannot follow
             it (see ``Phase.on_blocked``): ``"fail"`` or ``"advance"``.
         disturbance_abort_tol: Abort a direct descend whose (frozen)
@@ -285,6 +289,7 @@ def make_move_to_phase(
         allow_shallow_held_object_contacts=allow_shallow_held_object_contacts,
         validate_ik=validate_ik,
         direct_descend=direct_descend,
+        allow_approach_detour=allow_approach_detour,
         check_release_clearance=check_release_clearance,
         use_motion_planning=plan_motion,
         max_step_norm=max_step_norm,
