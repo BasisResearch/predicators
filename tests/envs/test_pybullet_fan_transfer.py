@@ -334,7 +334,7 @@ def test_ramp_fan_banks_have_separate_evenly_spaced_supports():
         boundary_objects = state.get_objects(env._boundary_type)
         assert len(boundary_objects) == 3
         assert all(
-            state.get(boundary, "x") < -5.0 and state.get(boundary, "y") < -5.0
+            state.get(boundary, "x") > 0.0 and state.get(boundary, "y") > 0.0
             for boundary in boundary_objects)
         platform_x_lbs = []
         platform_x_ubs = []

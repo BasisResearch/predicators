@@ -977,9 +977,9 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
                         transfer: bool) -> Dict[Object, Dict[str, float]]:
         """Visible support geometry, sampled without agent-outcome filtering.
 
-        Calibration has a full tray. Transfer uses an exposed L-shaped deck
-        with no stop at the start, turn, or target. The same force, contact
-        physics and goal tolerance apply in both.
+        Calibration has a full tray. Transfer starts in a three-sided bay
+        feeding an exposed L-shaped deck with no stop at the turn or target.
+        The same force, contact physics and goal tolerance apply in both.
         """
         if CFG.fan_use_kinematic:
             raise ValueError("Exposed transfer requires dynamic ball physics")
@@ -1008,18 +1008,9 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
                       turn_x + 0.12 - 0.67, 0.24),
                      (turn_x, (start_y + 0.12 + 2.02) / 2, 0.24,
                       2.02 - start_y - 0.12)]
-            # The ramp benchmark deliberately leaves the starting platform
-            # exposed. Keep its allocated wall bodies parked outside the
-            # scene so simulator instances can still restore one another's
-            # states without stale body IDs. Other transfer variants retain
-            # the original bay walls.
-            bounds = ([(-10.0, -10.0, 0.002, 0.002)] *
-                      3 if CFG.fan_ramp_transfer else [(0.35, start_y, 0.002,
-                                                        0.36),
-                                                       (0.51, start_y - 0.18,
-                                                        0.32, 0.002),
-                                                       (0.51, start_y + 0.18,
-                                                        0.32, 0.002)])
+            bounds = [(0.35, start_y, 0.002, 0.36),
+                      (0.51, start_y - 0.18, 0.32, 0.002),
+                      (0.51, start_y + 0.18, 0.32, 0.002)]
             ball_xy = (float(rng.uniform(0.49, 0.53)), start_y)
             target_xy = (turn_x, target_y)
         else:
