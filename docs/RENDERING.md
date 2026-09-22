@@ -181,4 +181,18 @@ Keep this applicability case study distinct from the simulated baseline comparis
 
 Old preliminary-result builders, manuscript audits, renderer-comparison outputs, and static scene exports are not part of this workflow.
 They have been removed from the paper checkout.
-The unfinished results-snapshot script is not a supported figure-generation tool.
+The old unfinished results-snapshot script has been replaced for appendix tables by `scripts/plotting/export_paper_results_tables.py`.
+
+## Result tables
+
+Generate the appendix tables from the same selected-run manifest as the paper result figure:
+
+```bash
+python scripts/plotting/export_paper_results_tables.py \
+  docs/comparisons/figures/paper-results-opus-summary.json \
+  /home/ycliang/sim-predicator-paper/data/current-results
+```
+
+Use the local paper checkout's path for the last argument when rendering on another machine.
+This command preserves the figure's domain variants and selected seeds, and leaves missing results blank instead of substituting an older run.
+Regenerate the tables whenever the figure's selected runs change.
