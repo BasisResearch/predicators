@@ -364,14 +364,16 @@ def test_ramp_fan_banks_have_separate_evenly_spaced_supports():
                                                      fan.support_ids, poses):
                 support_position, _ = p.getBasePositionAndOrientation(
                     support_id, physicsClientId=env._physics_client_id)
-                fan_min_z = min(
+                fan_aabbs = [
                     p.getAABB(fan_id,
                               link_idx,
-                              physicsClientId=env._physics_client_id)[0][2]
+                              physicsClientId=env._physics_client_id)
                     for link_idx in range(
                         -1,
-                        p.getNumJoints(
-                            fan_id, physicsClientId=env._physics_client_id)))
+                        p.getNumJoints(fan_id,
+                                       physicsClientId=env._physics_client_id))
+                ]
+                fan_min_z = min(aabb[0][2] for aabb in fan_aabbs)
                 assert support_position[:2] == pytest.approx((x, y))
                 assert support_position[2] == pytest.approx(
                     env.fan_support_height / 2)
@@ -379,6 +381,9 @@ def test_ramp_fan_banks_have_separate_evenly_spaced_supports():
                     support_id, -1, physicsClientId=env._physics_client_id)
                 assert fan_min_z == pytest.approx(env.fan_support_height,
                                                   abs=0.005)
+                if side_idx == 1:
+                    fan_min_x = min(aabb[0][0] for aabb in fan_aabbs)
+                    assert fan_min_x > max(platform_x_ubs) + 0.01
                 if side_idx in (0, 1):
                     half_x = env.fan_support_x_len / 2
                     half_y = env.fan_support_y_len / 2

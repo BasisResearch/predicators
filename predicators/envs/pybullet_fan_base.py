@@ -179,11 +179,10 @@ class PyBulletFanBaseEnv(PyBulletEnv):
     ramp_fan_x_ub: ClassVar[float] = 1.45
     # Center the exposed platform envelope on the robot's x coordinate.
     ramp_scene_x_offset: ClassVar[float] = -0.11
-    # The ramp landing is wider than the standard workspace, but the old
-    # 0.40 offset put the complete fan enclosure noticeably right of the
-    # robot. This value makes the left and right banks symmetric after the
-    # scene translation while still leaving a gap beside the landing deck.
-    ramp_right_fan_offset: ClassVar[float] = 0.22
+    # The articulated fan housing extends inward from its support post. Keep
+    # the right bank far enough outside the landing deck that the housing does
+    # not visually intersect the table edge.
+    ramp_right_fan_offset: ClassVar[float] = 0.40
 
     # =========================================================================
     # SWITCH CONFIGURATION
