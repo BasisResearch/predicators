@@ -349,8 +349,10 @@ def test_ramp_fan_banks_have_separate_evenly_spaced_supports():
         platform_center_x = (min(platform_x_lbs) + max(platform_x_ubs)) / 2
         assert platform_center_x == pytest.approx(env.robot_base_pos[0],
                                                   abs=0.015)
+        expected_counts = [4, 4, 5, 5]
         for side_idx, fan in enumerate(env._fans):
             poses = env._fan_bank_poses(side_idx)
+            assert len(poses) == expected_counts[side_idx]
             varying_axis = 1 if side_idx in (0, 1) else 0
             coordinates = np.asarray([pose[varying_axis] for pose in poses])
             assert np.allclose(np.diff(coordinates), np.diff(coordinates)[0])
@@ -359,6 +361,8 @@ def test_ramp_fan_banks_have_separate_evenly_spaced_supports():
                                (env.fan_x_lb + env.ramp_scene_x_offset,
                                 env.ramp_fan_x_ub + env.ramp_scene_x_offset))
             assert coordinates[[0, -1]] == pytest.approx(expected_bounds)
+            assert np.mean(coordinates) == pytest.approx(
+                sum(expected_bounds) / 2)
             assert len(fan.fan_ids) == len(fan.support_ids) == len(poses)
             for fan_id, support_id, (x, y, _) in zip(fan.fan_ids,
                                                      fan.support_ids, poses):

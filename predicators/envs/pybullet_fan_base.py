@@ -116,8 +116,10 @@ class PyBulletFanBaseEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     # Fan Count & Layout
     # -------------------------------------------------------------------------
-    num_left_fans: ClassVar[int] = 5
-    num_right_fans: ClassVar[int] = 5
+    # The left and right banks span the shorter workspace dimension. Four
+    # fans match the visual density of the five-fan front and back banks.
+    num_left_fans: ClassVar[int] = 4
+    num_right_fans: ClassVar[int] = 4
     num_back_fans: ClassVar[int] = 5
     num_front_fans: ClassVar[int] = 5
 
@@ -148,7 +150,7 @@ class PyBulletFanBaseEnv(PyBulletEnv):
     # Front (far) fan row sits at the upper edge of the second table. The two
     # tables together span y in [1.1, 2.1]; keep the fan body just inside that
     # far edge. Deepening the arena this way gives the left/right sides room
-    # for 5 evenly-spaced fans, and re-centers the grid (loc_y_mid, the
+    # for evenly-spaced fans, and re-centers the grid (loc_y_mid, the
     # midpoint of down_fan_y/up_fan_y) between the top and bottom fan rows.
     # Both rows are pushed this much further from the robot than the
     # geometry above would otherwise place them. The down row's rotor
