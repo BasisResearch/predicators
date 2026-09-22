@@ -74,9 +74,9 @@
     },
     "figures/sources/fan_cycles_start.png": {
       "renderer_sha256": "3dde61c5485dfbb23fc3b3fbc57a13fce98c48c518139edeebfa7070580480d9",
-      "scene_sha256": "bbee44104fbe971ded1d79b793b5f12cadbcd9de91ef8768be86b39503bb9182",
+      "scene_sha256": "0d4f73171c14b2b5f31dcb46f1b37afec5efa93978781dd53aba68d9141c7441",
       "samples": 48,
-      "sha256": "779ee0c0664b1357321fbf35708239f52851958f370924f366149976eed64e7e",
+      "sha256": "27b2af8e73f09b6bc4a3788c707437031120e42ddbc207fff3102144ce0e34a9",
       "domain": "Fan",
       "frame": "start",
       "scene": "data/cycles_scenes/fan_start.json",
@@ -86,9 +86,9 @@
     },
     "figures/sources/fan_cycles_win.png": {
       "renderer_sha256": "3dde61c5485dfbb23fc3b3fbc57a13fce98c48c518139edeebfa7070580480d9",
-      "scene_sha256": "a2844ad9830432ab506dd5b0fb7fb3da44288a8c9e8a1174fc01981401f24972",
+      "scene_sha256": "081143214fce534b56e5d4810c7a26b444467d232d2734dc66629f5dee4f2781",
       "samples": 48,
-      "sha256": "c8dfa80d160a166c88728c11cf2826c452ba6ea5a8cff11f87ff0e8fb5f1c213",
+      "sha256": "d6cbc314100fb045a3d24e5001d61f270bf82119ce2b88f2512f7494f5bf1d5b",
       "domain": "Fan",
       "frame": "win",
       "scene": "data/cycles_scenes/fan_win.json",
