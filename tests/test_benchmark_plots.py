@@ -36,8 +36,8 @@ def test_paper_cohort_selection() -> None:
         for s in [int(path.rsplit("seed", 1)[1]) for path in paths]
     ]
     selected = plot.paper_records(rows)
-    assert len(selected) == 5 * 7 * 5 + 6
-    assert len({(r["domain"], r["arm"], r["seed"]) for r in selected}) == 181
+    assert len(selected) == 5 * 7 * 5
+    assert len({(r["domain"], r["arm"], r["seed"]) for r in selected}) == 175
     assert {r["arm"] for r in selected} == set(plot.PAPER_ARMS)
     for row in selected:
         expected = row["arm"]
@@ -73,7 +73,7 @@ def test_default_fan_config_preserves_archived_variants() -> None:
 
 
 def test_oracle_r2_layout_and_scope() -> None:
-    """Oracle r2 covers the repair pilot and the ten prospective seeds."""
+    """Each paper domain selects one five-seed Oracle cohort."""
     assert plot.ARMS[:2] == ["oracle_dynamics", "MB"]
     assert plot.LABELS[:2] == ["Oracle dynamics", "EMPIRIC"]
     assert len(plot.ARMS) == len(plot.LABELS) == len(plot.COLORS)
@@ -86,7 +86,8 @@ def test_oracle_r2_layout_and_scope() -> None:
         assert len(dirs["MB"]) == 5
         assert {d[-1] for d in dirs["MB"]} == set("01234")
         if domain == "Fan (ramp transfer)":
-            assert len(dirs["oracle_dynamics"]) == 11
+            assert len(dirs["oracle_dynamics"]) == 5
+            assert all("fan_prompt_r2" in p for p in dirs["oracle_dynamics"])
             assert all("ramp_skill_repair_r1" in p for p in dirs["MB"])
             continue
         assert all("mb_opus_benchmark_r2/seed" in d for d in dirs["MB"][3:])
@@ -127,9 +128,9 @@ def test_oracle_r2_finished_only_and_report(tmp_path: Path,
     assert not rows
     original = monitor.REPORT.read_text(encoding="utf-8")
     report = monitor.report_text(original, rows, vars(plot), "test")
-    assert "Oracle dynamics: 0/31 seeds finished" in report
+    assert "Oracle dynamics: 0/25 seeds finished" in report
     unfinished = report.split("## Unfinished runs", 1)[1]
-    assert unfinished.count("Oracle dynamics") == 41
+    assert unfinished.count("Oracle dynamics") == 35
     assert "| Boil (two-jug) | 1. Oracle dynamics" in report
     assert monitor.report_text(report, rows, vars(plot), "test") == report
 
@@ -212,13 +213,14 @@ def test_fan_variants_have_matched_five_seed_cohorts() -> None:
                     "no_fitting", "no_uncertainty"
                 })
                 expected = 5 if arm in launched else 0
-                if domain == "Fan (ramp transfer)" and arm == "oracle_dynamics":
-                    expected = 11
                 assert len(paths) == expected
             for seed, path in enumerate(paths):
                 assert path.endswith(f"/seed{seed}")
                 if domain == "Fan (ramp transfer)":
-                    assert "_opus_ramp_skill_repair_r1/" in path
+                    expected_round = ("fan_prompt_r2"
+                                      if arm == "oracle_dynamics" else
+                                      "_opus_ramp_skill_repair_r1")
+                    assert expected_round in path
                 elif arm in ("MB", "MF"):
                     assert ("pilot_r1"
                             if seed < 2 else "confirmation_r1") in path
@@ -269,7 +271,7 @@ def test_inertial_baseline_completion_stays_out_of_paper(
     assert not plot.paper_records(rows)
     report = monitor.report_text(monitor.REPORT.read_text(), rows, vars(plot),
                                  "test")
-    assert "Oracle dynamics: 0/31 seeds finished" in report
+    assert "Oracle dynamics: 0/25 seeds finished" in report
     assert f"{domain}: Oracle dynamics 1/1 solved, 1/5 finished" in report
     row = "| Fan (inertial transfer) | 1. Oracle dynamics | 1/1 (100%)"
     assert row in report

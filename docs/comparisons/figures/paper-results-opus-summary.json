@@ -1547,20 +1547,20 @@
       "seed": 0,
       "won": 2,
       "levels": 2,
-      "steps": 3253,
+      "steps": 3280,
       "resets": 0,
-      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed0/run_20260921_121402"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_fan_prompt_r2/seed0/run_20260922_055537"
     },
     {
       "domain": "Fan (ramp transfer)",
       "arm": "oracle_dynamics",
       "source_arm": "oracle_dynamics",
       "seed": 1,
-      "won": 1,
+      "won": 2,
       "levels": 2,
-      "steps": 1488,
+      "steps": 2863,
       "resets": 0,
-      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed1/run_20260921_121401"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_fan_prompt_r2/seed1/run_20260922_055538"
     },
     {
       "domain": "Fan (ramp transfer)",
@@ -1569,9 +1569,9 @@
       "seed": 2,
       "won": 2,
       "levels": 2,
-      "steps": 8111,
+      "steps": 3350,
       "resets": 0,
-      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed2/run_20260921_121409"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_fan_prompt_r2/seed2/run_20260922_055536"
     },
     {
       "domain": "Fan (ramp transfer)",
@@ -1580,64 +1580,20 @@
       "seed": 3,
       "won": 2,
       "levels": 2,
-      "steps": 3675,
+      "steps": 3009,
       "resets": 0,
-      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed3/run_20260921_121409"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_fan_prompt_r2/seed3/run_20260922_055536"
     },
     {
       "domain": "Fan (ramp transfer)",
       "arm": "oracle_dynamics",
       "source_arm": "oracle_dynamics",
       "seed": 4,
-      "won": 1,
-      "levels": 2,
-      "steps": 6925,
-      "resets": 0,
-      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed4/run_20260921_121409"
-    },
-    {
-      "domain": "Fan (ramp transfer)",
-      "arm": "oracle_dynamics",
-      "source_arm": "oracle_dynamics",
-      "seed": 5,
       "won": 2,
       "levels": 2,
-      "steps": 5472,
+      "steps": 968,
       "resets": 0,
-      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed5/run_20260921_155606"
-    },
-    {
-      "domain": "Fan (ramp transfer)",
-      "arm": "oracle_dynamics",
-      "source_arm": "oracle_dynamics",
-      "seed": 6,
-      "won": 1,
-      "levels": 2,
-      "steps": 1348,
-      "resets": 0,
-      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed6/run_20260921_155606"
-    },
-    {
-      "domain": "Fan (ramp transfer)",
-      "arm": "oracle_dynamics",
-      "source_arm": "oracle_dynamics",
-      "seed": 7,
-      "won": 1,
-      "levels": 2,
-      "steps": 5406,
-      "resets": 0,
-      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed7/run_20260921_164759"
-    },
-    {
-      "domain": "Fan (ramp transfer)",
-      "arm": "oracle_dynamics",
-      "source_arm": "oracle_dynamics",
-      "seed": 8,
-      "won": 1,
-      "levels": 2,
-      "steps": 1551,
-      "resets": 0,
-      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed8/run_20260921_164759"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_fan_prompt_r2/seed4/run_20260922_055541"
     },
     {
       "domain": "Fan (ramp transfer)",
@@ -2367,18 +2323,14 @@
       "domain": "Fan (ramp transfer)",
       "arm": "oracle_dynamics",
       "metric": "solve",
-      "mean": 44.44444444444444,
-      "n": 9,
+      "mean": 100.0,
+      "n": 5,
       "values": [
         100,
-        0,
         100,
         100,
-        0,
         100,
-        0,
-        0,
-        0
+        100
       ]
     },
     {

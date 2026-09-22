@@ -208,7 +208,6 @@ _ramp_dirs = dict(DOMAINS)["Fan (ramp transfer)"]
 for _arm, _approach, _round in (
     ("MB", MB, "mb"),
     ("MF", MF, "mf"),
-    ("oracle_dynamics", "agent_continual_oracle_dynamics", "oracle_dynamics"),
     ("mf_scene_package", MF, "mf_scene_package"),
     ("standalone", "agent_continual_program_world_model", "standalone"),
     ("no_fitting", "agent_continual_no_fitting", "no_fitting"),
@@ -216,8 +215,14 @@ for _arm, _approach, _round in (
 ):
     _ramp_dirs[_arm] = [
         f"{_approach}/fan_ramp-{_round}_opus_ramp_skill_repair_r1/seed{s}"
-        for s in range(11 if _arm == "oracle_dynamics" else 5)
+        for s in range(5)
     ]
+# Oracle Fan now uses only the fresh prompt-aligned cohort.  Failed startup
+# attempts and every earlier ramp cohort remain archived but are not pooled.
+_ramp_dirs["oracle_dynamics"] = [
+    "agent_continual_oracle_dynamics/"
+    f"fan-oracle_dynamics_opus_fan_prompt_r2/seed{s}" for s in range(5)
+]
 # Assets-only EMPIRIC is a separate two-seed development arm.
 # Exclude its cancelled maze runs and never substitute them for ramp data.
 for _domain, _dirs in DOMAINS:

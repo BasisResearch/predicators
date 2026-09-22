@@ -1,6 +1,6 @@
 # Opus benchmark sweep: twelve agents and r2 cohorts
 
-Compiled 2026-09-22T09:45:58.666490+00:00 from 302 finished scorecards on the current benchmark settings and archived Fan development cohorts.
+Compiled 2026-09-22T13:52:50.639300+00:00 from 298 finished scorecards on the current benchmark settings and archived Fan development cohorts.
 All agents are Claude Opus with the composite skill library.
 Preflight settings differ across historical cohorts: some selected EMPIRIC Boil, Domino, and Balloons runs had preflight enabled; the selected Bridge reruns, EMPIRIC r2 replacements, and newer comparison arms used preflight off.
 This is not a matched preflight ablation.
@@ -9,12 +9,12 @@ This page is a snapshot: runs listed under "Unfinished runs" are not counted any
 
 ## Status at this snapshot
 
-- Oracle dynamics: 29/31 seeds finished across five domains.
+- Oracle dynamics: 25/25 seeds finished across five domains.
 - EMPIRIC: 25/25 seeds finished (five selected seeds per domain; Boil and Balloons seed 2 and seeds 3-4 outside Fan use r2; Fan uses the repaired-skill cohort).
 - EMPIRIC from assets: 10/10 seeds finished (two per domain; Fan uses the ramp variant, not the maze).
 - Fan transfer pilot: EMPIRIC 1/2 and Direct agent 1/2 seeds finished (separate from the five-domain totals above).
 - Fan (inertial transfer): Oracle dynamics 5/5 solved, 5/5 finished; EMPIRIC 5/5 solved, 5/5 finished; Direct agent 4/5 solved, 5/5 finished; Direct agent + scene assets 4/5 solved, 5/5 finished; Standalone sim. 4/5 solved, 5/5 finished; No harness fitting 5/5 solved, 5/5 finished; No explicit uncert. 5/5 solved, 5/5 finished.
-- Fan (ramp transfer): Oracle dynamics 4/9 solved, 9/11 finished; EMPIRIC 5/5 solved, 5/5 finished; Direct agent 3/5 solved, 5/5 finished; Direct agent + scene assets 0/5 solved, 5/5 finished; Standalone sim. 3/5 solved, 5/5 finished; No harness fitting 5/5 solved, 5/5 finished; No explicit uncert. 5/5 solved, 5/5 finished; EMPIRIC from assets 1/2 solved, 2/2 finished.
+- Fan (ramp transfer): Oracle dynamics 5/5 solved, 5/5 finished; EMPIRIC 5/5 solved, 5/5 finished; Direct agent 3/5 solved, 5/5 finished; Direct agent + scene assets 0/5 solved, 5/5 finished; Standalone sim. 3/5 solved, 5/5 finished; No harness fitting 5/5 solved, 5/5 finished; No explicit uncert. 5/5 solved, 5/5 finished; EMPIRIC from assets 1/2 solved, 2/2 finished.
 - Direct + scene: 25/25 seeds finished.
   Unfinished: none.
 - EMPIRIC + scene package: four unfinished runs remain paused at the user's request (Balloons seed 0, Boil seeds 0 and 2, Domino seed 0).
@@ -67,6 +67,7 @@ EMPIRIC + scene package is EMPIRIC plus everything the agentic real-to-sim arm r
 No arm runs with the realistic sim gap (`sim_gap`, commit `b0c2f0190`); every scene description matches the live world exactly.
 
 Oracle dynamics combines r2 seeds 0-4 for Domino and Bridge with r1 seeds 0-2 and r2 seeds 3-4 for the other domains.
+Fan instead uses the fresh five-seed prompt-aligned Oracle cohort; earlier Fan Oracle results are excluded rather than pooled.
 The [Oracle repair pilot](oracle-dynamics-validation-r2.md) also shows the two Oracle rounds side by side.
 
 EMPIRIC r2 uses seeds 3 and 4 across all five domains on the repaired runtime.
@@ -90,7 +91,7 @@ Their finished results are included in the archived Fan inertial cohort; these r
 The archived Fan inertial cohort includes screening seeds 0-1 and fresh confirmation seeds 2-4 for EMPIRIC and Direct agent.
 Only finished runs enter bars, curves, and averages; unfinished runs are listed separately, not counted as failures.
 Inertial confirmation finished 3/3 for both methods, so its pilot solve-rate gap did not replicate.
-The Fan column now uses only the matched repaired-skill cohort (ramp_skill_repair_r1), with eleven Oracle dynamics seeds (0-10) and five seeds for each of the other six methods.
+The Fan column now uses only the matched repaired-skill cohort (ramp_skill_repair_r1), with five prompt-aligned Oracle dynamics seeds and five seeds for each of the other six methods.
 Earlier ramp results are replaced, not pooled; pending new seeds never fall back to old results.
 See the [development record](../amps/fan-development.md) for task illustrations, cohort provenance, and failure analysis.
 The ramp setting is now the default Fan in both figures.
@@ -179,7 +180,7 @@ The last column gives finished versus planned seeds for each entry; incomplete e
 | Fan (inertial transfer) | 5. Standalone sim. | 4/5 (80%) | 9/10 (90%) | 1,849.5 (n=4) | 0 | 5/5 |
 | Fan (inertial transfer) | 6. No harness fitting | 5/5 (100%) | 10/10 (100%) | 1,436.8 (n=5) | 0 | 5/5 |
 | Fan (inertial transfer) | 7. No explicit uncert. | 5/5 (100%) | 10/10 (100%) | 1,280.4 (n=5) | 0 | 5/5 |
-| Fan (ramp transfer) | 1. Oracle dynamics | 4/9 (44.4%) | 13/18 (72.2%) | 5,127.8 (n=4) | 0 | 9/11 |
+| Fan (ramp transfer) | 1. Oracle dynamics | 5/5 (100%) | 10/10 (100%) | 2,694 (n=5) | 0 | 5/5 |
 | Fan (ramp transfer) | 2. EMPIRIC | 5/5 (100%) | 10/10 (100%) | 2,474.8 (n=5) | 0 | 5/5 |
 | Fan (ramp transfer) | 3. Direct agent | 3/5 (60%) | 6/10 (60%) | 3,098 (n=3) | 3.8 | 5/5 |
 | Fan (ramp transfer) | 4. Direct agent + scene assets | 0/5 (0%) | 5/10 (50%) | - (n=0) | 0.2 | 5/5 |
@@ -490,15 +491,11 @@ The last column gives finished versus planned seeds for each entry; incomplete e
 
 | Approach | Seed | Levels won | Steps | Resets | Log directory | Scorecard |
 |---|---:|---:|---:|---:|---|---|
-| 1. Oracle dynamics | 0 | 2/2 | 3,253 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed0/run_20260921_121402) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed0/run_20260921_121402/scorecard.json) |
-| 1. Oracle dynamics | 1 | 1/2 | 1,488 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed1/run_20260921_121401) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed1/run_20260921_121401/scorecard.json) |
-| 1. Oracle dynamics | 2 | 2/2 | 8,111 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed2/run_20260921_121409) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed2/run_20260921_121409/scorecard.json) |
-| 1. Oracle dynamics | 3 | 2/2 | 3,675 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed3/run_20260921_121409) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed3/run_20260921_121409/scorecard.json) |
-| 1. Oracle dynamics | 4 | 1/2 | 6,925 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed4/run_20260921_121409) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed4/run_20260921_121409/scorecard.json) |
-| 1. Oracle dynamics | 5 | 2/2 | 5,472 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed5/run_20260921_155606) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed5/run_20260921_155606/scorecard.json) |
-| 1. Oracle dynamics | 6 | 1/2 | 1,348 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed6/run_20260921_155606) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed6/run_20260921_155606/scorecard.json) |
-| 1. Oracle dynamics | 7 | 1/2 | 5,406 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed7/run_20260921_164759) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed7/run_20260921_164759/scorecard.json) |
-| 1. Oracle dynamics | 8 | 1/2 | 1,551 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed8/run_20260921_164759) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed8/run_20260921_164759/scorecard.json) |
+| 1. Oracle dynamics | 0 | 2/2 | 3,280 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_fan_prompt_r2/seed0/run_20260922_055537) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_fan_prompt_r2/seed0/run_20260922_055537/scorecard.json) |
+| 1. Oracle dynamics | 1 | 2/2 | 2,863 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_fan_prompt_r2/seed1/run_20260922_055538) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_fan_prompt_r2/seed1/run_20260922_055538/scorecard.json) |
+| 1. Oracle dynamics | 2 | 2/2 | 3,350 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_fan_prompt_r2/seed2/run_20260922_055536) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_fan_prompt_r2/seed2/run_20260922_055536/scorecard.json) |
+| 1. Oracle dynamics | 3 | 2/2 | 3,009 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_fan_prompt_r2/seed3/run_20260922_055536) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_fan_prompt_r2/seed3/run_20260922_055536/scorecard.json) |
+| 1. Oracle dynamics | 4 | 2/2 | 968 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_fan_prompt_r2/seed4/run_20260922_055541) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_fan_prompt_r2/seed4/run_20260922_055541/scorecard.json) |
 | 2. EMPIRIC | 0 | 2/2 | 2,743 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_skill_repair_r1/seed0/run_20260921_090823) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_skill_repair_r1/seed0/run_20260921_090823/scorecard.json) |
 | 2. EMPIRIC | 1 | 2/2 | 1,564 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_skill_repair_r1/seed1/run_20260921_090827) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_skill_repair_r1/seed1/run_20260921_090827/scorecard.json) |
 | 2. EMPIRIC | 2 | 2/2 | 3,003 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_skill_repair_r1/seed2/run_20260921_090827) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_skill_repair_r1/seed2/run_20260921_090827/scorecard.json) |
@@ -559,5 +556,3 @@ These seeds have no finished scorecard at this snapshot and are excluded above.
 | Fan (maze) | 10. Zero-shot model | 2 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_zero_shot/fan-zero_shot_opus_benchmark_r1/seed2/run_20260918_091745) |
 | Fan (exposed transfer) | 2. EMPIRIC | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_transfer-mb_opus_transfer_pilot_r1/seed0/run_20260920_081344) |
 | Fan (exposed transfer) | 3. Direct agent | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_transfer-mf_opus_transfer_pilot_r1/seed0/run_20260920_081344) |
-| Fan (ramp transfer) | 1. Oracle dynamics | 9 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed9/run_20260922_033613) |
-| Fan (ramp transfer) | 1. Oracle dynamics | 10 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed10/run_20260922_033631) |
