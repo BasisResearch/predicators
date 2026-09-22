@@ -23,6 +23,8 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=Path("docs/amps/figures"))
     parser.add_argument("--inertial", action="store_true")
     parser.add_argument("--ramp", action="store_true")
+    parser.add_argument("--landing-extension", type=float, default=0.0)
+    parser.add_argument("--ramp-rise", type=float, default=0.004)
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     utils.reset_config({
@@ -33,6 +35,8 @@ def main() -> None:
         "fan_exposed_transfer": True,
         "fan_inertial_transfer": args.inertial or args.ramp,
         "fan_ramp_transfer": args.ramp,
+        "fan_ramp_landing_extension": args.landing_extension,
+        "fan_ramp_rise": args.ramp_rise,
         "fan_train_num_walls_per_task": [0],
         "fan_test_num_walls_per_task": [0],
         "fan_test_num_pos_x": 3,
@@ -232,17 +236,25 @@ def main() -> None:
             fig.savefig(args.out / f"{name}.pdf", facecolor="white")
         if args.ramp:
             profile, profile_ax = plt.subplots(figsize=(11, 3.5))
-            profile_ax.plot([.35, .67, 1.07, 1.40], [.404, .404, .4, .4],
+            landing = env._platforms[1]
+            landing_end = state.get(landing,
+                                    "x") + state.get(landing, "x_len") / 2
+            profile_ax.plot([.35, .67, 1.07, landing_end],
+                            [.4 + args.ramp_rise, .4 + args.ramp_rise, .4, .4],
                             color="#95622f",
                             linewidth=5)
-            profile_ax.fill_between([.35, .67, 1.07, 1.40],
-                                    [.404, .404, .4, .4],
-                                    .395,
-                                    color="#e6c99e")
+            profile_ax.fill_between(
+                [.35, .67, 1.07, landing_end],
+                [.4 + args.ramp_rise, .4 + args.ramp_rise, .4, .4],
+                .395,
+                color="#e6c99e")
             profile_ax.text(.5, .406, "Safe bay", ha="center")
-            profile_ax.text(.87, .406, "4 mm descent over 40 cm", ha="center")
+            profile_ax.text(.87,
+                            .406,
+                            f"{args.ramp_rise * 1000:g} mm descent over 40 cm",
+                            ha="center")
             profile_ax.text(1.25, .402, "Flat landing\nthen turn", ha="center")
-            profile_ax.set(xlim=(.30, 1.45),
+            profile_ax.set(xlim=(.30, landing_end + .05),
                            ylim=(.395, .409),
                            xlabel="x (m)",
                            ylabel="Surface height (m)",

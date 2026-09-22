@@ -1,0 +1,16 @@
+# Five development seeds on the visually reviewed 10 cm landing extension.
+includes:
+  - continual_fan_ramp_pilot_r1.yaml
+START_SEED: 0
+NUM_SEEDS: 5
+ENVS:
+  fan_ramp:
+    FLAGS:
+      fan_ramp_landing_extension: 0.10
+APPROACHES:
+  mb_opus_ramp_pilot_r1:
+    SKIP: true
+  mf_opus_ramp_pilot_r1:
+    SKIP: true
+  mb_opus_ramp_long_landing_r1:
+    EXTENDS: mb_opus
