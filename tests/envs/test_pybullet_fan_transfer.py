@@ -209,9 +209,11 @@ def test_transfer_wind_model_and_moving_restart(env):
                 simulated.set(env._switches[0], "is_on", 0.0)
             real = env.simulate(real, _noop(real))
             simulated = advance(model, simulated)
+            # Independent Bullet clients can differ by a few 1e-5 m after
+            # static scenery is inserted in a different body-ID order.
             assert np.allclose(real[env._ball],
                                simulated[env._ball],
-                               atol=1e-5)
+                               atol=1e-4)
             if i == 69:
                 saved = simulated.copy()
             elif i >= 70:
@@ -308,3 +310,66 @@ def test_ramp_geometry_gravity_and_model_restore(landing_extension, ramp_rise):
         p.disconnect(env._physics_client_id)
         p.disconnect(base._physics_client_id)
         p.disconnect(restarted._physics_client_id)
+
+
+def test_ramp_fan_banks_have_separate_evenly_spaced_supports():
+    """Fan posts touch the floor, stay off the deck, and cover each edge."""
+    utils.reset_config({
+        "env": "pybullet_fan",
+        "seed": 0,
+        "num_train_tasks": 1,
+        "num_test_tasks": 1,
+        "fan_exposed_transfer": True,
+        "fan_inertial_transfer": True,
+        "fan_ramp_transfer": True,
+        "fan_train_num_walls_per_task": [0],
+        "fan_test_num_walls_per_task": [0],
+    })
+    env = PyBulletFanEnv(use_gui=False)
+    try:
+        env.reset("test", 0)
+        platform_aabbs = [
+            p.getAABB(env._boundary_named(platform).id,
+                      physicsClientId=env._physics_client_id)
+            for platform in env._platforms
+        ]
+        for side_idx, fan in enumerate(env._fans):
+            poses = env._fan_bank_poses(side_idx)
+            varying_axis = 1 if side_idx in (0, 1) else 0
+            coordinates = np.asarray([pose[varying_axis] for pose in poses])
+            assert np.allclose(np.diff(coordinates), np.diff(coordinates)[0])
+            expected_bounds = ((env.fan_y_lb,
+                                env.fan_y_ub) if varying_axis == 1 else
+                               (env.fan_x_lb, env.fan_x_ub))
+            assert coordinates[[0, -1]] == pytest.approx(expected_bounds)
+            assert len(fan.fan_ids) == len(fan.support_ids) == len(poses)
+            for fan_id, support_id, (x, y, _) in zip(fan.fan_ids,
+                                                     fan.support_ids, poses):
+                support_position, _ = p.getBasePositionAndOrientation(
+                    support_id, physicsClientId=env._physics_client_id)
+                fan_aabb = p.getAABB(fan_id,
+                                     physicsClientId=env._physics_client_id)
+                assert support_position[:2] == pytest.approx((x, y))
+                assert support_position[2] == pytest.approx(
+                    env.fan_support_height / 2)
+                assert not p.getCollisionShapeData(
+                    support_id, -1, physicsClientId=env._physics_client_id)
+                assert fan_aabb[0][2] <= env.fan_support_height
+                assert env.fan_support_height - fan_aabb[0][2] < 0.005
+                if side_idx in (0, 1):
+                    half_x = env.fan_support_x_len / 2
+                    half_y = env.fan_support_y_len / 2
+                else:
+                    half_x = env.fan_support_y_len / 2
+                    half_y = env.fan_support_x_len / 2
+                support_aabb = ((x - half_x, y - half_y, 0.0),
+                                (x + half_x, y + half_y,
+                                 env.fan_support_height))
+                for platform_aabb in platform_aabbs:
+                    overlap_x = (support_aabb[0][0] < platform_aabb[1][0]
+                                 and support_aabb[1][0] > platform_aabb[0][0])
+                    overlap_y = (support_aabb[0][1] < platform_aabb[1][1]
+                                 and support_aabb[1][1] > platform_aabb[0][1])
+                    assert not (overlap_x and overlap_y)
+    finally:
+        p.disconnect(env._physics_client_id)
