@@ -286,6 +286,9 @@ def build_play_system_prompt(tool_names: Sequence[str],
                 "play_system", "sweep_verdict_identified"
                 if fit_available else "sweep_verdict_declared")
         if frozen:
+            if oracle_dynamics:
+                robustness = render("play_system", "robustness_oracle")
+                sweep_verdict = ""
             fixed = render(
                 "play_system", "frozen_line_supplied"
                 if frozen_model_supplied else "frozen_line_written")
