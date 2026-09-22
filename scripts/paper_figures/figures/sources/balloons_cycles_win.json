@@ -1,0 +1,15 @@
+{
+  "generated_by": "scripts/render_cycles_scene.py; do not edit manually",
+  "blender_version": "4.5.3 LTS",
+  "engine": "CYCLES",
+  "device": "CPU",
+  "samples": 48,
+  "scene_source": "/home/ycliang/sim-predicator-paper/review/rendering/scenes/balloons_win.json",
+  "scene_sha256": "6c5cf2273c6889ff0cb13a3ba7f572b51449d428f5c53aaf552fd136c3a1c890",
+  "output_sha256": "5b889d33aab345e944e0eb5db5312ee43171f27dcdf024b20dee77c93cb7771c",
+  "visual_shapes": 103,
+  "blender_mesh_objects": 99,
+  "geometry": "Recorded world transforms; box edges receive at most 0.6 mm visual bevels",
+  "appearance": "Procedural materials, soft area lighting, AgX; duplicate surfaces removed",
+  "physics_steps": 0
+}

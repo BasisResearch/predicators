@@ -1,0 +1,15 @@
+{
+  "generated_by": "scripts/render_cycles_scene.py; do not edit manually",
+  "blender_version": "4.5.3 LTS",
+  "engine": "CYCLES",
+  "device": "CPU",
+  "samples": 48,
+  "scene_source": "/home/ycliang/sim-predicator-paper/review/rendering/scenes/domino_start.json",
+  "scene_sha256": "b89b39f8db600a792f90f90fa6e58c5693eb984f0df323be61aedf6557d8c605",
+  "output_sha256": "eb40f042f324133762616245699770f58f0c3c271c78b773ea84edbce1f9fb71",
+  "visual_shapes": 39,
+  "blender_mesh_objects": 38,
+  "geometry": "Recorded world transforms; box edges receive at most 0.6 mm visual bevels",
+  "appearance": "Procedural materials, soft area lighting, AgX; duplicate surfaces removed",
+  "physics_steps": 0
+}

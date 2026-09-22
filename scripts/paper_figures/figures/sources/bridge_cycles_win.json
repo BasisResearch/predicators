@@ -1,0 +1,15 @@
+{
+  "generated_by": "scripts/render_cycles_scene.py; do not edit manually",
+  "blender_version": "4.5.3 LTS",
+  "engine": "CYCLES",
+  "device": "CPU",
+  "samples": 48,
+  "scene_source": "/home/ycliang/sim-predicator-paper/review/rendering/scenes/bridge_win.json",
+  "scene_sha256": "fb3f5ee7cb8d914a7162e1729997fdbc0f26af3b61cf818d2b13d1ed87f51131",
+  "output_sha256": "4e3b1b3c2abcca821baf3ff79de5ef6333ad2357b38a33d97a0d7cd6fa6dd011",
+  "visual_shapes": 51,
+  "blender_mesh_objects": 51,
+  "geometry": "Recorded world transforms; box edges receive at most 0.6 mm visual bevels",
+  "appearance": "Procedural materials, soft area lighting, AgX; duplicate surfaces removed",
+  "physics_steps": 0
+}
