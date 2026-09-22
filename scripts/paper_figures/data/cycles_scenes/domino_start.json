@@ -4,6 +4,7 @@
     "domain": "Domino",
     "source_recording": "domino_high_friction_turn-mb_opus_gate_r1/seed0/run_20260917_082017/L02/episodes.pkl",
     "source_sha256": "223f03333fdfd02ee20596d30708e78ccbad6440b1880d8c204ea13fca1d45fc",
+    "scorecard_sha256": "b39192a8bcc4d0ec90e90a8cd414f97e52178d2f3c7e4a1a7d475113612cafff",
     "level": "L02",
     "frame": "start",
     "physics_steps_after_restore": 0

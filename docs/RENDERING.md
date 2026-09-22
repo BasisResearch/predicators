@@ -31,6 +31,7 @@ Compile the paper from its own checkout with `latexmk -pdf main.tex`.
 ## Blender Cycles renders
 
 The committed Cycles images were generated with Blender 4.5.3, Cycles CPU, 48 samples, eight render threads, AgX Medium High Contrast, and deterministic seed zero.
+The renderer environment needs `bpy==4.5.3` and `pycollada`.
 The scene exporters restore recorded states and verify that rendering does not advance physics.
 Run the expensive render step on a compute node.
 
@@ -63,6 +64,15 @@ python scripts/paper_figures/render_cycles_scenes.py \
   --scenes bridge_start trajectory_bridge_0 bridge_wet_lift \
   --samples 48 \
   --threads 8
+```
+
+On the cluster, the equivalent self-contained invocation is:
+
+```bash
+uv run --no-project --python 3.11 \
+  --with bpy==4.5.3 --with pycollada \
+  python scripts/paper_figures/render_cycles_scenes.py \
+  --samples 48 --threads 8
 ```
 
 `--domains` now filters both static and trajectory scenes.

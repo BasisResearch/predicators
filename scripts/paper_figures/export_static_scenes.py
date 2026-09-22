@@ -69,6 +69,8 @@ ROWS = (
 def _export_row(row):
     source = LOGS / row["run"] / row["level"] / "episodes.pkl"
     source_bytes = source.read_bytes()
+    scorecard = LOGS / row["run"] / "scorecard.json"
+    scorecard_bytes = scorecard.read_bytes()
     episodes = pickle.loads(source_bytes)  # Trusted local experiment record.
     episode = next(ep for ep in episodes if ep["end"] == "win")
     flags = dict(row["flags"],
@@ -104,6 +106,8 @@ def _export_row(row):
                         domain=row["domain"],
                         source_recording=str(source.relative_to(LOGS)),
                         source_sha256=hashlib.sha256(source_bytes).hexdigest(),
+                        scorecard_sha256=hashlib.sha256(
+                            scorecard_bytes).hexdigest(),
                         level=row["level"],
                         frame=frame,
                         physics_steps_after_restore=0)

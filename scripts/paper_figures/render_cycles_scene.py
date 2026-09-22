@@ -1,6 +1,6 @@
 """Render an exported PyBullet visual scene with Blender Cycles on the CPU.
 
-Run with a Python environment containing bpy==4.5.3 and Pillow. No
+Run with a Python environment containing bpy==4.5.3 and pycollada. No
 physics or task generation runs here; all object transforms come from
 JSON.
 """

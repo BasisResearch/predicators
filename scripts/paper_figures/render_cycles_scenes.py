@@ -118,13 +118,16 @@ def main():
                 stdout=stream,
                 stderr=subprocess.STDOUT,
                 check=True)
-        report['files'][key] = dict(**stamp,
-                                    sha256=digest(output),
-                                    domain=domain,
-                                    frame=frame,
-                                    scene=str(source.relative_to(ROOT)),
-                                    physics_steps_after_restore=0,
-                                    body_poses_and_joints_unchanged=True)
+        scene_metadata = json.loads(source.read_text()).get('metadata', {})
+        report['files'][key] = dict(
+            **stamp,
+            sha256=digest(output),
+            domain=domain,
+            frame=frame,
+            scene=str(source.relative_to(ROOT)),
+            scorecard_sha256=scene_metadata.get('scorecard_sha256'),
+            physics_steps_after_restore=0,
+            body_poses_and_joints_unchanged=True)
         manifest.write_text(json.dumps(report, indent=2) + '\n')
         print(f'Rendered {domain} {frame}', flush=True)
     if temporary_logs is not None:
