@@ -134,9 +134,9 @@ class PyBulletFanBaseEnv(PyBulletEnv):
     # catch a ball after it leaves the exposed platforms.
     fan_support_x_len: ClassVar[float] = 0.02
     fan_support_y_len: ClassVar[float] = 0.06
-    # Reach the fan's base origin. The imported mesh begins just below that
-    # origin, so this gives a small, deliberate overlap with no visible seam.
-    fan_support_height: ClassVar[float] = table_height + fan_z_len / 2
+    # Meet the bottom of the fan housing without entering it. The supports are
+    # visual-only, so a small seam is preferable to visibly bisecting a fan.
+    fan_support_height: ClassVar[float] = table_height
     fan_support_color: ClassVar[Tuple[float, float, float,
                                       float]] = (0.32, 0.34, 0.36, 1.0)
 
@@ -174,6 +174,16 @@ class PyBulletFanBaseEnv(PyBulletEnv):
         float] = left_fan_x + fan_x_len / 2 + fan_y_len / 2 + 0.01
     fan_x_ub: ClassVar[
         float] = right_fan_x - fan_x_len / 2 - fan_y_len / 2 - 0.01
+    # The exposed ramp extends farther right than the standard arena. Spread
+    # its horizontal fan banks over the landing platform as well as the ramp.
+    ramp_fan_x_ub: ClassVar[float] = 1.45
+    # Center the exposed platform envelope on the robot's x coordinate.
+    ramp_scene_x_offset: ClassVar[float] = -0.11
+    # The ramp landing is wider than the standard workspace, but the old
+    # 0.40 offset put the complete fan enclosure noticeably right of the
+    # robot. This value makes the left and right banks symmetric after the
+    # scene translation while still leaving a gap beside the landing deck.
+    ramp_right_fan_offset: ClassVar[float] = 0.22
 
     # =========================================================================
     # SWITCH CONFIGURATION
@@ -928,19 +938,22 @@ class PyBulletFanBaseEnv(PyBulletEnv):
     def _fan_bank_poses(cls,
                         side_idx: int) -> List[Tuple[float, float, float]]:
         """Return evenly spaced ``(x, y, yaw)`` poses for one fan bank."""
+        x_offset = cls.ramp_scene_x_offset if CFG.fan_ramp_transfer else 0.0
         if side_idx in (0, 1):
             count = cls.num_left_fans if side_idx == 0 else cls.num_right_fans
             coordinates = np.linspace(cls.fan_y_lb, cls.fan_y_ub, count)
             x = (cls.left_fan_x if side_idx == 0 else cls.right_fan_x +
-                 (0.4 if CFG.fan_ramp_transfer else 0.0))
+                 (cls.ramp_right_fan_offset if CFG.fan_ramp_transfer else 0.0))
             yaw = 0.0 if side_idx == 0 else np.pi
-            return [(x, float(y), yaw) for y in coordinates]
+            return [(x + x_offset, float(y), yaw) for y in coordinates]
         if side_idx in (2, 3):
             count = cls.num_back_fans if side_idx == 2 else cls.num_front_fans
-            coordinates = np.linspace(cls.fan_x_lb, cls.fan_x_ub, count)
+            upper_x = (cls.ramp_fan_x_ub
+                       if CFG.fan_ramp_transfer else cls.fan_x_ub)
+            coordinates = np.linspace(cls.fan_x_lb, upper_x, count)
             y = cls.down_fan_y if side_idx == 2 else cls.up_fan_y
             yaw = np.pi / 2 if side_idx == 2 else -np.pi / 2
-            return [(float(x), y, yaw) for x in coordinates]
+            return [(float(x) + x_offset, y, yaw) for x in coordinates]
         raise ValueError(f"Unknown fan side {side_idx}")
 
     def _position_fans_on_sides(self) -> None:
