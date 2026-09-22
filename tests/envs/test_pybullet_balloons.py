@@ -67,6 +67,17 @@ def _open_clips(env, state, indices):
     return _settle(env)
 
 
+def test_target_band_is_centered_inside_chute(env_module):
+    """The target-height marker must not intersect either chute wall."""
+    _, env = env_module
+    state = env.level_state(0, [0], (0.5, 0.6))
+    assert state.get(env._band, "x") == pytest.approx(env.box_xy[0])
+    assert state.get(env._band, "y") == pytest.approx(env.box_xy[1])
+    assert env.band_half_xy < env.chute_half_gap
+    clearance = env.chute_half_gap - env.band_half_xy
+    assert clearance >= env.chute_wall_half_thickness
+
+
 def test_cable_visuals_preserve_motion_and_hide_popped_balloons():
     """Camera-visible cables must not change trajectories or task objects."""
     _, plain = _make_env()

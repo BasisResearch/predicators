@@ -217,10 +217,11 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
               2 * cls.balloon_radius * tier)
         return float(dx), float(dy), float(dz)
 
-    # The band crosses the box's column and both chute walls. It is visual
-    # only; ``lo`` and ``hi`` remain heights of the box's centre.
+    # The band is centred in the chute with a small clearance from both
+    # walls. It is visual only; ``lo`` and ``hi`` remain heights of the
+    # box's centre.
     band_offset_x: ClassVar[float] = 0.0
-    band_half_xy: ClassVar[float] = 0.075
+    band_half_xy: ClassVar[float] = 0.044
     band_color: ClassVar[Tuple[float, float, float,
                                float]] = (0.30, 0.80, 0.40, 0.45)
 
