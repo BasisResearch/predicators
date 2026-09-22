@@ -57,6 +57,13 @@ def material_for(shape):
     bsdf.inputs['Base Color'].default_value = color
     bsdf.inputs['Roughness'].default_value = .48
     bsdf.inputs['Specular IOR Level'].default_value = .28
+    if shape['name'] == 'cup':
+        # The deep, saturated-blue cavity receives almost no indirect light in
+        # these compact studio scenes. A very small ambient material response
+        # keeps its interior readable without changing its geometry or the
+        # lighting on any other object.
+        bsdf.inputs['Emission Color'].default_value = color
+        bsdf.inputs['Emission Strength'].default_value = .50
     if shape['kind'] == 2:  # colored sphere, including balloons
         bsdf.inputs['Roughness'].default_value = .29
         bsdf.inputs['Coat Weight'].default_value = .22

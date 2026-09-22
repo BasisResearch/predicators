@@ -1,10 +1,10 @@
 {
   "files": {
     "figures/sources/boil_cycles_start.png": {
-      "renderer_sha256": "690d8d2b3f9971dac7e7ee8b9f2dcf985d35eab7fbf3d2809ef565386f560c4e",
+      "renderer_sha256": "fc6a38f3474e313fdbb2c18c3fe74907d12636176d7981252240eadbf09ce3fb",
       "scene_sha256": "923000addc3656c494669b697a3bb4e33810f72775601f9debb7568d36e09ffb",
       "samples": 48,
-      "sha256": "933316f6196fa01f456e0743dc5d49c1b4a284942db5a0ba47ce8f7312d56a38",
+      "sha256": "b9ade6f6dd11e5c53c9b01a50b6aab0bb8a44aa5e99926c5bf11302d56f3a116",
       "domain": "Boil",
       "frame": "start",
       "scene": "data/cycles_scenes/boil_start.json",
@@ -13,10 +13,10 @@
       "body_poses_and_joints_unchanged": true
     },
     "figures/sources/boil_cycles_win.png": {
-      "renderer_sha256": "690d8d2b3f9971dac7e7ee8b9f2dcf985d35eab7fbf3d2809ef565386f560c4e",
+      "renderer_sha256": "fc6a38f3474e313fdbb2c18c3fe74907d12636176d7981252240eadbf09ce3fb",
       "scene_sha256": "e1482384753dd297cc8edf2ead72214c60108b0d1bff5413dcecaae9cf2de7b1",
       "samples": 48,
-      "sha256": "d1b8ef1d6d3611525b3a8e8d32bbb51c17a1ed16c02384e929e14b03d5170b07",
+      "sha256": "6c89ce64d274e2ece0b2c426b95791fd9d5a6a0f3fd9f06ac022eeaf548c58b4",
       "domain": "Boil",
       "frame": "win",
       "scene": "data/cycles_scenes/boil_win.json",

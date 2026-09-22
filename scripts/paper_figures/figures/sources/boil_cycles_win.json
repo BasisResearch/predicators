@@ -6,7 +6,7 @@
   "samples": 48,
   "scene_source": "/orcd/home/002/ycliang/predicators/scripts/paper_figures/data/cycles_scenes/boil_win.json",
   "scene_sha256": "e1482384753dd297cc8edf2ead72214c60108b0d1bff5413dcecaae9cf2de7b1",
-  "output_sha256": "d1b8ef1d6d3611525b3a8e8d32bbb51c17a1ed16c02384e929e14b03d5170b07",
+  "output_sha256": "6c89ce64d274e2ece0b2c426b95791fd9d5a6a0f3fd9f06ac022eeaf548c58b4",
   "visual_shapes": 69,
   "blender_mesh_objects": 66,
   "geometry": "Recorded world transforms; box edges receive at most 0.6 mm visual bevels",
