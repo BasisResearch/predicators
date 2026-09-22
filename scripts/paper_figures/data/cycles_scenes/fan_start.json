@@ -1234,7 +1234,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-9.obj",
       "position": [
         0.20999999344348907,
-        1.4800000190734863,
+        1.534666657447815,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -1264,7 +1264,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-10.obj",
       "position": [
         0.20999999344348907,
-        1.4800000190734863,
+        1.534666657447815,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -1294,7 +1294,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-2.obj",
       "position": [
         0.20999999344348907,
-        1.4800000190734863,
+        1.534666657447815,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -1324,7 +1324,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-3.obj",
       "position": [
         0.20999999344348907,
-        1.4800000190734863,
+        1.534666657447815,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -1354,7 +1354,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-4.obj",
       "position": [
         0.20999999344348907,
-        1.4800000190734863,
+        1.534666657447815,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -1384,7 +1384,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-5.obj",
       "position": [
         0.20999999344348907,
-        1.4800000190734863,
+        1.534666657447815,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -1414,7 +1414,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-6.obj",
       "position": [
         0.20999999344348907,
-        1.4800000190734863,
+        1.534666657447815,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -1444,7 +1444,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-7.obj",
       "position": [
         0.20999999344348907,
-        1.4800000190734863,
+        1.534666657447815,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -1474,7 +1474,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-8.obj",
       "position": [
         0.20999999344348907,
-        1.4800000190734863,
+        1.534666657447815,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -1504,7 +1504,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-1.obj",
       "position": [
         0.20999999344348907,
-        1.4800000190734863,
+        1.534666657447815,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -1534,7 +1534,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-11.obj",
       "position": [
         0.20999999344348907,
-        1.4800000190734863,
+        1.534666657447815,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -1564,7 +1564,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-9.obj",
       "position": [
         0.20999999344348907,
-        1.6440000534057617,
+        1.753333330154419,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -1594,7 +1594,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-10.obj",
       "position": [
         0.20999999344348907,
-        1.6440000534057617,
+        1.753333330154419,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -1624,7 +1624,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-2.obj",
       "position": [
         0.20999999344348907,
-        1.6440000534057617,
+        1.753333330154419,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -1654,7 +1654,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-3.obj",
       "position": [
         0.20999999344348907,
-        1.6440000534057617,
+        1.753333330154419,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -1684,7 +1684,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-4.obj",
       "position": [
         0.20999999344348907,
-        1.6440000534057617,
+        1.753333330154419,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -1714,7 +1714,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-5.obj",
       "position": [
         0.20999999344348907,
-        1.6440000534057617,
+        1.753333330154419,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -1744,7 +1744,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-6.obj",
       "position": [
         0.20999999344348907,
-        1.6440000534057617,
+        1.753333330154419,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -1774,7 +1774,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-7.obj",
       "position": [
         0.20999999344348907,
-        1.6440000534057617,
+        1.753333330154419,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -1804,7 +1804,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-8.obj",
       "position": [
         0.20999999344348907,
-        1.6440000534057617,
+        1.753333330154419,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -1834,7 +1834,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-1.obj",
       "position": [
         0.20999999344348907,
-        1.6440000534057617,
+        1.753333330154419,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -1864,7 +1864,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-11.obj",
       "position": [
         0.20999999344348907,
-        1.6440000534057617,
+        1.753333330154419,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -1894,7 +1894,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-9.obj",
       "position": [
         0.20999999344348907,
-        1.8079999685287476,
+        1.972000002861023,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -1924,7 +1924,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-10.obj",
       "position": [
         0.20999999344348907,
-        1.8079999685287476,
+        1.972000002861023,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -1954,7 +1954,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-2.obj",
       "position": [
         0.20999999344348907,
-        1.8079999685287476,
+        1.972000002861023,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -1984,7 +1984,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-3.obj",
       "position": [
         0.20999999344348907,
-        1.8079999685287476,
+        1.972000002861023,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -2014,7 +2014,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-4.obj",
       "position": [
         0.20999999344348907,
-        1.8079999685287476,
+        1.972000002861023,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -2044,7 +2044,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-5.obj",
       "position": [
         0.20999999344348907,
-        1.8079999685287476,
+        1.972000002861023,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -2074,7 +2074,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-6.obj",
       "position": [
         0.20999999344348907,
-        1.8079999685287476,
+        1.972000002861023,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -2104,7 +2104,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-7.obj",
       "position": [
         0.20999999344348907,
-        1.8079999685287476,
+        1.972000002861023,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -2134,7 +2134,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-8.obj",
       "position": [
         0.20999999344348907,
-        1.8079999685287476,
+        1.972000002861023,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -2164,7 +2164,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-1.obj",
       "position": [
         0.20999999344348907,
-        1.8079999685287476,
+        1.972000002861023,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -2194,36 +2194,6 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-11.obj",
       "position": [
         0.20999999344348907,
-        1.8079999685287476,
-        0.46000000834465027
-      ],
-      "quaternion_xyzw": [
-        0.5,
-        -0.5,
-        -0.5,
-        0.5
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 13,
-      "link": 0,
-      "index": 0,
-      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
-      "kind": 5,
-      "dimensions": [
-        0.08,
-        0.08,
-        0.08
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-9.obj",
-      "position": [
-        0.20999999344348907,
         1.972000002861023,
         0.46000000834465027
       ],
@@ -2242,306 +2212,6 @@
     },
     {
       "body": 13,
-      "link": 1,
-      "index": 1,
-      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
-      "kind": 5,
-      "dimensions": [
-        0.08,
-        0.08,
-        0.08
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-10.obj",
-      "position": [
-        0.20999999344348907,
-        1.972000002861023,
-        0.46000000834465027
-      ],
-      "quaternion_xyzw": [
-        0.5,
-        -0.5,
-        -0.5,
-        0.5
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 13,
-      "link": 1,
-      "index": 2,
-      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
-      "kind": 5,
-      "dimensions": [
-        0.08,
-        0.08,
-        0.08
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-2.obj",
-      "position": [
-        0.20999999344348907,
-        1.972000002861023,
-        0.46000000834465027
-      ],
-      "quaternion_xyzw": [
-        0.5,
-        -0.5,
-        -0.5,
-        0.5
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 13,
-      "link": 1,
-      "index": 3,
-      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
-      "kind": 5,
-      "dimensions": [
-        0.08,
-        0.08,
-        0.08
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-3.obj",
-      "position": [
-        0.20999999344348907,
-        1.972000002861023,
-        0.46000000834465027
-      ],
-      "quaternion_xyzw": [
-        0.5,
-        -0.5,
-        -0.5,
-        0.5
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 13,
-      "link": 1,
-      "index": 4,
-      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
-      "kind": 5,
-      "dimensions": [
-        0.08,
-        0.08,
-        0.08
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-4.obj",
-      "position": [
-        0.20999999344348907,
-        1.972000002861023,
-        0.46000000834465027
-      ],
-      "quaternion_xyzw": [
-        0.5,
-        -0.5,
-        -0.5,
-        0.5
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 13,
-      "link": 1,
-      "index": 5,
-      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
-      "kind": 5,
-      "dimensions": [
-        0.08,
-        0.08,
-        0.08
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-5.obj",
-      "position": [
-        0.20999999344348907,
-        1.972000002861023,
-        0.46000000834465027
-      ],
-      "quaternion_xyzw": [
-        0.5,
-        -0.5,
-        -0.5,
-        0.5
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 13,
-      "link": 1,
-      "index": 6,
-      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
-      "kind": 5,
-      "dimensions": [
-        0.08,
-        0.08,
-        0.08
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-6.obj",
-      "position": [
-        0.20999999344348907,
-        1.972000002861023,
-        0.46000000834465027
-      ],
-      "quaternion_xyzw": [
-        0.5,
-        -0.5,
-        -0.5,
-        0.5
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 13,
-      "link": 1,
-      "index": 7,
-      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
-      "kind": 5,
-      "dimensions": [
-        0.08,
-        0.08,
-        0.08
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-7.obj",
-      "position": [
-        0.20999999344348907,
-        1.972000002861023,
-        0.46000000834465027
-      ],
-      "quaternion_xyzw": [
-        0.5,
-        -0.5,
-        -0.5,
-        0.5
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 13,
-      "link": 1,
-      "index": 8,
-      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
-      "kind": 5,
-      "dimensions": [
-        0.08,
-        0.08,
-        0.08
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-8.obj",
-      "position": [
-        0.20999999344348907,
-        1.972000002861023,
-        0.46000000834465027
-      ],
-      "quaternion_xyzw": [
-        0.5,
-        -0.5,
-        -0.5,
-        0.5
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 13,
-      "link": 1,
-      "index": 9,
-      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
-      "kind": 5,
-      "dimensions": [
-        0.08,
-        0.08,
-        0.08
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-1.obj",
-      "position": [
-        0.20999999344348907,
-        1.972000002861023,
-        0.46000000834465027
-      ],
-      "quaternion_xyzw": [
-        0.5,
-        -0.5,
-        -0.5,
-        0.5
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 13,
-      "link": 1,
-      "index": 10,
-      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
-      "kind": 5,
-      "dimensions": [
-        0.08,
-        0.08,
-        0.08
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-11.obj",
-      "position": [
-        0.20999999344348907,
-        1.972000002861023,
-        0.46000000834465027
-      ],
-      "quaternion_xyzw": [
-        0.5,
-        -0.5,
-        -0.5,
-        0.5
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 14,
       "link": 0,
       "index": 0,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -2571,7 +2241,7 @@
       ]
     },
     {
-      "body": 14,
+      "body": 13,
       "link": 1,
       "index": 1,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -2601,7 +2271,7 @@
       ]
     },
     {
-      "body": 14,
+      "body": 13,
       "link": 1,
       "index": 2,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -2631,7 +2301,7 @@
       ]
     },
     {
-      "body": 14,
+      "body": 13,
       "link": 1,
       "index": 3,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -2661,7 +2331,7 @@
       ]
     },
     {
-      "body": 14,
+      "body": 13,
       "link": 1,
       "index": 4,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -2691,7 +2361,7 @@
       ]
     },
     {
-      "body": 14,
+      "body": 13,
       "link": 1,
       "index": 5,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -2721,7 +2391,7 @@
       ]
     },
     {
-      "body": 14,
+      "body": 13,
       "link": 1,
       "index": 6,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -2751,7 +2421,7 @@
       ]
     },
     {
-      "body": 14,
+      "body": 13,
       "link": 1,
       "index": 7,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -2781,7 +2451,7 @@
       ]
     },
     {
-      "body": 14,
+      "body": 13,
       "link": 1,
       "index": 8,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -2811,7 +2481,7 @@
       ]
     },
     {
-      "body": 14,
+      "body": 13,
       "link": 1,
       "index": 9,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -2841,7 +2511,7 @@
       ]
     },
     {
-      "body": 14,
+      "body": 13,
       "link": 1,
       "index": 10,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -2855,6 +2525,336 @@
       "position": [
         1.4700000286102295,
         1.315999984741211,
+        0.46000000834465027
+      ],
+      "quaternion_xyzw": [
+        0.5,
+        0.5,
+        0.5,
+        0.5
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 14,
+      "link": 0,
+      "index": 0,
+      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
+      "kind": 5,
+      "dimensions": [
+        0.08,
+        0.08,
+        0.08
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-9.obj",
+      "position": [
+        1.4700000286102295,
+        1.534666657447815,
+        0.46000000834465027
+      ],
+      "quaternion_xyzw": [
+        0.5,
+        0.5,
+        0.5,
+        0.5
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 14,
+      "link": 1,
+      "index": 1,
+      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
+      "kind": 5,
+      "dimensions": [
+        0.08,
+        0.08,
+        0.08
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-10.obj",
+      "position": [
+        1.4700000286102295,
+        1.534666657447815,
+        0.46000000834465027
+      ],
+      "quaternion_xyzw": [
+        0.5,
+        0.5,
+        0.5,
+        0.5
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 14,
+      "link": 1,
+      "index": 2,
+      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
+      "kind": 5,
+      "dimensions": [
+        0.08,
+        0.08,
+        0.08
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-2.obj",
+      "position": [
+        1.4700000286102295,
+        1.534666657447815,
+        0.46000000834465027
+      ],
+      "quaternion_xyzw": [
+        0.5,
+        0.5,
+        0.5,
+        0.5
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 14,
+      "link": 1,
+      "index": 3,
+      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
+      "kind": 5,
+      "dimensions": [
+        0.08,
+        0.08,
+        0.08
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-3.obj",
+      "position": [
+        1.4700000286102295,
+        1.534666657447815,
+        0.46000000834465027
+      ],
+      "quaternion_xyzw": [
+        0.5,
+        0.5,
+        0.5,
+        0.5
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 14,
+      "link": 1,
+      "index": 4,
+      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
+      "kind": 5,
+      "dimensions": [
+        0.08,
+        0.08,
+        0.08
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-4.obj",
+      "position": [
+        1.4700000286102295,
+        1.534666657447815,
+        0.46000000834465027
+      ],
+      "quaternion_xyzw": [
+        0.5,
+        0.5,
+        0.5,
+        0.5
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 14,
+      "link": 1,
+      "index": 5,
+      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
+      "kind": 5,
+      "dimensions": [
+        0.08,
+        0.08,
+        0.08
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-5.obj",
+      "position": [
+        1.4700000286102295,
+        1.534666657447815,
+        0.46000000834465027
+      ],
+      "quaternion_xyzw": [
+        0.5,
+        0.5,
+        0.5,
+        0.5
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 14,
+      "link": 1,
+      "index": 6,
+      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
+      "kind": 5,
+      "dimensions": [
+        0.08,
+        0.08,
+        0.08
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-6.obj",
+      "position": [
+        1.4700000286102295,
+        1.534666657447815,
+        0.46000000834465027
+      ],
+      "quaternion_xyzw": [
+        0.5,
+        0.5,
+        0.5,
+        0.5
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 14,
+      "link": 1,
+      "index": 7,
+      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
+      "kind": 5,
+      "dimensions": [
+        0.08,
+        0.08,
+        0.08
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-7.obj",
+      "position": [
+        1.4700000286102295,
+        1.534666657447815,
+        0.46000000834465027
+      ],
+      "quaternion_xyzw": [
+        0.5,
+        0.5,
+        0.5,
+        0.5
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 14,
+      "link": 1,
+      "index": 8,
+      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
+      "kind": 5,
+      "dimensions": [
+        0.08,
+        0.08,
+        0.08
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-8.obj",
+      "position": [
+        1.4700000286102295,
+        1.534666657447815,
+        0.46000000834465027
+      ],
+      "quaternion_xyzw": [
+        0.5,
+        0.5,
+        0.5,
+        0.5
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 14,
+      "link": 1,
+      "index": 9,
+      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
+      "kind": 5,
+      "dimensions": [
+        0.08,
+        0.08,
+        0.08
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-1.obj",
+      "position": [
+        1.4700000286102295,
+        1.534666657447815,
+        0.46000000834465027
+      ],
+      "quaternion_xyzw": [
+        0.5,
+        0.5,
+        0.5,
+        0.5
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 14,
+      "link": 1,
+      "index": 10,
+      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
+      "kind": 5,
+      "dimensions": [
+        0.08,
+        0.08,
+        0.08
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-11.obj",
+      "position": [
+        1.4700000286102295,
+        1.534666657447815,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -2884,7 +2884,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-9.obj",
       "position": [
         1.4700000286102295,
-        1.4800000190734863,
+        1.753333330154419,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -2914,7 +2914,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-10.obj",
       "position": [
         1.4700000286102295,
-        1.4800000190734863,
+        1.753333330154419,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -2944,7 +2944,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-2.obj",
       "position": [
         1.4700000286102295,
-        1.4800000190734863,
+        1.753333330154419,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -2974,7 +2974,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-3.obj",
       "position": [
         1.4700000286102295,
-        1.4800000190734863,
+        1.753333330154419,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -3004,7 +3004,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-4.obj",
       "position": [
         1.4700000286102295,
-        1.4800000190734863,
+        1.753333330154419,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -3034,7 +3034,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-5.obj",
       "position": [
         1.4700000286102295,
-        1.4800000190734863,
+        1.753333330154419,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -3064,7 +3064,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-6.obj",
       "position": [
         1.4700000286102295,
-        1.4800000190734863,
+        1.753333330154419,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -3094,7 +3094,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-7.obj",
       "position": [
         1.4700000286102295,
-        1.4800000190734863,
+        1.753333330154419,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -3124,7 +3124,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-8.obj",
       "position": [
         1.4700000286102295,
-        1.4800000190734863,
+        1.753333330154419,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -3154,7 +3154,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-1.obj",
       "position": [
         1.4700000286102295,
-        1.4800000190734863,
+        1.753333330154419,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -3184,7 +3184,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-11.obj",
       "position": [
         1.4700000286102295,
-        1.4800000190734863,
+        1.753333330154419,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -3214,7 +3214,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-9.obj",
       "position": [
         1.4700000286102295,
-        1.6440000534057617,
+        1.972000002861023,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -3244,7 +3244,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-10.obj",
       "position": [
         1.4700000286102295,
-        1.6440000534057617,
+        1.972000002861023,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -3274,7 +3274,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-2.obj",
       "position": [
         1.4700000286102295,
-        1.6440000534057617,
+        1.972000002861023,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -3304,7 +3304,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-3.obj",
       "position": [
         1.4700000286102295,
-        1.6440000534057617,
+        1.972000002861023,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -3334,7 +3334,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-4.obj",
       "position": [
         1.4700000286102295,
-        1.6440000534057617,
+        1.972000002861023,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -3364,7 +3364,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-5.obj",
       "position": [
         1.4700000286102295,
-        1.6440000534057617,
+        1.972000002861023,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -3394,7 +3394,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-6.obj",
       "position": [
         1.4700000286102295,
-        1.6440000534057617,
+        1.972000002861023,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -3424,7 +3424,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-7.obj",
       "position": [
         1.4700000286102295,
-        1.6440000534057617,
+        1.972000002861023,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -3454,7 +3454,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-8.obj",
       "position": [
         1.4700000286102295,
-        1.6440000534057617,
+        1.972000002861023,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -3484,7 +3484,7 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-1.obj",
       "position": [
         1.4700000286102295,
-        1.6440000534057617,
+        1.972000002861023,
         0.46000000834465027
       ],
       "quaternion_xyzw": [
@@ -3514,366 +3514,6 @@
       "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-11.obj",
       "position": [
         1.4700000286102295,
-        1.6440000534057617,
-        0.46000000834465027
-      ],
-      "quaternion_xyzw": [
-        0.5,
-        0.5,
-        0.5,
-        0.5
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 17,
-      "link": 0,
-      "index": 0,
-      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
-      "kind": 5,
-      "dimensions": [
-        0.08,
-        0.08,
-        0.08
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-9.obj",
-      "position": [
-        1.4700000286102295,
-        1.8079999685287476,
-        0.46000000834465027
-      ],
-      "quaternion_xyzw": [
-        0.5,
-        0.5,
-        0.5,
-        0.5
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 17,
-      "link": 1,
-      "index": 1,
-      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
-      "kind": 5,
-      "dimensions": [
-        0.08,
-        0.08,
-        0.08
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-10.obj",
-      "position": [
-        1.4700000286102295,
-        1.8079999685287476,
-        0.46000000834465027
-      ],
-      "quaternion_xyzw": [
-        0.5,
-        0.5,
-        0.5,
-        0.5
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 17,
-      "link": 1,
-      "index": 2,
-      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
-      "kind": 5,
-      "dimensions": [
-        0.08,
-        0.08,
-        0.08
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-2.obj",
-      "position": [
-        1.4700000286102295,
-        1.8079999685287476,
-        0.46000000834465027
-      ],
-      "quaternion_xyzw": [
-        0.5,
-        0.5,
-        0.5,
-        0.5
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 17,
-      "link": 1,
-      "index": 3,
-      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
-      "kind": 5,
-      "dimensions": [
-        0.08,
-        0.08,
-        0.08
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-3.obj",
-      "position": [
-        1.4700000286102295,
-        1.8079999685287476,
-        0.46000000834465027
-      ],
-      "quaternion_xyzw": [
-        0.5,
-        0.5,
-        0.5,
-        0.5
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 17,
-      "link": 1,
-      "index": 4,
-      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
-      "kind": 5,
-      "dimensions": [
-        0.08,
-        0.08,
-        0.08
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-4.obj",
-      "position": [
-        1.4700000286102295,
-        1.8079999685287476,
-        0.46000000834465027
-      ],
-      "quaternion_xyzw": [
-        0.5,
-        0.5,
-        0.5,
-        0.5
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 17,
-      "link": 1,
-      "index": 5,
-      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
-      "kind": 5,
-      "dimensions": [
-        0.08,
-        0.08,
-        0.08
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-5.obj",
-      "position": [
-        1.4700000286102295,
-        1.8079999685287476,
-        0.46000000834465027
-      ],
-      "quaternion_xyzw": [
-        0.5,
-        0.5,
-        0.5,
-        0.5
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 17,
-      "link": 1,
-      "index": 6,
-      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
-      "kind": 5,
-      "dimensions": [
-        0.08,
-        0.08,
-        0.08
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-6.obj",
-      "position": [
-        1.4700000286102295,
-        1.8079999685287476,
-        0.46000000834465027
-      ],
-      "quaternion_xyzw": [
-        0.5,
-        0.5,
-        0.5,
-        0.5
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 17,
-      "link": 1,
-      "index": 7,
-      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
-      "kind": 5,
-      "dimensions": [
-        0.08,
-        0.08,
-        0.08
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-7.obj",
-      "position": [
-        1.4700000286102295,
-        1.8079999685287476,
-        0.46000000834465027
-      ],
-      "quaternion_xyzw": [
-        0.5,
-        0.5,
-        0.5,
-        0.5
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 17,
-      "link": 1,
-      "index": 8,
-      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
-      "kind": 5,
-      "dimensions": [
-        0.08,
-        0.08,
-        0.08
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-8.obj",
-      "position": [
-        1.4700000286102295,
-        1.8079999685287476,
-        0.46000000834465027
-      ],
-      "quaternion_xyzw": [
-        0.5,
-        0.5,
-        0.5,
-        0.5
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 17,
-      "link": 1,
-      "index": 9,
-      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
-      "kind": 5,
-      "dimensions": [
-        0.08,
-        0.08,
-        0.08
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-1.obj",
-      "position": [
-        1.4700000286102295,
-        1.8079999685287476,
-        0.46000000834465027
-      ],
-      "quaternion_xyzw": [
-        0.5,
-        0.5,
-        0.5,
-        0.5
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 17,
-      "link": 1,
-      "index": 10,
-      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
-      "kind": 5,
-      "dimensions": [
-        0.08,
-        0.08,
-        0.08
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-11.obj",
-      "position": [
-        1.4700000286102295,
-        1.8079999685287476,
-        0.46000000834465027
-      ],
-      "quaternion_xyzw": [
-        0.5,
-        0.5,
-        0.5,
-        0.5
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 18,
-      "link": 0,
-      "index": 0,
-      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
-      "kind": 5,
-      "dimensions": [
-        0.08,
-        0.08,
-        0.08
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-9.obj",
-      "position": [
-        1.4700000286102295,
         1.972000002861023,
         0.46000000834465027
       ],
@@ -3891,307 +3531,7 @@
       ]
     },
     {
-      "body": 18,
-      "link": 1,
-      "index": 1,
-      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
-      "kind": 5,
-      "dimensions": [
-        0.08,
-        0.08,
-        0.08
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-10.obj",
-      "position": [
-        1.4700000286102295,
-        1.972000002861023,
-        0.46000000834465027
-      ],
-      "quaternion_xyzw": [
-        0.5,
-        0.5,
-        0.5,
-        0.5
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 18,
-      "link": 1,
-      "index": 2,
-      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
-      "kind": 5,
-      "dimensions": [
-        0.08,
-        0.08,
-        0.08
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-2.obj",
-      "position": [
-        1.4700000286102295,
-        1.972000002861023,
-        0.46000000834465027
-      ],
-      "quaternion_xyzw": [
-        0.5,
-        0.5,
-        0.5,
-        0.5
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 18,
-      "link": 1,
-      "index": 3,
-      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
-      "kind": 5,
-      "dimensions": [
-        0.08,
-        0.08,
-        0.08
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-3.obj",
-      "position": [
-        1.4700000286102295,
-        1.972000002861023,
-        0.46000000834465027
-      ],
-      "quaternion_xyzw": [
-        0.5,
-        0.5,
-        0.5,
-        0.5
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 18,
-      "link": 1,
-      "index": 4,
-      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
-      "kind": 5,
-      "dimensions": [
-        0.08,
-        0.08,
-        0.08
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-4.obj",
-      "position": [
-        1.4700000286102295,
-        1.972000002861023,
-        0.46000000834465027
-      ],
-      "quaternion_xyzw": [
-        0.5,
-        0.5,
-        0.5,
-        0.5
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 18,
-      "link": 1,
-      "index": 5,
-      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
-      "kind": 5,
-      "dimensions": [
-        0.08,
-        0.08,
-        0.08
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-5.obj",
-      "position": [
-        1.4700000286102295,
-        1.972000002861023,
-        0.46000000834465027
-      ],
-      "quaternion_xyzw": [
-        0.5,
-        0.5,
-        0.5,
-        0.5
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 18,
-      "link": 1,
-      "index": 6,
-      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
-      "kind": 5,
-      "dimensions": [
-        0.08,
-        0.08,
-        0.08
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-6.obj",
-      "position": [
-        1.4700000286102295,
-        1.972000002861023,
-        0.46000000834465027
-      ],
-      "quaternion_xyzw": [
-        0.5,
-        0.5,
-        0.5,
-        0.5
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 18,
-      "link": 1,
-      "index": 7,
-      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
-      "kind": 5,
-      "dimensions": [
-        0.08,
-        0.08,
-        0.08
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-7.obj",
-      "position": [
-        1.4700000286102295,
-        1.972000002861023,
-        0.46000000834465027
-      ],
-      "quaternion_xyzw": [
-        0.5,
-        0.5,
-        0.5,
-        0.5
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 18,
-      "link": 1,
-      "index": 8,
-      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
-      "kind": 5,
-      "dimensions": [
-        0.08,
-        0.08,
-        0.08
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-8.obj",
-      "position": [
-        1.4700000286102295,
-        1.972000002861023,
-        0.46000000834465027
-      ],
-      "quaternion_xyzw": [
-        0.5,
-        0.5,
-        0.5,
-        0.5
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 18,
-      "link": 1,
-      "index": 9,
-      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
-      "kind": 5,
-      "dimensions": [
-        0.08,
-        0.08,
-        0.08
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-1.obj",
-      "position": [
-        1.4700000286102295,
-        1.972000002861023,
-        0.46000000834465027
-      ],
-      "quaternion_xyzw": [
-        0.5,
-        0.5,
-        0.5,
-        0.5
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 18,
-      "link": 1,
-      "index": 10,
-      "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
-      "kind": 5,
-      "dimensions": [
-        0.08,
-        0.08,
-        0.08
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/fan/101450/textured_objs/original-11.obj",
-      "position": [
-        1.4700000286102295,
-        1.972000002861023,
-        0.46000000834465027
-      ],
-      "quaternion_xyzw": [
-        0.5,
-        0.5,
-        0.5,
-        0.5
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 19,
+      "body": 17,
       "link": 0,
       "index": 0,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -4221,7 +3561,7 @@
       ]
     },
     {
-      "body": 19,
+      "body": 17,
       "link": 1,
       "index": 1,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -4251,7 +3591,7 @@
       ]
     },
     {
-      "body": 19,
+      "body": 17,
       "link": 1,
       "index": 2,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -4281,7 +3621,7 @@
       ]
     },
     {
-      "body": 19,
+      "body": 17,
       "link": 1,
       "index": 3,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -4311,7 +3651,7 @@
       ]
     },
     {
-      "body": 19,
+      "body": 17,
       "link": 1,
       "index": 4,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -4341,7 +3681,7 @@
       ]
     },
     {
-      "body": 19,
+      "body": 17,
       "link": 1,
       "index": 5,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -4371,7 +3711,7 @@
       ]
     },
     {
-      "body": 19,
+      "body": 17,
       "link": 1,
       "index": 6,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -4401,7 +3741,7 @@
       ]
     },
     {
-      "body": 19,
+      "body": 17,
       "link": 1,
       "index": 7,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -4431,7 +3771,7 @@
       ]
     },
     {
-      "body": 19,
+      "body": 17,
       "link": 1,
       "index": 8,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -4461,7 +3801,7 @@
       ]
     },
     {
-      "body": 19,
+      "body": 17,
       "link": 1,
       "index": 9,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -4491,7 +3831,7 @@
       ]
     },
     {
-      "body": 19,
+      "body": 17,
       "link": 1,
       "index": 10,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -4521,7 +3861,7 @@
       ]
     },
     {
-      "body": 20,
+      "body": 18,
       "link": 0,
       "index": 0,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -4551,7 +3891,7 @@
       ]
     },
     {
-      "body": 20,
+      "body": 18,
       "link": 1,
       "index": 1,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -4581,7 +3921,7 @@
       ]
     },
     {
-      "body": 20,
+      "body": 18,
       "link": 1,
       "index": 2,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -4611,7 +3951,7 @@
       ]
     },
     {
-      "body": 20,
+      "body": 18,
       "link": 1,
       "index": 3,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -4641,7 +3981,7 @@
       ]
     },
     {
-      "body": 20,
+      "body": 18,
       "link": 1,
       "index": 4,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -4671,7 +4011,7 @@
       ]
     },
     {
-      "body": 20,
+      "body": 18,
       "link": 1,
       "index": 5,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -4701,7 +4041,7 @@
       ]
     },
     {
-      "body": 20,
+      "body": 18,
       "link": 1,
       "index": 6,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -4731,7 +4071,7 @@
       ]
     },
     {
-      "body": 20,
+      "body": 18,
       "link": 1,
       "index": 7,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -4761,7 +4101,7 @@
       ]
     },
     {
-      "body": 20,
+      "body": 18,
       "link": 1,
       "index": 8,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -4791,7 +4131,7 @@
       ]
     },
     {
-      "body": 20,
+      "body": 18,
       "link": 1,
       "index": 9,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -4821,7 +4161,7 @@
       ]
     },
     {
-      "body": 20,
+      "body": 18,
       "link": 1,
       "index": 10,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -4851,7 +4191,7 @@
       ]
     },
     {
-      "body": 21,
+      "body": 19,
       "link": 0,
       "index": 0,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -4881,7 +4221,7 @@
       ]
     },
     {
-      "body": 21,
+      "body": 19,
       "link": 1,
       "index": 1,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -4911,7 +4251,7 @@
       ]
     },
     {
-      "body": 21,
+      "body": 19,
       "link": 1,
       "index": 2,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -4941,7 +4281,7 @@
       ]
     },
     {
-      "body": 21,
+      "body": 19,
       "link": 1,
       "index": 3,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -4971,7 +4311,7 @@
       ]
     },
     {
-      "body": 21,
+      "body": 19,
       "link": 1,
       "index": 4,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -5001,7 +4341,7 @@
       ]
     },
     {
-      "body": 21,
+      "body": 19,
       "link": 1,
       "index": 5,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -5031,7 +4371,7 @@
       ]
     },
     {
-      "body": 21,
+      "body": 19,
       "link": 1,
       "index": 6,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -5061,7 +4401,7 @@
       ]
     },
     {
-      "body": 21,
+      "body": 19,
       "link": 1,
       "index": 7,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -5091,7 +4431,7 @@
       ]
     },
     {
-      "body": 21,
+      "body": 19,
       "link": 1,
       "index": 8,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -5121,7 +4461,7 @@
       ]
     },
     {
-      "body": 21,
+      "body": 19,
       "link": 1,
       "index": 9,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -5151,7 +4491,7 @@
       ]
     },
     {
-      "body": 21,
+      "body": 19,
       "link": 1,
       "index": 10,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -5181,7 +4521,7 @@
       ]
     },
     {
-      "body": 22,
+      "body": 20,
       "link": 0,
       "index": 0,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -5211,7 +4551,7 @@
       ]
     },
     {
-      "body": 22,
+      "body": 20,
       "link": 1,
       "index": 1,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -5241,7 +4581,7 @@
       ]
     },
     {
-      "body": 22,
+      "body": 20,
       "link": 1,
       "index": 2,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -5271,7 +4611,7 @@
       ]
     },
     {
-      "body": 22,
+      "body": 20,
       "link": 1,
       "index": 3,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -5301,7 +4641,7 @@
       ]
     },
     {
-      "body": 22,
+      "body": 20,
       "link": 1,
       "index": 4,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -5331,7 +4671,7 @@
       ]
     },
     {
-      "body": 22,
+      "body": 20,
       "link": 1,
       "index": 5,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -5361,7 +4701,7 @@
       ]
     },
     {
-      "body": 22,
+      "body": 20,
       "link": 1,
       "index": 6,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -5391,7 +4731,7 @@
       ]
     },
     {
-      "body": 22,
+      "body": 20,
       "link": 1,
       "index": 7,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -5421,7 +4761,7 @@
       ]
     },
     {
-      "body": 22,
+      "body": 20,
       "link": 1,
       "index": 8,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -5451,7 +4791,7 @@
       ]
     },
     {
-      "body": 22,
+      "body": 20,
       "link": 1,
       "index": 9,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -5481,7 +4821,7 @@
       ]
     },
     {
-      "body": 22,
+      "body": 20,
       "link": 1,
       "index": 10,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -5511,7 +4851,7 @@
       ]
     },
     {
-      "body": 23,
+      "body": 21,
       "link": 0,
       "index": 0,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -5541,7 +4881,7 @@
       ]
     },
     {
-      "body": 23,
+      "body": 21,
       "link": 1,
       "index": 1,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -5571,7 +4911,7 @@
       ]
     },
     {
-      "body": 23,
+      "body": 21,
       "link": 1,
       "index": 2,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -5601,7 +4941,7 @@
       ]
     },
     {
-      "body": 23,
+      "body": 21,
       "link": 1,
       "index": 3,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -5631,7 +4971,7 @@
       ]
     },
     {
-      "body": 23,
+      "body": 21,
       "link": 1,
       "index": 4,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -5661,7 +5001,7 @@
       ]
     },
     {
-      "body": 23,
+      "body": 21,
       "link": 1,
       "index": 5,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -5691,7 +5031,7 @@
       ]
     },
     {
-      "body": 23,
+      "body": 21,
       "link": 1,
       "index": 6,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -5721,7 +5061,7 @@
       ]
     },
     {
-      "body": 23,
+      "body": 21,
       "link": 1,
       "index": 7,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -5751,7 +5091,7 @@
       ]
     },
     {
-      "body": 23,
+      "body": 21,
       "link": 1,
       "index": 8,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -5781,7 +5121,7 @@
       ]
     },
     {
-      "body": 23,
+      "body": 21,
       "link": 1,
       "index": 9,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -5811,7 +5151,7 @@
       ]
     },
     {
-      "body": 23,
+      "body": 21,
       "link": 1,
       "index": 10,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -5841,7 +5181,7 @@
       ]
     },
     {
-      "body": 24,
+      "body": 22,
       "link": 0,
       "index": 0,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -5871,7 +5211,7 @@
       ]
     },
     {
-      "body": 24,
+      "body": 22,
       "link": 1,
       "index": 1,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -5901,7 +5241,7 @@
       ]
     },
     {
-      "body": 24,
+      "body": 22,
       "link": 1,
       "index": 2,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -5931,7 +5271,7 @@
       ]
     },
     {
-      "body": 24,
+      "body": 22,
       "link": 1,
       "index": 3,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -5961,7 +5301,7 @@
       ]
     },
     {
-      "body": 24,
+      "body": 22,
       "link": 1,
       "index": 4,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -5991,7 +5331,7 @@
       ]
     },
     {
-      "body": 24,
+      "body": 22,
       "link": 1,
       "index": 5,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -6021,7 +5361,7 @@
       ]
     },
     {
-      "body": 24,
+      "body": 22,
       "link": 1,
       "index": 6,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -6051,7 +5391,7 @@
       ]
     },
     {
-      "body": 24,
+      "body": 22,
       "link": 1,
       "index": 7,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -6081,7 +5421,7 @@
       ]
     },
     {
-      "body": 24,
+      "body": 22,
       "link": 1,
       "index": 8,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -6111,7 +5451,7 @@
       ]
     },
     {
-      "body": 24,
+      "body": 22,
       "link": 1,
       "index": 9,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -6141,7 +5481,7 @@
       ]
     },
     {
-      "body": 24,
+      "body": 22,
       "link": 1,
       "index": 10,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -6171,7 +5511,7 @@
       ]
     },
     {
-      "body": 25,
+      "body": 23,
       "link": 0,
       "index": 0,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -6201,7 +5541,7 @@
       ]
     },
     {
-      "body": 25,
+      "body": 23,
       "link": 1,
       "index": 1,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -6231,7 +5571,7 @@
       ]
     },
     {
-      "body": 25,
+      "body": 23,
       "link": 1,
       "index": 2,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -6261,7 +5601,7 @@
       ]
     },
     {
-      "body": 25,
+      "body": 23,
       "link": 1,
       "index": 3,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -6291,7 +5631,7 @@
       ]
     },
     {
-      "body": 25,
+      "body": 23,
       "link": 1,
       "index": 4,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -6321,7 +5661,7 @@
       ]
     },
     {
-      "body": 25,
+      "body": 23,
       "link": 1,
       "index": 5,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -6351,7 +5691,7 @@
       ]
     },
     {
-      "body": 25,
+      "body": 23,
       "link": 1,
       "index": 6,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -6381,7 +5721,7 @@
       ]
     },
     {
-      "body": 25,
+      "body": 23,
       "link": 1,
       "index": 7,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -6411,7 +5751,7 @@
       ]
     },
     {
-      "body": 25,
+      "body": 23,
       "link": 1,
       "index": 8,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -6441,7 +5781,7 @@
       ]
     },
     {
-      "body": 25,
+      "body": 23,
       "link": 1,
       "index": 9,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -6471,7 +5811,7 @@
       ]
     },
     {
-      "body": 25,
+      "body": 23,
       "link": 1,
       "index": 10,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -6501,7 +5841,7 @@
       ]
     },
     {
-      "body": 26,
+      "body": 24,
       "link": 0,
       "index": 0,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -6531,7 +5871,7 @@
       ]
     },
     {
-      "body": 26,
+      "body": 24,
       "link": 1,
       "index": 1,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -6561,7 +5901,7 @@
       ]
     },
     {
-      "body": 26,
+      "body": 24,
       "link": 1,
       "index": 2,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -6591,7 +5931,7 @@
       ]
     },
     {
-      "body": 26,
+      "body": 24,
       "link": 1,
       "index": 3,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -6621,7 +5961,7 @@
       ]
     },
     {
-      "body": 26,
+      "body": 24,
       "link": 1,
       "index": 4,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -6651,7 +5991,7 @@
       ]
     },
     {
-      "body": 26,
+      "body": 24,
       "link": 1,
       "index": 5,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -6681,7 +6021,7 @@
       ]
     },
     {
-      "body": 26,
+      "body": 24,
       "link": 1,
       "index": 6,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -6711,7 +6051,7 @@
       ]
     },
     {
-      "body": 26,
+      "body": 24,
       "link": 1,
       "index": 7,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -6741,7 +6081,7 @@
       ]
     },
     {
-      "body": 26,
+      "body": 24,
       "link": 1,
       "index": 8,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -6771,7 +6111,7 @@
       ]
     },
     {
-      "body": 26,
+      "body": 24,
       "link": 1,
       "index": 9,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -6801,7 +6141,7 @@
       ]
     },
     {
-      "body": 26,
+      "body": 24,
       "link": 1,
       "index": 10,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -6831,7 +6171,7 @@
       ]
     },
     {
-      "body": 27,
+      "body": 25,
       "link": 0,
       "index": 0,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -6861,7 +6201,7 @@
       ]
     },
     {
-      "body": 27,
+      "body": 25,
       "link": 1,
       "index": 1,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -6891,7 +6231,7 @@
       ]
     },
     {
-      "body": 27,
+      "body": 25,
       "link": 1,
       "index": 2,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -6921,7 +6261,7 @@
       ]
     },
     {
-      "body": 27,
+      "body": 25,
       "link": 1,
       "index": 3,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -6951,7 +6291,7 @@
       ]
     },
     {
-      "body": 27,
+      "body": 25,
       "link": 1,
       "index": 4,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -6981,7 +6321,7 @@
       ]
     },
     {
-      "body": 27,
+      "body": 25,
       "link": 1,
       "index": 5,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -7011,7 +6351,7 @@
       ]
     },
     {
-      "body": 27,
+      "body": 25,
       "link": 1,
       "index": 6,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -7041,7 +6381,7 @@
       ]
     },
     {
-      "body": 27,
+      "body": 25,
       "link": 1,
       "index": 7,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -7071,7 +6411,7 @@
       ]
     },
     {
-      "body": 27,
+      "body": 25,
       "link": 1,
       "index": 8,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -7101,7 +6441,7 @@
       ]
     },
     {
-      "body": 27,
+      "body": 25,
       "link": 1,
       "index": 9,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -7131,7 +6471,7 @@
       ]
     },
     {
-      "body": 27,
+      "body": 25,
       "link": 1,
       "index": 10,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -7161,7 +6501,7 @@
       ]
     },
     {
-      "body": 28,
+      "body": 26,
       "link": 0,
       "index": 0,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -7191,7 +6531,7 @@
       ]
     },
     {
-      "body": 28,
+      "body": 26,
       "link": 1,
       "index": 1,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -7221,7 +6561,7 @@
       ]
     },
     {
-      "body": 28,
+      "body": 26,
       "link": 1,
       "index": 2,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -7251,7 +6591,7 @@
       ]
     },
     {
-      "body": 28,
+      "body": 26,
       "link": 1,
       "index": 3,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -7281,7 +6621,7 @@
       ]
     },
     {
-      "body": 28,
+      "body": 26,
       "link": 1,
       "index": 4,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -7311,7 +6651,7 @@
       ]
     },
     {
-      "body": 28,
+      "body": 26,
       "link": 1,
       "index": 5,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -7341,7 +6681,7 @@
       ]
     },
     {
-      "body": 28,
+      "body": 26,
       "link": 1,
       "index": 6,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -7371,7 +6711,7 @@
       ]
     },
     {
-      "body": 28,
+      "body": 26,
       "link": 1,
       "index": 7,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -7401,7 +6741,7 @@
       ]
     },
     {
-      "body": 28,
+      "body": 26,
       "link": 1,
       "index": 8,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -7431,7 +6771,7 @@
       ]
     },
     {
-      "body": 28,
+      "body": 26,
       "link": 1,
       "index": 9,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -7461,7 +6801,7 @@
       ]
     },
     {
-      "body": 28,
+      "body": 26,
       "link": 1,
       "index": 10,
       "name": "partnet_8e9dc192c492061ae82b1dc57ebca27",
@@ -7487,6 +6827,66 @@
         1.0,
         1.0,
         1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 27,
+      "link": -1,
+      "index": 0,
+      "name": "",
+      "kind": 3,
+      "dimensions": [
+        0.02,
+        0.06,
+        0.4
+      ],
+      "mesh": "",
+      "position": [
+        0.20999999344348907,
+        1.315999984741211,
+        0.20000000298023224
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "rgba": [
+        0.3199999928474426,
+        0.3400000035762787,
+        0.36000001430511475,
+        1.0
+      ]
+    },
+    {
+      "body": 28,
+      "link": -1,
+      "index": 0,
+      "name": "",
+      "kind": 3,
+      "dimensions": [
+        0.02,
+        0.06,
+        0.4
+      ],
+      "mesh": "",
+      "position": [
+        0.20999999344348907,
+        1.534666657447815,
+        0.20000000298023224
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "rgba": [
+        0.3199999928474426,
+        0.3400000035762787,
+        0.36000001430511475,
         1.0
       ]
     },
@@ -7504,7 +6904,7 @@
       "mesh": "",
       "position": [
         0.20999999344348907,
-        1.315999984741211,
+        1.753333330154419,
         0.20000000298023224
       ],
       "quaternion_xyzw": [
@@ -7534,96 +6934,6 @@
       "mesh": "",
       "position": [
         0.20999999344348907,
-        1.4800000190734863,
-        0.20000000298023224
-      ],
-      "quaternion_xyzw": [
-        0.0,
-        0.0,
-        0.0,
-        1.0
-      ],
-      "rgba": [
-        0.3199999928474426,
-        0.3400000035762787,
-        0.36000001430511475,
-        1.0
-      ]
-    },
-    {
-      "body": 31,
-      "link": -1,
-      "index": 0,
-      "name": "",
-      "kind": 3,
-      "dimensions": [
-        0.02,
-        0.06,
-        0.4
-      ],
-      "mesh": "",
-      "position": [
-        0.20999999344348907,
-        1.6440000534057617,
-        0.20000000298023224
-      ],
-      "quaternion_xyzw": [
-        0.0,
-        0.0,
-        0.0,
-        1.0
-      ],
-      "rgba": [
-        0.3199999928474426,
-        0.3400000035762787,
-        0.36000001430511475,
-        1.0
-      ]
-    },
-    {
-      "body": 32,
-      "link": -1,
-      "index": 0,
-      "name": "",
-      "kind": 3,
-      "dimensions": [
-        0.02,
-        0.06,
-        0.4
-      ],
-      "mesh": "",
-      "position": [
-        0.20999999344348907,
-        1.8079999685287476,
-        0.20000000298023224
-      ],
-      "quaternion_xyzw": [
-        0.0,
-        0.0,
-        0.0,
-        1.0
-      ],
-      "rgba": [
-        0.3199999928474426,
-        0.3400000035762787,
-        0.36000001430511475,
-        1.0
-      ]
-    },
-    {
-      "body": 33,
-      "link": -1,
-      "index": 0,
-      "name": "",
-      "kind": 3,
-      "dimensions": [
-        0.02,
-        0.06,
-        0.4
-      ],
-      "mesh": "",
-      "position": [
-        0.20999999344348907,
         1.972000002861023,
         0.20000000298023224
       ],
@@ -7641,7 +6951,7 @@
       ]
     },
     {
-      "body": 34,
+      "body": 31,
       "link": -1,
       "index": 0,
       "name": "",
@@ -7671,7 +6981,7 @@
       ]
     },
     {
-      "body": 35,
+      "body": 32,
       "link": -1,
       "index": 0,
       "name": "",
@@ -7684,7 +6994,7 @@
       "mesh": "",
       "position": [
         1.4700000286102295,
-        1.4800000190734863,
+        1.534666657447815,
         0.20000000298023224
       ],
       "quaternion_xyzw": [
@@ -7701,7 +7011,7 @@
       ]
     },
     {
-      "body": 36,
+      "body": 33,
       "link": -1,
       "index": 0,
       "name": "",
@@ -7714,7 +7024,7 @@
       "mesh": "",
       "position": [
         1.4700000286102295,
-        1.6440000534057617,
+        1.753333330154419,
         0.20000000298023224
       ],
       "quaternion_xyzw": [
@@ -7731,37 +7041,7 @@
       ]
     },
     {
-      "body": 37,
-      "link": -1,
-      "index": 0,
-      "name": "",
-      "kind": 3,
-      "dimensions": [
-        0.02,
-        0.06,
-        0.4
-      ],
-      "mesh": "",
-      "position": [
-        1.4700000286102295,
-        1.8079999685287476,
-        0.20000000298023224
-      ],
-      "quaternion_xyzw": [
-        0.0,
-        0.0,
-        1.0,
-        6.123234262925839e-17
-      ],
-      "rgba": [
-        0.3199999928474426,
-        0.3400000035762787,
-        0.36000001430511475,
-        1.0
-      ]
-    },
-    {
-      "body": 38,
+      "body": 34,
       "link": -1,
       "index": 0,
       "name": "",
@@ -7791,7 +7071,7 @@
       ]
     },
     {
-      "body": 39,
+      "body": 35,
       "link": -1,
       "index": 0,
       "name": "",
@@ -7804,6 +7084,126 @@
       "mesh": "",
       "position": [
         0.2879999876022339,
+        1.2380000352859497,
+        0.20000000298023224
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.3199999928474426,
+        0.3400000035762787,
+        0.36000001430511475,
+        1.0
+      ]
+    },
+    {
+      "body": 36,
+      "link": -1,
+      "index": 0,
+      "name": "",
+      "kind": 3,
+      "dimensions": [
+        0.02,
+        0.06,
+        0.4
+      ],
+      "mesh": "",
+      "position": [
+        0.5509999990463257,
+        1.2380000352859497,
+        0.20000000298023224
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.3199999928474426,
+        0.3400000035762787,
+        0.36000001430511475,
+        1.0
+      ]
+    },
+    {
+      "body": 37,
+      "link": -1,
+      "index": 0,
+      "name": "",
+      "kind": 3,
+      "dimensions": [
+        0.02,
+        0.06,
+        0.4
+      ],
+      "mesh": "",
+      "position": [
+        0.8140000104904175,
+        1.2380000352859497,
+        0.20000000298023224
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.3199999928474426,
+        0.3400000035762787,
+        0.36000001430511475,
+        1.0
+      ]
+    },
+    {
+      "body": 38,
+      "link": -1,
+      "index": 0,
+      "name": "",
+      "kind": 3,
+      "dimensions": [
+        0.02,
+        0.06,
+        0.4
+      ],
+      "mesh": "",
+      "position": [
+        1.0770000219345093,
+        1.2380000352859497,
+        0.20000000298023224
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.3199999928474426,
+        0.3400000035762787,
+        0.36000001430511475,
+        1.0
+      ]
+    },
+    {
+      "body": 39,
+      "link": -1,
+      "index": 0,
+      "name": "",
+      "kind": 3,
+      "dimensions": [
+        0.02,
+        0.06,
+        0.4
+      ],
+      "mesh": "",
+      "position": [
+        1.340000033378601,
         1.2380000352859497,
         0.20000000298023224
       ],
@@ -7833,14 +7233,14 @@
       ],
       "mesh": "",
       "position": [
-        0.5509999990463257,
-        1.2380000352859497,
+        0.2879999876022339,
+        2.049999952316284,
         0.20000000298023224
       ],
       "quaternion_xyzw": [
         0.0,
         0.0,
-        0.7071067690849304,
+        -0.7071067690849304,
         0.7071067690849304
       ],
       "rgba": [
@@ -7863,14 +7263,14 @@
       ],
       "mesh": "",
       "position": [
-        0.8140000104904175,
-        1.2380000352859497,
+        0.5509999990463257,
+        2.049999952316284,
         0.20000000298023224
       ],
       "quaternion_xyzw": [
         0.0,
         0.0,
-        0.7071067690849304,
+        -0.7071067690849304,
         0.7071067690849304
       ],
       "rgba": [
@@ -7893,14 +7293,14 @@
       ],
       "mesh": "",
       "position": [
-        1.0770000219345093,
-        1.2380000352859497,
+        0.8140000104904175,
+        2.049999952316284,
         0.20000000298023224
       ],
       "quaternion_xyzw": [
         0.0,
         0.0,
-        0.7071067690849304,
+        -0.7071067690849304,
         0.7071067690849304
       ],
       "rgba": [
@@ -7923,14 +7323,14 @@
       ],
       "mesh": "",
       "position": [
-        1.340000033378601,
-        1.2380000352859497,
+        1.0770000219345093,
+        2.049999952316284,
         0.20000000298023224
       ],
       "quaternion_xyzw": [
         0.0,
         0.0,
-        0.7071067690849304,
+        -0.7071067690849304,
         0.7071067690849304
       ],
       "rgba": [
@@ -7953,7 +7353,7 @@
       ],
       "mesh": "",
       "position": [
-        0.2879999876022339,
+        1.340000033378601,
         2.049999952316284,
         0.20000000298023224
       ],
@@ -7974,29 +7374,359 @@
       "body": 45,
       "link": -1,
       "index": 0,
-      "name": "",
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
       "kind": 3,
       "dimensions": [
-        0.02,
-        0.06,
-        0.4
+        0.0,
+        0.0,
+        0.0
       ],
       "mesh": "",
       "position": [
-        0.5509999990463257,
-        2.049999952316284,
-        0.20000000298023224
+        0.49000000953674316,
+        1.100000023841858,
+        0.4000000059604645
       ],
       "quaternion_xyzw": [
         0.0,
         0.0,
-        -0.7071067690849304,
+        0.7071067690849304,
         0.7071067690849304
       ],
       "rgba": [
-        0.3199999928474426,
-        0.3400000035762787,
-        0.36000001430511475,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 45,
+      "link": 1,
+      "index": 1,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-2.obj",
+      "position": [
+        0.49000000953674316,
+        1.100000023841858,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        3.3306690738754696e-16,
+        -2.220446049250313e-16,
+        -1.1102230246251565e-16,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 45,
+      "link": 1,
+      "index": 2,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-8.obj",
+      "position": [
+        0.49000000953674316,
+        1.100000023841858,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        3.3306690738754696e-16,
+        -2.220446049250313e-16,
+        -1.1102230246251565e-16,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 45,
+      "link": 1,
+      "index": 3,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-13.obj",
+      "position": [
+        0.49000000953674316,
+        1.100000023841858,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        3.3306690738754696e-16,
+        -2.220446049250313e-16,
+        -1.1102230246251565e-16,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 45,
+      "link": 1,
+      "index": 4,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-9.obj",
+      "position": [
+        0.49000000953674316,
+        1.100000023841858,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        3.3306690738754696e-16,
+        -2.220446049250313e-16,
+        -1.1102230246251565e-16,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 45,
+      "link": 1,
+      "index": 5,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-5.obj",
+      "position": [
+        0.49000000953674316,
+        1.100000023841858,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        3.3306690738754696e-16,
+        -2.220446049250313e-16,
+        -1.1102230246251565e-16,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 45,
+      "link": 1,
+      "index": 6,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-6.obj",
+      "position": [
+        0.49000000953674316,
+        1.100000023841858,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        3.3306690738754696e-16,
+        -2.220446049250313e-16,
+        -1.1102230246251565e-16,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 45,
+      "link": 1,
+      "index": 7,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-11.obj",
+      "position": [
+        0.49000000953674316,
+        1.100000023841858,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        3.3306690738754696e-16,
+        -2.220446049250313e-16,
+        -1.1102230246251565e-16,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 45,
+      "link": 1,
+      "index": 8,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-12.obj",
+      "position": [
+        0.49000000953674316,
+        1.100000023841858,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        3.3306690738754696e-16,
+        -2.220446049250313e-16,
+        -1.1102230246251565e-16,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 45,
+      "link": 1,
+      "index": 9,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-7.obj",
+      "position": [
+        0.49000000953674316,
+        1.100000023841858,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        3.3306690738754696e-16,
+        -2.220446049250313e-16,
+        -1.1102230246251565e-16,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 45,
+      "link": 1,
+      "index": 10,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-10.obj",
+      "position": [
+        0.49000000953674316,
+        1.100000023841858,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        3.3306690738754696e-16,
+        -2.220446049250313e-16,
+        -1.1102230246251565e-16,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 45,
+      "link": 2,
+      "index": 11,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-14.obj",
+      "position": [
+        0.49000000953674316,
+        1.100000023841858,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        3.3306690738754696e-16,
+        -2.220446049250313e-16,
+        -1.1102230246251565e-16,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
         1.0
       ]
     },
@@ -8004,29 +7734,359 @@
       "body": 46,
       "link": -1,
       "index": 0,
-      "name": "",
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
       "kind": 3,
       "dimensions": [
-        0.02,
-        0.06,
-        0.4
+        0.0,
+        0.0,
+        0.0
       ],
       "mesh": "",
       "position": [
-        0.8140000104904175,
-        2.049999952316284,
-        0.20000000298023224
+        0.5699999928474426,
+        1.100000023841858,
+        0.4000000059604645
       ],
       "quaternion_xyzw": [
         0.0,
         0.0,
-        -0.7071067690849304,
+        0.7071067690849304,
         0.7071067690849304
       ],
       "rgba": [
-        0.3199999928474426,
-        0.3400000035762787,
-        0.36000001430511475,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 46,
+      "link": 1,
+      "index": 1,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-2.obj",
+      "position": [
+        0.5699999928474426,
+        1.100000023841858,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        3.3306690738754696e-16,
+        -2.220446049250313e-16,
+        -1.1102230246251565e-16,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 46,
+      "link": 1,
+      "index": 2,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-8.obj",
+      "position": [
+        0.5699999928474426,
+        1.100000023841858,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        3.3306690738754696e-16,
+        -2.220446049250313e-16,
+        -1.1102230246251565e-16,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 46,
+      "link": 1,
+      "index": 3,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-13.obj",
+      "position": [
+        0.5699999928474426,
+        1.100000023841858,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        3.3306690738754696e-16,
+        -2.220446049250313e-16,
+        -1.1102230246251565e-16,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 46,
+      "link": 1,
+      "index": 4,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-9.obj",
+      "position": [
+        0.5699999928474426,
+        1.100000023841858,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        3.3306690738754696e-16,
+        -2.220446049250313e-16,
+        -1.1102230246251565e-16,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 46,
+      "link": 1,
+      "index": 5,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-5.obj",
+      "position": [
+        0.5699999928474426,
+        1.100000023841858,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        3.3306690738754696e-16,
+        -2.220446049250313e-16,
+        -1.1102230246251565e-16,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 46,
+      "link": 1,
+      "index": 6,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-6.obj",
+      "position": [
+        0.5699999928474426,
+        1.100000023841858,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        3.3306690738754696e-16,
+        -2.220446049250313e-16,
+        -1.1102230246251565e-16,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 46,
+      "link": 1,
+      "index": 7,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-11.obj",
+      "position": [
+        0.5699999928474426,
+        1.100000023841858,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        3.3306690738754696e-16,
+        -2.220446049250313e-16,
+        -1.1102230246251565e-16,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 46,
+      "link": 1,
+      "index": 8,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-12.obj",
+      "position": [
+        0.5699999928474426,
+        1.100000023841858,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        3.3306690738754696e-16,
+        -2.220446049250313e-16,
+        -1.1102230246251565e-16,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 46,
+      "link": 1,
+      "index": 9,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-7.obj",
+      "position": [
+        0.5699999928474426,
+        1.100000023841858,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        3.3306690738754696e-16,
+        -2.220446049250313e-16,
+        -1.1102230246251565e-16,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 46,
+      "link": 1,
+      "index": 10,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-10.obj",
+      "position": [
+        0.5699999928474426,
+        1.100000023841858,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        3.3306690738754696e-16,
+        -2.220446049250313e-16,
+        -1.1102230246251565e-16,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 46,
+      "link": 2,
+      "index": 11,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-14.obj",
+      "position": [
+        0.5699999928474426,
+        1.100000023841858,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        3.3306690738754696e-16,
+        -2.220446049250313e-16,
+        -1.1102230246251565e-16,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
         1.0
       ]
     },
@@ -8034,29 +8094,359 @@
       "body": 47,
       "link": -1,
       "index": 0,
-      "name": "",
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
       "kind": 3,
       "dimensions": [
-        0.02,
-        0.06,
-        0.4
+        0.0,
+        0.0,
+        0.0
       ],
       "mesh": "",
       "position": [
-        1.0770000219345093,
-        2.049999952316284,
-        0.20000000298023224
+        0.6499999761581421,
+        1.100000023841858,
+        0.4000000059604645
       ],
       "quaternion_xyzw": [
         0.0,
         0.0,
-        -0.7071067690849304,
+        0.7071067690849304,
         0.7071067690849304
       ],
       "rgba": [
-        0.3199999928474426,
-        0.3400000035762787,
-        0.36000001430511475,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 47,
+      "link": 1,
+      "index": 1,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-2.obj",
+      "position": [
+        0.6499999761581421,
+        1.100000023841858,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        3.3306690738754696e-16,
+        -2.220446049250313e-16,
+        -1.1102230246251565e-16,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 47,
+      "link": 1,
+      "index": 2,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-8.obj",
+      "position": [
+        0.6499999761581421,
+        1.100000023841858,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        3.3306690738754696e-16,
+        -2.220446049250313e-16,
+        -1.1102230246251565e-16,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 47,
+      "link": 1,
+      "index": 3,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-13.obj",
+      "position": [
+        0.6499999761581421,
+        1.100000023841858,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        3.3306690738754696e-16,
+        -2.220446049250313e-16,
+        -1.1102230246251565e-16,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 47,
+      "link": 1,
+      "index": 4,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-9.obj",
+      "position": [
+        0.6499999761581421,
+        1.100000023841858,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        3.3306690738754696e-16,
+        -2.220446049250313e-16,
+        -1.1102230246251565e-16,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 47,
+      "link": 1,
+      "index": 5,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-5.obj",
+      "position": [
+        0.6499999761581421,
+        1.100000023841858,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        3.3306690738754696e-16,
+        -2.220446049250313e-16,
+        -1.1102230246251565e-16,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 47,
+      "link": 1,
+      "index": 6,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-6.obj",
+      "position": [
+        0.6499999761581421,
+        1.100000023841858,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        3.3306690738754696e-16,
+        -2.220446049250313e-16,
+        -1.1102230246251565e-16,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 47,
+      "link": 1,
+      "index": 7,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-11.obj",
+      "position": [
+        0.6499999761581421,
+        1.100000023841858,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        3.3306690738754696e-16,
+        -2.220446049250313e-16,
+        -1.1102230246251565e-16,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 47,
+      "link": 1,
+      "index": 8,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-12.obj",
+      "position": [
+        0.6499999761581421,
+        1.100000023841858,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        3.3306690738754696e-16,
+        -2.220446049250313e-16,
+        -1.1102230246251565e-16,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 47,
+      "link": 1,
+      "index": 9,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-7.obj",
+      "position": [
+        0.6499999761581421,
+        1.100000023841858,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        3.3306690738754696e-16,
+        -2.220446049250313e-16,
+        -1.1102230246251565e-16,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 47,
+      "link": 1,
+      "index": 10,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-10.obj",
+      "position": [
+        0.6499999761581421,
+        1.100000023841858,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        3.3306690738754696e-16,
+        -2.220446049250313e-16,
+        -1.1102230246251565e-16,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 47,
+      "link": 2,
+      "index": 11,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.1,
+        0.1,
+        0.1
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-14.obj",
+      "position": [
+        0.6499999761581421,
+        1.100000023841858,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        3.3306690738754696e-16,
+        -2.220446049250313e-16,
+        -1.1102230246251565e-16,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
         1.0
       ]
     },
@@ -8064,1116 +8454,6 @@
       "body": 48,
       "link": -1,
       "index": 0,
-      "name": "",
-      "kind": 3,
-      "dimensions": [
-        0.02,
-        0.06,
-        0.4
-      ],
-      "mesh": "",
-      "position": [
-        1.340000033378601,
-        2.049999952316284,
-        0.20000000298023224
-      ],
-      "quaternion_xyzw": [
-        0.0,
-        0.0,
-        -0.7071067690849304,
-        0.7071067690849304
-      ],
-      "rgba": [
-        0.3199999928474426,
-        0.3400000035762787,
-        0.36000001430511475,
-        1.0
-      ]
-    },
-    {
-      "body": 49,
-      "link": -1,
-      "index": 0,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 3,
-      "dimensions": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "mesh": "",
-      "position": [
-        0.49000000953674316,
-        1.100000023841858,
-        0.4000000059604645
-      ],
-      "quaternion_xyzw": [
-        0.0,
-        0.0,
-        0.7071067690849304,
-        0.7071067690849304
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 49,
-      "link": 1,
-      "index": 1,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 5,
-      "dimensions": [
-        0.1,
-        0.1,
-        0.1
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-2.obj",
-      "position": [
-        0.49000000953674316,
-        1.100000023841858,
-        0.4300000071525574
-      ],
-      "quaternion_xyzw": [
-        3.3306690738754696e-16,
-        -2.220446049250313e-16,
-        -1.1102230246251565e-16,
-        1.0
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 49,
-      "link": 1,
-      "index": 2,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 5,
-      "dimensions": [
-        0.1,
-        0.1,
-        0.1
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-8.obj",
-      "position": [
-        0.49000000953674316,
-        1.100000023841858,
-        0.4300000071525574
-      ],
-      "quaternion_xyzw": [
-        3.3306690738754696e-16,
-        -2.220446049250313e-16,
-        -1.1102230246251565e-16,
-        1.0
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 49,
-      "link": 1,
-      "index": 3,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 5,
-      "dimensions": [
-        0.1,
-        0.1,
-        0.1
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-13.obj",
-      "position": [
-        0.49000000953674316,
-        1.100000023841858,
-        0.4300000071525574
-      ],
-      "quaternion_xyzw": [
-        3.3306690738754696e-16,
-        -2.220446049250313e-16,
-        -1.1102230246251565e-16,
-        1.0
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 49,
-      "link": 1,
-      "index": 4,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 5,
-      "dimensions": [
-        0.1,
-        0.1,
-        0.1
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-9.obj",
-      "position": [
-        0.49000000953674316,
-        1.100000023841858,
-        0.4300000071525574
-      ],
-      "quaternion_xyzw": [
-        3.3306690738754696e-16,
-        -2.220446049250313e-16,
-        -1.1102230246251565e-16,
-        1.0
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 49,
-      "link": 1,
-      "index": 5,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 5,
-      "dimensions": [
-        0.1,
-        0.1,
-        0.1
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-5.obj",
-      "position": [
-        0.49000000953674316,
-        1.100000023841858,
-        0.4300000071525574
-      ],
-      "quaternion_xyzw": [
-        3.3306690738754696e-16,
-        -2.220446049250313e-16,
-        -1.1102230246251565e-16,
-        1.0
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 49,
-      "link": 1,
-      "index": 6,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 5,
-      "dimensions": [
-        0.1,
-        0.1,
-        0.1
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-6.obj",
-      "position": [
-        0.49000000953674316,
-        1.100000023841858,
-        0.4300000071525574
-      ],
-      "quaternion_xyzw": [
-        3.3306690738754696e-16,
-        -2.220446049250313e-16,
-        -1.1102230246251565e-16,
-        1.0
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 49,
-      "link": 1,
-      "index": 7,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 5,
-      "dimensions": [
-        0.1,
-        0.1,
-        0.1
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-11.obj",
-      "position": [
-        0.49000000953674316,
-        1.100000023841858,
-        0.4300000071525574
-      ],
-      "quaternion_xyzw": [
-        3.3306690738754696e-16,
-        -2.220446049250313e-16,
-        -1.1102230246251565e-16,
-        1.0
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 49,
-      "link": 1,
-      "index": 8,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 5,
-      "dimensions": [
-        0.1,
-        0.1,
-        0.1
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-12.obj",
-      "position": [
-        0.49000000953674316,
-        1.100000023841858,
-        0.4300000071525574
-      ],
-      "quaternion_xyzw": [
-        3.3306690738754696e-16,
-        -2.220446049250313e-16,
-        -1.1102230246251565e-16,
-        1.0
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 49,
-      "link": 1,
-      "index": 9,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 5,
-      "dimensions": [
-        0.1,
-        0.1,
-        0.1
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-7.obj",
-      "position": [
-        0.49000000953674316,
-        1.100000023841858,
-        0.4300000071525574
-      ],
-      "quaternion_xyzw": [
-        3.3306690738754696e-16,
-        -2.220446049250313e-16,
-        -1.1102230246251565e-16,
-        1.0
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 49,
-      "link": 1,
-      "index": 10,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 5,
-      "dimensions": [
-        0.1,
-        0.1,
-        0.1
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-10.obj",
-      "position": [
-        0.49000000953674316,
-        1.100000023841858,
-        0.4300000071525574
-      ],
-      "quaternion_xyzw": [
-        3.3306690738754696e-16,
-        -2.220446049250313e-16,
-        -1.1102230246251565e-16,
-        1.0
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 49,
-      "link": 2,
-      "index": 11,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 5,
-      "dimensions": [
-        0.1,
-        0.1,
-        0.1
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-14.obj",
-      "position": [
-        0.49000000953674316,
-        1.100000023841858,
-        0.4300000071525574
-      ],
-      "quaternion_xyzw": [
-        3.3306690738754696e-16,
-        -2.220446049250313e-16,
-        -1.1102230246251565e-16,
-        1.0
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 50,
-      "link": -1,
-      "index": 0,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 3,
-      "dimensions": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "mesh": "",
-      "position": [
-        0.5699999928474426,
-        1.100000023841858,
-        0.4000000059604645
-      ],
-      "quaternion_xyzw": [
-        0.0,
-        0.0,
-        0.7071067690849304,
-        0.7071067690849304
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 50,
-      "link": 1,
-      "index": 1,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 5,
-      "dimensions": [
-        0.1,
-        0.1,
-        0.1
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-2.obj",
-      "position": [
-        0.5699999928474426,
-        1.100000023841858,
-        0.4300000071525574
-      ],
-      "quaternion_xyzw": [
-        3.3306690738754696e-16,
-        -2.220446049250313e-16,
-        -1.1102230246251565e-16,
-        1.0
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 50,
-      "link": 1,
-      "index": 2,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 5,
-      "dimensions": [
-        0.1,
-        0.1,
-        0.1
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-8.obj",
-      "position": [
-        0.5699999928474426,
-        1.100000023841858,
-        0.4300000071525574
-      ],
-      "quaternion_xyzw": [
-        3.3306690738754696e-16,
-        -2.220446049250313e-16,
-        -1.1102230246251565e-16,
-        1.0
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 50,
-      "link": 1,
-      "index": 3,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 5,
-      "dimensions": [
-        0.1,
-        0.1,
-        0.1
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-13.obj",
-      "position": [
-        0.5699999928474426,
-        1.100000023841858,
-        0.4300000071525574
-      ],
-      "quaternion_xyzw": [
-        3.3306690738754696e-16,
-        -2.220446049250313e-16,
-        -1.1102230246251565e-16,
-        1.0
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 50,
-      "link": 1,
-      "index": 4,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 5,
-      "dimensions": [
-        0.1,
-        0.1,
-        0.1
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-9.obj",
-      "position": [
-        0.5699999928474426,
-        1.100000023841858,
-        0.4300000071525574
-      ],
-      "quaternion_xyzw": [
-        3.3306690738754696e-16,
-        -2.220446049250313e-16,
-        -1.1102230246251565e-16,
-        1.0
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 50,
-      "link": 1,
-      "index": 5,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 5,
-      "dimensions": [
-        0.1,
-        0.1,
-        0.1
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-5.obj",
-      "position": [
-        0.5699999928474426,
-        1.100000023841858,
-        0.4300000071525574
-      ],
-      "quaternion_xyzw": [
-        3.3306690738754696e-16,
-        -2.220446049250313e-16,
-        -1.1102230246251565e-16,
-        1.0
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 50,
-      "link": 1,
-      "index": 6,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 5,
-      "dimensions": [
-        0.1,
-        0.1,
-        0.1
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-6.obj",
-      "position": [
-        0.5699999928474426,
-        1.100000023841858,
-        0.4300000071525574
-      ],
-      "quaternion_xyzw": [
-        3.3306690738754696e-16,
-        -2.220446049250313e-16,
-        -1.1102230246251565e-16,
-        1.0
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 50,
-      "link": 1,
-      "index": 7,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 5,
-      "dimensions": [
-        0.1,
-        0.1,
-        0.1
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-11.obj",
-      "position": [
-        0.5699999928474426,
-        1.100000023841858,
-        0.4300000071525574
-      ],
-      "quaternion_xyzw": [
-        3.3306690738754696e-16,
-        -2.220446049250313e-16,
-        -1.1102230246251565e-16,
-        1.0
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 50,
-      "link": 1,
-      "index": 8,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 5,
-      "dimensions": [
-        0.1,
-        0.1,
-        0.1
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-12.obj",
-      "position": [
-        0.5699999928474426,
-        1.100000023841858,
-        0.4300000071525574
-      ],
-      "quaternion_xyzw": [
-        3.3306690738754696e-16,
-        -2.220446049250313e-16,
-        -1.1102230246251565e-16,
-        1.0
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 50,
-      "link": 1,
-      "index": 9,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 5,
-      "dimensions": [
-        0.1,
-        0.1,
-        0.1
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-7.obj",
-      "position": [
-        0.5699999928474426,
-        1.100000023841858,
-        0.4300000071525574
-      ],
-      "quaternion_xyzw": [
-        3.3306690738754696e-16,
-        -2.220446049250313e-16,
-        -1.1102230246251565e-16,
-        1.0
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 50,
-      "link": 1,
-      "index": 10,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 5,
-      "dimensions": [
-        0.1,
-        0.1,
-        0.1
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-10.obj",
-      "position": [
-        0.5699999928474426,
-        1.100000023841858,
-        0.4300000071525574
-      ],
-      "quaternion_xyzw": [
-        3.3306690738754696e-16,
-        -2.220446049250313e-16,
-        -1.1102230246251565e-16,
-        1.0
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 50,
-      "link": 2,
-      "index": 11,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 5,
-      "dimensions": [
-        0.1,
-        0.1,
-        0.1
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-14.obj",
-      "position": [
-        0.5699999928474426,
-        1.100000023841858,
-        0.4300000071525574
-      ],
-      "quaternion_xyzw": [
-        3.3306690738754696e-16,
-        -2.220446049250313e-16,
-        -1.1102230246251565e-16,
-        1.0
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 51,
-      "link": -1,
-      "index": 0,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 3,
-      "dimensions": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "mesh": "",
-      "position": [
-        0.6499999761581421,
-        1.100000023841858,
-        0.4000000059604645
-      ],
-      "quaternion_xyzw": [
-        0.0,
-        0.0,
-        0.7071067690849304,
-        0.7071067690849304
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 51,
-      "link": 1,
-      "index": 1,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 5,
-      "dimensions": [
-        0.1,
-        0.1,
-        0.1
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-2.obj",
-      "position": [
-        0.6499999761581421,
-        1.100000023841858,
-        0.4300000071525574
-      ],
-      "quaternion_xyzw": [
-        3.3306690738754696e-16,
-        -2.220446049250313e-16,
-        -1.1102230246251565e-16,
-        1.0
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 51,
-      "link": 1,
-      "index": 2,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 5,
-      "dimensions": [
-        0.1,
-        0.1,
-        0.1
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-8.obj",
-      "position": [
-        0.6499999761581421,
-        1.100000023841858,
-        0.4300000071525574
-      ],
-      "quaternion_xyzw": [
-        3.3306690738754696e-16,
-        -2.220446049250313e-16,
-        -1.1102230246251565e-16,
-        1.0
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 51,
-      "link": 1,
-      "index": 3,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 5,
-      "dimensions": [
-        0.1,
-        0.1,
-        0.1
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-13.obj",
-      "position": [
-        0.6499999761581421,
-        1.100000023841858,
-        0.4300000071525574
-      ],
-      "quaternion_xyzw": [
-        3.3306690738754696e-16,
-        -2.220446049250313e-16,
-        -1.1102230246251565e-16,
-        1.0
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 51,
-      "link": 1,
-      "index": 4,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 5,
-      "dimensions": [
-        0.1,
-        0.1,
-        0.1
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-9.obj",
-      "position": [
-        0.6499999761581421,
-        1.100000023841858,
-        0.4300000071525574
-      ],
-      "quaternion_xyzw": [
-        3.3306690738754696e-16,
-        -2.220446049250313e-16,
-        -1.1102230246251565e-16,
-        1.0
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 51,
-      "link": 1,
-      "index": 5,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 5,
-      "dimensions": [
-        0.1,
-        0.1,
-        0.1
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-5.obj",
-      "position": [
-        0.6499999761581421,
-        1.100000023841858,
-        0.4300000071525574
-      ],
-      "quaternion_xyzw": [
-        3.3306690738754696e-16,
-        -2.220446049250313e-16,
-        -1.1102230246251565e-16,
-        1.0
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 51,
-      "link": 1,
-      "index": 6,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 5,
-      "dimensions": [
-        0.1,
-        0.1,
-        0.1
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-6.obj",
-      "position": [
-        0.6499999761581421,
-        1.100000023841858,
-        0.4300000071525574
-      ],
-      "quaternion_xyzw": [
-        3.3306690738754696e-16,
-        -2.220446049250313e-16,
-        -1.1102230246251565e-16,
-        1.0
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 51,
-      "link": 1,
-      "index": 7,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 5,
-      "dimensions": [
-        0.1,
-        0.1,
-        0.1
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-11.obj",
-      "position": [
-        0.6499999761581421,
-        1.100000023841858,
-        0.4300000071525574
-      ],
-      "quaternion_xyzw": [
-        3.3306690738754696e-16,
-        -2.220446049250313e-16,
-        -1.1102230246251565e-16,
-        1.0
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 51,
-      "link": 1,
-      "index": 8,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 5,
-      "dimensions": [
-        0.1,
-        0.1,
-        0.1
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-12.obj",
-      "position": [
-        0.6499999761581421,
-        1.100000023841858,
-        0.4300000071525574
-      ],
-      "quaternion_xyzw": [
-        3.3306690738754696e-16,
-        -2.220446049250313e-16,
-        -1.1102230246251565e-16,
-        1.0
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 51,
-      "link": 1,
-      "index": 9,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 5,
-      "dimensions": [
-        0.1,
-        0.1,
-        0.1
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-7.obj",
-      "position": [
-        0.6499999761581421,
-        1.100000023841858,
-        0.4300000071525574
-      ],
-      "quaternion_xyzw": [
-        3.3306690738754696e-16,
-        -2.220446049250313e-16,
-        -1.1102230246251565e-16,
-        1.0
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 51,
-      "link": 1,
-      "index": 10,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 5,
-      "dimensions": [
-        0.1,
-        0.1,
-        0.1
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-10.obj",
-      "position": [
-        0.6499999761581421,
-        1.100000023841858,
-        0.4300000071525574
-      ],
-      "quaternion_xyzw": [
-        3.3306690738754696e-16,
-        -2.220446049250313e-16,
-        -1.1102230246251565e-16,
-        1.0
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 51,
-      "link": 2,
-      "index": 11,
-      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
-      "kind": 5,
-      "dimensions": [
-        0.1,
-        0.1,
-        0.1
-      ],
-      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-14.obj",
-      "position": [
-        0.6499999761581421,
-        1.100000023841858,
-        0.4300000071525574
-      ],
-      "quaternion_xyzw": [
-        3.3306690738754696e-16,
-        -2.220446049250313e-16,
-        -1.1102230246251565e-16,
-        1.0
-      ],
-      "rgba": [
-        1.0,
-        1.0,
-        1.0,
-        1.0
-      ]
-    },
-    {
-      "body": 52,
-      "link": -1,
-      "index": 0,
       "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
       "kind": 3,
       "dimensions": [
@@ -9201,7 +8481,7 @@
       ]
     },
     {
-      "body": 52,
+      "body": 48,
       "link": 1,
       "index": 1,
       "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
@@ -9231,7 +8511,7 @@
       ]
     },
     {
-      "body": 52,
+      "body": 48,
       "link": 1,
       "index": 2,
       "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
@@ -9261,7 +8541,7 @@
       ]
     },
     {
-      "body": 52,
+      "body": 48,
       "link": 1,
       "index": 3,
       "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
@@ -9291,7 +8571,7 @@
       ]
     },
     {
-      "body": 52,
+      "body": 48,
       "link": 1,
       "index": 4,
       "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
@@ -9321,7 +8601,7 @@
       ]
     },
     {
-      "body": 52,
+      "body": 48,
       "link": 1,
       "index": 5,
       "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
@@ -9351,7 +8631,7 @@
       ]
     },
     {
-      "body": 52,
+      "body": 48,
       "link": 1,
       "index": 6,
       "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
@@ -9381,7 +8661,7 @@
       ]
     },
     {
-      "body": 52,
+      "body": 48,
       "link": 1,
       "index": 7,
       "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
@@ -9411,7 +8691,7 @@
       ]
     },
     {
-      "body": 52,
+      "body": 48,
       "link": 1,
       "index": 8,
       "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
@@ -9441,7 +8721,7 @@
       ]
     },
     {
-      "body": 52,
+      "body": 48,
       "link": 1,
       "index": 9,
       "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
@@ -9471,7 +8751,7 @@
       ]
     },
     {
-      "body": 52,
+      "body": 48,
       "link": 1,
       "index": 10,
       "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
@@ -9501,7 +8781,7 @@
       ]
     },
     {
-      "body": 52,
+      "body": 48,
       "link": 2,
       "index": 11,
       "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
@@ -9531,7 +8811,7 @@
       ]
     },
     {
-      "body": 53,
+      "body": 49,
       "link": -1,
       "index": 0,
       "name": "",
@@ -9561,7 +8841,7 @@
       ]
     },
     {
-      "body": 54,
+      "body": 50,
       "link": -1,
       "index": 0,
       "name": "",
@@ -9591,7 +8871,7 @@
       ]
     },
     {
-      "body": 55,
+      "body": 51,
       "link": -1,
       "index": 0,
       "name": "",
@@ -9621,7 +8901,7 @@
       ]
     },
     {
-      "body": 56,
+      "body": 52,
       "link": -1,
       "index": 0,
       "name": "",
@@ -9651,7 +8931,7 @@
       ]
     },
     {
-      "body": 57,
+      "body": 53,
       "link": -1,
       "index": 0,
       "name": "",
@@ -9681,7 +8961,7 @@
       ]
     },
     {
-      "body": 58,
+      "body": 54,
       "link": -1,
       "index": 0,
       "name": "",
@@ -9711,7 +8991,7 @@
       ]
     },
     {
-      "body": 59,
+      "body": 55,
       "link": -1,
       "index": 0,
       "name": "",
@@ -9741,7 +9021,7 @@
       ]
     },
     {
-      "body": 60,
+      "body": 56,
       "link": -1,
       "index": 0,
       "name": "",
@@ -9771,7 +9051,7 @@
       ]
     },
     {
-      "body": 61,
+      "body": 57,
       "link": -1,
       "index": 0,
       "name": "",
@@ -9881,7 +9161,7 @@
       ]
     },
     {
-      "body": 62,
+      "body": 58,
       "link": -1,
       "index": 0,
       "name": "",
