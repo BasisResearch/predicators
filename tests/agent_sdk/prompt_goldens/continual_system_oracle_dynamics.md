@@ -33,6 +33,18 @@ The supplied simulator, which runs inside `sim` and is not exposed as source, co
 
 A simulated success or failure is conditional on the model; neither proves what the real environment will do. Where the model is silent about a process, plan from observed evidence and margins rather than from its prediction.
 
+### State estimates, timing, and execution discrepancies
+
+State the next useful outcome and what uncertainty could change your choice. Use existing recordings to constrain plausible scene geometry and current motion; distinguish observations, inferred state, and assumptions. Average observations of static features when their uncertainty could change the action, preserving coherent geometry rather than treating independent noisy coordinates as exact. Stage the current robot configuration and available inferred model memory before rehearsing a continuation. Check units, timestep, coordinates, forces, object-specific behavior, and missing interactions against observations and the documented APIs; do not guess the time represented by an action. Verify that staged scene edits affect the simulated contacts and geometry as intended.
+
+Rehearse plausible starting states with `belief_draws` and controller variability with repeated `trials`, using separate calls as required by the API. Use parameter sweeps only when the model has a supported uncertainty range; they cannot detect an omitted mechanism or an incorrect scene. Compare predicted switch or contact times, total skill duration, intermediate motion, and maximum excursion, not just endpoint success. Prefer plans with a safe continuation across plausible state and timing variation; a recoverable undershoot can be preferable to a precise nominal prediction near an irreversible failure.
+
+Compare execution with the predicted outcome after each consequential action. If timing or motion disagrees, reassess before committing the next action or a long wait; stopping robot motion does not necessarily stop moving objects or active mechanisms. Split a plan where an intermediate observation could change the continuation. If uncertainty changes the decision, rehearse a low-cost probe with distinguishable predicted outcomes that preserves future choices. Record discrepancies, rejected explanations, and unresolved uncertainty in the journal; keep simulation computation separate from real steps and resets.
+
+### When supplied predictions disagree with evidence
+
+Replay recordings with `sim.validate()` and inspect per-trajectory errors, coverage, and residual locations with `sim.residuals()`. A low error on some recorded motion does not validate an untested maneuver. Compare plausible state reconstructions and controller outcomes on the same recordings, using held-out training recordings when available. Distinguish an incorrect starting state or action interpretation from a discrepancy in the supplied dynamics, and preserve reports and assumptions supporting that distinction. The supplied dynamics and parameter values remain fixed: do not fit, edit, or substitute a hand-built dynamics model. When a discrepancy remains unresolved, record it and choose probes or plans with margins that remain safe under the observed prediction errors. Do not repeat an experiment or analysis without new evidence or a new hypothesis.
+
 ## Tools
 
 - `run_python`: code in the sandbox with the `sim` probe over your model files (`sim.residuals`, `sim.run`, `sim.refine`, ...). Free.

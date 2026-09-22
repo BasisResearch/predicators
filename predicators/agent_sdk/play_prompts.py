@@ -118,6 +118,7 @@ def build_play_system_prompt(tool_names: Sequence[str],
                              model_contract: str = "",
                              frozen_section: str = "",
                              frozen_model_supplied: bool = False,
+                             oracle_dynamics: bool = False,
                              scene_built: bool = False,
                              scene_package: bool = False) -> str:
     """The system prompt of the run's conversation.
@@ -181,7 +182,9 @@ def build_play_system_prompt(tool_names: Sequence[str],
     if frozen:
         sections.append(frozen_section)
     if scene_built:
-        sections.append(render("play_system", "arm_real_to_sim"))
+        sections.append(
+            render("play_system",
+                   "arm_from_assets" if fit_available else "arm_real_to_sim"))
     adaptive = ""
     if (model and not frozen and not point_estimate
             and CFG.agent_explorer_info_seeking
@@ -213,8 +216,17 @@ def build_play_system_prompt(tool_names: Sequence[str],
             render("play_system",
                    "workflow",
                    adaptive_info_seeking=adaptive,
+                   rehearsal_clause="once your scene model is loaded"
+                   if scene_built else "model or not",
+                   sim_first_round=render(
+                       "play_system", "sim_first_round_scene"
+                       if scene_built else "sim_first_round_twin"),
                    model_ready=render("play_system", ready)))
     if model:
+        if not point_estimate and (not frozen or oracle_dynamics):
+            sections.append(render("play_system", "rehearsal_reliability"))
+        if oracle_dynamics:
+            sections.append(render("play_system", "oracle_discrepancies"))
         if CFG.continual_require_model_on_test:
             sections.append(render("play_system", "model_gate"))
         if CFG.continual_skill_preflight:
@@ -230,7 +242,12 @@ def build_play_system_prompt(tool_names: Sequence[str],
                            if CFG.agent_sim_learn_declared_params_only else
                            "fitted"))
             else:
-                sections.append(render("play_system", "model_repair"))
+                sections.append(
+                    render("play_system",
+                           "model_repair",
+                           repair_reference=
+                           "your reconstructed scene and the engine"
+                           if scene_built else "the visible base"))
     else:
         sections.append(render("play_system", "workflow_model_free"))
     files = ("sandbox_frozen_files" if supplied else "sandbox" + variant +

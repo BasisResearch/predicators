@@ -6,6 +6,14 @@
 # preflight (continual_skill_preflight) is off by default since Sept 18,
 # 2026; a launcher that wants the Sept 17 Sonnet setting sets it to true.
 APPROACHES:
+  from_assets_opus:
+    NAME: agent_continual_from_assets
+    SKIP: true
+    FLAGS:
+      agent_sdk_model_name: claude-opus-5
+      continual_require_model_on_test: true
+      agent_sim_learn_declared_params_only: false
+      continual_uncertainty_decisions: true
   mb_opus:
     NAME: agent_continual
     SKIP: true
