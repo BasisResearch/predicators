@@ -14,8 +14,8 @@
     "figures/sources/bridge_wet_lift_cycles.png": "d714e2b54536d0d7114f9346f04276f4ceabbe19c6f3c3763778d94c321ee1b1",
     "figures/sources/domino_cycles_start.png": "3946d506a8360692375375595a165e779406a33b0a3ccd3bcc57d4bf7dda2702",
     "figures/sources/domino_cycles_win.png": "45609d10749649d043d58761d440cfc17b008aed3de3267b01ff90514200253c",
-    "figures/sources/fan_cycles_start.png": "251bd00b36fa45ad405ce6b319f309dbc7a011db5fd2f7834d383e55af90d2b5",
-    "figures/sources/fan_cycles_win.png": "ed10b4c4e1cafb6b4f910e1c5ebac57120ebd1c837ee6eb827c690409a311c1d",
+    "figures/sources/fan_cycles_start.png": "eb537ae5eff96d9c96db79f4e12d918600b42f2daa27abc1a28e41da8a83b2d2",
+    "figures/sources/fan_cycles_win.png": "7abaf6417a55e4e2812fba1b4e708c745f124498ec579c62f92dffe34ad0673d",
     "figures/sources/trajectory_balloons_0_cycles.png": "0c033c337e86536d14cadeff02f26253f8ff4f7c478b48ca51f48df64e37a679",
     "figures/sources/trajectory_balloons_1_cycles.png": "52ba199afc676dfe2bbb6bbfca752ebc069981444b988a9a3f77eb9f21ef61f4",
     "figures/sources/trajectory_balloons_2_cycles.png": "adb9353c5903084af012fce7a38d1e7fe459bf2b4f76c5f8ccff42b7015466f6",
@@ -28,10 +28,10 @@
     "figures/sources/trajectory_bridge_4_cycles.png": "c81aed6e6288c4a83e4ad49811d40e52af629a80a10bcdaf6cc4cef37044ecc3"
   },
   "outputs": {
-    "fig1_residual.pdf": "70167dec57f7f4fa7be4886fdfed81b3f3703cbc76613659631fc2819a2b06d0",
-    "fig1_residual.png": "6eea863684c25ac78b7808a143dc4d52a96d9bdca2bf707a5df7eb5755831c67",
-    "fig1_residual.svg": "dbf85cc8ea8175ec1f3b5218ca9ae9c01fc08e318a84a20fe0484f6981a50973",
-    "fig4_environments.pdf": "91942e3bbe7e6d9d0169d15ff063ef0efe46967a8be70953ae2605d615e31724",
+    "fig1_residual.pdf": "aea7a78669e6ca5be84cc19072105204242394c36e95c9372a68652af60f02a7",
+    "fig1_residual.png": "b317a94c0aad4df2e3f9f0516e0e7fd5b9e055436e7a30117c71d0c3f51b0d75",
+    "fig1_residual.svg": "dcada08fbfa4789b3c9cb6564a879a42856cb603be73119e340eeb46ecd9491c",
+    "fig4_environments.pdf": "812a01d72a428f449a4e4733f2e55e1f0de07386fae5910df27274dd873a0f5e",
     "fig4_environments.png": "fc00d97fae2ea098fb3303c66886bdb25031822fef8653bc2e714ea17164b2df",
     "fig4_environments.svg": "649ee5b1e6184cf0a1c09f462a3e4c3f6a363ce0c56e5e49cbaeee5d44dd486f"
   }

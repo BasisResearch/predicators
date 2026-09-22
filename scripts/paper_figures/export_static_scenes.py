@@ -66,6 +66,28 @@ ROWS = (
 )
 
 
+def _migrate_fan_layout(env, state, current_initial):
+    """Combine an archived outcome with the current static ramp layout."""
+    static_types = {
+        env._platform_type,  # pylint: disable=protected-access
+        env._ramp_type,  # pylint: disable=protected-access
+        env._boundary_type,  # pylint: disable=protected-access
+        env._target_type,  # pylint: disable=protected-access
+    }
+    for obj in state:
+        if obj.type in static_types:
+            state.data[obj] = current_initial.data[obj].copy()
+        elif obj.type in {
+                env._fan_type,  # pylint: disable=protected-access
+                env._switch_type,  # pylint: disable=protected-access
+        }:
+            for feature in ("x", "y", "z", "rot"):
+                state.set(obj, feature, current_initial.get(obj, feature))
+    ball, = state.get_objects(env._ball_type)  # pylint: disable=protected-access
+    state.set(ball, "x", state.get(ball, "x") + env.ramp_scene_x_offset)
+    return state
+
+
 def _export_row(row):
     source = LOGS / row["run"] / row["level"] / "episodes.pkl"
     source_bytes = source.read_bytes()
@@ -84,12 +106,14 @@ def _export_row(row):
     utils.reset_config(flags)
     env = create_new_env(row["env"], do_cache=False, use_gui=False)
     try:
-        env.reset("test", 0)
+        current_initial = env.reset("test", 0)
         output = ROOT / "data/cycles_scenes"
         output.mkdir(parents=True, exist_ok=True)
         for frame, recorded_state in (("start", episode["states"][0]),
                                       ("win", episode["states"][-1])):
             state = _canonical_state(env, recorded_state)
+            if row["domain"] == "Fan":
+                state = _migrate_fan_layout(env, state, current_initial)
             env._set_state(state)  # pylint: disable=protected-access
             env._current_observation = state  # pylint: disable=protected-access
             client = env._physics_client_id  # pylint: disable=protected-access
