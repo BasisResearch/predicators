@@ -1,0 +1,15 @@
+{
+  "generated_by": "scripts/render_cycles_scene.py; do not edit manually",
+  "blender_version": "4.5.3 LTS",
+  "engine": "CYCLES",
+  "device": "CPU",
+  "samples": 48,
+  "scene_source": "/orcd/home/002/ycliang/predicators/scripts/paper_figures/data/cycles_scenes/bridge_wet_lift.json",
+  "scene_sha256": "c369d46d3742fa899ccd3c7382f7e23baaa4b20f2c1d862890132ae12314c96c",
+  "output_sha256": "d714e2b54536d0d7114f9346f04276f4ceabbe19c6f3c3763778d94c321ee1b1",
+  "visual_shapes": 55,
+  "blender_mesh_objects": 55,
+  "geometry": "Recorded world transforms; box edges receive at most 0.6 mm visual bevels",
+  "appearance": "Procedural materials, soft area lighting, AgX; duplicate surfaces removed",
+  "physics_steps": 0
+}

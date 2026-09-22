@@ -43,3 +43,6 @@ predicators/datasets/vlm_input_data_prompts/vision_api/response.txt
 .idea/
 
 paper/
+
+# Transient output from optional paper-figure rendering.
+scripts/paper_figures/data/cycles_logs/

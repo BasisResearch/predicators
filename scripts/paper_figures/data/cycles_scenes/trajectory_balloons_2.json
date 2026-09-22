@@ -1,0 +1,2640 @@
+{
+  "generated_by": "scripts/render_egl_scenes.py; do not edit manually",
+  "metadata": {
+    "domain": "Balloons",
+    "source_recording": "balloons-mb_opus_compose_r2/seed0/run_20260917_082044/L03/episodes.pkl",
+    "source_sha256": "38d4bf59f6e4059b9f4fadac755700486f5ca111097fafe96099b5f0ce0a837a",
+    "level": "L03",
+    "level_step": 241,
+    "frame": "trajectory_balloons_2",
+    "illustrative": false,
+    "visualization_migration": "centered current chute layout",
+    "physics_steps_after_restore": 0
+  },
+  "camera": {
+    "view": [
+      -0.866025447845459,
+      0.12096095085144043,
+      -0.4851478934288025,
+      0.0,
+      -0.5000000596046448,
+      -0.20951050519943237,
+      0.8403006792068481,
+      0.0,
+      -7.450581485102248e-09,
+      0.9702957272529602,
+      0.24192188680171967,
+      0.0,
+      1.2462178468704224,
+      -0.5151121616363525,
+      -2.210164785385132,
+      1.0
+    ],
+    "projection": [
+      1.0825316905975342,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.7320507764816284,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      -1.0020020008087158,
+      -1.0,
+      0.0,
+      0.0,
+      -0.20020020008087158,
+      0.0
+    ],
+    "width": 1280,
+    "height": 800
+  },
+  "shapes": [
+    {
+      "body": 0,
+      "link": -1,
+      "index": 0,
+      "name": "plane",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/plane.obj",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "rgba": [
+        0.5,
+        0.51,
+        0.53,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": -1,
+      "index": 0,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/base_link.dae",
+      "position": [
+        0.75,
+        0.6535999774932861,
+        -0.00139999995008111
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35600000619888306,
+        0.3610000014305115,
+        0.37599998712539673,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 0,
+      "index": 1,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/r_wheel_link.STL",
+      "position": [
+        0.9373800158500671,
+        0.6548913717269897,
+        0.05392500013113022
+      ],
+      "quaternion_xyzw": [
+        -2.1648077636676283e-17,
+        -2.1648077636676283e-17,
+        0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.0860000029206276,
+        0.5059999823570251,
+        0.7670000195503235,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 1,
+      "index": 2,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/l_wheel_link.STL",
+      "position": [
+        0.5626199841499329,
+        0.6548913717269897,
+        0.05392500013113022
+      ],
+      "quaternion_xyzw": [
+        -2.1648077636676283e-17,
+        -2.1648077636676283e-17,
+        0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.0860000029206276,
+        0.5059999823570251,
+        0.7670000195503235,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 2,
+      "index": 3,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/torso_lift_link.dae",
+      "position": [
+        0.75,
+        0.566724956035614,
+        0.47602999210357666
+      ],
+      "quaternion_xyzw": [
+        -2.1648077636676283e-17,
+        -2.1648077636676283e-17,
+        0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 3,
+      "index": 4,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/head_pan_link.dae",
+      "position": [
+        0.75,
+        0.6198499798774719,
+        1.0790313482284546
+      ],
+      "quaternion_xyzw": [
+        -2.1645341323209958e-17,
+        -2.1650807332697708e-17,
+        0.7070174813270569,
+        0.707196056842804
+      ],
+      "rgba": [
+        0.35600000619888306,
+        0.3610000014305115,
+        0.37599998712539673,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 4,
+      "index": 5,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/head_tilt_link.dae",
+      "position": [
+        0.7500360012054443,
+        0.7623800039291382,
+        1.1370304822921753
+      ],
+      "quaternion_xyzw": [
+        -1.1355174365235143e-06,
+        1.1358041547282482e-06,
+        0.7070174813270569,
+        0.707196056842804
+      ],
+      "rgba": [
+        0.0860000029206276,
+        0.5059999823570251,
+        0.7670000195503235,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 10,
+      "index": 6,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/shoulder_pan_link.dae",
+      "position": [
+        0.75,
+        0.6862500309944153,
+        0.8246099948883057
+      ],
+      "quaternion_xyzw": [
+        -1.0857694315921087e-17,
+        -2.862496890920175e-17,
+        0.3546527326107025,
+        0.934998095035553
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 11,
+      "index": 7,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/shoulder_lift_link.dae",
+      "position": [
+        0.8375678062438965,
+        0.7638443112373352,
+        0.8846099972724915
+      ],
+      "quaternion_xyzw": [
+        0.14361926913261414,
+        -0.37863439321517944,
+        0.3242715895175934,
+        0.8549020290374756
+      ],
+      "rgba": [
+        0.0860000029206276,
+        0.5059999823570251,
+        0.7670000195503235,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 12,
+      "index": 8,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/upperarm_roll_link.dae",
+      "position": [
+        0.9477177858352661,
+        0.8614487648010254,
+        1.046786904335022
+      ],
+      "quaternion_xyzw": [
+        0.7507385015487671,
+        0.009054983034729958,
+        0.49843162298202515,
+        0.4334461987018585
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 13,
+      "index": 9,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/elbow_flex_link.dae",
+      "position": [
+        1.0146124362945557,
+        0.9207245111465454,
+        1.145277976989746
+      ],
+      "quaternion_xyzw": [
+        0.11548992246389389,
+        0.3333359658718109,
+        0.8937026858329773,
+        0.27720892429351807
+      ],
+      "rgba": [
+        0.0860000029206276,
+        0.5059999823570251,
+        0.7670000195503235,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 14,
+      "index": 10,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/forearm_roll_link.dae",
+      "position": [
+        0.8531445264816284,
+        1.0335028171539307,
+        1.1495369672775269
+      ],
+      "quaternion_xyzw": [
+        0.010315394960343838,
+        -0.0032344884239137173,
+        0.9538379311561584,
+        0.3001271188259125
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 15,
+      "index": 11,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/wrist_flex_link.dae",
+      "position": [
+        0.7510999441146851,
+        1.104776382446289,
+        1.1522287130355835
+      ],
+      "quaternion_xyzw": [
+        -0.6744905710220337,
+        0.21223773062229156,
+        0.6745188236236572,
+        0.21223071217536926
+      ],
+      "rgba": [
+        0.0860000029206276,
+        0.5059999823570251,
+        0.7670000195503235,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 16,
+      "index": 12,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/wrist_roll_link.dae",
+      "position": [
+        0.7510942816734314,
+        1.1047767400741577,
+        1.0137288570404053
+      ],
+      "quaternion_xyzw": [
+        -0.49997061491012573,
+        0.5000281929969788,
+        0.4999925494194031,
+        0.5000087022781372
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 17,
+      "index": 13,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/gripper_link.dae",
+      "position": [
+        0.7510873675346375,
+        1.104777216911316,
+        0.8472787737846375
+      ],
+      "quaternion_xyzw": [
+        -0.49997061491012573,
+        0.5000281929969788,
+        0.4999925494194031,
+        0.5000087022781372
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 18,
+      "index": 14,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/r_gripper_finger_link.STL",
+      "position": [
+        0.5842374563217163,
+        1.1047894954681396,
+        0.8472856283187866
+      ],
+      "quaternion_xyzw": [
+        -0.49997061491012573,
+        0.5000281929969788,
+        0.4999925494194031,
+        0.5000087022781372
+      ],
+      "rgba": [
+        0.35600000619888306,
+        0.3610000014305115,
+        0.37599998712539673,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 19,
+      "index": 15,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/l_gripper_finger_link.STL",
+      "position": [
+        0.9179373383522034,
+        1.1047648191452026,
+        0.8472719192504883
+      ],
+      "quaternion_xyzw": [
+        -0.49997061491012573,
+        0.5000281929969788,
+        0.4999925494194031,
+        0.5000087022781372
+      ],
+      "rgba": [
+        0.35600000619888306,
+        0.3610000014305115,
+        0.37599998712539673,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 20,
+      "index": 16,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/bellows_link.STL",
+      "position": [
+        0.75,
+        0.566724956035614,
+        0.47602999210357666
+      ],
+      "quaternion_xyzw": [
+        -2.1648077636676283e-17,
+        -2.1648077636676283e-17,
+        0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 21,
+      "index": 17,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/estop_link.STL",
+      "position": [
+        0.5110799670219421,
+        0.528950035572052,
+        0.30987000465393066
+      ],
+      "quaternion_xyzw": [
+        0.5000008940696716,
+        0.5000008940696716,
+        0.49999910593032837,
+        0.49999910593032837
+      ],
+      "rgba": [
+        0.800000011920929,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 22,
+      "index": 18,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/laser_link.STL",
+      "position": [
+        0.75,
+        0.8885999917984009,
+        0.2863999903202057
+      ],
+      "quaternion_xyzw": [
+        0.7071067690849304,
+        0.7071067690849304,
+        -7.31230126362753e-14,
+        -7.31230126362753e-14
+      ],
+      "rgba": [
+        0.7919999957084656,
+        0.8199999928474426,
+        0.9330000281333923,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 23,
+      "index": 19,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/torso_fixed_link.dae",
+      "position": [
+        0.75,
+        0.5667250156402588,
+        0.37602499127388
+      ],
+      "quaternion_xyzw": [
+        -2.164819013323959e-17,
+        -2.164819013323959e-17,
+        0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.0860000029206276,
+        0.5059999823570251,
+        0.7670000195503235,
+        1.0
+      ]
+    },
+    {
+      "body": 2,
+      "link": -1,
+      "index": 0,
+      "name": "",
+      "kind": 3,
+      "dimensions": [
+        4.8100000000000005,
+        0.05,
+        2.275
+      ],
+      "mesh": "",
+      "position": [
+        0.699999988079071,
+        3.684999942779541,
+        1.1375000476837158
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 3,
+      "link": -1,
+      "index": 0,
+      "name": "",
+      "kind": 3,
+      "dimensions": [
+        4.8100000000000005,
+        0.05,
+        2.275
+      ],
+      "mesh": "",
+      "position": [
+        0.699999988079071,
+        -1.125,
+        1.1375000476837158
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 4,
+      "link": -1,
+      "index": 0,
+      "name": "",
+      "kind": 3,
+      "dimensions": [
+        0.05,
+        4.8100000000000005,
+        2.275
+      ],
+      "mesh": "",
+      "position": [
+        -1.7050000429153442,
+        1.2799999713897705,
+        1.1375000476837158
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 5,
+      "link": -1,
+      "index": 0,
+      "name": "",
+      "kind": 3,
+      "dimensions": [
+        0.05,
+        4.8100000000000005,
+        2.275
+      ],
+      "mesh": "",
+      "position": [
+        3.1050000190734863,
+        1.2799999713897705,
+        1.1375000476837158
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 6,
+      "link": -1,
+      "index": 0,
+      "name": "table",
+      "kind": 3,
+      "dimensions": [
+        0.5,
+        0.9,
+        0.4
+      ],
+      "mesh": "",
+      "position": [
+        0.75,
+        1.350000023841858,
+        0.20000000298023224
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 7,
+      "link": -1,
+      "index": 0,
+      "name": "",
+      "kind": 3,
+      "dimensions": [
+        0.07,
+        0.07,
+        0.07
+      ],
+      "mesh": "",
+      "position": [
+        0.4220736622810364,
+        1.4199999570846558,
+        0.8004021048545837
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "rgba": [
+        0.85,
+        0.7,
+        0.45,
+        1.0
+      ]
+    },
+    {
+      "body": 8,
+      "link": -1,
+      "index": 0,
+      "name": "",
+      "kind": 2,
+      "dimensions": [
+        0.03,
+        0.0,
+        0.0
+      ],
+      "mesh": "",
+      "position": [
+        0.6499999761581421,
+        1.4199999570846558,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "rgba": [
+        0.9,
+        0.15,
+        0.15,
+        1.0
+      ]
+    },
+    {
+      "body": 9,
+      "link": -1,
+      "index": 0,
+      "name": "",
+      "kind": 2,
+      "dimensions": [
+        0.03,
+        0.0,
+        0.0
+      ],
+      "mesh": "",
+      "position": [
+        0.79666668176651,
+        1.4199999570846558,
+        0.4300000071525574
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "rgba": [
+        0.95,
+        0.8,
+        0.2,
+        1.0
+      ]
+    },
+    {
+      "body": 10,
+      "link": -1,
+      "index": 0,
+      "name": "",
+      "kind": 2,
+      "dimensions": [
+        0.03,
+        0.0,
+        0.0
+      ],
+      "mesh": "",
+      "position": [
+        0.41388264298439026,
+        1.4199998378753662,
+        0.9054948091506958
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "rgba": [
+        0.2,
+        0.35,
+        0.9,
+        1.0
+      ]
+    },
+    {
+      "body": 11,
+      "link": -1,
+      "index": 0,
+      "name": "",
+      "kind": 2,
+      "dimensions": [
+        0.03,
+        0.0,
+        0.0
+      ],
+      "mesh": "",
+      "position": [
+        0.4272586405277252,
+        1.4200000762939453,
+        0.9676815867424011
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "rgba": [
+        0.2,
+        0.7,
+        0.3,
+        1.0
+      ]
+    },
+    {
+      "body": 12,
+      "link": -1,
+      "index": 0,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 3,
+      "dimensions": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mesh": "",
+      "position": [
+        0.6499999761581421,
+        1.2400000095367432,
+        0.4000000059604645
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 12,
+      "link": 1,
+      "index": 1,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-2.obj",
+      "position": [
+        0.6499999761581421,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 12,
+      "link": 1,
+      "index": 2,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-8.obj",
+      "position": [
+        0.6499999761581421,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 12,
+      "link": 1,
+      "index": 3,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-13.obj",
+      "position": [
+        0.6499999761581421,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 12,
+      "link": 1,
+      "index": 4,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-9.obj",
+      "position": [
+        0.6499999761581421,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 12,
+      "link": 1,
+      "index": 5,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-5.obj",
+      "position": [
+        0.6499999761581421,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 12,
+      "link": 1,
+      "index": 6,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-6.obj",
+      "position": [
+        0.6499999761581421,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 12,
+      "link": 1,
+      "index": 7,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-11.obj",
+      "position": [
+        0.6499999761581421,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 12,
+      "link": 1,
+      "index": 8,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-12.obj",
+      "position": [
+        0.6499999761581421,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 12,
+      "link": 1,
+      "index": 9,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-7.obj",
+      "position": [
+        0.6499999761581421,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 12,
+      "link": 1,
+      "index": 10,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-10.obj",
+      "position": [
+        0.6499999761581421,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 12,
+      "link": 2,
+      "index": 11,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-14.obj",
+      "position": [
+        0.6499999761581421,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.92,
+        0.92,
+        0.94,
+        1.0
+      ]
+    },
+    {
+      "body": 13,
+      "link": -1,
+      "index": 0,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 3,
+      "dimensions": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mesh": "",
+      "position": [
+        0.79666668176651,
+        1.2400000095367432,
+        0.4000000059604645
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 13,
+      "link": 1,
+      "index": 1,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-2.obj",
+      "position": [
+        0.79666668176651,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 13,
+      "link": 1,
+      "index": 2,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-8.obj",
+      "position": [
+        0.79666668176651,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 13,
+      "link": 1,
+      "index": 3,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-13.obj",
+      "position": [
+        0.79666668176651,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 13,
+      "link": 1,
+      "index": 4,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-9.obj",
+      "position": [
+        0.79666668176651,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 13,
+      "link": 1,
+      "index": 5,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-5.obj",
+      "position": [
+        0.79666668176651,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 13,
+      "link": 1,
+      "index": 6,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-6.obj",
+      "position": [
+        0.79666668176651,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 13,
+      "link": 1,
+      "index": 7,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-11.obj",
+      "position": [
+        0.79666668176651,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 13,
+      "link": 1,
+      "index": 8,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-12.obj",
+      "position": [
+        0.79666668176651,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 13,
+      "link": 1,
+      "index": 9,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-7.obj",
+      "position": [
+        0.79666668176651,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 13,
+      "link": 1,
+      "index": 10,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-10.obj",
+      "position": [
+        0.79666668176651,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 13,
+      "link": 2,
+      "index": 11,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-14.obj",
+      "position": [
+        0.79666668176651,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.92,
+        0.92,
+        0.94,
+        1.0
+      ]
+    },
+    {
+      "body": 14,
+      "link": -1,
+      "index": 0,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 3,
+      "dimensions": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mesh": "",
+      "position": [
+        0.9433333277702332,
+        1.2400000095367432,
+        0.4000000059604645
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 14,
+      "link": 1,
+      "index": 1,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-2.obj",
+      "position": [
+        0.9433333277702332,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 14,
+      "link": 1,
+      "index": 2,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-8.obj",
+      "position": [
+        0.9433333277702332,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 14,
+      "link": 1,
+      "index": 3,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-13.obj",
+      "position": [
+        0.9433333277702332,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 14,
+      "link": 1,
+      "index": 4,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-9.obj",
+      "position": [
+        0.9433333277702332,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 14,
+      "link": 1,
+      "index": 5,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-5.obj",
+      "position": [
+        0.9433333277702332,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 14,
+      "link": 1,
+      "index": 6,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-6.obj",
+      "position": [
+        0.9433333277702332,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 14,
+      "link": 1,
+      "index": 7,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-11.obj",
+      "position": [
+        0.9433333277702332,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 14,
+      "link": 1,
+      "index": 8,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-12.obj",
+      "position": [
+        0.9433333277702332,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 14,
+      "link": 1,
+      "index": 9,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-7.obj",
+      "position": [
+        0.9433333277702332,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 14,
+      "link": 1,
+      "index": 10,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-10.obj",
+      "position": [
+        0.9433333277702332,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 14,
+      "link": 2,
+      "index": 11,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-14.obj",
+      "position": [
+        0.9847733378410339,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.92,
+        0.92,
+        0.94,
+        1.0
+      ]
+    },
+    {
+      "body": 15,
+      "link": -1,
+      "index": 0,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 3,
+      "dimensions": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mesh": "",
+      "position": [
+        1.090000033378601,
+        1.2400000095367432,
+        0.4000000059604645
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 15,
+      "link": 1,
+      "index": 1,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-2.obj",
+      "position": [
+        1.090000033378601,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 15,
+      "link": 1,
+      "index": 2,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-8.obj",
+      "position": [
+        1.090000033378601,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 15,
+      "link": 1,
+      "index": 3,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-13.obj",
+      "position": [
+        1.090000033378601,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 15,
+      "link": 1,
+      "index": 4,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-9.obj",
+      "position": [
+        1.090000033378601,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 15,
+      "link": 1,
+      "index": 5,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-5.obj",
+      "position": [
+        1.090000033378601,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 15,
+      "link": 1,
+      "index": 6,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-6.obj",
+      "position": [
+        1.090000033378601,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 15,
+      "link": 1,
+      "index": 7,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-11.obj",
+      "position": [
+        1.090000033378601,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 15,
+      "link": 1,
+      "index": 8,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-12.obj",
+      "position": [
+        1.090000033378601,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 15,
+      "link": 1,
+      "index": 9,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-7.obj",
+      "position": [
+        1.090000033378601,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 15,
+      "link": 1,
+      "index": 10,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-10.obj",
+      "position": [
+        1.090000033378601,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35,
+        0.35,
+        0.38,
+        1.0
+      ]
+    },
+    {
+      "body": 15,
+      "link": 2,
+      "index": 11,
+      "name": "partnet_228b41e91b3eac5e6eed87081bea555c",
+      "kind": 5,
+      "dimensions": [
+        0.13999999999999999,
+        0.13999999999999999,
+        0.13999999999999999
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-14.obj",
+      "position": [
+        1.1314400434494019,
+        1.2400000095367432,
+        0.44200000166893005
+      ],
+      "quaternion_xyzw": [
+        5.5511134687645576e-17,
+        -3.885781380281436e-16,
+        -0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.92,
+        0.92,
+        0.94,
+        1.0
+      ]
+    },
+    {
+      "body": 16,
+      "link": -1,
+      "index": 0,
+      "name": "",
+      "kind": 3,
+      "dimensions": [
+        0.9,
+        0.7,
+        0.008
+      ],
+      "mesh": "",
+      "position": [
+        0.75,
+        1.350000023841858,
+        1.1799999475479126
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "rgba": [
+        0.8500000238418579,
+        0.8500000238418579,
+        0.8999999761581421,
+        0.3499999940395355
+      ]
+    },
+    {
+      "body": 17,
+      "link": -1,
+      "index": 0,
+      "name": "",
+      "kind": 3,
+      "dimensions": [
+        0.008,
+        0.16,
+        0.5
+      ],
+      "mesh": "",
+      "position": [
+        0.36800000071525574,
+        1.4199999570846558,
+        0.75
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "rgba": [
+        0.550000011920929,
+        0.550000011920929,
+        0.6200000047683716,
+        0.550000011920929
+      ]
+    },
+    {
+      "body": 18,
+      "link": -1,
+      "index": 0,
+      "name": "",
+      "kind": 3,
+      "dimensions": [
+        0.008,
+        0.16,
+        0.5
+      ],
+      "mesh": "",
+      "position": [
+        0.47200000286102295,
+        1.4199999570846558,
+        0.75
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "rgba": [
+        0.550000011920929,
+        0.550000011920929,
+        0.6200000047683716,
+        0.550000011920929
+      ]
+    },
+    {
+      "body": 19,
+      "link": -1,
+      "index": 0,
+      "name": "",
+      "kind": 3,
+      "dimensions": [
+        0.088,
+        0.088,
+        0.050000000000000044
+      ],
+      "mesh": "",
+      "position": [
+        0.41999998688697815,
+        1.4199999570846558,
+        0.8610451817512512
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "rgba": [
+        0.30000001192092896,
+        0.800000011920929,
+        0.4000000059604645,
+        0.44999998807907104
+      ]
+    },
+    {
+      "body": 20,
+      "link": -1,
+      "index": 0,
+      "name": "",
+      "kind": 4,
+      "dimensions": [
+        0.042,
+        0.0012,
+        0.0
+      ],
+      "mesh": "",
+      "position": [
+        0.4262830913066864,
+        1.4199999570846558,
+        0.8558964133262634
+      ],
+      "quaternion_xyzw": [
+        -0.12219108641147614,
+        -2.5258842129005643e-07,
+        0.9925066232681274,
+        -2.0516695258265827e-06
+      ],
+      "rgba": [
+        0.2199999988079071,
+        0.1899999976158142,
+        0.14000000059604645,
+        1.0
+      ]
+    },
+    {
+      "body": 21,
+      "link": -1,
+      "index": 0,
+      "name": "",
+      "kind": 4,
+      "dimensions": [
+        0.104,
+        0.0012,
+        0.0
+      ],
+      "mesh": "",
+      "position": [
+        0.4412156641483307,
+        1.4199999570846558,
+        0.8867601156234741
+      ],
+      "quaternion_xyzw": [
+        -0.0852939635515213,
+        2.1674308925412333e-07,
+        0.9963558316230774,
+        2.531869995436864e-06
+      ],
+      "rgba": [
+        0.2199999988079071,
+        0.1899999976158142,
+        0.14000000059604645,
+        1.0
+      ]
+    }
+  ],
+  "mesh_sha256": {
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/plane.obj": "0cc3ec11a128956c6888a3ef8a79edaa279cd70e0df7ab96f7749e24f55067f5",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/base_link.dae": "5bce2661b072f9402f4af89b40b107271054e3c7705e2f9f23ffaf286e4a3b7c",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/r_wheel_link.STL": "e805e07d57faa72b957229538aec68ed935f656c599b9556530ddc6f45874aa5",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/l_wheel_link.STL": "f00a69358c8af5c74cfd49d8990707e22e8318370209fe32dbf98610dcf05a6b",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/torso_lift_link.dae": "45f38616be359918c6dd5a73bde21672d40730aed3c251084e09d1d79bcd2c7d",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/head_pan_link.dae": "1b4df542a4ad3d32e7a119a9d6fc397bc6c691643d47408a0b4bc3048342d218",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/head_tilt_link.dae": "8acf75c4beaa7fb1d67331942e611ecc2ca2896e076bc16b26196499987d5fef",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/shoulder_pan_link.dae": "8c54f5ca312504a4938214e23d70779f5a3e53c20700401006fedbc7e7c896ad",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/shoulder_lift_link.dae": "230f01402296c58c01cbf833b57ff92a987ca3684020b94f9a04b55c38c022ee",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/upperarm_roll_link.dae": "6a1ccacd7efc0f0f7f63ae010cb689b930dfcb7d2e761916791cce286a7a55c4",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/elbow_flex_link.dae": "2073fb649284297a5ef95926c808db5ac22fe0119018be9fb1d2ec46c337a2b6",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/forearm_roll_link.dae": "0556b2360bba65612e6179292d71fd1785b3ec5936c580f478e7644b70bbccdb",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/wrist_flex_link.dae": "da0776b66c8840bba6e78b65d9af51efa33b5876eafa033ddeb08ee3aacff401",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/wrist_roll_link.dae": "3df20e834a404da01a25bfee84c655036b64461a75533ef0e8aaa4c04134ae90",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/gripper_link.dae": "756a8fbc9a1cc34a01d07cf041d357f642252f0c3b0dd7f61d1fd12c98a03f73",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/r_gripper_finger_link.STL": "0f10460121e2bcacaa63a409cc1ea30f78fb96fe4d2ddaa2b616aac3e300ffbd",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/l_gripper_finger_link.STL": "aca440e0444fd8bcbbade739ea27ed3755d23bf823eb4d900bec00ee1c3b709c",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/bellows_link.STL": "90902856fe2d931ca099558378e89c2de22048075bc05def4fd5af311c398f29",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/estop_link.STL": "08ee8f343d047983477a5c57292ec6b4a4d317e9a999c8fbfd45b3249c8226fe",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/laser_link.STL": "285e57045df959a58c14d0b26c1a24203bd213acd17554f5b07bc526dfbc0747",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/torso_fixed_link.dae": "6721289f9f4dc4789cd587b97763009f498ee47fb37275d0cdaffd3d3562c350",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-2.obj": "aaecbe7198e50801642511e2126f4c3290b512af015cbdf7bfe381c79d61e858",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-8.obj": "4ca1e52061772f88e55c3a01088d304f1e34c7b1bdc649a281d42aab408612e5",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-13.obj": "80d8243bdff85b7659f39fe5810f9cc71a32887545218c586e762b5d208e9d00",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-9.obj": "2bd89ddcd2819bebe1d40543f08d3ff731ba6919fde49cbcf9844b19b97814c3",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-5.obj": "53c91d0577e1f1ae3a831e11c3b96764df97082074855b645c992ae01ee3d456",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-6.obj": "a26960408271b24a178c4e5c23517e4086e568c806c66927cbc6488e8cbdf9f5",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-11.obj": "2be3b81336eeff74bb06708174c035b7063f47fc6e2aef3180da782c9bef5a5d",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-12.obj": "98169e5bd4f39d75b4e1bbadd18b32aaadb88253861061abd3dcf7fdd612e25f",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-7.obj": "f9099621b8b34e4ec814b15db135c5ba83952e9bd5af7ec819071926297bf7d5",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-10.obj": "7287668f31b047ce2ad35b43ccff1308a62cfd3707a279e0b81745cf25321913",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-14.obj": "bca5cc0851290e09559f53cdd849066551bd39cac849f40a15fbaf40dfa27ddd"
+  }
+}
