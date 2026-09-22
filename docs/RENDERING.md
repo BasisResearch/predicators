@@ -81,6 +81,7 @@ Add `--dry-run` to inspect the selected scene list without invoking Blender.
 Renderer logs are temporary unless `--log-dir` is supplied.
 
 The renderer preserves recorded transforms and authored mesh normals, uses flat normals on planar compound boxes, and records hashes and settings in `scripts/paper_figures/data/cycles-render-manifest.json` and beside each rendered PNG.
+The saturated-blue Boil jug has a local ambient material response so its deep interior remains readable under the shared studio lighting.
 Commit the scene JSON, rendered PNGs, PNG sidecars, and render manifest.
 Do not commit transient renderer logs or the temporary Figma assets.
 
@@ -149,7 +150,8 @@ Example:
 ```
 
 Crop coordinates refer to the replacement image; omit them for an already cropped panel.
-Original Bridge and Balloons trajectory crops are respectively `(270, 280, 810, 860)` and `(290, 170, 760, 720)`.
+Original Bridge and Balloons trajectory crops are respectively `(270, 280, 810, 860)` and `(410, 170, 880, 720)`.
+The Balloons crop is shifted right relative to the earlier composition so that both chute walls remain visible throughout the trajectory.
 Semantic frame names end in indices 0 through 4.
 Explicit gallery keys take precedence over semantic names.
 

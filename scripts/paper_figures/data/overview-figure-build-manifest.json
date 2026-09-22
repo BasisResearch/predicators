@@ -3,11 +3,11 @@
   "inputs": {
     "build_figures.py": "a44ed7f58e28bd615528b86fa6f3018660edf109c2d85223b862f29921dbc5be",
     "data/gui-figure-manifest.json": "5710c818b5bca7090312245386cd9292695711ed08bcd7f39693ee67a3ffdaa9",
-    "data/trajectories/figure3.json": "817b71cfe4f31af21d06c87352ad617f574f2dc02d97e2c1a85227e87898e1dc",
+    "data/trajectories/figure3.json": "46223eb7a0c9e6e504fdc0b5ea7ded7c80be55081e4137fee071bad5691eb81c",
     "figures/sources/balloons_cycles_start.png": "af5143e5e792cf3557ebd8686187df74ac63b6a601c16e41f6ad82c1d38ae542",
     "figures/sources/balloons_cycles_win.png": "b2544e5abffcc8644d5c365841f9a3389c4a6e1a150e6d3c8e2c3fc8ff281296",
-    "figures/sources/boil_cycles_start.png": "933316f6196fa01f456e0743dc5d49c1b4a284942db5a0ba47ce8f7312d56a38",
-    "figures/sources/boil_cycles_win.png": "d1b8ef1d6d3611525b3a8e8d32bbb51c17a1ed16c02384e929e14b03d5170b07",
+    "figures/sources/boil_cycles_start.png": "b9ade6f6dd11e5c53c9b01a50b6aab0bb8a44aa5e99926c5bf11302d56f3a116",
+    "figures/sources/boil_cycles_win.png": "6c89ce64d274e2ece0b2c426b95791fd9d5a6a0f3fd9f06ac022eeaf548c58b4",
     "figures/sources/bridge_bonded_lift_cycles.png": "55ce5733b57d696823b34347943dfd4a3fd73759fa6714d083197cfc9d49aaa1",
     "figures/sources/bridge_cycles_start.png": "f7b210b1803085290cb67fc3054e10c5be62536bab2fb4308bdcd1192092316a",
     "figures/sources/bridge_cycles_win.png": "4d1094afa84f611f5924acc964d60ac0dc7af6fd9e3cf13964a53d436e9a19aa",
@@ -28,11 +28,11 @@
     "figures/sources/trajectory_bridge_4_cycles.png": "c81aed6e6288c4a83e4ad49811d40e52af629a80a10bcdaf6cc4cef37044ecc3"
   },
   "outputs": {
-    "fig1_residual.pdf": "05a7da780855ce0dc6de74e8949a3c16c7a3f22806c967affbfd012183181ad1",
-    "fig1_residual.png": "65b486f52b5db63a3918ead29a94b6d11afe414878ee46f106dedc9856cd1950",
-    "fig1_residual.svg": "6e768fefa86df9a6791d26cebd014b8d31538dc851234de71b93feb854ebdb34",
-    "fig4_environments.pdf": "4c5d07f8d7ef8da25a20503b34012c00870828924dad43e0a0faf4cc09666657",
-    "fig4_environments.png": "fc00d97fae2ea098fb3303c66886bdb25031822fef8653bc2e714ea17164b2df",
-    "fig4_environments.svg": "649ee5b1e6184cf0a1c09f462a3e4c3f6a363ce0c56e5e49cbaeee5d44dd486f"
+    "fig1_residual.pdf": "7be99ba07867c6b8844173d56a88af0fd4da18d897c09bade8f282ebc8343dcf",
+    "fig1_residual.png": "41fc7e03edfbab1fd2842b9c4029c536d5ae727e1acd71d34f0761843e2ac18d",
+    "fig1_residual.svg": "5814c7c004f40db5e4dc6cf0749fcf4b86b129abe040f436c2148735092b1337",
+    "fig4_environments.pdf": "48b1299ff8f47f430123e7f3e643729198e400f024be0305089eebb4360b17c9",
+    "fig4_environments.png": "0df8692be197041bc6a511a217fd9faad881fff6fc5d086aebdc9bd6921725c5",
+    "fig4_environments.svg": "df83836df77f1ff207872cc834843cfca0933d6451d00e3b6e5564a2f6eb4205"
   }
 }

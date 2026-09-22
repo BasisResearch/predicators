@@ -16,7 +16,7 @@ SELECTION = [
     ("Balloons", "balloons-mb_opus_compose_r2/seed0/run_20260917_082044",
      "L03", (0, 124, 241, 264,
              348), ("Initial scene", "One attached", "Two attached",
-                    "Release third", "Target reached"), (290, 170, 760, 720)),
+                    "Release third", "Target reached"), (410, 170, 880, 720)),
 ]
 
 
