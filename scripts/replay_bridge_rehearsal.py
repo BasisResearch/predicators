@@ -16,7 +16,8 @@ from predicators.agent_sdk.belief_probe import BeliefProbe
 from predicators.agent_sdk.tools.context import ToolContext
 from predicators.approaches.agent_sim_learning_approach import \
     AgentSimLearningApproach
-from predicators.code_sim_learning.base_simulator import base_simulator_class
+from predicators.code_sim_learning.base_simulator import \
+    base_simulator_class, oracle_base_simulator_class
 from predicators.code_sim_learning.continual_oracle import oracle_source
 from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.code_sim_learning.latent_tracker import \
@@ -49,9 +50,12 @@ def main() -> None:
     assert CFG.env == "pybullet_bridge"
     real: Any = create_new_env(CFG.env, do_cache=False)
     namespace: Dict[str, Any] = {
-        "BaseSimulator": base_simulator_class(CFG.env),
-        "np": np,
-        "ParamSpec": ParamSpec
+        "BaseSimulator": (base_simulator_class(CFG.env) if args.candidate else
+                          oracle_base_simulator_class(CFG.env)),
+        "np":
+        np,
+        "ParamSpec":
+        ParamSpec
     }
     source = args.candidate.read_text() if args.candidate else oracle_source()
     exec(source, namespace)  # pylint: disable=exec-used

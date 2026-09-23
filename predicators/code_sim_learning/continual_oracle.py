@@ -15,7 +15,7 @@ from predicators.settings import CFG
 
 
 def oracle_source() -> str:
-    """Return a self-contained artifact with frozen parameter values."""
+    """Return a frozen artifact for the privileged Oracle loader namespace."""
     # Imports here avoid loading all PyBullet environments before registry
     # discovery has completed.
     # pylint: disable=import-outside-toplevel,protected-access
@@ -80,8 +80,8 @@ def oracle_source() -> str:
         if CFG.fan_use_kinematic:
             raise ValueError("Continual oracle supports dynamic Fan only")
         # The native helper controls fan rotors as well as queuing the wind.
-        # It is part of the concrete visible-base class, whose top-level
-        # residual hook is normally disabled.
+        # It is supplied only through Oracle's privileged base, not the
+        # visible base injected into learned simulators.
         from predicators.envs.pybullet_fan import PyBulletFanEnv
         wind = float(PyBulletFanEnv.wind_force_magnitude)
         return ("class OracleDynamics(BaseSimulator):\n"

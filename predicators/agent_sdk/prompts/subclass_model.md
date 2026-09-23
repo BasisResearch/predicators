@@ -5,7 +5,9 @@
 
 Export `RESIDUAL_ENV`, a subclass of the supplied `BaseSimulator`, from `./simulator.py`.
 `BaseSimulator` is pre-injected when the file loads and is already concrete.
-It supplies this environment's visible physics with its hidden mechanisms disabled.
+It supplies this environment's visible physics, without inheriting hidden mechanism helpers, their constants, or task generators in the five benchmark domains.
+Mechanism readouts that the visible core cannot compute remain at their restored observed values until your model implements them.
+Override `_get_domain_specific_feature(self, obj, feature)` for such predicted readouts and `_set_domain_specific_state(self, state)` for their initialization, delegating other features and visible-state restoration to `super()`.
 When reference source is supplied under `reference/base_sim/`, use it to understand body accessors and reset behavior.
 Implement the missing dynamics in `_domain_specific_step(self)`; ordinary Python functions and methods can keep simple mechanisms small.
 Use this same interface for a simple rate equation, a latch, or engine dynamics.

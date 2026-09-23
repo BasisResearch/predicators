@@ -121,23 +121,36 @@ def report_text(original: str, rows: List[Row], plot: Dict[str, Any],
         "All agents are Claude Opus with the composite skill library "
         "and skill preflight off.",
         "All agents are Claude Opus with the composite skill library.\n"
-        "Preflight settings differ across historical cohorts: the selected "
-        "EMPIRIC Boil, Domino, and Balloons runs and Fan seeds 1-2 had "
-        "preflight enabled; the selected Bridge reruns and newer comparison "
-        "arms used preflight off.\n"
+        "Preflight settings differ across historical cohorts: some selected "
+        "EMPIRIC Boil, Domino, Balloons, and Fan runs had preflight enabled; "
+        "the selected Bridge reruns, EMPIRIC r2 replacements, and newer "
+        "comparison arms used preflight off.\n"
         "This is not a matched preflight ablation.")
+    prefix = re.sub(
+        r"All agents are Claude Opus with the composite skill library\.\n"
+        r"Preflight settings differ across historical cohorts:.*?\n"
+        r"This is not a matched preflight ablation\.",
+        "All agents are Claude Opus with the composite skill library.\n"
+        "Preflight settings differ across historical cohorts: some selected "
+        "EMPIRIC Boil, Domino, Balloons, and Fan runs had preflight enabled; "
+        "the selected Bridge reruns, EMPIRIC r2 replacements, and newer "
+        "comparison arms used preflight off.\n"
+        "This is not a matched preflight ablation.",
+        prefix,
+        count=1,
+        flags=re.DOTALL)
     validation_link = "[Oracle repair pilot](oracle-dynamics-validation-r2.md)"
     pilot_note = (
-        "Oracle dynamics r2 is a separate entry directly below "
-        "Oracle dynamics, in dark grey.\n"
-        "Only finished Domino and Bridge r2 runs contribute; "
-        "the other domains are blank because they were not launched.\n"
+        "Oracle dynamics combines r2 seeds 0-4 for Domino and Bridge "
+        "with r1 seeds 0-2 and r2 seeds 3-4 for the other domains.\n"
         "The " + validation_link + " also shows the two Oracle "
         "rounds side by side.\n\n")
     if validation_link in prefix:
         prefix = re.sub(
             r"(?:Oracle dynamics r2 is a separate entry.*?\n)?"
+            r"(?:Oracle dynamics combines.*?\n)?"
             r"(?:Only finished Domino and Bridge r2 runs.*?\n)?"
+            r"(?:The r2 entry includes.*?\n)?"
             r"The \[Oracle repair pilot\].*?\n\n",
             lambda _: pilot_note,
             prefix,
@@ -147,7 +160,9 @@ def report_text(original: str, rows: List[Row], plot: Dict[str, Any],
     prefix = re.sub(
         r"^Compiled .*?$",
         f"Compiled {stamp} from {len(rows)} finished scorecards on "
-        "the five benchmark settings fixed on September 18.",
+        "the five benchmark settings fixed on September 18 "
+        "plus separate Fan exposed-transfer, inertial, "
+        "and ramp development cohorts.",
         prefix,
         count=1,
         flags=re.MULTILINE)
@@ -157,14 +172,43 @@ def report_text(original: str, rows: List[Row], plot: Dict[str, Any],
                       and r["domain"] == "Balloons (composition)"
                       for r in rows)
     no_unc_status = "finished" if no_unc_done else "unfinished"
-    oracle_r2_done = sum(r["arm"] == "oracle_dynamics_r2" for r in rows)
-    empiric_r2_done = sum(r["arm"] == "MB_r2" for r in rows)
+    oracle_r2_done = sum(r["arm"] == "oracle_dynamics" for r in rows)
+    empiric_done = sum(
+        r["arm"] == "MB" and r["domain"] in plot["PAPER_DOMAINS"]
+        for r in rows)
+    transfer_done = {
+        arm: sum(r["arm"] == arm and r["domain"] == plot["FAN_TRANSFER"]
+                 for r in rows)
+        for arm in ("MB", "MF")
+    }
+    expected = {
+        arm: sum(len(dirs[arm]) for _, dirs in plot["DOMAINS"])
+        for arm in plot["ARMS"]
+    }
+    variant_status = ""
+    for domain in plot["FAN_VARIANTS"]:
+        counts = []
+        for arm, label in (("MB", "EMPIRIC"), ("MF", "Direct agent")):
+            group = [
+                r for r in rows if r["domain"] == domain and r["arm"] == arm
+            ]
+            wins = sum(r["won"] == r["levels"] for r in group)
+            counts.append(
+                f"{label} {wins}/{len(group)} solved, {len(group)}/5 finished")
+        variant_status += f"- {domain}: " + "; ".join(counts) + ".\n"
     status = (
         "## Status at this snapshot\n\n"
-        f"- Oracle dynamics r2: {oracle_r2_done}/6 seeds finished "
-        "across Domino and Bridge.\n"
-        f"- EMPIRIC r2: {empiric_r2_done}/10 seeds finished (seeds 3 and 4).\n"
-        f"- Direct agent + scene assets: {direct_done}/15 seeds finished.\n"
+        f"- Oracle dynamics: {oracle_r2_done}/"
+        f"{expected['oracle_dynamics']} seeds finished across five domains.\n"
+        f"- EMPIRIC: {empiric_done}/25 seeds finished "
+        "(five selected seeds per domain; Boil and Balloons seed 2 and "
+        "seeds 3-4 use r2).\n"
+        f"- Fan transfer pilot: EMPIRIC {transfer_done['MB']}/2 and "
+        f"Direct agent {transfer_done['MF']}/2 seeds finished "
+        "(separate from the five-domain totals above).\n"
+        f"{variant_status}"
+        f"- Direct + scene: {direct_done}/"
+        f"{expected['mf_scene_package']} seeds finished.\n"
         f"  Unfinished: {pending}.\n"
         "- EMPIRIC + scene package: four unfinished runs remain paused "
         "at the user's request "
@@ -183,8 +227,64 @@ def report_text(original: str, rows: List[Row], plot: Dict[str, Any],
         prefix,
         count=1,
         flags=re.DOTALL)
+    prefix = prefix.replace(
+        "It is a separate prospective cohort, "
+        "not a matched preflight ablation.",
+        "The original and r2 seeds are pooled in one EMPIRIC entry, "
+        "with source-cohort provenance retained.\n"
+        "This is not a matched preflight ablation.")
+    if "## Fan exposed-transfer pilot" not in prefix:
+        prefix += (
+            "## Fan exposed-transfer pilot\n\n"
+            "The rightmost plot column, Fan transfer, is a separate pilot "
+            "with two seeds each for EMPIRIC and the direct agent.\n"
+            "The other agents have not been launched on this variant; "
+            "their empty rows are missing results, not failures.\n"
+            "Only finished seeds enter the bars and curves; pending runs "
+            "are listed below and do not count as zero successes.\n"
+            "See the [illustrated task description]"
+            "(../amps/fan-exposed-transfer.md) and "
+            "[launch configuration]"
+            "(../../scripts/configs/predicatorv3/"
+            "continual_fan_transfer_pilot_r1.yaml).\n"
+            "This column is excluded from the paper figure and its "
+            "data selection.\n\n")
+    prefix = prefix.replace("The rightmost plot column, Fan transfer,",
+                            "The Fan transfer plot column,")
+    prefix = prefix.replace(
+        "The Fan transfer plot column, is a separate pilot ",
+        "The archived Fan transfer experiment is a separate pilot ")
+    prefix = prefix.replace(
+        "The Fan transfer plot column, Fan transfer, is a separate pilot ",
+        "The archived Fan transfer experiment is a separate pilot ")
+    prefix = prefix.replace(
+        "This column is excluded from the paper figure and its data selection.",
+        "This superseded pilot is omitted from the figure; its tables and "
+        "logs remain archived below.\n"
+        "It is also excluded from the paper figure and its data selection.")
+    if "## Fan inertial and ramp development" not in prefix:
+        prefix += (
+            "## Fan inertial and ramp development\n\n"
+            "The Fan inertial and Fan ramp columns include screening seeds 0-1 "
+            "and fresh confirmation seeds 2-4 for EMPIRIC and Direct agent.\n"
+            "Only finished runs enter bars, curves, and averages; unfinished "
+            "runs are listed separately, not counted as failures.\n"
+            "Inertial confirmation finished 3/3 for both methods, so its pilot "
+            "solve-rate gap did not replicate.\n"
+            "Ramp confirmation is a separate prospective test of the frozen "
+            "ramp candidate; pooled development results are not "
+            "independent confirmation.\n"
+            "See the [development record](../amps/fan-development.md) for "
+            "task illustrations, cohort provenance, and failure analysis.\n"
+            "Both columns are excluded from paper figures "
+            "and data selection.\n\n")
     average_intro = original.split("## Averages across seeds",
                                    1)[1].split("| Domain |", 1)[0]
+    average_intro = average_intro.replace(
+        "The last column gives how many of the three seeds have finished; "
+        "rows with fewer than three are provisional.",
+        "The last column gives finished versus planned seeds for each "
+        "entry; incomplete entries are provisional.")
     return (
         prefix + "## Averages across seeds" + average_intro +
         "| Domain | Approach | Whole-run successes | Levels won | "
@@ -279,9 +379,10 @@ def refresh_oracle_validation(force: bool = False) -> None:
         "# Oracle dynamics repair pilot", "",
         "<!-- Generated by monitor_benchmark_arms.py; do not edit. -->", "",
         f"Updated {timestamp()}; {new_count}/6 repaired-run seeds finished.",
-        "Only Domino and Bridge are launched, "
-        "with seeds 0-2 and preflight off.",
-        "The other domains await review of this pilot.",
+        "This diagnostic comparison retains Domino and Bridge "
+        "seeds 0-2 with preflight off.",
+        "Additional seeds 3-4 across all five domains are tracked in "
+        "the main benchmark, not pooled into this repair pilot.",
         "Only finished runs contribute; unfinished seeds are not failures.",
         "", "![Original and repaired Oracle]"
         "(figures/oracle-dynamics-validation-r2.png)", "",
@@ -310,11 +411,11 @@ def main() -> None:
     STATE.mkdir(parents=True, exist_ok=True)
     with (STATE / "monitor.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        plot = runpy.run_path(
-            str(ROOT / "scripts/plotting/plot_benchmark_arms.py"))
         force = args.force
         while True:
             try:
+                plot = runpy.run_path(
+                    str(ROOT / "scripts/plotting/plot_benchmark_arms.py"))
                 refresh(plot, force=force)
                 refresh_oracle_validation(force=force)
                 force = False

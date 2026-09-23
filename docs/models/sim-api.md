@@ -2,7 +2,7 @@
 
 [Documentation index](../README.md) | [Learned models](README.md)
 
-Status: checked against the working-tree implementation on September 19, 2026, with HEAD `1ed5f7e7d`.
+Status: updated for the working-tree benchmark-interface repairs on September 20, 2026.
 This documents the `sim` object exposed to agents through `run_python`, not the simulator subclass interface used to implement dynamics.
 The source of truth is [BeliefProbe and its result types](../../predicators/agent_sdk/belief_probe.py).
 Historical experiments run from frozen worktrees can expose different interfaces.
@@ -44,6 +44,8 @@ sim.run(
 
 Plans contain one skill invocation per line, using `Skill(obj:type, ...)[parameters]`.
 Optional `-> {atoms}` annotations are checked against each step's post-state.
+For `Wait`, annotations also supply early-stop conditions in simulation and real skill execution, including when a positive action count is given.
+Re-grounding a real skill clears controller caches but preserves these declarative wait targets.
 Use the skills and object names available in the current task.
 
 | Mode | Variation between rollouts | Full task evaluator? | Advances probe state? |
@@ -147,6 +149,14 @@ Do not discard notices when deciding whether a check is trustworthy.
 | `belief(draws=None)` | Inspect the observation belief and estimated atom frequencies. |
 
 These operations do not reset, modify, or execute actions in the live environment.
+In continual runs, task initial states come from the first recorded public observation of each reached level, including its cached observation noise.
+`reset(task_idx=...)` and `train_tasks` do not provide a noise-free copy of the evaluator's initial state.
+Repeated probe resets reuse that observation; they do not provide independent measurements or charge real steps.
+The real evaluator still judges true execution states.
+
+Continual rollout budget warnings use the live remaining pooled step allowance, further limited by an episode horizon if one is configured.
+They do not impose the phased protocol's `CFG.horizon` on a continual run with no episode horizon.
+Simulation itself remains uncharged; the warning compares predicted primitive actions with what real execution can still afford.
 
 `sim.reset(current=True).check_restore()` checks the model's reconstructed state, not whether its inferred hidden state is correct.
 It returns `accepted`, `rejected`, or `unavailable` with component diagnostics; an exception is an error, not a pass.
@@ -158,6 +168,18 @@ The hook must be idempotent and must not advance physics, change poses, or infer
 `restore_model_attachments([(name_a, name_b), ...])` registers the candidate's inferred rigid links with the assembly-aware controller and preserves them across steps and snapshots.
 The helper supplies no glue rules and reads no hidden execution state.
 Prediction snapshots preserve local joint frames; observation-only reconstruction must obtain link identities from the candidate's observation-driven memory.
+
+### Visible model bases and Oracle
+
+For Boil, Fan, Bridge, plain Domino, and Balloons, learned `BaseSimulator` classes inherit visible cores, not full hidden environment implementations.
+They provide no task generators or hidden mechanism helpers/constants.
+Boil mechanism readouts and Fan's target-hit readout retain their restored observations unless the candidate implements their evolution and readout.
+Oracle intentionally uses a separate privileged loader for its immutable, harness-supplied model.
+This does not give learned candidates Oracle's helpers.
+Other historical domains retain their previous loader behavior and are outside this boundary audit.
+
+Previously saved candidate code that relied on inherited hidden helpers must be rewritten from observed evidence before use with the corrected interface.
+Frozen experiment worktrees and their results are not changed by these repairs.
 
 ## Search and parallel rollouts
 

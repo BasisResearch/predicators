@@ -558,7 +558,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         # the interaction-request cap for explore episodes). A plan whose
         # goal is reached only after more steps than that will time out in
         # real rollout, so don't count it as achieved/captured.
-        horizon = utils.real_episode_step_budget(ctx.phase)
+        horizon = ctx.execution_step_budget()
         within_horizon = (result.actions_to_goal is not None
                           and result.actions_to_goal <= horizon)
         goal_achieved = (goal_reached and result.clean_to_goal
@@ -1312,7 +1312,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         if load_err is not None or option_fn is None:
             return _error_result(load_err or "policy.py failed to load.")
         max_opts = CFG.agent_policy_max_options
-        horizon = utils.real_episode_step_budget(ctx.phase)
+        horizon = ctx.execution_step_budget()
 
         lines = [f"Testing policy.py on task {task_label}:"]
         saved_image_paths: List[str] = []

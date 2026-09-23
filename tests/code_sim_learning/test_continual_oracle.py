@@ -6,7 +6,8 @@ import numpy as np
 import pytest
 
 from predicators import utils
-from predicators.code_sim_learning.base_simulator import base_simulator_class
+from predicators.code_sim_learning.base_simulator import \
+    base_simulator_class, oracle_base_simulator_class
 from predicators.code_sim_learning.continual_oracle import oracle_source
 from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.code_sim_learning.latent_tracker import \
@@ -20,7 +21,7 @@ from tests.code_sim_learning.test_fan_gt_simulator import _make_noop
 
 def _load_namespace() -> Dict[str, Any]:
     namespace: Dict[str, Any] = {
-        "BaseSimulator": base_simulator_class(CFG.env),
+        "BaseSimulator": oracle_base_simulator_class(CFG.env),
         "ParamSpec": ParamSpec
     }
     exec(oracle_source(), namespace)  # pylint: disable=exec-used

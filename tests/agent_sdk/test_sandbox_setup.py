@@ -66,6 +66,8 @@ def test_pyguard_blocks_hidden_modules_and_sources(tmp_path) -> None:
     env_init = os.path.join(repo, "predicators", "envs", "__init__.py")
     cases: List[str] = [
         "import predicators.envs",
+        "from predicators.code_sim_learning import base_simulator",
+        "import predicators.code_sim_learning.continual_oracle",
         "import importlib; importlib.import_module('predicators.envs')",
         f"open({env_init!r})",
         f"open({os.path.join(repo, 'logs', 'x.txt')!r})",

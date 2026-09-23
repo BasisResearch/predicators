@@ -128,6 +128,22 @@ def test_physics_sweep_reports_interior_hole():
     assert ctx.attempt_rollout_count == 5
 
 
+@pytest.mark.parametrize("mode", [{}, {"trials": 2}, {"physics_sweep": True}])
+def test_rollout_budget_uses_live_protocol_allowance(mode):
+    """All rollout modes warn against remaining real steps, not CFG.horizon."""
+    utils.reset_config({"horizon": 0})
+    ctx, _, _ = _make_ctx([{"friction": .48}])
+    remaining = [10]
+    ctx.execution_step_budget_provider = lambda: remaining[0]
+    sim = BeliefProbe(ctx).reset()
+    result = sim.run("Move(block0:block)[0.95]", render=False, **mode)
+    assert "step budget" not in result.text
+    remaining[0] = 0
+    sim.reset()
+    result = sim.run("Move(block0:block)[0.95]", render=False, **mode)
+    assert "execution step budget (0" in result.text
+
+
 def test_physics_sweep_straddle_arms_the_probe_trigger():
     """Under the interval belief a mixed sweep is reported as the interval
     straddling the plan's success boundary, with the passing and failing

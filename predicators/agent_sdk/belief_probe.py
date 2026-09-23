@@ -1616,10 +1616,10 @@ class BeliefProbe:
         report_preds = ctx.predicates
 
         def _horizon_note(total_actions: int) -> Optional[str]:
-            budget = utils.real_episode_step_budget(ctx.phase)
+            budget = ctx.execution_step_budget()
             if total_actions > budget:
                 return (f"the rollout used {total_actions} low-level steps, "
-                        f"more than the real episode's step budget "
+                        f"more than the remaining execution step budget "
                         f"({budget}) - the real executor would run out "
                         "of steps, so shorten or speed up the plan.")
             return None
@@ -1712,7 +1712,7 @@ class BeliefProbe:
                     f"time budget expired after {len(point_dicts)}/"
                     f"{len(all_points)} sweep points - the remaining "
                     f"points were skipped ({e})")
-            budget = utils.real_episode_step_budget(ctx.phase)
+            budget = ctx.execution_step_budget()
             sweep_over = [
                 p for p in point_dicts
                 if p["goal_reached"] and p["num_actions"] > budget
@@ -1720,7 +1720,7 @@ class BeliefProbe:
             if sweep_over:
                 notices.append(
                     f"{len(sweep_over)} goal-reaching sweep point(s) "
-                    f"exceeded the real episode's step budget ({budget} "
+                    f"exceeded the remaining execution step budget ({budget} "
                     "low-level steps) - the real executor would run out "
                     "of steps.")
             sweep_successes = sum(1 for p in point_dicts if p["goal_reached"])
@@ -1894,15 +1894,16 @@ class BeliefProbe:
                     notices.append(
                         "the evaluator errored on some trials; these are "
                         "NOT certified, even if the goal atoms held.")
-            budget = utils.real_episode_step_budget(ctx.phase)
+            budget = ctx.execution_step_budget()
             over = [
                 t for t in trial_dicts
                 if t["goal_reached"] and t["num_actions"] > budget
             ]
             if over:
                 notices.append(
-                    f"{len(over)} goal-reaching trial(s) exceeded the real "
-                    f"episode's step budget ({budget} low-level steps) - "
+                    f"{len(over)} goal-reaching trial(s) exceeded the "
+                    "remaining "
+                    f"execution step budget ({budget} low-level steps) - "
                     "the real executor would run out of steps.")
             inexact = [t for t in trial_dicts if t["inexact_start_features"]]
             if inexact:

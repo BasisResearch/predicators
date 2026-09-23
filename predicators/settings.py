@@ -1120,6 +1120,13 @@ class GlobalSettings:
     fan_known_controls_relation = True
     fan_combine_switch_on_off = False
     fan_use_kinematic = False
+    # Separate pilot: a protected calibration tray and exposed L-shaped deck.
+    # Historical uniform/maze tasks and their physics remain unchanged.
+    fan_exposed_transfer = False
+    # Separate inertial pilot; requires exposed transfer. Preserve r1 physics.
+    fan_inertial_transfer = False
+    # Optional visible downhill ramp, with a protected training counterpart.
+    fan_ramp_transfer = False
     fan_train_num_pos_x = 3
     fan_train_num_pos_y = 3
     # The historical 6 x 6 uniform test split. The loc bounds in

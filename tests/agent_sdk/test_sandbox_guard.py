@@ -42,6 +42,12 @@ _BLOCK = [
     # surface (predicators.structs, in _ALLOW) stays importable.
     "from predicators.envs.pybullet_domino import PyBulletDominoEnv",
     "import predicators.ground_truth_models.domino as gt",
+    "from predicators.code_sim_learning.base_simulator import "
+    "oracle_base_simulator_class",
+    "from predicators.code_sim_learning.continual_oracle import oracle_source",
+    "import predicators.code_sim_learning.boil_oracle as oracle",
+    "import predicators.code_sim_learning.bridge_oracle as oracle",
+    "from predicators.code_sim_learning import base_simulator",
 ]
 
 
