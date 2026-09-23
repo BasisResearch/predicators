@@ -29,6 +29,7 @@ def test_learned_attachments_restore_before_first_action(
         MODEL_STATE_INIT: Any = {"links": []}
 
         def restore_model_state(self) -> None:
+            """Re-attach the links this candidate recorded."""
             self.restore_model_attachments(self.model_state["links"])
 
     real: Any = create_new_env("pybullet_bridge", do_cache=False)

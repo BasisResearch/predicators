@@ -84,4 +84,5 @@ def test_empiric_r2_seed_ids_and_completion_count(tmp_path: Path,
     details, unfinished = report.split("## Unfinished runs", 1)
     assert "| 4. EMPIRIC r2 | 3 | 1/1 | 265 |" in details
     assert "| Domino (high-friction turn) | 4. EMPIRIC r2 | 4 |" in unfinished
-    assert "| Domino (high-friction turn) | 4. EMPIRIC r2 | 3 |" not in unfinished
+    assert ("| Domino (high-friction turn) | 4. EMPIRIC r2 | 3 |"
+            not in unfinished)
