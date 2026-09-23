@@ -99,7 +99,6 @@ class PyBulletBoilGroundTruthOptionFactory(_BoilLegacyOptionsMixin,
         del env_name, action_space, predicates  # unused
 
         robot_type = types["robot"]
-        switch_type = types["switch"]
         jug_type = types["jug"]
         burner_type = types["burner"]
         faucet_type = types["faucet"]
