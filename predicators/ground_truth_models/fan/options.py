@@ -1,6 +1,6 @@
 """Ground-truth options for the coffee environment."""
 
-from typing import Callable, ClassVar, Dict, Sequence, Set, Tuple
+from typing import Callable, ClassVar, Dict, Optional, Sequence, Set, Tuple
 from typing import Type as TypingType
 
 import numpy as np
@@ -46,32 +46,26 @@ class PyBulletFanGroundTruthOptionFactory(_FanLegacyOptionsMixin,
         return cls._get_options_legacy(env_name, types, predicates,
                                        action_space)
 
+    @classmethod
+    def get_primitive_skill_context(
+            cls, env_name: str,
+            types: Dict[str, Type]) -> Optional[Tuple[SkillConfig, Type]]:
+        del env_name  # unused
+        return cls._build_skill_config(), types["robot"]
+
     # ------------------------------------------------------------------
     # Skill-factory path
     # ------------------------------------------------------------------
 
     @classmethod
-    def _get_options_skill_factories(
-            cls, env_name: str, types: Dict[str,
-                                            Type], predicates: Dict[str,
-                                                                    Predicate],
-            action_space: Box) -> Set[ParameterizedOption]:
-        """Skill-factory-based option implementations for the fan env."""
-        del env_name, predicates, action_space  # unused
-
+    def _build_skill_config(cls) -> SkillConfig:
+        """The shared skill configuration of the fan env."""
         pybullet_robot = shared_skill_robot(PyBulletFanEnv)
-
-        robot_type = types["robot"]
-        switch_type = types["switch"]
-        fan_type = types["fan"]
-
         env_cls = cls.env_cls
-
         _push_transport_z = cls._hand_empty_move_z
-
         simulator = shared_skill_simulator(env_cls) \
             if CFG.skill_phase_use_motion_planning else None
-        config = SkillConfig(
+        return SkillConfig(
             robot=pybullet_robot,
             open_fingers_joint=pybullet_robot.open_fingers,
             closed_fingers_joint=pybullet_robot.closed_fingers,
@@ -82,10 +76,21 @@ class PyBulletFanGroundTruthOptionFactory(_FanLegacyOptionsMixin,
                             env_cls.robot_init_z),
             transport_z=_push_transport_z,
             simulator=simulator,
-            # Skill controllers read the physical state. End a stationary
-            # wait even when its requested atom change never occurs.
-            wait_quiescence_eps=1e-4,
         )
+
+    @classmethod
+    def _get_options_skill_factories(
+            cls, env_name: str, types: Dict[str,
+                                            Type], predicates: Dict[str,
+                                                                    Predicate],
+            action_space: Box) -> Set[ParameterizedOption]:
+        """Skill-factory-based option implementations for the fan env."""
+        del env_name, predicates, action_space  # unused
+
+        robot_type = types["robot"]
+        switch_type = types["switch"]
+        fan_type = types["fan"]
+        config = cls._build_skill_config()
 
         if CFG.fan_known_controls_relation:
             control_obj_type = fan_type

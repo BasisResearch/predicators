@@ -1169,6 +1169,9 @@ class BeliefProbe:
         # pylint: enable=import-outside-toplevel
         ctx = self._ctx
         _check_time_budget(ctx)
+        if not CFG.continual_uncertainty_decisions:
+            raise ValueError("Explicit uncertainty is disabled; use "
+                             "sim.reset(current=True) for the point estimate.")
         noise = ObservationNoise.from_cfg()
         if not (noise.enabled and noise.declared):
             raise ValueError(
@@ -1368,6 +1371,9 @@ class BeliefProbe:
         reference the true init, so any other start would give silently-
         wrong verdicts) or when the task defines no evaluator.
         """
+        if not self._ctx.probe_engine_available:
+            raise ValueError("Engine evaluator replay is unavailable for a "
+                             "standalone program model.")
         if not self._pristine:
             raise ValueError(
                 f"{flag} needs the task's unmodified initial state (call "
@@ -1506,8 +1512,16 @@ class BeliefProbe:
         from predicators.agent_sdk import bilevel_sketch
         # pylint: disable-next=import-outside-toplevel
         from predicators.settings import CFG
+        if not self._ctx.probe_engine_available and (solved or contacts
+                                                     or physics_sweep):
+            raise ValueError("Engine diagnostics are unavailable for a "
+                             "standalone program model.")
         if trials < 1:
             raise ValueError(f"trials must be >= 1, got {trials}")
+        if (not CFG.continual_uncertainty_decisions
+                and (physics_sweep or belief_draws > 0)):
+            raise ValueError("Explicit uncertainty is disabled; rehearse at "
+                             "the point estimate without uncertainty sweeps.")
         if physics_sweep and (trials > 1 or solved or contacts):
             raise ValueError(
                 "physics_sweep=True is its own mode: it varies the PHYSICS "
@@ -1930,13 +1944,15 @@ class BeliefProbe:
                 ctx,
                 f"probe_step_{i}_{outcome.option.name}") if render else None
             if (outcome.option.name == "Wait" and failure is None
-                    and outcome.num_actions >= utils.wait_rollout_step_cap()):
+                    and outcome.num_actions >= utils.wait_rollout_step_cap()
+                    and
+                    not (outcome.option.params.size == 1 and
+                         0 < outcome.option.params[0] <= outcome.num_actions)):
                 notices.append(
                     f"step {i} (Wait) ran to its step cap "
-                    f"({outcome.num_actions} actions): its wait-target "
-                    "atoms never became true in the belief (and no other "
-                    "atom changed). Check whether the awaited change is "
-                    "modeled, or drop the Wait.")
+                    f"({outcome.num_actions} actions). Inspect the final "
+                    "state and subgoal report to decide whether to wait "
+                    "longer or revise the modeled dynamics.")
             step_dicts.append({
                 "option":
                 sig,
@@ -2312,6 +2328,8 @@ class BeliefProbe:
         # pylint: enable=import-outside-toplevel
         ctx = self._ctx
         _check_time_budget(ctx)
+        if not CFG.continual_uncertainty_decisions:
+            raise ValueError("Disagreement-based probing is disabled.")
         scorer = ctx.atom_disagreement_fn
         if scorer is None:
             return ProbeSuggestResult([], [

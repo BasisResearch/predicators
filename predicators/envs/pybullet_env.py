@@ -346,6 +346,23 @@ class PyBulletEnv(BaseEnv):
         self._physics_client_id, self._pybullet_robot, pybullet_bodies = \
             self.initialize_pybullet(self.using_gui)
         self._store_pybullet_bodies(pybullet_bodies)
+        # Public recordings contain names and features, never engine handles.
+        # Resolve their objects against this world's roster on restoration.
+        self._body_objects: Dict[str, Object] = {}
+
+        def collect_objects(value: Any) -> None:
+            if isinstance(value, Object):
+                self._body_objects[value.name] = value
+            elif isinstance(value, (list, tuple)):
+                for item in value:
+                    collect_objects(item)
+            elif isinstance(value, dict):
+                for item in list(value.keys()) + list(value.values()):
+                    collect_objects(item)
+
+        for value in list(vars(self).values()):
+            if value is not self._body_objects:
+                collect_objects(value)
         # Texture any table(s) the env registered (every env uses the
         # "table_id"/"table_id2" convention) with the studio wood texture.
         studio_visuals.apply_table_textures(type(self),
@@ -709,6 +726,13 @@ class PyBulletEnv(BaseEnv):
         """
         # Observable equality deliberately ignores latent. Restore memory
         # independently, including a sibling node with identical body poses.
+        if any(not obj.type.sim_features for obj in state):
+            rebound = state.copy()
+            rebound.data = {
+                self._body_objects.get(obj.name, obj): values
+                for obj, values in rebound.data.items()
+            }
+            state = rebound
         if has_model_state(type(self)):
             self._model_state = restored_model_state(type(self), state,
                                                      self._agent_param_values)
@@ -1456,6 +1480,13 @@ class PyBulletEnv(BaseEnv):
         # that merged state); welds a rule still wants are re-emitted
         # and re-frozen at the restored poses, and welds the State
         # itself records are restored below.
+        if any(not obj.type.sim_features for obj in state):
+            rebound = state.copy()
+            rebound.data = {
+                self._body_objects.get(obj.name, obj): values
+                for obj, values in rebound.data.items()
+            }
+            state = rebound
         if has_model_state(type(self)):
             self._model_state = restored_model_state(type(self), state,
                                                      self._agent_param_values)

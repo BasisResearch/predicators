@@ -3280,6 +3280,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             is scored a solve at every point. ``sweep`` is None with a
             note when no identified parameter carries a width.
             """
+            if physics_sweep and not CFG.continual_uncertainty_decisions:
+                raise ValueError("Explicit uncertainty sweeps are disabled.")
             if not 0 <= task_idx < len(tasks):
                 raise ValueError(f"task_idx {task_idx} out of range "
                                  f"(0-{len(tasks) - 1}).")

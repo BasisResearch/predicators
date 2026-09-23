@@ -28,6 +28,19 @@ from predicators.structs import Action, EpisodeEvaluation, GroundAtom, \
     Predicate, State, _Option
 
 
+def public_skill_failure(error: Exception) -> str:
+    """Expose controller outcome categories, never private planning
+    geometry."""
+    logging.debug("[private skill failure] %s", error)
+    message = str(error).lower()
+    if "timeout" in message or "max_option_steps" in message:
+        return "The skill exceeded its execution limit."
+    if "not initiable" in message:
+        return "The skill could not start from the current observation."
+    return ("The requested motion could not be completed. "
+            "Inspect the observed state and adjust the target.")
+
+
 class EpisodeState(enum.Enum):
     """The three episode states of the protocol (section 4.3)."""
     NOT_FINISHED = "NOT_FINISHED"
@@ -210,7 +223,10 @@ class EpisodeRunner:
         self._actions.append(action)
         self._observations.append(obs)
         self._check_terminal()
-        outcome = StepOutcome(obs, self._episode_state, self._reason)
+        # Not ``obs``: a certificate that advances physics replaces the
+        # last observation with the scene it judged.
+        outcome = StepOutcome(self.observation(), self._episode_state,
+                              self._reason)
         for listener in self._listeners:
             listener(action, outcome)
         return outcome
@@ -239,7 +255,7 @@ class EpisodeRunner:
                     # The single-option plan ran out: the controller
                     # terminated on its own.
                     break
-                status, reason = "failed", str(e.args[0]) if e.args else ""
+                status, reason = "failed", public_skill_failure(e)
                 break
             outcome = self.step(act)
             if outcome.state is not EpisodeState.NOT_FINISHED:
@@ -285,9 +301,14 @@ class EpisodeRunner:
         return obs
 
     def _check_terminal(self) -> None:
-        if self._env.goal_reached():
+        if self._env.episode_terminated(self._observations):
             ok, why = self._env.check_episode_trajectory(
                 self._observations, self._actions)
+            # Some certificates advance physics (Bridge settles the
+            # scene). Record and report the scene the verdict was
+            # reached on, not the candidate that preceded it, so a
+            # rejection can be diagnosed from the run's own record.
+            self._observations[-1] = self._current_observation()
             if ok:
                 self._end(EpisodeState.WIN, "")
             else:

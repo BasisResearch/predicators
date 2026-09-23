@@ -3,6 +3,7 @@
 python predicators/envs/pybullet_boil.py
 """
 import random
+import re
 from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
@@ -166,9 +167,8 @@ class PyBulletBoilEnv(PyBulletEnv):
                                     float]] = (1.0, 0.3, 0.0, 1.0
                                                )  # red-orange (on)
 
-    # Dist thresholds
-    faucet_align_threshold: ClassVar[
-        float] = 0.1  # if jug is within this distance of faucet
+    # Dist thresholds. The faucet tolerance is CFG.boil_faucet_align_threshold
+    # (see faucet_align_threshold below).
     burner_align_threshold: ClassVar[float] = 0.05
     switch_joint_scale: ClassVar[float] = 0.1
     switch_on_threshold: ClassVar[float] = 0.5  # fraction of the joint range
@@ -206,14 +206,14 @@ class PyBulletBoilEnv(PyBulletEnv):
     ],
                         sim_features=["id", "water_id"])
     _burner_type = Type("burner", ["x", "y", "z", "is_on"],
-                        sim_features=["id", "switch_id", "prev_on"])
+                        sim_features=["id", "prev_on"])
     _switch_type = Type("switch", ["x", "y", "z", "rot", "is_on"])
     # _spilled_level is initialized to be 0.04 smaller. This creates a delay
     # for spill to occur while allows the WaterSpill predicate to have an
     # intuitive >0.0 definition, instead of >0.04
-    _faucet_type = Type(
-        "faucet", ["x", "y", "z", "rot", "is_on", "spilled_level"],
-        sim_features=["id", "switch_id", "_spilled_level", "prev_on"])
+    _faucet_type = Type("faucet",
+                        ["x", "y", "z", "rot", "is_on", "spilled_level"],
+                        sim_features=["id", "_spilled_level", "prev_on"])
     _human_type = Type("human", ["happiness_level"],
                        sim_features=["id", "happiness_level"])
 
@@ -254,12 +254,13 @@ class PyBulletBoilEnv(PyBulletEnv):
             burn_obj = Object(f"burner{i}", self._burner_type)
             self._burners.append(burn_obj)
 
-            sw_obj = Object(f"burner_switch{i}", self._switch_type)
+            sw_obj = Object(self.switch_name_for(burn_obj), self._switch_type)
             self._burner_switches.append(sw_obj)
 
         # Create one faucet + a corresponding switch
         self._faucet = Object("faucet", self._faucet_type)
-        self._faucet_switch = Object("faucet_switch", self._switch_type)
+        self._faucet_switch = Object(self.switch_name_for(self._faucet),
+                                     self._switch_type)
 
         # Create humans - one for each possible jug
         self._humans: List[Object] = []
@@ -668,7 +669,6 @@ class PyBulletBoilEnv(PyBulletEnv):
         burners = state.get_objects(self._burner_type)
         for i, burner_obj in enumerate(burners):
             on_val = state.get(burner_obj, "is_on")
-            burner_obj.switch_id = self._burner_switches[i].id
             burner_obj.prev_on = 0.0
             self._set_switch_on(self._burner_switches[i].id,
                                 bool(on_val > 0.5))
@@ -716,7 +716,6 @@ class PyBulletBoilEnv(PyBulletEnv):
                               physics_client_id=self._physics_client_id)
 
         # Faucet on/off
-        self._faucet.switch_id = self._faucet_switch.id
         self._faucet.prev_on = 0.0
         f_on = state.get(self._faucet, "is_on")
         self._set_switch_on(self._faucet_switch.id, bool(f_on > 0.5))
@@ -1037,6 +1036,38 @@ class PyBulletBoilEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     # Switch Helpers
     # -------------------------------------------------------------------------
+    @staticmethod
+    def switch_name_for(obj: Object) -> str:
+        """Name of the switch that toggles ``obj``, a burner or the faucet:
+        ``burner2`` -> ``burner_switch2``, ``faucet`` -> ``faucet_switch``.
+
+        The single place the pairing convention lives: ``__init__``
+        names the switches with it and :meth:`get_switch` resolves them
+        by it.
+        """
+        match = re.fullmatch(r"([A-Za-z]+)(\d*)", obj.name)
+        assert match is not None, f"unexpected object name {obj.name!r}"
+        return f"{match.group(1)}_switch{match.group(2)}"
+
+    @classmethod
+    def get_switch(cls, state: State, obj: Object) -> Object:
+        """The switch of ``obj`` (a burner or the faucet) in ``state``.
+
+        Resolved by name against the state, never through an attribute
+        of the caller's Object instance: a skill's objects come from
+        whatever view the caller grounded on (the continual agent's
+        observed frame, a state read back from a recording, another env
+        instance's task), and those instances never carry this env's
+        simulator attributes. Raises ``KeyError`` when the state has no
+        such switch.
+        """
+        name = cls.switch_name_for(obj)
+        for candidate in state:
+            if candidate.name == name and \
+                    candidate.type.name == cls._switch_type.name:
+                return candidate
+        raise KeyError(f"No switch {name!r} for {obj} in the state")
+
     def _is_switch_on(self, switch_id: int) -> bool:
         """Check if a switch's main joint is above a threshold."""
         if switch_id < 0:
@@ -1221,6 +1252,11 @@ class PyBulletBoilEnv(PyBulletEnv):
         burner_y = state.get(burner, "y")
         dist = np.hypot(jug_x - burner_x, jug_y - burner_y)
         return dist < self.burner_align_threshold
+
+    @property
+    def faucet_align_threshold(self) -> float:
+        """Max jug-centre-to-outlet distance for JugAtFaucet."""
+        return float(CFG.boil_faucet_align_threshold)
 
     def _JugAtFaucet_holds(self, state: State,
                            objects: Sequence[Object]) -> bool:

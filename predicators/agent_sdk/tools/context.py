@@ -59,6 +59,8 @@ class ToolContext:
     # sessions - the deployed belief model is fixed there, so the probe
     # rejects ``fit`` calls.
     probe_fit_provider: Optional[Callable[..., str]] = None
+    # Standalone program models cannot request engine replay diagnostics.
+    probe_engine_available: bool = True
     # Synthesis-session loaders behind ``sim.predicates()`` and
     # ``sim.samplers()``: each reloads the agent-authored file fresh
     # (predicates.py / samplers.py), installs the result into the
@@ -73,6 +75,18 @@ class ToolContext:
     # (carried-over / declared init values) that every probe result
     # surfaces until the agent fits the file. None outside synthesis.
     probe_param_status: Optional[str] = None
+    # Installed by the model arm under continual_require_model_on_test:
+    # returns the reason the skill tools must refuse right now (no
+    # deployable, fitted simulator.py on a test level), or None when
+    # a skill may run. Nothing is charged for a refusal.
+    skill_gate: Optional[Callable[[], Optional[str]]] = None
+    # Installed by the model arm under continual_skill_preflight: given
+    # the plan text of a skills_invoke / skills_execute_plan request,
+    # rehearses it in the arm's sim from the last real observation and
+    # returns the refusal text (the controller's diagnostic) when a
+    # skill fails there, or None when the request may run. Nothing is
+    # charged for a refusal; force=true on the request skips it.
+    skill_preflight: Optional[Callable[[str], Optional[str]]] = None
     # Synthesis-session ``sim.residuals`` backend: computes the
     # per-feature residual report for the current simulator.py rules
     # (see ``SynthesisToolkit.residuals_runner``). None in solve
@@ -106,6 +120,8 @@ class ToolContext:
     # Refresh inferred memory after a model edit/refit before a current-state
     # probe. Continual MB sessions install this; other sessions keep None.
     current_observation_provider: Optional[Callable[[], State]] = None
+    # Arm-specific invariant checked before any charged continual request.
+    before_real_action: Optional[Callable[[], None]] = None
     # The execution-time belief over it (observation_belief.BeliefFrame)
     # when the run carries one, so sim.run(belief_draws=K) draws from
     # the belief the agent was shown.

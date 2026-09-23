@@ -78,8 +78,6 @@ class PyBulletMagnetsGroundTruthOptionFactory(GroundTruthOptionFactory):
             # A hover ends within 5 mm of its point: where the tip stops
             # is where the carried piece settles.
             move_to_pose_tol=2.5e-5,
-            wait_quiescence_eps=1e-4,
-            wait_quiescence_steps=10,
         )
 
     @classmethod

@@ -81,34 +81,45 @@ def _release_and_pull(state: State, updates: ResidualUpdate, params: Params,
     clips = sorted(objs.get("clip", []), key=lambda o: o.name)
     box_x, box_y = state.get(box, "x"), state.get(box, "y")
     box_z = float(state.get(box, "z"))
-    box_top_z = box_z + _GEOM.box_half
+    box_top_z = box_z + _GEOM.box_half_extents()[2]
     fade = float(params["fade_height"])
     frac = (box_z - _GEOM.table_height) / fade if fade > 0 else 1.0
     fade_factor = max(0.0, 1.0 - frac)
     ceiling_underside = _GEOM.ceiling_z - _GEOM.ceiling_half_extents[2]
 
-    stacked = sum(1 for b in balloons if state.get(b, "tied") > 0.5)
+    # The balloon's ``clip`` feature names the clip that frees it (a
+    # bundle shares one clip). Tiers: one per bundle freed, in order.
+    clip_of = [int(round(state.get(b, "clip"))) for b in balloons]
+    tiers = len({
+        clip_of[i]
+        for i, b in enumerate(balloons) if state.get(b, "tied") > 0.5
+    })
+    new_tiers: Dict[int, int] = {}
     for index, balloon in enumerate(balloons):
         tied = state.get(balloon, "tied") > 0.5
         popped = state.get(balloon, "popped") > 0.5
         if not tied:
-            if index >= len(clips) or state.get(clips[index], "is_on") <= 0.5:
+            clip = clip_of[index]
+            if clip >= len(clips) or state.get(clips[clip], "is_on") <= 0.5:
                 continue
             # Freed: the string pulls the balloon to the end of its
-            # tether above the box's top centre, above any balloon freed
-            # before it, so its pull acts through the box.
+            # tether above the box's top, a tier above the bundles freed
+            # before it, so its pull acts through the box. A lone balloon
+            # hangs off-centre by clip position, matching the env: an
+            # unbalanced set pulls off-centre and tilts the box.
             tied = True
-            seat_z = (box_top_z + _GEOM.balloon_radius + _GEOM.string_length +
-                      2 * _GEOM.balloon_radius * stacked)
-            stacked += 1
-            # Off-centre by clip position, matching the env: an unbalanced
-            # set pulls off-centre and tilts the box.
-            seat_x = box_x + _GEOM._attach_offset(index, len(balloons))  # pylint: disable=protected-access
+            if clip not in new_tiers:
+                new_tiers[clip] = tiers
+                tiers += 1
+            bundle = [i for i, c in enumerate(clip_of) if c == clip]
+            dx, dy, dz = _GEOM.bundle_seat(index, len(balloons),
+                                           bundle.index(index), len(bundle),
+                                           new_tiers[clip])
             updates.setdefault(balloon, {}).update({
                 "tied": 1.0,
-                "x": float(seat_x),
-                "y": float(box_y),
-                "z": float(seat_z),
+                "x": float(box_x + dx),
+                "y": float(box_y + dy),
+                "z": float(box_top_z + dz),
             })
         # The pop reads the balloon where the base sim left it this
         # step (a just-freed balloon is still in the rack here), as the

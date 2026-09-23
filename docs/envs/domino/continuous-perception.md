@@ -154,9 +154,10 @@ main argument for keeping the flag off by default.
 
 ### Falls out for free
 
-`note_external_state_change` is currently called at every boundary even when
-`observe=False`, re-seeding `Wait`'s quiescence tally when nothing external
-changed. Open-loop stops calling it, which is more correct.
+`Wait` no longer watches the scene for quiescence (it stops on its step
+count, an annotated target atom, an atom change, or the global Wait step
+cap), so a perception write at a boundary no longer needs to be reported to
+the running option.
 
 ---
 

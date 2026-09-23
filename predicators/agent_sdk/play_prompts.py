@@ -19,7 +19,8 @@ from predicators.settings import CFG
 TOOL_BLURBS = {
     "env_observe":
     "the current observation: episode state, goal, environment atoms, "
-    "your predicates, object features, a render, the ledger. Free.",
+    "your predicates, object features, current joint_positions and their "
+    "action-space order, a render, the ledger. Free.",
     "env_step":
     "one primitive action (a low-level action vector). One step.",
     "env_run_policy":
@@ -77,13 +78,25 @@ def build_minimal_play_system_prompt(*, model_based: bool) -> str:
     return "\n\n".join(section.strip() for section in sections)
 
 
+# Appended to the skill tools' blurbs for the model arm (the one with
+# `sim`) under continual_skill_preflight.
+_PREFLIGHT_BLURB = (" Rehearsed in `sim` from the last observation first; "
+                    "a controller failure there refuses the request, "
+                    "charging nothing, and `force=true` skips the "
+                    "rehearsal.")
+
+
 def render_tool_list(tool_names: Iterable[str]) -> str:
     """One bullet per tool the session exposes."""
+    names = list(tool_names)
+    preflight = "run_python" in names and CFG.continual_skill_preflight
     lines = []
-    for name in tool_names:
+    for name in names:
         blurb = TOOL_BLURBS.get(name)
         if blurb is None:
             continue
+        if preflight and name in ("skills_invoke", "skills_execute_plan"):
+            blurb += _PREFLIGHT_BLURB
         lines.append(f"- `{name}`: {blurb}")
     return "\n".join(lines)
 
@@ -123,6 +136,10 @@ def build_play_system_prompt(tool_names: Sequence[str],
     if model:
         sections.append(
             render("play_system", "workflow", adaptive_info_seeking=adaptive))
+        if CFG.continual_require_model_on_test:
+            sections.append(render("play_system", "model_gate"))
+        if CFG.continual_skill_preflight:
+            sections.append(render("play_system", "skill_preflight"))
         if CFG.agent_model_repair:
             sections.append(render("play_system", "model_repair"))
     else:
@@ -145,6 +162,8 @@ def build_play_system_prompt(tool_names: Sequence[str],
         sections.append(render("play_system", "model", base_sim_refs=refs))
         if model_contract:
             sections.append(model_contract)
+    if model and not CFG.continual_uncertainty_decisions:
+        sections.append(render("play_system", "point_estimate_decisions"))
     return "\n\n".join(section.strip() for section in sections)
 
 
@@ -179,7 +198,7 @@ def build_model_contract(
     if physical_params_section:
         parts.append(physical_params_section)
     if declared_params_only:
-        parts.append(render("learn_system", "declared_params"))
+        parts.append(render("play_model_contract", "no_numerical_fitting"))
     parts.append(render("play_model_contract", "predicates"))
     if partially_observable:
         parts.append(render("play_model_contract", "predicates_latent"))

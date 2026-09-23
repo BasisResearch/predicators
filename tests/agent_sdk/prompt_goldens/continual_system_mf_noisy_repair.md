@@ -26,7 +26,7 @@ Read the goal, observation, budget, and recorded experience before acting. Use s
 
 ## Tools
 
-- `env_observe`: the current observation: episode state, goal, environment atoms, your predicates, object features, a render, the ledger. Free.
+- `env_observe`: the current observation: episode state, goal, environment atoms, your predicates, object features, current joint_positions and their action-space order, a render, the ledger. Free.
 - `env_step`: one primitive action (a low-level action vector). One step.
 - `env_reset`: restart the current level from its initial state. One step and one reset, and a last resort. The only valid action after GAME_OVER on a level with resets.
 - `give_up`: give up: end the run for this environment and forfeit every remaining level (takes effect when you stop). A last resort.
@@ -41,6 +41,8 @@ Skill(obj1:type1, obj2:type2)[p1, p2] -> {Atom(obj:type), NOT Other(obj:type)}
 ```
 
 Use typed object references and exact continuous parameters; write `[]` for a skill with no parameters. A plan has one skill per line. `skills_list` gives signatures, parameter meanings, and ranges. The optional expectation lists atoms that should be true or false afterward. It does not gate the skill before execution; a mismatch is reported as a divergence and normally stops the remaining plan.
+
+`Wait(robot:robot)[1]` advances one environment step while holding the arm. The optional integer parameter is a step count, not seconds. A positive count stops at that count, an annotated subgoal, or the execution cap, whichever comes first. `Wait(robot:robot)[]` and `[0]` retain the default stopping behavior. Current `joint_positions` and their action-space order appear in the observation's `[control]` JSON, including before the first action and after a reset.
 
 ## Working files
 

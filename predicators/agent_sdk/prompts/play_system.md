@@ -78,8 +78,12 @@ Recorded features carry the same noise.
    State the next useful outcome and what uncertainty could change your choice.
 2. Use existing recordings and sandbox computation first.
    Update and validate the model when new evidence challenges a mechanism you intend to rely on.
+   Before acting on a test level, have a fitted `simulator.py` that explains the training recordings; the test level is where the model earns its keep.
    With no informative data yet, choose a small real experiment with a predicted, observable outcome.
-3. Rehearse candidate actions in the model, including uncertain parameters and poses where supported.
+3. Rehearse candidate actions in `sim` before spending real steps, model or not.
+   `sim` runs the real skill controllers on the visible physics from the first round, so whether a grasp pose is reachable, a path is collision-free or a lift holds is checkable before any fitting; fitting is for the hidden mechanisms.
+   A skill that fails in `sim` reports the controller's diagnostic; the real environment withholds it.
+   Rehearse uncertain parameters and poses where supported.
    Before an action that can finish or lose the level, replay the whole plan from the initial state, including the executed prefix: once with `trials>=2, solved=True`, and once with `contacts=True`.
    Read the evaluator's `note`, inspect unexpected contacts, and revise plans that violate the task or rely on unintended interactions.
 4. Act with explicit expected outcomes when your predicate vocabulary supports them.
@@ -102,6 +106,24 @@ Annotate expected outcomes when supplied predicates allow it, inspect failures, 
 For the adaptive probing strategy, first test a useful plan with the evidence already available.
 If its physics sweep fails only for part of the parameter range still consistent with the data, choose a small experiment to distinguish those values, then refit and rehearse.
 A plan that succeeds throughout that range needs no additional probing just to narrow it.
+
+<!-- section: model_gate -->
+### Test levels require a fitted model
+
+On a test level, `skills_invoke` and `skills_execute_plan` refuse, charging nothing, until `./simulator.py` loads and declares `RESIDUAL_FEATURES`.
+Fitting and validating it before you rely on it is still your decision.
+The refusal says which condition is unmet.
+Train levels are not gated: collect evidence there first.
+Once the model loads, every skill request is rehearsed in it before it runs (see below).
+
+<!-- section: skill_preflight -->
+### Every skill request is rehearsed first
+
+Before `skills_invoke` or `skills_execute_plan` charges a real step, the request is rehearsed in `sim` from the last observation: against `./simulator.py` when it loads, else against the visible base physics.
+A skill whose controller fails in the rehearsal is refused, charging nothing, and the refusal carries the controller's diagnostic: which contact blocks the pose, that no collision-free path exists, that the lift left the object behind.
+Under declared observation noise the request is also rolled from several plausible poses of the objects; failing on most of them refuses it too.
+Fix the parameters or the plan and request again, or pass `force=true` when you have a reason to believe the rehearsal is wrong (a mechanism the model lacks).
+A rehearsal that passes is conditional on the model; it does not prove the real outcome.
 
 <!-- section: model_repair -->
 ### When the model disagrees with evidence
@@ -145,6 +167,12 @@ A plan has one skill per line.
 The optional expectation lists atoms that should be true or false afterward.
 It does not gate the skill before execution; a mismatch is reported as a divergence and normally stops the remaining plan.
 
+`Wait(robot:robot)[1]` advances one environment step while holding the arm.
+The optional integer parameter is a step count, not seconds.
+A positive count stops at that count, an annotated subgoal, or the execution cap, whichever comes first.
+`Wait(robot:robot)[]` and `[0]` retain the default stopping behavior.
+Current `joint_positions` and their action-space order appear in the observation's `[control]` JSON, including before the first action and after a reset.
+
 <!-- section: sandbox -->
 ## Working files
 
@@ -172,7 +200,7 @@ No simulator is supplied.
 `run_python` provides `sim`, `trajectories`, `describe_trajectory`, `train_tasks`, `np`, and `ParamSpec` in a persistent namespace.
 The data refreshes after charged environment calls.
 Model files load on the next probe call; edits and rollouts do not implicitly fit parameters.
-Before a model exists, rollouts use the visible base physics with hidden mechanisms disabled.
+Before a model exists, rollouts run the real skill controllers on the visible base physics with hidden mechanisms disabled.
 After an edit, the candidate uses carried or declared values until explicitly fitted; inspect the report's parameter values and validation status.
 
 | Task | API and meaning |
@@ -229,3 +257,13 @@ A round consists of one harness prompt and your response, including all tool cal
 If you stop before the level is settled, the harness sends a continuation in the same conversation.
 After a win, it opens the next level when your response ends.
 Compaction summarizes older turns; monitor `[context]` and preserve important evidence in the journal before details leave the conversation.
+
+<!-- section: point_estimate_decisions -->
+## Point-estimate comparison
+
+Use a single current state estimate and one fitted value per parameter for every decision.
+Noise-aware numerical fitting, state smoothing, inferred model memory, and model revision remain enabled.
+Interpret earlier uncertainty instructions as checking the prediction at this point estimate.
+Do not construct parameter intervals, state or parameter ensembles, uncertainty sweeps, or disagreement-based experiments, including in your own sandbox code.
+`sim.belief`, `belief_draws`, `physics_sweep`, and `sim.suggest_probes` are disabled.
+Repeated rehearsals at the same state and dynamics remain available to check controller reliability.

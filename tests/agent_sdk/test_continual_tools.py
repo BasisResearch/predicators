@@ -16,8 +16,8 @@ from predicators.agent_sdk.play_prompts import build_model_contract, \
     build_play_query, build_play_system_prompt, render_data_status
 from predicators.agent_sdk.tools.context import ToolContext
 from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES, \
-    PlayState, build_continual_tools, context_status, format_observation, \
-    parse_plan_lines
+    PRIMITIVE_TOOL_NAMES, PlayState, build_continual_tools, context_status, \
+    format_observation, parse_plan_lines, play_tool_names
 from predicators.approaches import create_approach
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
@@ -624,3 +624,102 @@ def test_belief_lines_in_the_frame(tmp_path: Any, monkeypatch: Any) -> None:
     driver.body = body_off
     ContinualRun(env, approach, driver).run()
     assert seen["off"]
+
+
+def test_play_tool_names_drop_raw_control_when_disabled() -> None:
+    """With continual_raw_control off, skill agents lose env_step and
+    env_run_policy; on (the default) the list is unchanged."""
+    utils.reset_config({"continual_raw_control": True})
+    assert play_tool_names(CONTINUAL_TOOL_NAMES) == CONTINUAL_TOOL_NAMES
+    utils.reset_config({"continual_raw_control": False})
+    names = play_tool_names(CONTINUAL_TOOL_NAMES)
+    assert "env_step" not in names
+    assert names == [n for n in CONTINUAL_TOOL_NAMES if n != "env_step"]
+    assert "env_run_policy" not in play_tool_names(PRIMITIVE_TOOL_NAMES)
+    assert "skills_invoke" in names and "env_observe" in names
+    utils.reset_config({"continual_raw_control": True})
+
+
+def test_skill_gate_refuses_without_charging(tmp_path: Any) -> None:
+    """An installed ``ctx.skill_gate`` makes both skill tools refuse with its
+    reason and charge nothing; with no gate they proceed."""
+    env, approach, ctx = _setup(tmp_path)
+    driver = _Driver()
+
+    def body(session: ProtocolSession) -> None:
+        ctx.skill_gate = lambda: "No deployable model yet."
+        tools = build_continual_tools(ctx,
+                                      session,
+                                      PlayState(),
+                                      save_render=lambda tag: None)
+        for name, args in (("skills_invoke", {
+                "skill": "x"
+        }), ("skills_execute_plan", {
+                "plan": "x"
+        })):
+            out = _call(tools, name, **args)
+            assert out.startswith("ERROR")
+            assert "No deployable model yet." in out
+            assert "Nothing was charged" in out
+        assert session.observe().ledger.level_steps == 0
+        ctx.skill_gate = None
+        out = _call(tools, "skills_invoke", skill="x")
+        assert "Could not parse" in out
+
+    driver.body = body
+    ContinualRun(env, approach, driver).run()
+
+
+def test_skill_preflight_refuses_without_charging_unless_forced(
+        tmp_path: Any) -> None:
+    """An installed ``ctx.skill_preflight`` sees the request's plan text and
+    makes both skill tools refuse with its reason, charging nothing;
+    ``force=true`` skips it, and a preflight that returns None lets the request
+    through.
+
+    An unparseable line never reaches the rehearsal.
+    """
+    env, approach, ctx = _setup(tmp_path)
+    first_task = env.get_train_tasks()[0].task
+    line = _oracle_plan_text(approach, first_task).splitlines()[0]
+    driver = _Driver()
+    seen: List[str] = []
+
+    def body(session: ProtocolSession) -> None:
+
+        def preflight(plan_text: str) -> Any:
+            seen.append(plan_text)
+            return "Rehearsed in `sim`: skill 1 fails there: pose in contact."
+
+        ctx.skill_preflight = preflight
+        tools = build_continual_tools(ctx,
+                                      session,
+                                      PlayState(),
+                                      save_render=lambda tag: None)
+        assert "Could not parse" in _call(tools, "skills_invoke", skill="x")
+        assert "Could not parse" in _call(tools,
+                                          "skills_execute_plan",
+                                          plan="x")
+        assert not seen
+        for name, args in (("skills_invoke", {
+                "skill": line
+        }), ("skills_execute_plan", {
+                "plan": line
+        })):
+            out = _call(tools, name, **args)
+            assert out.startswith("ERROR")
+            assert "pose in contact" in out
+            assert "Nothing was charged" in out and "force=true" in out
+        assert seen == [line, line]
+        assert session.observe().ledger.level_steps == 0
+        out = _call(tools, "skills_invoke", skill=line, force=True)
+        assert "Nothing was charged" not in out
+        assert seen == [line, line]
+        assert session.observe().ledger.level_steps > 0
+        ctx.skill_preflight = lambda text: None
+        out = _call(tools, "skills_execute_plan", plan=line)
+        assert "Nothing was charged" not in out
+        ctx.skill_preflight = None
+
+    driver.body = body
+    ContinualRun(env, approach, driver).run()

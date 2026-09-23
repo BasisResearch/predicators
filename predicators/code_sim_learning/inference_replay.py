@@ -111,8 +111,9 @@ def capture_replay_state(env: PyBulletEnv) -> ReplayState:
     Object metadata is copied, not a cross-layout body remapping API.
     """
     raw = env._get_state()
-    # State.copy()/sanitize_state() retain Object keys. Their sim_data is
-    # mutable engine metadata, so candidate ownership needs a full copy.
+    # sanitize_state() rebuilds public Object keys without engine
+    # metadata; deep-copy first so nothing of the candidate's mutable
+    # sim_data is read through shared references.
     state = sanitize_state(copy.deepcopy(raw))
     state.latent = copy.deepcopy(raw.latent)
     pcid = env._physics_client_id
