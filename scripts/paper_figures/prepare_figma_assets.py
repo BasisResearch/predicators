@@ -6,11 +6,21 @@ writes a manifest that maps every output image to its Figma node.
 import argparse
 import hashlib
 import json
+import sys
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
-from build_figures import BRIDGE_MECHANISM_CROP, BRIDGE_SOLVED_CROP, CROPS
 from PIL import Image
+
+# Put the repository root on sys.path so `scripts` is importable when this
+# file runs directly, without PYTHONPATH=.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+# pylint: disable=wrong-import-position
+from scripts.paper_figures.build_figures import BRIDGE_MECHANISM_CROP, \
+    BRIDGE_SOLVED_CROP, CROPS
+
+# pylint: enable=wrong-import-position
 
 ROOT = Path(__file__).resolve().parent
 SOURCE = ROOT / "figures/sources"

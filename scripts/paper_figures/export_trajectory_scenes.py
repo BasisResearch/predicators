@@ -2,25 +2,37 @@
 import hashlib
 import json
 import pickle
+import sys
 from contextlib import nullcontext
 from pathlib import Path
+from typing import Any, Dict, List, Tuple, cast
 from unittest.mock import patch
 
 import pybullet as p
-from render_scene_support import export_visual_scene, raised_flat_markers, \
-    record_procedural_meshes, scene_signature
 
 from predicators import utils
-from predicators.envs import create_new_env
-from predicators.structs import Object
+from predicators.envs import BaseEnv, create_new_env
+from predicators.envs.pybullet_balloons import PyBulletBalloonsEnv
+from predicators.envs.pybullet_env import PyBulletEnv
+from predicators.structs import Object, State
+
+# Put the repository root on sys.path so `scripts` is importable when this
+# file runs directly, without PYTHONPATH=.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+# pylint: disable=wrong-import-position
+from scripts.paper_figures.render_scene_support import export_visual_scene, \
+    raised_flat_markers, record_procedural_meshes, scene_signature
+
+# pylint: enable=wrong-import-position
 
 ROOT = Path(__file__).resolve().parent
 LOGS = ROOT.parents[1] / "logs/agent_continual"
 
 
-def _canonical_state(env, state):
+def _canonical_state(env: BaseEnv, state: State) -> State:
     """Rebind objects in a historical state to the new physics client."""
-    canonical = {}
+    canonical: Dict[str, Object] = {}
     for value in vars(env).values():
         values = (value.values() if isinstance(value, dict) else
                   value if isinstance(value, (list, tuple, set)) else [value])
@@ -36,7 +48,7 @@ def _canonical_state(env, state):
     return restored
 
 
-def _migrate_balloons_layout(env, state):
+def _migrate_balloons_layout(env: PyBulletBalloonsEnv, state: State) -> State:
     """Apply the current visual layout to the archived Balloons state.
 
     The selected run predates the change that moved the box column from
@@ -58,7 +70,8 @@ def _migrate_balloons_layout(env, state):
     return state
 
 
-def _export_row(row):
+def _export_row(row: Dict[str, Any]) -> None:
+    """Export every selected frame of one recorded Figure 3 run."""
     domain = row["domain"]
     run = LOGS / row["run"]
     source = run / row["level"] / "episodes.pkl"
@@ -66,25 +79,29 @@ def _export_row(row):
     episodes = pickle.loads(source_bytes)  # Trusted local experiment record.
     episode = next(ep for ep in episodes if ep["end"] == "win")
     is_balloons = domain == "Balloons"
-    flags = dict(env="pybullet_balloons" if is_balloons else "pybullet_bridge",
-                 seed=0,
-                 num_train_tasks=2 if is_balloons else 1,
-                 num_test_tasks=1,
-                 partially_observable=True,
-                 pybullet_camera_width=1280 if is_balloons else 900,
-                 pybullet_camera_height=800 if is_balloons else 900)
+    flags: Dict[str, Any] = dict(
+        env="pybullet_balloons" if is_balloons else "pybullet_bridge",
+        seed=0,
+        num_train_tasks=2 if is_balloons else 1,
+        num_test_tasks=1,
+        partially_observable=True,
+        pybullet_camera_width=1280 if is_balloons else 900,
+        pybullet_camera_height=800 if is_balloons else 900)
     if is_balloons:
         flags.update(balloons_scene="chute")
     else:
         flags.update(bridge_train_span_blocks=3, bridge_test_span_blocks=4)
     utils.reset_config(flags)
-    env = create_new_env(flags["env"], do_cache=False, use_gui=False)
+    env = cast(PyBulletEnv,
+               create_new_env(flags["env"], do_cache=False, use_gui=False))
     try:
         env.reset("test", 0)
         output = ROOT / "data/cycles_scenes"
         output.mkdir(parents=True, exist_ok=True)
-        frames = [(frame, episode["states"][frame["level_step"]])
-                  for frame in row["frames"]]
+        frames: List[Tuple[Dict[str, Any], State]] = [
+            (frame, episode["states"][frame["level_step"]])
+            for frame in row["frames"]
+        ]
         if domain == "Bridge":
             # Reproduce the teaser's explicit counterfactual: the robot and
             # held span use the lifted state, while the other spans retain
@@ -112,7 +129,8 @@ def _export_row(row):
             step = frame["level_step"]
             state = _canonical_state(env, recorded_state)
             if is_balloons:
-                state = _migrate_balloons_layout(env, state)
+                state = _migrate_balloons_layout(
+                    cast(PyBulletBalloonsEnv, env), state)
             env._set_state(state)  # pylint: disable=protected-access
             env._current_observation = state  # pylint: disable=protected-access
             if hasattr(env, "_sync_cable_visuals"):
@@ -151,7 +169,7 @@ def _export_row(row):
         env.dispose()
 
 
-def main():
+def main() -> None:
     """Export all recorded scenes selected for Figure 3."""
     archive = json.loads((ROOT / "data/trajectories/figure3.json").read_text())
     with record_procedural_meshes():

@@ -7,16 +7,17 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import List, Optional, Tuple
 
 ROOT = Path(__file__).resolve().parent
 
 
-def digest(path):
+def digest(path: Path) -> str:
     """Return the SHA-256 digest for a file."""
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def main():
+def main() -> None:
     """Render the selected archived scenes and update their manifest."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--blender-python', default=sys.executable)
@@ -47,7 +48,7 @@ def main():
     report['generated_by'] = ('scripts/paper_figures/render_cycles_scenes.py; '
                               'do not edit manually')
     renderer = ROOT / 'render_cycles_scene.py'
-    jobs = []
+    jobs: List[Tuple[str, str, Path, Path]] = []
     selected_domains = {domain.lower() for domain in args.domains}
     for domain in args.domains:
         for frame in ('start', 'win'):
@@ -80,7 +81,7 @@ def main():
             print(source.stem)
         return
 
-    temporary_logs = None
+    temporary_logs: Optional[tempfile.TemporaryDirectory[str]] = None
     if args.log_dir is None:
         temporary_logs = tempfile.TemporaryDirectory(
             prefix='empiric-cycles-logs-')
@@ -119,15 +120,15 @@ def main():
                 stderr=subprocess.STDOUT,
                 check=True)
         scene_metadata = json.loads(source.read_text()).get('metadata', {})
-        report['files'][key] = dict(
-            **stamp,
-            sha256=digest(output),
-            domain=domain,
-            frame=frame,
-            scene=str(source.relative_to(ROOT)),
-            scorecard_sha256=scene_metadata.get('scorecard_sha256'),
-            physics_steps_after_restore=0,
-            body_poses_and_joints_unchanged=True)
+        report['files'][key] = dict(**stamp,
+                                    sha256=digest(output),
+                                    domain=domain,
+                                    frame=frame,
+                                    scene=str(source.relative_to(ROOT)),
+                                    scorecard_sha256=scene_metadata.get(
+                                        'scorecard_sha256'),
+                                    physics_steps_after_restore=0,
+                                    body_poses_and_joints_unchanged=True)
         manifest.write_text(json.dumps(report, indent=2) + '\n')
         print(f'Rendered {domain} {frame}', flush=True)
     if temporary_logs is not None:

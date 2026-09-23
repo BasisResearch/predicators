@@ -4,21 +4,23 @@ import hashlib
 import importlib.util
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any, Dict, Iterator, List, Sequence, Tuple
 from unittest.mock import patch
 
 import numpy as np
 import pybullet as p
+from numpy.typing import NDArray
 
-_PROCEDURAL_MESHES = {}
+_PROCEDURAL_MESHES: Dict[Tuple[int, int, int], Dict[str, Any]] = {}
 
 
 @contextmanager
-def record_procedural_meshes():
+def record_procedural_meshes() -> Iterator[None]:
     """Capture in-memory visuals that getVisualShapeData cannot serialize."""
-    shapes = {}
+    shapes: Dict[Tuple[int, int], Dict[str, Any]] = {}
     create_shape, create_body = p.createVisualShape, p.createMultiBody
 
-    def shape(*args, **kwargs):
+    def shape(*args: Any, **kwargs: Any) -> int:
         result = create_shape(*args, **kwargs)
         if 'vertices' in kwargs:
             shapes[(kwargs.get('physicsClientId',
@@ -30,7 +32,7 @@ def record_procedural_meshes():
                                })
         return result
 
-    def body(*args, **kwargs):
+    def body(*args: Any, **kwargs: Any) -> int:
         result = create_body(*args, **kwargs)
         client = kwargs.get('physicsClientId', 0)
         for key in list(_PROCEDURAL_MESHES):
@@ -52,12 +54,12 @@ def record_procedural_meshes():
 
 
 @contextmanager
-def egl_connections():
+def egl_connections() -> Iterator[List[int]]:
     """Load EGL before the first environment creates any visual shapes."""
     connect = p.connect
-    clients = []
+    clients: List[int] = []
 
-    def with_egl(*args, **kwargs):
+    def with_egl(*args: Any, **kwargs: Any) -> int:
         client = connect(*args, **kwargs)
         if not clients:
             spec = importlib.util.find_spec('eglRenderer')
@@ -77,7 +79,7 @@ def egl_connections():
         yield clients
 
 
-def scene_signature(client):
+def scene_signature(client: int) -> Dict[int, Dict[str, Any]]:
     """Capture poses and joints to verify that a camera capture is passive."""
     return {
         body: {
@@ -95,7 +97,9 @@ def scene_signature(client):
     }
 
 
-def export_visual_scene(client, view, projection, width, height, metadata):
+def export_visual_scene(client: int, view: Sequence[float],
+                        projection: Sequence[float], width: int, height: int,
+                        metadata: Dict[str, Any]) -> Dict[str, Any]:
     """Export visual primitives/mesh references from a client WITHOUT EGL.
 
     The installed EGL plugin returns stale per-instance colors and accumulated
@@ -105,7 +109,8 @@ def export_visual_scene(client, view, projection, width, height, metadata):
     link frame. Undo that inertial offset before composing a base visual pose.
     Child links expose their world link frame directly via getLinkState.
     """
-    shapes, assets = [], {}
+    shapes: List[Dict[str, Any]] = []
+    assets: Dict[str, str] = {}
     for i in range(p.getNumBodies(physicsClientId=client)):
         body = p.getBodyUniqueId(i, physicsClientId=client)
         name = p.getBodyInfo(body, physicsClientId=client)[1].decode()
@@ -158,7 +163,12 @@ def export_visual_scene(client, view, projection, width, height, metadata):
         mesh_sha256=assets)
 
 
-def camera_image(client, view, projection, width, height, backend="egl"):
+def camera_image(client: int,
+                 view: Sequence[float],
+                 projection: Sequence[float],
+                 width: int,
+                 height: int,
+                 backend: str = "egl") -> NDArray[np.uint8]:
     """Capture a diagnostic PyBullet image without advancing physics."""
     p.configureDebugVisualizer(p.COV_ENABLE_SHADOWS, 1, physicsClientId=client)
     # Keep broad highlights subtle on the simple benchmark materials.
@@ -189,13 +199,13 @@ def camera_image(client, view, projection, width, height, backend="egl"):
 
 
 @contextmanager
-def raised_flat_markers(client):
+def raised_flat_markers(client: int) -> Iterator[None]:
     """Draw coplanar target decals above the tabletop to avoid EGL z-fighting.
 
     These temporary visual-only copies do not move the original physical
     body.
     """
-    temporary = []
+    temporary: List[int] = []
     try:
         for body in list(scene_signature(client)):
             for shape in p.getVisualShapeData(body, physicsClientId=client):
