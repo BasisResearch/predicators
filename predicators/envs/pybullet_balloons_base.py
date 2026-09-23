@@ -659,10 +659,11 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
         """Draw observable tethers without adding contacts or constraints.
 
         Real visual geometry is included in camera exports (unlike GUI
-        debug lines). Lengths are rounded to millimetres so visual shapes
-        can be reused as the payload moves. These bodies are never objects
-        in the task state and carry neither mass nor collision geometry.
-        Only released, intact balloons show active attachment indicators.
+        debug lines). Lengths are rounded to millimetres so visual
+        shapes can be reused as the payload moves. These bodies are
+        never objects in the task state and carry neither mass nor
+        collision geometry. Only released, intact balloons show active
+        attachment indicators.
         """
         client = self._physics_client_id
         box_pos, box_orn = p.getBasePositionAndOrientation(
