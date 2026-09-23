@@ -1,10 +1,10 @@
 {
   "generated_by": "scripts/paper_figures/build_figures.py --overview; do not edit manually",
   "inputs": {
-    "build_figures.py": "b54629a395e100169e6c598f5a54695427be2d08b938a6ddca78fe7b89a82531",
+    "build_figures.py": "afad9d9957cb1f6984d176a2dbc8bd3c2cf7b541b8bf2d0ae2e4605d2ded3f15",
     "data/gui-figure-manifest.json": "5710c818b5bca7090312245386cd9292695711ed08bcd7f39693ee67a3ffdaa9",
     "data/trajectories/figure3.json": "e8123b0b2570db85c5b11e6ca0727b580fa11a5957fbe40917b0cdb49dd550c4",
-    "data/trajectories/real_fan_domino.json": "65cdc78484fe5dd8d06201fd11fa6be29bed9235ca81afddfbc6d762a1b53d8f",
+    "data/trajectories/real_fan_domino.json": "fbe3c5453f34e52130134ba52d7daf99d5888eccf863a71533f67cc752044ed9",
     "figures/sources/balloons_cycles_start.png": "af5143e5e792cf3557ebd8686187df74ac63b6a601c16e41f6ad82c1d38ae542",
     "figures/sources/balloons_cycles_win.png": "b2544e5abffcc8644d5c365841f9a3389c4a6e1a150e6d3c8e2c3fc8ff281296",
     "figures/sources/boil_cycles_start.png": "b9ade6f6dd11e5c53c9b01a50b6aab0bb8a44aa5e99926c5bf11302d56f3a116",
@@ -22,6 +22,8 @@
     "figures/sources/real_fan_domino_2.png": "856463eee1ce696442fb2dd04097faaf7fbf118c3653b80fd4f3d959549dfde6",
     "figures/sources/real_fan_domino_3.png": "cb9e12fbafe7a8d60db77da34a73f86df02527ded4930cbf2e5d317303722305",
     "figures/sources/real_fan_domino_4.png": "dcf8c28952b9e09017283999af45ee6be0913d875c65cf3bf5690f61051cce12",
+    "figures/sources/real_fan_domino_start.png": "70a2aa6e82b09201df319d1e990867453054461b884b3c8304ffeda1ca645a6b",
+    "figures/sources/real_fan_domino_win.png": "2303f86cf4cbe0e23057dca34cc571fe959edb10f4d941181089b5665ee79769",
     "figures/sources/trajectory_bridge_test_0_cycles.png": "69d602f967526038a352dd5e154649fc877608e48c13e8e99e90c8e4cbbe37c0",
     "figures/sources/trajectory_bridge_test_1_cycles.png": "72762b7663377962e228973f1a355cf9a51ef4549687a7740e90a0565f01ca60",
     "figures/sources/trajectory_bridge_test_2_cycles.png": "045a3743aa3ad536926b9e7357dc34b97e82af499d6451d27a5f7f35ff220417",
@@ -33,13 +35,13 @@
     "figures/sources/trajectory_bridge_train_3_cycles.png": "af23f680e0df0efc24781e9cc33141279fca0357b9595a8b12fecdf9e1a9efae"
   },
   "outputs": {
-    "fig1_residual.pdf": "257fff1e899d6dd5460ae4cd6b5f12482319bac321b4cb1f07553dd21c778579",
-    "fig1_residual.png": "b37104c03e0ab7de165a9dddcd2bdecbc2549e7d750a25a8c18c7e9db4a3a7e1",
-    "fig1_residual.svg": "c97473cec2966cecb357643010bc8a718e71d233aafce066cc616a7dcffe9ae7",
-    "fig2_method.pdf": "098003ea7c54f9df793e6d8e9e2231760d5faf873ea0d1424986444fc07b5a58",
+    "fig1_residual.pdf": "840fe9f47f23b906b4cefc9e6f8481086c701ff8e5abf25f33c4ab3b9331d160",
+    "fig1_residual.png": "c3a5bb3c5a66d8584548885579a9d7473be4d431eeb6a7cc593d8e81a0a9f4d2",
+    "fig1_residual.svg": "bb096f311e448f5b083eaa926e1beb5ab36fb475f4383d7e7ee398e74c53f913",
+    "fig2_method.pdf": "764a4953ac05b32eaf7c8f5d01bbfc8a9dae574ecc9d98449974eaef379b6178",
     "fig2_method.png": "d652bed4538385d6663e7f88238f462b52790f502b0d05f29171f440b0b9e2eb",
     "fig2_method.svg": "b643c2eb1a5c7cbca689debf5e537f7313aff7f673a98a8f1fa2e1e842e92699",
-    "fig3_trajectories.pdf": "55529242368b2ac3651c1073fb96706e89fc83c44535119e01e0c2e98b0c88a4",
+    "fig3_trajectories.pdf": "0cb9da1ad9cd72412529b0ccb3d26302ce70ecabe540f27d558bed08ac9848e4",
     "fig3_trajectories.png": "3308db0e82905988f17e5ebe037c37eaac6cf31694f6725b9f956a37997be0d0",
     "fig3_trajectories.svg": "9b025712dcf45fc432c247fb2f102ae51c2f95afd12f2870d7f9aa04c3bf74c6"
   }

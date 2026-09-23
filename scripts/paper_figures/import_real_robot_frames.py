@@ -1,9 +1,11 @@
-"""Archive the real-robot Fan-Domino frames and measurements for Figure 3.
+"""Archive the real-robot Fan-Domino frames and measurements for Figures 1 and
+3.
 
 The source is the shared folder of the 2026-09-22 cascade run,
 downloaded to ``logs/real_robot/fan_domino_drive`` (for example with
-``gdown``). Frames come from the gust camera's tracking videos, which
-overlay the fitted box of the probed or goal block.
+``gdown``). Figure 3's frames come from the gust camera's tracking
+videos, which overlay the fitted box of the probed or goal block. Figure
+1's come from the front camera of the test video, without overlays.
 """
 import hashlib
 import io
@@ -32,6 +34,11 @@ SELECTION = [
 # placements in every frame.
 CROP = (230, 400, 1210, 1080)
 FPS = 15
+# Figure 1 shows the test task before and after the run, from the front
+# camera in the left half of the side-by-side test video.
+TEASER = [("casc_test.mp4", 0, "start"), ("casc_test.mp4", 2790, "win")]
+TEASER_CROP = (180, 110, 680, 540)
+TEASER_FPS = 30
 
 
 def _digest(path: Path) -> str:
@@ -76,17 +83,33 @@ def main() -> None:
                  frame_index=index,
                  time_s=round(index / FPS, 3),
                  sha256=_digest(dest)))
+    teaser_frames: List[Dict[str, Any]] = []
+    for video, index, state in TEASER:
+        image = _frame(RUN / video, index)
+        assert image.size == (1920, 540), image.size
+        dest = ROOT / "figures/sources" / f"real_fan_domino_{state}.png"
+        image.crop(TEASER_CROP).save(dest)
+        teaser_frames.append(
+            dict(name=dest.stem,
+                 state=state,
+                 video=video,
+                 video_sha256=_digest(RUN / video),
+                 frame_index=index,
+                 time_s=round(index / TEASER_FPS, 3),
+                 sha256=_digest(dest)))
     archive = dict(
         generated_by="scripts/paper_figures/import_real_robot_frames.py; "
         "do not edit manually",
-        description="Recorded gust-camera frames from one real-robot run; "
-        "overlays are the tracker's fitted boxes, not predictions.",
+        description="Recorded frames from one real-robot run: gust-camera "
+        "frames for Figure 3, whose overlays are the tracker's fitted boxes, "
+        "not predictions, and front-camera frames of the test for Figure 1.",
         experiment="exp_20260922_134142",
         seed=int((RUN / "seed").read_text()),
         source_folder=DRIVE,
         report_sha256=_digest(RUN / "REPORT.md"),
         agent_log_sha256=_digest(RUN / "agent.log"),
         crop=CROP,
+        teaser_crop=TEASER_CROP,
         measured=[
             dict(episode=k + 1,
                  block=r["block"],
@@ -106,7 +129,8 @@ def main() -> None:
                        draws=posterior["draws"],
                        masses=posterior["masses"],
                        p_green_lighter=posterior["p_green_lighter"]),
-        frames=frames)
+        frames=frames,
+        teaser_frames=teaser_frames)
     (ROOT / "data/trajectories/real_fan_domino.json"
      ).write_text(json.dumps(archive, indent=2) + "\n")
 

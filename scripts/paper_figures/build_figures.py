@@ -381,7 +381,7 @@ class Drawing:
 
 def teaser() -> None:
     """Render the overview teaser."""
-    d = Drawing(370)
+    d = Drawing(341)
     d.text(0,
            14,
            "Learn missing physics as programs, then use them to solve",
@@ -426,18 +426,54 @@ def teaser() -> None:
         "Filling & heat", "Wind-driven motion"
     ]
     source_order = ["Boil", "Domino", "Fan", "Bridge", "Balloons"]
-    # The domains share one pane, each named above its mechanism.
-    d.rect(0, 164, 528, 205, fill=PANEL, stroke=EDGE)
-    for center, label in [(213, "Initial scenes"), (296, "After execution")]:
+    # The five simulated domains and, past a divider, the real robot share
+    # one pane; each column is named above its mechanism.
+    left, gap, divider_gap, top = 19.0, 4.0, 14.0, 172.0
+    w = (520 - left - 4 * gap - divider_gap) / 6
+    h = w * 82 / 96
+    d.rect(0, 164, 528, 2 * h + 42, fill=PANEL, stroke=EDGE)
+    for center, label in [(top + h / 2, "Initial"),
+                          (top + 1.5 * h + 1, "Final")]:
         d.text(0, 0, label, 9.6, MUTED, anchor="middle")
-        d.root[-1].set("transform", f"translate(13 {center}) rotate(-90)")
+        d.root[-1].set("transform", f"translate(12 {center}) rotate(-90)")
+
+    def names(col: float, domain: str, mechanism: str) -> None:
+        d.text(col + w / 2,
+               top + 2 * h + 14,
+               domain,
+               10.2,
+               TEAL,
+               "bold",
+               anchor="middle")
+        d.text(col + w / 2,
+               top + 2 * h + 25,
+               mechanism,
+               8,
+               MUTED,
+               anchor="middle")
+
     for i, (domain, mechanism) in enumerate(zip(DOMAINS, mechanisms)):
-        x = 24 + i * 100
+        col = left + i * (w + gap)
         source_x = source_order.index(domain) * 107
-        d.scene(domain, "start", x, 172, 96, 82, gui_key=f"281:{source_x}:18")
-        d.scene(domain, "win", x, 255, 96, 82, gui_key=f"281:{source_x}:136")
-        d.text(x + 48, 350, domain, 10.2, TEAL, "bold", anchor="middle")
-        d.text(x + 48, 362, mechanism, 8.4, MUTED, anchor="middle")
+        d.scene(domain, "start", col, top, w, h, gui_key=f"281:{source_x}:18")
+        d.scene(domain,
+                "win",
+                col,
+                top + h + 1,
+                w,
+                h,
+                gui_key=f"281:{source_x}:136")
+        names(col, domain, mechanism)
+    real = left + 5 * w + 4 * gap + divider_gap
+    d.add("path",
+          d=f"M{real - divider_gap / 2} {top} "
+          f"L{real - divider_gap / 2} {top + 2 * h + 27}",
+          stroke=EDGE,
+          stroke_width=1)
+    for row, state in enumerate(("start", "win")):
+        d.image(FIG / "sources" / f"real_fan_domino_{state}.png", real,
+                top + row * (h + 1), w, h)
+    names(real, "Real robot", "Wind & mass")
     d.save("fig1_residual")
 
 

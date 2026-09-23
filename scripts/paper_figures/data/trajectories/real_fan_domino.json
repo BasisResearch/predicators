@@ -1,6 +1,6 @@
 {
   "generated_by": "scripts/paper_figures/import_real_robot_frames.py; do not edit manually",
-  "description": "Recorded gust-camera frames from one real-robot run; overlays are the tracker's fitted boxes, not predictions.",
+  "description": "Recorded frames from one real-robot run: gust-camera frames for Figure 3, whose overlays are the tracker's fitted boxes, not predictions, and front-camera frames of the test for Figure 1.",
   "experiment": "exp_20260922_134142",
   "seed": 1790098902,
   "source_folder": "https://drive.google.com/drive/folders/1bcFFkaMb1ZKa0p1sK5KuMdQQ92xojnBO",
@@ -11,6 +11,12 @@
     400,
     1210,
     1080
+  ],
+  "teaser_crop": [
+    180,
+    110,
+    680,
+    540
   ],
   "measured": [
     {
@@ -122,6 +128,26 @@
       "frame_index": 104,
       "time_s": 6.933,
       "sha256": "dcf8c28952b9e09017283999af45ee6be0913d875c65cf3bf5690f61051cce12"
+    }
+  ],
+  "teaser_frames": [
+    {
+      "name": "real_fan_domino_start",
+      "state": "start",
+      "video": "casc_test.mp4",
+      "video_sha256": "0b78b088d25e1697259b66f64ca2a918386eaf860f37b398a7810b1a8b650435",
+      "frame_index": 0,
+      "time_s": 0.0,
+      "sha256": "70a2aa6e82b09201df319d1e990867453054461b884b3c8304ffeda1ca645a6b"
+    },
+    {
+      "name": "real_fan_domino_win",
+      "state": "win",
+      "video": "casc_test.mp4",
+      "video_sha256": "0b78b088d25e1697259b66f64ca2a918386eaf860f37b398a7810b1a8b650435",
+      "frame_index": 2790,
+      "time_s": 93.0,
+      "sha256": "2303f86cf4cbe0e23057dca34cc571fe959edb10f4d941181089b5665ee79769"
     }
   ]
 }

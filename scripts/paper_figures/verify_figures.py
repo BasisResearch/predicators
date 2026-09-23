@@ -23,7 +23,7 @@ def main() -> None:
         for name, digest in manifest[group].items():
             assert hashlib.sha256(
                 (base / name).read_bytes()).hexdigest() == digest, name
-    for name, count in (("fig1_residual", 13), ("fig2_method", 1),
+    for name, count in (("fig1_residual", 15), ("fig2_method", 1),
                         ("fig3_trajectories", 14)):
         svg = ET.parse(OUTPUT / f"{name}.svg")
         assert len(
@@ -39,7 +39,8 @@ def main() -> None:
     for row in archive["rows"]:
         assert row["frames"][-1]["event"]["state"] == "WIN"
     # Mid-skill states have no GUI render; they are archived by step alone.
-    for frame in [f for f in frames if f["sha256"]] + robot["frames"]:
+    for frame in ([f for f in frames if f["sha256"]] + robot["frames"] +
+                  robot["teaser_frames"]):
         source = ROOT / "figures/sources" / (frame["name"] + ".png")
         assert hashlib.sha256(
             source.read_bytes()).hexdigest() == frame["sha256"], frame["name"]
