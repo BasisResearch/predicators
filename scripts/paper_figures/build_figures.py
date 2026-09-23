@@ -1,14 +1,16 @@
-"""Compose paper figures from archived simulator renders and verified
-results."""
+"""Compose paper figures from archived simulator renders, recorded runs, and
+verified results."""
 import base64
 import hashlib
 import io
 import json
 import math
 import os
+import random
+import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 # Optional figure-authoring dependency, separate from benchmark runtime.
 import cairosvg  # type: ignore[import-not-found] # pylint: disable=import-error
@@ -23,6 +25,7 @@ OUTPUT = PAPER / "figures"
 DOMAINS = ["Domino", "Bridge", "Balloons", "Boil", "Fan"]
 INK, MUTED = "#203744", "#5b6e79"
 TEAL, RUST, GREEN = "#087f8c", "#bd5929", "#397957"
+PANEL, EDGE = "#f7f9fa", "#d9e2e7"
 NS = "http://www.w3.org/2000/svg"
 USED_IMAGES = set()
 RENDERER = "gui"
@@ -39,10 +42,68 @@ CROPS = {
 # crop. Keep it shared with prepare_figma_assets.py so the paper and Figma use
 # identical framing.
 BRIDGE_FOCUS_CROP = (270, 280, 810, 860)
-# Figure 1's compact mechanism panels retain the gripper as context. The
-# solved panel is wider and therefore uses its own crop.
-BRIDGE_MECHANISM_CROP = (250, 160, 790, 668)
+# Figure 1's two-block lift panels retain the gripper as context. The solved
+# panel is wider and therefore uses its own crop.
+BRIDGE_PAIR_CROP = (150, 60, 830, 700)
 BRIDGE_SOLVED_CROP = (210, 220, 820, 560)
+# Figure 2's act panel frames the recorded dip with the robot and the build
+# site.
+BRIDGE_ACT_CROP = (170, 190, 690, 450)
+# Simplified from the Bridge program the agent wrote in the recorded run
+# (sandbox/simulator.py): dab wetness is recurrent state, and glued end faces
+# that meet become an engine weld through the Attach residual command.
+GLUE_CODE = [
+    "class Glue(BaseSimulator):",
+    "  def step(self, action):",
+    "    if tip_touches(face):",
+    "      z.wet[face] += rate",
+    "    for a, b in glued_pairs():",
+    "      if faces_meet(a, b):",
+    "        self.attach(a, b)",
+]
+Segment = Union[str, Tuple[str, str]]
+# Python token colors from the Visual Studio Code light theme.
+PY_STORAGE, PY_CONTROL, PY_TYPE = "#0000ff", "#af00db", "#267f99"
+PY_FUNCTION, PY_VARIABLE, PY_NUMBER = "#795e26", "#001080", "#098658"
+_PY_TOKEN = re.compile(r"\s+|[A-Za-z_]\w*|\d+(?:\.\d+)?|\.\.\.|\S")
+_PY_STORAGE = {"class", "def", "lambda", "self", "None", "True", "False"}
+_PY_CONTROL = {
+    "if", "elif", "else", "for", "while", "in", "not", "and", "or", "is",
+    "return", "pass", "break", "continue", "import", "from", "as", "with"
+}
+
+
+def _python_tokens(line: str) -> List[Tuple[str, str]]:
+    """Split a code line into tokens colored as a Python editor would.
+
+    A leading "+" or "-" is a diff marker and keeps the diff colors.
+    """
+    tokens = _PY_TOKEN.findall(line)
+    words = [t for t in tokens if not t.isspace()]
+    header = bool(words) and words[0] == "class"
+    colored: List[Tuple[str, str]] = []
+    previous = ""
+    for i, token in enumerate(tokens):
+        if token.isspace():
+            colored.append((token, INK))
+            continue
+        following = next((t for t in tokens[i + 1:] if not t.isspace()), "")
+        if i == 0 and token in "+-":
+            color = GREEN if token == "+" else RUST
+        elif token in _PY_STORAGE:
+            color = PY_STORAGE
+        elif token in _PY_CONTROL:
+            color = PY_CONTROL
+        elif token[0].isalpha() or token[0] == "_":
+            color = (PY_TYPE if header else PY_FUNCTION
+                     if previous == "def" or following == "(" else PY_VARIABLE)
+        elif token[0].isdigit():
+            color = PY_NUMBER
+        else:
+            color = INK
+        colored.append((token, color))
+        previous = token
+    return colored
 
 
 class Drawing:
@@ -75,7 +136,8 @@ class Drawing:
              color: str = INK,
              weight: str = "normal",
              anchor: str = "start",
-             mono: bool = False) -> None:
+             mono: bool = False,
+             italic: bool = False) -> ET.Element:
         """Place one text label."""
         e = self.add("text",
                      x=x,
@@ -85,9 +147,45 @@ class Drawing:
                      fill=color,
                      font_weight=weight,
                      text_anchor=anchor)
+        if italic:
+            e.set("font-style", "italic")
         if mono:
             e.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
         e.text = text
+        return e
+
+    def rich(self,
+             x: float,
+             y: float,
+             parts: Sequence[Segment],
+             size: float = 8.1,
+             color: str = INK,
+             weight: str = "normal") -> None:
+        """Place a left-aligned line whose ("text", "i") parts are italic.
+
+        CairoSVG misplaces anchored text that is split into spans, so
+        these lines always start at x.
+        """
+        e = self.text(x, y, "", size, color, weight)
+        e.text = None
+        for part in parts:
+            content, style = (part, "") if isinstance(part, str) else part
+            span = ET.SubElement(e, f"{{{NS}}}tspan")
+            if style == "i":
+                span.set("font-style", "italic")
+            span.text = content
+
+    def code(self, x: float, y: float, line: str, size: float) -> None:
+        """Place one line of Python with standard syntax colors.
+
+        Spaces become no-break spaces so SVG importers keep the
+        indentation.
+        """
+        e = self.text(x, y, "", size, INK, mono=True)
+        e.text = None
+        for token, color in _python_tokens(line):
+            span = ET.SubElement(e, f"{{{NS}}}tspan", {"fill": color})
+            span.text = token.replace(" ", "\u00a0")
 
     def lines(self,
               x: float,
@@ -109,7 +207,8 @@ class Drawing:
              fill: str = "#f4f7f8",
              stroke: str = "#d3dde1",
              radius: float = 5,
-             dash: Optional[str] = None) -> None:
+             dash: Optional[str] = None,
+             width: float = .8) -> None:
         """Draw a rounded rectangle."""
         kw: Dict[str, Any] = dict(x=x,
                                   y=y,
@@ -118,31 +217,72 @@ class Drawing:
                                   rx=radius,
                                   fill=fill,
                                   stroke=stroke,
-                                  stroke_width=.8)
+                                  stroke_width=width)
         if dash:
             kw["stroke_dasharray"] = dash
         self.add("rect", **kw)
 
-    def arrow(self,
-              x1: float,
-              y1: float,
-              x2: float,
-              y2: float,
-              color: str = MUTED) -> None:
-        """Draw a directed connector."""
-        self.add("path",
-                 d=f"M{x1} {y1} L{x2} {y2}",
-                 fill="none",
-                 stroke=color,
-                 stroke_width=1.3)
+    def arrow(
+        self,
+        x1: float,
+        y1: float,
+        x2: float,
+        y2: float,
+        color: str = MUTED,
+        dash: Optional[str] = None,
+        via: Sequence[Tuple[float, float]] = ()
+    ) -> None:
+        """Draw a directed connector, optionally through corner points."""
+        points = [(x1, y1), *via, (x2, y2)]
+        kw: Dict[str,
+                 Any] = dict(d="M" + " L".join(f"{x} {y}" for x, y in points),
+                             fill="none",
+                             stroke=color,
+                             stroke_width=1.3)
+        if dash:
+            kw["stroke_dasharray"] = dash
+        self.add("path", **kw)
+        (x1, y1), (x2, y2) = points[-2:]
         dx, dy = x2 - x1, y2 - y1
         length = math.hypot(dx, dy)
         ux, uy = dx / length, dy / length
-        points = [(x2, y2), (x2 - 5 * ux - 2.5 * uy, y2 - 5 * uy + 2.5 * ux),
-                  (x2 - 5 * ux + 2.5 * uy, y2 - 5 * uy - 2.5 * ux)]
+        head = [(x2, y2), (x2 - 5 * ux - 2.5 * uy, y2 - 5 * uy + 2.5 * ux),
+                (x2 - 5 * ux + 2.5 * uy, y2 - 5 * uy - 2.5 * ux)]
         self.add("polygon",
-                 points=" ".join(f"{x},{y}" for x, y in points),
+                 points=" ".join(f"{x},{y}" for x, y in head),
                  fill=color)
+
+    def image(self,
+              source: Path,
+              x: float,
+              y: float,
+              w: float,
+              h: float,
+              crop: Optional[Sequence[int]] = None,
+              contain: bool = False) -> None:
+        """Embed one raster file, cropped and fitted to its box."""
+        USED_IMAGES.add(source)
+        im = Image.open(source).convert("RGB")
+        if crop is not None:
+            left, top, right, bottom = crop
+            im = im.crop((left, top, right, bottom))
+        size = (round(w * 4), round(h * 4))
+        if contain:
+            im = ImageOps.pad(im,
+                              size,
+                              method=Image.Resampling.LANCZOS,
+                              color="#f4f7f8")
+        else:
+            im = ImageOps.fit(im, size, method=Image.Resampling.LANCZOS)
+        stream = io.BytesIO()
+        im.save(stream, format="PNG")
+        self.add("image",
+                 x=x,
+                 y=y,
+                 width=w,
+                 height=h,
+                 href="data:image/png;base64," +
+                 base64.b64encode(stream.getvalue()).decode())
 
     def photo(self,
               name: str,
@@ -160,12 +300,8 @@ class Drawing:
             gui_panel = json.loads(gui_manifest.read_text())["lookup"].get(
                 gui_key or f"{self.height}:{x}:{y}")
         cycles_name = name.replace("balloons_refined_", "balloons_")
-        if cycles_name in {"bridge_wet_lift", "bridge_bonded_lift"}:
-            cycles_name += "_cycles"
-        elif cycles_name == "bridge_exec_04_done":
+        if cycles_name == "bridge_exec_04_done":
             cycles_name = "bridge_cycles_win"
-        elif cycles_name.startswith("trajectory_"):
-            cycles_name += "_cycles"
         elif cycles_name.rsplit("_", 1)[-1] in {"start", "win"}:
             domain, state = cycles_name.rsplit("_", 1)
             cycles_name = f"{domain}_cycles_{state}"
@@ -191,27 +327,21 @@ class Drawing:
                 sources = [ROOT / replacement["path"]]
                 crop = replacement.get("crop")
         assert len(sources) == 1, (name, sources)
-        USED_IMAGES.add(sources[0])
-        im = Image.open(sources[0]).convert("RGB")
-        if crop is not None:
-            im = im.crop(crop)
-        size = (round(w * 4), round(h * 4))
-        if contain:
-            im = ImageOps.pad(im,
-                              size,
-                              method=Image.Resampling.LANCZOS,
-                              color="#f4f7f8")
-        else:
-            im = ImageOps.fit(im, size, method=Image.Resampling.LANCZOS)
-        stream = io.BytesIO()
-        im.save(stream, format="PNG")
-        self.add("image",
-                 x=x,
-                 y=y,
-                 width=w,
-                 height=h,
-                 href="data:image/png;base64," +
-                 base64.b64encode(stream.getvalue()).decode())
+        self.image(sources[0], x, y, w, h, crop, contain)
+
+    def recorded(self,
+                 name: str,
+                 x: float,
+                 y: float,
+                 w: float,
+                 h: float,
+                 crop: Optional[Sequence[int]] = None) -> None:
+        """Embed the Cycles render of a recorded or constructed state."""
+        source = FIG / "sources" / f"{name}_cycles.png"
+        assert source.exists(), (
+            f"{source} is missing; export and render the Figure 3 scenes "
+            "first (docs/RENDERING.md).")
+        self.image(source, x, y, w, h, crop)
 
     def scene(self,
               domain: str,
@@ -251,50 +381,31 @@ class Drawing:
 
 def teaser() -> None:
     """Render the overview teaser."""
-    d = Drawing(363)
+    d = Drawing(370)
     d.text(0,
            14,
            "Learn missing physics as programs, then use them to solve",
            12.8,
            weight="bold")
-    for x, title, color in [(0, "Discover hidden physics", RUST),
+    for x, title, color in [(0, "Observe missing physics", RUST),
                             (184, "Program a simulator", TEAL),
-                            (368, "Predict and solve", GREEN)]:
-        d.rect(x, 27, 160, 127, fill="#f7f9fa", stroke="#d9e2e7")
+                            (368, "Plan and solve", GREEN)]:
+        d.rect(x, 27, 160, 127, fill=PANEL, stroke=EDGE)
         d.text(x + 8, 45, title, 10.4, color, "bold")
-    d.photo("bridge_wet_lift",
-            8,
-            54,
-            68,
-            64,
-            crop=BRIDGE_MECHANISM_CROP,
-            gui_key="304:7:57")
-    d.photo("bridge_bonded_lift",
-            84,
-            54,
-            68,
-            64,
-            crop=BRIDGE_MECHANISM_CROP,
-            gui_key="304:87:57")
-    d.text(42, 132, "One lifts", 9.5, RUST, anchor="middle")
-    d.text(118, 132, "All lift", 9.5, GREEN, anchor="middle")
+    # Illustrations built from the recorded training level: lifting one block
+    # of a glued pair leaves its partner behind without a glue model.
+    d.recorded("bridge_pair_predicted", 8, 54, 68, 64, BRIDGE_PAIR_CROP)
+    d.recorded("bridge_pair_observed", 84, 54, 68, 64, BRIDGE_PAIR_CROP)
+    d.text(42, 132, "Predicted", 9.5, RUST, anchor="middle")
+    d.text(118, 132, "Observed", 9.5, GREEN, anchor="middle")
     d.text(80,
            146,
-           "Contact time changes the outcome.",
+           "The base simulator lacks glue.",
            8.4,
            MUTED,
            anchor="middle")
-    d.text(192, 63, "Illustrative simulator extension", 8.1, MUTED)
-    d.lines(192,
-            80, [
-                "class Glue(BaseSimulator):", "  def residual_step(self):",
-                "    update_contact_age()", "    if age > cure_time:",
-                "      add_bond_constraint()"
-            ],
-            7.7,
-            color=TEAL,
-            leading=11,
-            mono=True)
+    d.text(192, 60, "Illustrative simulator extension", 8.1, MUTED)
+    d.lines(192, 74, GLUE_CODE, 7.4, color=TEAL, leading=9.6, mono=True)
     d.text(192, 146, "Fit the program to observations.", 8.5)
     d.photo("bridge_exec_04_done",
             376,
@@ -311,150 +422,388 @@ def teaser() -> None:
     d.arrow(163, 92, 181, 92)
     d.arrow(347, 92, 365, 92)
     mechanisms = [
-        "Contact & friction", "Curing & bonds", "Lift & damping",
+        "Contact & friction", "Glue & bonds", "Lift & damping",
         "Filling & heat", "Wind-driven motion"
     ]
     source_order = ["Boil", "Domino", "Fan", "Bridge", "Balloons"]
-    for center, label in [(219, "Initial scenes"), (302, "After execution")]:
+    # The domains share one pane, each named above its mechanism.
+    d.rect(0, 164, 528, 205, fill=PANEL, stroke=EDGE)
+    for center, label in [(213, "Initial scenes"), (296, "After execution")]:
         d.text(0, 0, label, 9.6, MUTED, anchor="middle")
-        d.root[-1].set("transform", f"translate(11 {center}) rotate(-90)")
+        d.root[-1].set("transform", f"translate(13 {center}) rotate(-90)")
     for i, (domain, mechanism) in enumerate(zip(DOMAINS, mechanisms)):
-        x = 23 + i * 102
+        x = 24 + i * 100
         source_x = source_order.index(domain) * 107
-        d.text(x + 48.5, 169, domain, 10.6, TEAL, "bold", anchor="middle")
-        d.scene(domain, "start", x, 177, 97, 83, gui_key=f"281:{source_x}:18")
-        d.scene(domain, "win", x, 261, 97, 83, gui_key=f"281:{source_x}:136")
-        d.text(x + 48.5, 358, mechanism, 8.7, MUTED, anchor="middle")
+        d.scene(domain, "start", x, 172, 96, 82, gui_key=f"281:{source_x}:18")
+        d.scene(domain, "win", x, 255, 96, 82, gui_key=f"281:{source_x}:136")
+        d.text(x + 48, 350, domain, 10.2, TEAL, "bold", anchor="middle")
+        d.text(x + 48, 362, mechanism, 8.4, MUTED, anchor="middle")
     d.save("fig1_residual")
 
 
-def pipeline() -> None:
-    """Render the learning and planning workflow."""
-    d = Drawing(321)
-    d.text(0,
-           14,
-           "EMPIRIC: an agent-directed learning and planning loop",
-           12.8,
-           weight="bold")
-    panels = [
-        (0, 29, "1  Explore", RUST,
-         ["Interact and observe", "noisy physical outcomes."]),
-        (184, 29, "2  Hypothesize", TEAL, [
-            "Propose missing mechanisms.", "Write or revise simulator code.",
-            "Base physics + learned residual"
-        ]),
-        (368, 29, "3  Design experiment", RUST, [
-            "Compare predicted outcomes.", "Choose a probe that resolves",
-            "decision-relevant uncertainty."
-        ]),
-        (368, 178, "4  Execute", RUST, [
-            "Apply skills in the environment.",
-            "Save actions and observations."
-        ]),
-        (184, 178, "5  Learn & model", TEAL, [
-            "Fit the simulator to recordings.",
-            "Infer parameters + initial states.", "Estimate the current state."
-        ]),
-        (0, 178, "6  Plan & solve", GREEN, [
-            "Rehearse candidate plans", "under parameter uncertainty.",
-            "Execute; check the outcome."
-        ]),
-    ]
-    for x, y, title, color, lines in panels:
-        d.rect(x, y, 160, 104, fill="#f7f9fa", stroke="#d9e2e7")
-        d.text(x + 8, y + 19, title, 10.8, color, "bold")
-        d.lines(x + 8, y + 40, lines, 9.1, leading=14)
-    # Compact visual anchors distinguish the environment from inference.
-    d.scene("Bridge", "start", 8, 91, 50, 34, gui_key="281:321:18")
-    d.text(66, 112, "Experience D", 9.4, RUST)
-    d.text(192, 120, "simulator.py", 9.5, TEAL, mono=True)
-    d.photo("bridge_wet_lift", 376, 240, 50, 34, gui_key="304:7:57")
-    d.text(434, 261, "New evidence", 9.1, RUST)
-    d.text(192, 269, "Joint posterior + state estimate", 8.5, TEAL)
-    d.text(8, 269, "Solved → next task", 9.2, GREEN, weight="bold")
-    for start, end in [(160, 184), (344, 368)]:
-        d.arrow(start + 3, 80, end - 3, 80)
-        d.arrow(end - 3, 231, start + 3, 231)
-    d.arrow(477, 137, 477, 174)
-    d.text(282,
-           150,
-           "Uncertain or prediction mismatch?",
-           9,
-           TEAL,
-           anchor="middle")
+def _panel(d: Drawing,
+           x: float,
+           y: float,
+           w: float,
+           h: float,
+           title: Sequence[Segment],
+           color: str,
+           caption: Sequence[Sequence[Segment]],
+           size: float = 8.1,
+           title_size: float = 9.8) -> None:
+    """Draw one step of the method loop with its caption at the bottom."""
+    d.rect(x, y, w, h, fill=PANEL, stroke=EDGE)
+    d.rich(x + 8, y + 16, title, title_size, color, "bold")
+    leading = size + 2.9
+    for i, parts in enumerate(caption):
+        d.rich(x + 8, y + h - 8 - leading * (len(caption) - 1 - i), parts,
+               size)
+
+
+# The simplified glue program and its revision of the first bond rule.
+METHOD_CODE = GLUE_CODE[:5] + [
+    "-     if centres_close(a, b):", "+     if faces_meet(a, b):",
+    "        self.attach(a, b)"
+]
+# Predicates the agent writes with the program; the monitor checks them.
+PREDICATE_CODE = ["def Attached(a, b): ...", "def SeatedOn(s, l): ..."]
+# Predicates checked after a skill, the last of which fails.
+CHECKS = [("✓", "AtSite(leg0, site0)", GREEN),
+          ("✓", "Attached(span1, span3)", GREEN),
+          ("✗", "SeatedOn(span3, leg1)", RUST)]
+# Figure 2 geometry: panel height, bottom-row offset, and the continual band
+# under the loop.
+PH = 140
+YB = PH + 28
+BAND_Y = YB + PH + 12
+BAND_H = 26
+GRID_HEIGHT = BAND_Y + BAND_H + 2
+
+
+def _code(d: Drawing,
+          x: float,
+          y: float,
+          w: float,
+          size: float = 6.9,
+          leading: float = 8.0) -> None:
+    """Draw the program listing, its revised line, and its predicates."""
+    gap = 4
+    lines = len(METHOD_CODE) + len(PREDICATE_CODE)
+    d.rect(x,
+           y,
+           w,
+           leading * lines + gap + 5.2,
+           fill="white",
+           stroke=EDGE,
+           radius=3)
+    # Symbols tag the program and the predicate definitions at the right.
+    d.text(x + w - 5, y + 9, "P", 8, MUTED, anchor="end", italic=True)
+    d.text(x + w - 5,
+           y + 9 + leading * len(METHOD_CODE) + gap,
+           "Φ",
+           8,
+           MUTED,
+           anchor="end",
+           italic=True)
+    for i, line in enumerate(METHOD_CODE):
+        base = y + 9 + leading * i
+        if line[0] in "+-":
+            d.add("rect",
+                  x=x + 1,
+                  y=base - 0.92 * size,
+                  width=w - 2,
+                  height=leading,
+                  fill="#fbe9e1" if line[0] == "-" else "#e3f1e7")
+        d.code(x + 4, base, line, size)
+    rule = y + 9 + leading * (len(METHOD_CODE) - 1) + 3 + gap / 2
     d.add("path",
-          d="M80 174 L80 159 L420 159 L420 143",
+          d=f"M{x + 4} {rule} L{x + w - 4} {rule}",
+          stroke=EDGE,
+          stroke_width=0.8,
+          stroke_dasharray="2 2")
+    for j, line in enumerate(PREDICATE_CODE):
+        base = y + 9 + leading * (len(METHOD_CODE) + j) + gap
+        d.code(x + 4, base, line, size)
+
+
+def _parameter_particles() -> List[Tuple[float, float]]:
+    """Return schematic parameter particles and their normalized weights."""
+    rng = random.Random(11)
+    raw = []
+    for _ in range(24):
+        theta = min(0.95, max(0.05, rng.gauss(0.55, 0.17)))
+        raw.append((theta, math.exp(-(theta - 0.58)**2 / 0.018)))
+    top = max(w for _, w in raw)
+    return [(t, w / top) for t, w in raw]
+
+
+def _posterior(d: Drawing, px: float, py: float, pw: float, ph: float) -> None:
+    """Draw weighted parameter particles under their marginal posterior."""
+    oy = py + ph
+    d.add("path",
+          d=f"M{px} {py} L{px} {oy} L{px + pw + 4} {oy}",
+          fill="none",
+          stroke=MUTED,
+          stroke_width=0.8)
+    d.text(px + pw + 2, oy - 4, "θ", 9, MUTED, anchor="end", italic=True)
+    curve = [(px + pw * k / 60,
+              oy - 0.9 * ph * math.exp(-(k / 60 - 0.58)**2 / 0.018))
+             for k in range(61)]
+    d.add("path",
+          d="M" + " L".join(f"{x:.2f} {y:.2f}" for x, y in curve),
           fill="none",
           stroke=TEAL,
-          stroke_width=1.3)
-    d.arrow(420, 143, 420, 137, color=TEAL)
-    d.text(264,
-           302, "Persistent workspace: recordings, simulator programs, "
-           "beliefs, journal",
-           9.8,
-           weight="bold",
-           anchor="middle")
-    d.text(264,
-           317, "Training: steps + resets    |    "
-           "Testing: steps only; learning continues",
-           9.2,
-           MUTED,
-           anchor="middle")
-    d.save("fig2_continual")
+          stroke_width=1.2,
+          stroke_opacity=0.45)
+    # Each particle's stem height is its weight, so the tops trace the curve.
+    for theta, weight in _parameter_particles():
+        x = round(px + theta * pw, 2)
+        top = round(oy - 0.9 * ph * weight, 2)
+        d.add("path",
+              d=f"M{x} {oy} L{x} {top}",
+              stroke=TEAL,
+              stroke_width=0.9,
+              stroke_opacity=round(0.3 + 0.6 * weight, 2))
+        d.add("circle",
+              cx=x,
+              cy=top,
+              r=round(1.1 + 1.6 * math.sqrt(weight), 2),
+              fill=TEAL,
+              fill_opacity=round(0.35 + 0.6 * weight, 2))
+    d.rich(px + 6, py + 6, [("p", "i"), "(", ("θ", "i"), " | ",
+                            ("D", "i"), ")"], 8.2, TEAL)
 
 
-def environments() -> None:
-    """Figure 3 now shows recorded execution, not the domain gallery."""
+def _estimate(d: Drawing, px: float, py: float, pw: float, ph: float) -> None:
+    """Draw noisy readings and the state estimate built from them."""
+    oy = py + ph
+    d.add("path",
+          d=f"M{px} {py} L{px} {oy} L{px + pw + 4} {oy}",
+          fill="none",
+          stroke=MUTED,
+          stroke_width=0.8)
+    d.text(px + pw + 2, oy - 4, "t", 9, MUTED, anchor="end", italic=True)
+    rng = random.Random(3)
+    step = (pw - 15.8) / 17
+    truth = [
+        oy - 0.586 * ph - 0.138 * ph * math.tanh((k - 8) / 4)
+        for k in range(18)
+    ]
+    for k, level in enumerate(truth):
+        d.add("circle",
+              cx=round(px + 6 + step * k, 2),
+              cy=round(level + rng.gauss(0, 0.086 * ph), 2),
+              r=1.5,
+              fill=RUST,
+              fill_opacity=0.8)
+    d.add("path",
+          d="M" + " L".join(f"{px + 6 + step * k:.2f} {level:.2f}"
+                            for k, level in enumerate(truth)),
+          fill="none",
+          stroke=TEAL,
+          stroke_width=1.4)
+    end = px + 6 + step * 17
+    d.add("circle", cx=f"{end:.2f}", cy=f"{truth[-1]:.2f}", r=3, fill=TEAL)
+    d.text(end, truth[-1] - 7, "ŝₜ", 9, TEAL, "bold", "middle", italic=True)
+    d.text(px + 8, py + 8, "noisy oₜ", 7.6, RUST, italic=True)
+
+
+def _rehearse(d: Drawing, x: float, y: float, w: float) -> None:
+    """Draw rollouts from the state estimate under posterior draws."""
+    sx0, sy0 = x + 16, y + 66
+    gx = x + w - 40
+    d.rect(gx, y + 42, 26, 40, fill="#e3f1e7", stroke=GREEN, radius=2)
+    for offset in (34, 46, 51, 56, 61, 66, 71, 76, 80, 92):
+        end = y + offset
+        inside = y + 42 <= end <= y + 82
+        d.add("path",
+              d=f"M{sx0} {sy0} Q{x + 0.49 * w:.2f} {sy0 - 22} "
+              f"{gx + 13} {end}",
+              fill="none",
+              stroke=GREEN if inside else RUST,
+              stroke_width=0.9,
+              stroke_opacity=0.75)
+        d.add("circle",
+              cx=gx + 13,
+              cy=end,
+              r=1.8,
+              fill=GREEN if inside else RUST)
+    d.add("circle", cx=sx0, cy=sy0, r=3, fill=TEAL)
+    d.text(sx0, sy0 + 13, "ŝₜ", 9, TEAL, "bold", "middle", italic=True)
+    d.rich(x + 8, y + 32,
+           ["Σᵢ ", ("w", "i"), "ᵢ ", ("R", "i"), "(τ⁽ⁱ⁾) = 0.8"], 7.8, GREEN)
+
+
+def _continual(d: Drawing, y: float) -> None:
+    """Draw the continual protocol band under the loop."""
+    d.rect(0, y, 528, BAND_H, fill="white", stroke=EDGE)
+    d.text(10, y + 16.5, "Continual run", 8.8, INK, "bold")
+    phases: List[Tuple[float, float, List[Segment]]] = [
+        (84, 164, [("M", "i"), " training tasks: steps + resets"]),
+        (274, 120, [("N", "i"), " test tasks: steps only"])
+    ]
+    for x, w, label in phases:
+        d.rect(x, y + 5, w, 16, fill=PANEL, stroke=MUTED, radius=3)
+        d.rich(x + 8, y + 16.5, label, 8.2, INK)
+    d.arrow(250, y + 13, 272, y + 13)
+    d.rich(404, y + 16.5, [("D", "i"), ", ", ("P", "i"), ", and ",
+                           ("Φ", "i"), " persist"], 8.2, MUTED)
+
+
+# Titles and captions of the model steps.
+CODE_TITLE: List[Segment] = [
+    "Write or revise ", ("P", "i"), " and ", ("Φ", "i")
+]
+# One step infers the parameters and the current state.
+INFER_TITLE: List[Segment] = ["Infer ", ("θ", "i"), " and ", ("ŝₜ", "i")]
+PLAN_TITLE: List[Segment] = ["Plan under ", ("θ", "i"), "⁽ⁱ⁾"]
+MONITOR_TITLE = "Monitor with predicates"
+CODE_CAPTION: List[List[Segment]] = [[
+    "Code adds mechanisms, state ", ("z", "i"), ", and"
+], ["predicates for expected outcomes."]]
+POSTERIOR_CAPTION: List[List[Segment]] = [[
+    "SMC replays ", ("D", "i"), " for each particle,"
+], ["then reweights and resamples."]]
+ESTIMATE_CAPTION: List[List[Segment]] = [["One estimate from the history,"],
+                                         ["shared by all rollouts."]]
+PLAN_CAPTION: List[List[Segment]] = [["Rehearse plans under the draws;"],
+                                     ["pick one, or run an experiment."]]
+
+
+def _numbered(number: int, title: Sequence[Segment]) -> List[Segment]:
+    return [f"{number}  ", *title]
+
+
+def _infer_tall(d: Drawing, x: float, number: int) -> None:
+    """Draw parameter and state inference stacked in one full-height panel."""
+    _panel(d, x, 0, 160, YB + PH, _numbered(number, INFER_TITLE), TEAL,
+           ESTIMATE_CAPTION)
+    _posterior(d, x + 14, 38, 128, 78)
+    for i, parts in enumerate(POSTERIOR_CAPTION):
+        d.rich(x + 8, 136 + 11 * i, parts)
+    _estimate(d, x + 14, 176, 128, 82)
+
+
+def method() -> None:
+    """Figure 2: the learning and planning loop with the method's internals.
+
+    One execution block holds the act and monitor steps, which open and
+    close the loop around the agent's model steps.
+    """
+    d = Drawing(GRID_HEIGHT)
+    d.rect(0, 0, 160, YB + PH, fill=PANEL, stroke=EDGE)
+    d.text(8, 16, "Execution", 9.8, RUST, "bold")
+    d.rect(6, 23, 148, 129, fill="white", stroke=EDGE, radius=4)
+    d.rich(13, 36, _numbered(1, ["Act"]), 8.8, RUST, "bold")
+    d.recorded("trajectory_bridge_train_1", 13, 41, 134, 78, BRIDGE_ACT_CROP)
+    d.rich(13, 132, ["Skills run the plan or an"], 7.8)
+    d.rich(13, 142.7, ["experiment; data join ", ("D", "i"), "."], 7.8)
+    # Monitoring is numbered last, so readers meet the predicates in step 2
+    # before seeing them checked.
+    d.rect(6, 172, 148, 130, fill="white", stroke=EDGE, radius=4)
+    d.rich(13, 185, _numbered(5, [MONITOR_TITLE]), 8.8, RUST, "bold")
+    d.text(13, 201, "after Place(span3, …)", 7.2, MUTED, mono=True)
+    for i, (mark, atom, color) in enumerate(CHECKS):
+        d.text(15, 215 + 11.5 * i, mark, 8.6, color, "bold")
+        d.text(27, 215 + 11.5 * i, atom, 7.2, INK, mono=True)
+    d.text(27, 250, "→ stop: refit, replan, or revise", 7.2, RUST)
+    for i, parts in enumerate([["The predicates from step 2 are"],
+                               ["checked as each skill runs; a"],
+                               ["failure stops the plan."]]):
+        d.rich(13, 272.6 + 10.7 * i, parts, 7.8)
+    d.arrow(80, 170, 80, 154, color=GREEN)
+    d.text(86, 165.5, "next skill", 7.4, GREEN)
+    _panel(d, 184, 0, 160, PH, _numbered(2, CODE_TITLE), TEAL, CODE_CAPTION)
+    _code(d, 191, 22, 146)
+    _infer_tall(d, 368, 3)
+    _panel(d, 184, YB, 160, PH, _numbered(4, PLAN_TITLE), GREEN, PLAN_CAPTION)
+    _rehearse(d, 184, YB + 6, 160)
+    mid = PH / 2
+    d.arrow(163, mid, 181, mid)
+    d.text(172, mid - 6, "D", 8.2, INK, anchor="middle", italic=True)
+    d.arrow(347, mid, 365, mid)
+    d.arrow(365, YB + mid, 347, YB + mid)
+    d.arrow(181, YB + mid, 163, YB + mid, color=GREEN)
+    d.text(172, YB + mid - 6, "plan", 7.8, GREEN, anchor="middle")
+    _continual(d, BAND_Y)
+    d.save("fig2_method")
+
+
+def trajectories() -> None:
+    """Figure 3: one recorded Bridge run and one real-robot run."""
     archive = ROOT / "data/trajectories/figure3.json"
-    USED_IMAGES.add(archive)
-    rows = json.loads(archive.read_text())["rows"]
-    d = Drawing(234)
-    for row_index, row in enumerate(rows):
-        y = row_index * 119
-        title = d.add("text",
-                      x=0,
-                      y=0,
-                      font_family="DejaVu Sans",
-                      font_size=11,
-                      fill=TEAL,
-                      font_weight="bold",
-                      text_anchor="middle",
-                      transform=f"translate(12 {y+49}) rotate(-90)")
-        title.text = row["domain"]
+    robot_archive = ROOT / "data/trajectories/real_fan_domino.json"
+    USED_IMAGES.update({archive, robot_archive})
+    rows = {row["key"]: row for row in json.loads(archive.read_text())["rows"]}
+    robot = json.loads(robot_archive.read_text())
+    d = Drawing(346)
+
+    def row_title(y: float, h: float, title: str) -> None:
+        e = d.text(0, 0, title, 9.6, TEAL, "bold", "middle")
+        e.set("transform", f"translate(12 {y + h / 2}) rotate(-90)")
+
+    def captions(x: float, y: float, first: str, second: str) -> None:
+        d.text(x + 46, y + 9, first, 7.3, anchor="middle")
+        d.text(x + 46, y + 18, second, 6.9, MUTED, anchor="middle")
+
+    for key, y, title in [("bridge_train", 0, "Bridge: train"),
+                          ("bridge_test", 126, "Bridge: test")]:
+        row = rows[key]
+        row_title(y, 98, title)
         for i, frame in enumerate(row["frames"]):
-            source = FIG / "sources" / (frame["name"] + ".png")
-            assert hashlib.sha256(
-                source.read_bytes()).hexdigest() == frame["sha256"]
             x = 24 + i * 103
-            d.photo(frame["name"],
-                    x,
-                    y,
-                    92,
-                    98,
-                    crop=row["crop"],
-                    gui_key=frame["name"])
-            d.text(x + 46,
-                   y + 111,
-                   f"{frame['label']} · t={frame['level_step']:,}",
-                   7.3,
-                   anchor="middle")
+            d.recorded(frame["name"], x, y, 92, 98, row["crop"])
+            captions(x, y + 99, frame["label"], f"t = {frame['run_step']:,}")
             if i < 4:
                 d.arrow(x + 94, y + 49, x + 101, y + 49)
-    d.save("fig4_environments")
+    # The program is written and checked between the levels, at no step cost.
+    x, y = 436, 0
+    d.rect(x, y, 92, 98, fill=PANEL, stroke=TEAL, radius=4)
+    d.text(x + 46, y + 14, "Between levels", 8.1, TEAL, "bold", "middle")
+    d.text(x + 46, y + 25, "no environment steps", 6.9, MUTED, anchor="middle")
+    for i, (mark, label, color) in enumerate([
+        ("✓", "writes glue code", GREEN),
+        ("✓", "replays 6 dips: 6/6", GREEN),
+        ("✗", "drops bond model v1", RUST),
+        ("✓", "rehearses test plan", GREEN),
+    ]):
+        d.text(x + 7, y + 43 + 14 * i, mark, 8, color, "bold")
+        d.text(x + 17, y + 43 + 14 * i, label, 6.9)
+    # Real robot: two probes, then the test after the patch was moved.
+    y = 254
+    row_title(y, 64, "Real robot")
+    slides = {m["episode"]: m for m in robot["measured"]}
+    predicted = robot["test_plan"]["predicted_slide_cm"]
+    seconds = [
+        f"slides {slides[1]['slide_cm']:.1f} cm",
+        f"slides {slides[2]['slide_cm']:.1f} cm, flat",
+        "patch moved to 0.51 m",
+        "one gust",
+        f"{slides[3]['slide_cm']:.1f} cm; pred. "
+        f"{predicted[0]:.1f}±{predicted[1]:.1f}",
+    ]
+    for i, (frame, second) in enumerate(zip(robot["frames"], seconds)):
+        x = 24 + i * 103
+        d.image(FIG / "sources" / f"{frame['name']}.png", x, y, 92, 64)
+        captions(x, y + 65, frame["label"], second)
+        if i < 4:
+            d.arrow(x + 94, y + 32, x + 101, y + 32)
+    d.save("fig3_trajectories")
 
 
 def build_overview_figures() -> None:
-    """Rebuild Figures 1 and 3; Figure 2 is maintained in Figma."""
+    """Rebuild Figures 1, 2, and 3 from archived sources."""
     OUTPUT.mkdir(parents=True, exist_ok=True)
     USED_IMAGES.clear()
     teaser()
-    environments()
+    method()
+    trajectories()
     inputs = USED_IMAGES | {
         Path(__file__), ROOT / "data/gui-figure-manifest.json"
     }
     outputs = [
         OUTPUT / f"{name}.{ext}"
-        for name in ("fig1_residual", "fig4_environments")
+        for name in ("fig1_residual", "fig2_method", "fig3_trajectories")
         for ext in ("pdf", "svg", "png")
     ]
 

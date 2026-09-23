@@ -1,9 +1,11 @@
-"""Export the recorded Figure 3 states for passive Blender rendering."""
+"""Export recorded Bridge states for passive Blender rendering of Figures
+1-3."""
 import hashlib
 import json
 import pickle
 from contextlib import nullcontext
 from pathlib import Path
+from typing import Any, Dict, List, Tuple
 from unittest.mock import patch
 
 import pybullet as p
@@ -12,13 +14,25 @@ from render_scene_support import export_visual_scene, raised_flat_markers, \
 
 from predicators import utils
 from predicators.envs import create_new_env
-from predicators.structs import Object
+from predicators.structs import Object, State
 
 ROOT = Path(__file__).resolve().parent
 LOGS = ROOT.parents[1] / "logs/agent_continual"
+# Training-level steps just before and during the first lift of the glued
+# row, while the robot raises it straight up.
+PAIR_PRE_LIFT_STEP, PAIR_LIFT_STEP = 1248, 1276
+# The pair uses a closer camera, side-on to the blocks' long axis, so the lift
+# and the partner stay legible in Figure 1's small panels.
+PAIR_CAMERA = dict(cameraTargetPosition=(0.71, 1.145, 0.52),
+                   distance=0.66,
+                   yaw=-20,
+                   pitch=-22,
+                   roll=0,
+                   upAxisIndex=2)
+PAIR_FOV = 45
 
 
-def _canonical_state(env, state):
+def _canonical_state(env: Any, state: State) -> State:
     """Rebind objects in a historical state to the new physics client."""
     canonical = {}
     for value in vars(env).values():
@@ -36,87 +50,70 @@ def _canonical_state(env, state):
     return restored
 
 
-def _migrate_balloons_layout(env, state):
-    """Apply the current visual layout to the archived Balloons state.
+def _pair_lift(episode: Dict[str, Any]) -> List[Tuple[Dict[str, Any], State]]:
+    """Return Figure 1's two-block lift pair, built from the training level.
 
-    The selected run predates the change that moved the box column from
-    y=1.20 to y=1.42 and centred the target-height band in the chute.
-    The motion and outcome are unchanged; only the whole attached
-    assembly and the visual band are translated to the current scene
-    coordinates.
+    Both scenes are illustrations. Every object keeps its initial pose
+    except the robot and span1, which take the recorded mid-lift pose.
+    span0 is either carried with span1 as the glued partner or left at
+    its pre-lift pose, as a base simulator without glue would predict.
+    The top-face dab on span1 is cleared so the two scenes differ only
+    in the partner's pose.
     """
-    objects = {obj.name: obj for obj in state}
-    box = objects["box"]
-    delta_y = env.box_xy[1] - state.get(box, "y")
-    state.set(box, "y", state.get(box, "y") + delta_y)
-    for obj in state.get_objects(env._balloon_type):  # pylint: disable=protected-access
-        if state.get(obj, "tied") > 0.5:
-            state.set(obj, "y", state.get(obj, "y") + delta_y)
-    band = objects["band"]
-    state.set(band, "x", env.box_xy[0] + env.band_offset_x)
-    state.set(band, "y", env.box_xy[1])
-    return state
+    initial = episode["states"][0]
+    pre_lift = episode["states"][PAIR_PRE_LIFT_STEP]
+    lifted = episode["states"][PAIR_LIFT_STEP]
+    frames = []
+    for name, partner in (("bridge_pair_predicted", pre_lift),
+                          ("bridge_pair_observed", lifted)):
+        state = initial.copy()
+        state.data = {
+            obj: features.copy()
+            for obj, features in initial.data.items()
+        }
+        objects = {obj.name: obj for obj in state.data}
+        for source, names in ((lifted, {"robot",
+                                        "span1"}), (partner, {"span0"})):
+            for obj, features in source.data.items():
+                if obj.name in names:
+                    state.data[objects[obj.name]] = features.copy()
+        state.set(objects["span1"], "glue_top", 0.0)
+        state.simulator_state = lifted.simulator_state.copy()
+        frames.append((dict(name=name,
+                            level_step=PAIR_LIFT_STEP,
+                            illustrative=True), state))
+    return frames
 
 
-def _export_row(row):
-    domain = row["domain"]
-    run = LOGS / row["run"]
-    source = run / row["level"] / "episodes.pkl"
+def _export_row(row: Dict[str, Any]) -> None:
+    source = LOGS / row["recording"]
     source_bytes = source.read_bytes()
+    assert hashlib.sha256(source_bytes).hexdigest() == row["recording_sha256"]
     episodes = pickle.loads(source_bytes)  # Trusted local experiment record.
     episode = next(ep for ep in episodes if ep["end"] == "win")
-    is_balloons = domain == "Balloons"
-    flags = dict(env="pybullet_balloons" if is_balloons else "pybullet_bridge",
-                 seed=0,
-                 num_train_tasks=2 if is_balloons else 1,
-                 num_test_tasks=1,
-                 partially_observable=True,
-                 pybullet_camera_width=1280 if is_balloons else 900,
-                 pybullet_camera_height=800 if is_balloons else 900)
-    if is_balloons:
-        flags.update(balloons_scene="chute")
-    else:
-        flags.update(bridge_train_span_blocks=3, bridge_test_span_blocks=4)
+    flags: Dict[str, Any] = dict(env="pybullet_bridge",
+                                 seed=0,
+                                 num_train_tasks=1,
+                                 num_test_tasks=1,
+                                 partially_observable=True,
+                                 pybullet_camera_width=900,
+                                 pybullet_camera_height=900,
+                                 bridge_train_span_blocks=3,
+                                 bridge_test_span_blocks=4)
     utils.reset_config(flags)
-    env = create_new_env(flags["env"], do_cache=False, use_gui=False)
+    env: Any = create_new_env(flags["env"], do_cache=False, use_gui=False)
     try:
-        env.reset("test", 0)
+        env.reset(row["split"], 0)
         output = ROOT / "data/cycles_scenes"
         output.mkdir(parents=True, exist_ok=True)
         frames = [(frame, episode["states"][frame["level_step"]])
                   for frame in row["frames"]]
-        if domain == "Bridge":
-            # Reproduce the teaser's explicit counterfactual: the robot and
-            # held span use the lifted state, while the other spans retain
-            # their pre-lift poses. This is an illustration, not a run frame.
-            pre_lift = episode["states"][1800]
-            lifted = episode["states"][1850]
-            wet = pre_lift.copy()
-            wet.data = {
-                obj: features.copy()
-                for obj, features in pre_lift.data.items()
-            }
-            for lifted_obj, features in lifted.data.items():
-                if lifted_obj.name in {"robot", "span3"}:
-                    wet_obj = next(obj for obj in wet.data
-                                   if obj.name == lifted_obj.name)
-                    wet.data[wet_obj] = features.copy()
-            wet.simulator_state = lifted.simulator_state.copy()
-            frames.extend([(dict(name="bridge_wet_lift",
-                                 level_step=1850,
-                                 illustrative=True), wet),
-                           (dict(name="bridge_bonded_lift",
-                                 level_step=1850,
-                                 illustrative=False), lifted)])
+        if row["key"] == "bridge_train":
+            frames.extend(_pair_lift(episode))
         for frame, recorded_state in frames:
-            step = frame["level_step"]
             state = _canonical_state(env, recorded_state)
-            if is_balloons:
-                state = _migrate_balloons_layout(env, state)
             env._set_state(state)  # pylint: disable=protected-access
             env._current_observation = state  # pylint: disable=protected-access
-            if hasattr(env, "_sync_cable_visuals"):
-                env._sync_cable_visuals()  # pylint: disable=protected-access
             client = env._physics_client_id  # pylint: disable=protected-access
             before = scene_signature(client)
             attachments = (env.render_attachments() if hasattr(
@@ -127,22 +124,26 @@ def _export_row(row):
                                   "Rendering must not step physics")):
                 with raised_flat_markers(client), attachments:
                     view, projection, _, _ = env._get_camera_matrices()  # pylint: disable=protected-access
-                    width, height = ((1280, 800) if is_balloons else
-                                     (900, 900))
+                    if frame["name"].startswith("bridge_pair_"):
+                        view = p.computeViewMatrixFromYawPitchRoll(
+                            **PAIR_CAMERA, physicsClientId=client)
+                        projection = p.computeProjectionMatrixFOV(
+                            fov=PAIR_FOV,
+                            aspect=1.0,
+                            nearVal=0.1,
+                            farVal=100.0,
+                            physicsClientId=client)
                     metadata = dict(
-                        domain=domain,
+                        domain=row["domain"],
                         source_recording=str(source.relative_to(LOGS)),
-                        source_sha256=hashlib.sha256(source_bytes).hexdigest(),
+                        source_sha256=row["recording_sha256"],
                         level=row["level"],
-                        level_step=step,
+                        level_step=frame["level_step"],
                         frame=frame["name"],
                         illustrative=frame.get("illustrative", False),
                         physics_steps_after_restore=0)
-                    if is_balloons:
-                        metadata["visualization_migration"] = \
-                            "centered current chute layout"
-                    scene = export_visual_scene(client, view, projection,
-                                                width, height, metadata)
+                    scene = export_visual_scene(client, view, projection, 900,
+                                                900, metadata)
             assert scene_signature(client) == before
             destination = output / f'{frame["name"]}.json'
             destination.write_text(json.dumps(scene, indent=2) + "\n")
@@ -151,7 +152,7 @@ def _export_row(row):
         env.dispose()
 
 
-def main():
+def main() -> None:
     """Export all recorded scenes selected for Figure 3."""
     archive = json.loads((ROOT / "data/trajectories/figure3.json").read_text())
     with record_procedural_meshes():

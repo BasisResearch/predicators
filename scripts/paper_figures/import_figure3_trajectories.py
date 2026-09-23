@@ -1,76 +1,98 @@
-"""Archive selected real execution frames and their source events for Figure
-3."""
+"""Archive the selected recorded Bridge frames and their source events for
+Figure 3."""
 import hashlib
 import json
+import pickle
 import shutil
 from pathlib import Path
 from typing import Any, Dict
 
 ROOT = Path(__file__).resolve().parent
 LOGS = ROOT.parents[1] / "logs/agent_continual"
+RUN = "bridge-mb_opus_span_transfer_r2/seed0/run_20260916_190710"
+# Each row follows one level of the same run. Steps are within the level.
+# Steps 122 (mid-dip) and 1290 (mid-carry) fall inside a skill, so they have
+# no GUI render and are archived by their recorded state index alone.
 SELECTION = [
-    ("Bridge", "bridge-mb_opus_span_transfer_r2/seed0/run_20260916_190710",
-     "L02", (0, 563, 1652, 1702,
-             1940), ("Initial scene", "Apply glue", "Re-seat joint",
-                     "Lift assembly", "Bridge solved"), (270, 280, 810, 860)),
-    ("Balloons", "balloons-mb_opus_compose_r2/seed0/run_20260917_082044",
-     "L03", (0, 124, 241, 264,
-             348), ("Initial scene", "One attached", "Two attached",
-                    "Release third", "Target reached"), (410, 170, 880, 720)),
+    ("bridge_train", "L01", "train",
+     ((0, "Initial scene"), (122, "Dip a block end"),
+      (1290, "Row lifts as one"), (1362, "Level solved")), (240, 140, 740,
+                                                            672)),
+    ("bridge_test", "L02", "test",
+     ((0, "New task"), (563, "Apply glue"), (1652, "Re-seat joint"),
+      (1702, "Lift assembly"), (1940, "Bridge solved")), (270, 280, 810, 860)),
 ]
 
 
 def main() -> None:
-    """Archive the selected source frames and their scorecards."""
+    """Archive the selected frames, their events, and the scorecard."""
     archive = ROOT / "data/trajectories"
     archive.mkdir(parents=True, exist_ok=True)
+    source = LOGS / RUN
+    shutil.copy2(source / "scorecard.json", archive / "bridge-scorecard.json")
     rows = []
-    for domain, run, level, steps, labels, crop in SELECTION:
-        source = LOGS / run
+    for key, level, split, frames, crop in SELECTION:
         events = [
             json.loads(line)
             for line in (source / level /
                          "index.jsonl").read_text().splitlines()
         ]
-        shutil.copy2(source / "scorecard.json",
-                     archive / f"{domain.lower()}-scorecard.json")
-        row: Dict[str, Any] = dict(domain=domain,
-                                   run=run,
-                                   level=level,
-                                   seed=0,
-                                   crop=crop,
-                                   frames=[])
-        for i, (step, label) in enumerate(zip(steps, labels)):
+        start = next(e for e in events if e["event"] == "level_start")
+        offset = start["run_steps"]
+        recording = source / level / "episodes.pkl"
+        recording_bytes = recording.read_bytes()
+        episodes = pickle.loads(recording_bytes)  # Trusted local record.
+        episode = next(ep for ep in episodes if ep["end"] == "win")
+        row: Dict[str, Any] = dict(
+            key=key,
+            domain="Bridge",
+            run=RUN,
+            level=level,
+            split=split,
+            seed=0,
+            crop=crop,
+            recording=str(recording.relative_to(LOGS)),
+            recording_sha256=hashlib.sha256(recording_bytes).hexdigest(),
+            frames=[])
+        for i, (step, label) in enumerate(frames):
+            assert step < len(episode["states"]), (key, step)
             matches = [
                 e for e in events if e.get("render") and (
                     (step == 0 and e["event"] == "level_start") or
                     (step > 0 and e["event"] == "invoke"
                      and e.get("level_steps") == step))
             ]
-            assert len(matches) == 1, (domain, step, matches)
-            event = matches[0]
-            original = source / level / "renders" / Path(event["render"]).name
-            name = f"trajectory_{domain.lower()}_{i}"
-            dest = ROOT / "figures/sources" / f"{name}.png"
-            shutil.copy2(original, dest)
-            row["frames"].append(
-                dict(name=name,
-                     label=label,
-                     level_step=step,
-                     run_step=event["run_steps"],
-                     event=event,
-                     source=str(original.relative_to(LOGS)),
-                     sha256=hashlib.sha256(dest.read_bytes()).hexdigest()))
+            assert len(matches) <= 1, (key, step, matches)
+            name = f"trajectory_{key}_{i}"
+            frame: Dict[str, Any] = dict(name=name,
+                                         label=label,
+                                         level_step=step,
+                                         run_step=offset + step,
+                                         event=None,
+                                         source=None,
+                                         sha256=None)
+            if matches:
+                event = matches[0]
+                original = (source / level / "renders" /
+                            Path(event["render"]).name)
+                dest = ROOT / "figures/sources" / f"{name}.png"
+                shutil.copy2(original, dest)
+                frame.update(event=event,
+                             source=str(original.relative_to(LOGS)),
+                             sha256=hashlib.sha256(
+                                 dest.read_bytes()).hexdigest())
+            row["frames"].append(frame)
         assert row["frames"][-1]["event"]["state"] == "WIN"
         rows.append(row)
-    (archive / "figure3.json").write_text(
-        json.dumps(dict(
-            generated_by=
-            "scripts/import_figure3_trajectories.py; do not edit manually",
-            description="Recorded execution images, not simulated predictions; "
-            "step counts are within each test level.",
-            rows=rows),
-                   indent=2) + "\n")
+    archive_record = dict(
+        generated_by="scripts/paper_figures/import_figure3_trajectories.py;"
+        " do not edit manually",
+        description="Recorded Bridge states from one run, not simulated "
+        "predictions; level_step counts within a level and run_step counts "
+        "environment steps from the start of the run.",
+        rows=rows)
+    (archive /
+     "figure3.json").write_text(json.dumps(archive_record, indent=2) + "\n")
 
 
 if __name__ == "__main__":

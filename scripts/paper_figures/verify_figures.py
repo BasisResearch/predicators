@@ -23,7 +23,8 @@ def main() -> None:
         for name, digest in manifest[group].items():
             assert hashlib.sha256(
                 (base / name).read_bytes()).hexdigest() == digest, name
-    for name, count in (("fig1_residual", 13), ("fig4_environments", 10)):
+    for name, count in (("fig1_residual", 13), ("fig2_method", 1),
+                        ("fig3_trajectories", 14)):
         svg = ET.parse(OUTPUT / f"{name}.svg")
         assert len(
             svg.findall(".//{http://www.w3.org/2000/svg}image")) == count
@@ -32,12 +33,16 @@ def main() -> None:
                 assert doc[0].rect.contains(pymupdf.Rect(word[:4])), (name,
                                                                       word)
     archive = json.loads((ROOT / "data/trajectories/figure3.json").read_text())
+    robot = json.loads(
+        (ROOT / "data/trajectories/real_fan_domino.json").read_text())
+    frames = [frame for row in archive["rows"] for frame in row["frames"]]
     for row in archive["rows"]:
         assert row["frames"][-1]["event"]["state"] == "WIN"
-        for frame in row["frames"]:
-            source = ROOT / "figures/sources" / (frame["name"] + ".png")
-            assert hashlib.sha256(
-                source.read_bytes()).hexdigest() == frame["sha256"]
+    # Mid-skill states have no GUI render; they are archived by step alone.
+    for frame in [f for f in frames if f["sha256"]] + robot["frames"]:
+        source = ROOT / "figures/sources" / (frame["name"] + ".png")
+        assert hashlib.sha256(
+            source.read_bytes()).hexdigest() == frame["sha256"], frame["name"]
     print("PASS: input/output hashes, image counts, text bounds, "
           "and frame provenance")
 

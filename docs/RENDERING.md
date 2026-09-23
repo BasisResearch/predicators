@@ -11,10 +11,12 @@ Run the commands below from the Predicators checkout.
 - Paper output: `figures/` in the sibling `sim-predicator-paper` checkout, or the checkout specified by `EMPIRIC_PAPER_ROOT`.
 - The paper retains only the table inputs needed by LaTeX under `data/current-results/`.
 
-## Build Figures 1 and 3
+## Build Figures 1 to 3
 
 Install CairoSVG, Pillow, and PyMuPDF, plus the system Cairo library and DejaVu Sans fonts.
-The compositor uses archived images and does not launch physics or agents.
+Fontconfig must see DejaVu Sans in its book, bold, and oblique styles; if only DejaVu Sans Mono is installed, every label silently falls back to the monospace face.
+Matplotlib ships the four DejaVu Sans files, which can be copied to `~/.local/share/fonts` before running `fc-cache`.
+The compositor uses archived images and recorded data and does not launch physics or agents.
 
 ```bash
 export EMPIRIC_PAPER_ROOT=/path/to/sim-predicator-paper
@@ -22,7 +24,7 @@ python scripts/paper_figures/build_figures.py --overview
 python scripts/paper_figures/verify_figures.py
 ```
 
-Figure 1 uses `fig1_residual`; Figure 3 uses `fig4_environments`.
+Figure 1 uses `fig1_residual`, Figure 2 uses `fig2_method`, and Figure 3 uses `fig3_trajectories`.
 PDF, SVG, and PNG outputs are generated.
 The generated manifest records input and output hashes.
 Do not edit generated images or manifests manually.
@@ -38,7 +40,8 @@ Run the expensive render step on a compute node.
 The complete refresh sequence is:
 
 ```bash
-# Run these two exporters in the Predicators environment.
+# Run these importers and exporters in the Predicators environment.
+python scripts/paper_figures/import_figure3_trajectories.py
 python scripts/paper_figures/export_trajectory_scenes.py
 python scripts/paper_figures/export_static_scenes.py
 
@@ -61,7 +64,7 @@ To render only selected Bridge scenes after changing their exported state or app
 python scripts/paper_figures/render_cycles_scenes.py \
   --blender-python /path/to/blender-python \
   --domains Bridge \
-  --scenes bridge_start trajectory_bridge_0 bridge_wet_lift \
+  --scenes bridge_start trajectory_bridge_train_1 bridge_pair_observed \
   --samples 48 \
   --threads 8
 ```
@@ -85,30 +88,26 @@ The saturated-blue Boil jug has a local ambient material response so its deep in
 Commit the scene JSON, rendered PNGs, PNG sidecars, and render manifest.
 Do not commit transient renderer logs or the temporary Figma assets.
 
-The Figure 3 trajectory selection, steps, labels, source hashes, and display crops are recorded in `scripts/paper_figures/data/trajectories/figure3.json`.
+The Figure 3 Bridge selection, steps, labels, source hashes, and display crops are recorded in `scripts/paper_figures/data/trajectories/figure3.json`, which `import_figure3_trajectories.py` writes.
 The selected Domino and Fan runs and their environment settings are declared in `scripts/paper_figures/export_static_scenes.py`.
 Update those declarations before re-exporting when new data should replace an existing figure panel.
 
-The selected Balloons run predates the current chute placement, so the exporter translates the box and attached assembly to the current chute column and records that visualization-only migration in each scene file.
-It also uses the current robot-facing camera and centres the target-height marker inside the chute with clearance from both walls.
 The Bridge crop constants in `scripts/paper_figures/build_figures.py` reproduce the tighter framing used by the earlier figures.
-`scripts/paper_figures/prepare_figma_assets.py` imports those same constants and adds phase-specific wide crops for Figure 2.
+`scripts/paper_figures/prepare_figma_assets.py` imports those same constants for the editable Figma teaser.
 
 For reproducible appearance, use Blender 4.5.3, Cycles CPU, the same sample count, AgX settings, and the archived scene JSON.
 CPU renders on Linux and macOS should look effectively identical, although denoising and floating-point implementation details may prevent byte-identical files.
 Changing Blender versions or switching to Metal or CUDA rendering can produce small differences in noise, denoising, and color.
 
-## Figure 2: Figma
+## Figure 2
 
-The paper uses `fig2_illustrated_figma.png`, exported from the [editable illustrated pipeline](https://www.figma.com/design/PgS1btsW3SH28tvW52xjrk/EMPIRIC?node-id=133-2).
-Generate the image fills with `prepare_figma_assets.py`, then upload every PNG to the node listed in its generated `manifest.json`.
-The current phase mapping is Bridge steps 0, 563, 1652, the illustrative wet-lift state, and step 1940 for Explore, Hypothesize, Design experiment, Execute and observe, and Rehearse and solve.
-Export Figma node `133:2` at its native 924 by 512 pixels to `figures/fig2_illustrated_figma.png` in the paper checkout.
-The compositor does not overwrite Figure 2.
-Its thought annotations and code are illustrative, not verbatim agent traces.
-Figure 4 quantitative plots are also outside this compositor.
+The compositor draws Figure 2 as `fig2_method`, a six-step loop that follows the method section's notation.
+Its code panel is simplified from the program written in the recorded Bridge run (`sandbox/simulator.py`), including the replaced bond rule; its plots are schematic.
+Its only raster panel is the recorded mid-dip state `trajectory_bridge_train_1`.
+The earlier illustrated pipeline remains in the [Figma file](https://www.figma.com/design/PgS1btsW3SH28tvW52xjrk/EMPIRIC?node-id=133-2) but is no longer used by the paper.
+Figure 4 quantitative plots are outside this compositor.
 The same Figma file contains the editable [Figure 1 teaser](https://www.figma.com/design/PgS1btsW3SH28tvW52xjrk/EMPIRIC?node-id=117-62).
-The generated Figma asset manifest also maps Figure 1's eight raster fills so its editable source remains synchronized with the paper compositor.
+Generate its eight raster fills with `prepare_figma_assets.py`, then upload every PNG to the node listed in the generated `manifest.json`.
 
 ## Re-render with a local GUI
 
@@ -117,12 +116,15 @@ Use the original run's runtime, configuration, primitive actions, and recording/
 The replay helpers are `predicators/run/continual_video.py` and `scripts/continual_video.py`.
 A local capture driver must select the archived events or restore complete saved states.
 
-The Figure 3 selection is recorded in `scripts/paper_figures/data/trajectories/figure3.json`:
+The Figure 3 Bridge selection is recorded in `scripts/paper_figures/data/trajectories/figure3.json`:
 
-| Domain | Run under logs/agent_continual | Level | Within-level steps |
+| Row | Run under logs/agent_continual | Level | Within-level steps |
 |---|---|---|---|
-| Bridge | bridge-mb_opus_span_transfer_r2/seed0/run_20260916_190710 | L02 | 0, 563, 1652, 1702, 1940 |
-| Balloons | balloons-mb_opus_compose_r2/seed0/run_20260917_082044 | L03 | 0, 124, 241, 264, 348 |
+| Bridge training | bridge-mb_opus_span_transfer_r2/seed0/run_20260916_190710 | L01 | 0, 122, 1290, 1362 |
+| Bridge test | bridge-mb_opus_span_transfer_r2/seed0/run_20260916_190710 | L02 | 0, 563, 1652, 1702, 1940 |
+
+Steps 122 (mid-dip) and 1290 (mid-carry) fall inside a skill, so they have no GUI render and are archived by their recorded state index alone.
+The between-levels panel summarizes the run's journal (`sandbox/journal.md`): the written glue program, the replay of the six recorded dips, the rejected first bond model, and the rehearsed test plan.
 
 Do not reconstruct execution by resetting visible object poses alone.
 Preserve attachments, velocities, glue/contact history, and other hidden state.
@@ -142,7 +144,7 @@ Example:
   "281:107:18": {
     "path": "figures/sources/local_gui/domino_initial.png"
   },
-  "trajectory_bridge_3": {
+  "trajectory_bridge_test_3": {
     "path": "figures/sources/local_gui/bridge_step1702.png",
     "crop": [270, 280, 810, 860]
   }
@@ -150,9 +152,8 @@ Example:
 ```
 
 Crop coordinates refer to the replacement image; omit them for an already cropped panel.
-Original Bridge and Balloons trajectory crops are respectively `(270, 280, 810, 860)` and `(410, 170, 880, 720)`.
-The Balloons crop is shifted right relative to the earlier composition so that both chute walls remain visible throughout the trajectory.
-Semantic frame names end in indices 0 through 4.
+The Bridge test-level crop is `(270, 280, 810, 860)`; the training level uses its own crop in `figure3.json`.
+Semantic frame names end in their index within the row.
 Explicit gallery keys take precedence over semantic names.
 
 | Domain | Initial key | Final key |
@@ -163,18 +164,28 @@ Explicit gallery keys take precedence over semantic names.
 | Boil | 281:0:18 | 281:0:136 |
 | Fan | 281:214:18 | 281:214:136 |
 
-Bridge teaser keys are `304:7:57`, `304:87:57`, and `304:370:57`.
-These are schematic mechanism illustrations, not consecutive execution frames.
+The Bridge solved panel of the teaser uses key `304:370:57`.
+The teaser's two lift panels, `bridge_pair_predicted` and `bridge_pair_observed`, are Cycles renders of states built from the recorded training level: the robot and the grasped block take the mid-lift pose of step 1276, the glued partner either rises with it or keeps its pre-lift pose of step 1248, and every other object keeps its initial pose.
+They are illustrations, not execution frames, and have no GUI counterpart.
 Keep a provenance note with runtime commit, renderer, camera matrices, resolution, event, and replay checks.
 
-To refresh the original archived Figure 3 images deliberately, run:
+To refresh the archived Figure 3 selection deliberately, run:
 `python scripts/paper_figures/import_figure3_trajectories.py`.
 This reads local logs and restores original images; it is not the command for installing GUI replacements.
 
 ## Real-world trajectory
 
-The third row of Figure 3 is currently a LaTeX placeholder in the paper.
-Replace it with verified real-robot recordings when available.
+The third row of Figure 3 shows the real-robot Fan-Domino cascade run of 2026-09-22 (`exp_20260922_134142`).
+Its logs, videos, posterior, and report are in the [shared run folder](https://drive.google.com/drive/folders/1bcFFkaMb1ZKa0p1sK5KuMdQQ92xojnBO).
+Download it to `logs/real_robot/fan_domino_drive`, for example with `gdown` file by file, and then run:
+
+```bash
+uv run --no-project --with imageio-ffmpeg --with pillow \
+  python scripts/paper_figures/import_real_robot_frames.py
+```
+
+The importer extracts five frames from the gust camera's tracking videos, crops them identically, and writes their video hashes, frame indices, measured slides, the test plan's prediction, and the posterior summary to `scripts/paper_figures/data/trajectories/real_fan_domino.json`.
+The tracking overlays are the tracker's fitted boxes, not predictions.
 Keep this applicability case study distinct from the simulated baseline comparison.
 
 ## Removed legacy tooling

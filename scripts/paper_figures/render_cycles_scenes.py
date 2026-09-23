@@ -11,12 +11,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 
 
-def digest(path):
+def digest(path: Path) -> str:
     """Return the SHA-256 digest for a file."""
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def main():
+def main() -> None:
     """Render the selected archived scenes and update their manifest."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--blender-python', default=sys.executable)
@@ -46,6 +46,11 @@ def main():
     }
     report['generated_by'] = ('scripts/paper_figures/render_cycles_scenes.py; '
                               'do not edit manually')
+    # Retired renders leave the manifest with their files.
+    report['files'] = {
+        key: entry
+        for key, entry in report['files'].items() if (ROOT / key).exists()
+    }
     renderer = ROOT / 'render_cycles_scene.py'
     jobs = []
     selected_domains = {domain.lower() for domain in args.domains}
@@ -65,7 +70,7 @@ def main():
             output = ROOT / f'figures/sources/{name}_cycles.png'
             jobs.append((domain, name, source, output))
         if 'bridge' in selected_domains:
-            for name in ('bridge_wet_lift', 'bridge_bonded_lift'):
+            for name in ('bridge_pair_predicted', 'bridge_pair_observed'):
                 source = ROOT / f'data/cycles_scenes/{name}.json'
                 output = ROOT / f'figures/sources/{name}_cycles.png'
                 jobs.append(('Bridge', name, source, output))
@@ -119,15 +124,15 @@ def main():
                 stderr=subprocess.STDOUT,
                 check=True)
         scene_metadata = json.loads(source.read_text()).get('metadata', {})
-        report['files'][key] = dict(
-            **stamp,
-            sha256=digest(output),
-            domain=domain,
-            frame=frame,
-            scene=str(source.relative_to(ROOT)),
-            scorecard_sha256=scene_metadata.get('scorecard_sha256'),
-            physics_steps_after_restore=0,
-            body_poses_and_joints_unchanged=True)
+        report['files'][key] = dict(**stamp,
+                                    sha256=digest(output),
+                                    domain=domain,
+                                    frame=frame,
+                                    scene=str(source.relative_to(ROOT)),
+                                    scorecard_sha256=scene_metadata.get(
+                                        'scorecard_sha256'),
+                                    physics_steps_after_restore=0,
+                                    body_poses_and_joints_unchanged=True)
         manifest.write_text(json.dumps(report, indent=2) + '\n')
         print(f'Rendered {domain} {frame}', flush=True)
     if temporary_logs is not None:

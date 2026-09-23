@@ -1,0 +1,15 @@
+{
+  "generated_by": "scripts/render_cycles_scene.py; do not edit manually",
+  "blender_version": "4.5.3 LTS",
+  "engine": "CYCLES",
+  "device": "CPU",
+  "samples": 48,
+  "scene_source": "/orcd/home/002/ycliang/predicators/scripts/paper_figures/data/cycles_scenes/bridge_pair_predicted.json",
+  "scene_sha256": "3239fd778e2da5a62ec1f27b62b21892de822a09909fcd901dcce05d687dbf38",
+  "output_sha256": "59d90dda67ae8f5fc7331b2b87600698e044e83f41f37733382984b5d3953235",
+  "visual_shapes": 55,
+  "blender_mesh_objects": 55,
+  "geometry": "Recorded world transforms; box edges receive at most 0.6 mm visual bevels",
+  "appearance": "Procedural materials, soft area lighting, AgX; duplicate surfaces removed",
+  "physics_steps": 0
+}

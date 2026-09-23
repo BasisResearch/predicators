@@ -1,0 +1,127 @@
+{
+  "generated_by": "scripts/paper_figures/import_real_robot_frames.py; do not edit manually",
+  "description": "Recorded gust-camera frames from one real-robot run; overlays are the tracker's fitted boxes, not predictions.",
+  "experiment": "exp_20260922_134142",
+  "seed": 1790098902,
+  "source_folder": "https://drive.google.com/drive/folders/1bcFFkaMb1ZKa0p1sK5KuMdQQ92xojnBO",
+  "report_sha256": "ac6599ed234e6c54b0eead105d2425c9531db184cd269f83aee1a90bd04603c1",
+  "agent_log_sha256": "8fac164d49e24fbe5bc69ced14d55a1373a167509c5579882e600382dce870be",
+  "crop": [
+    230,
+    400,
+    1210,
+    1080
+  ],
+  "measured": [
+    {
+      "episode": 1,
+      "block": "green",
+      "distance_m": 0.251,
+      "slide_cm": 0.0,
+      "fall_deg": 0.9,
+      "flat_in_patch": false
+    },
+    {
+      "episode": 2,
+      "block": "grey",
+      "distance_m": 0.248,
+      "slide_cm": 12.1,
+      "fall_deg": 87.62,
+      "flat_in_patch": true
+    },
+    {
+      "episode": 3,
+      "block": "green",
+      "distance_m": 0.377,
+      "slide_cm": 9.9,
+      "fall_deg": 89.65,
+      "flat_in_patch": true
+    }
+  ],
+  "test_plan": {
+    "block": "green",
+    "at": [
+      0.375,
+      0.0
+    ],
+    "also": {
+      "block": "grey",
+      "at": [
+        0.2,
+        0.0
+      ]
+    },
+    "predicted_slide_cm": [
+      10.1,
+      2.3
+    ],
+    "p_success": 0.54
+  },
+  "posterior": {
+    "kept": 80,
+    "draws": 800,
+    "masses": {
+      "green": {
+        "mean": 0.2991816087471464,
+        "std": 0.06034596213590567
+      },
+      "grey": {
+        "mean": 0.1602904861959794,
+        "std": 0.0727108151007946
+      }
+    },
+    "p_green_lighter": 4.9221610177555713e-29
+  },
+  "frames": [
+    {
+      "name": "real_fan_domino_0",
+      "label": "Probe: green stays",
+      "episode": 1,
+      "video": "ep01_gust_tracked.mp4",
+      "video_sha256": "1b1bc364de1492169e6194fd8d98180592a9dec3584dc37524394ef895d92c5d",
+      "frame_index": 106,
+      "time_s": 7.067,
+      "sha256": "5443d45121cefcd668eadc10ada80db78f322ea1e2051e45eba79b834b9501a4"
+    },
+    {
+      "name": "real_fan_domino_1",
+      "label": "Probe: grey slides",
+      "episode": 2,
+      "video": "ep02_gust_tracked.mp4",
+      "video_sha256": "bfbe00065adcadaa767349b9048436dba52336651b9c54be40f81971ba14a15b",
+      "frame_index": 104,
+      "time_s": 6.933,
+      "sha256": "fa159153f6de0a121323990fed73301f64ee0e3dc834c7417ad829bddbebb94e"
+    },
+    {
+      "name": "real_fan_domino_2",
+      "label": "Test: grey upwind",
+      "episode": 3,
+      "video": "ep03_gust_tracked.mp4",
+      "video_sha256": "f37835ee5cbfc0f8e2040dccc3d539d42635dccbfefac0c51ef765232981f258",
+      "frame_index": 45,
+      "time_s": 3.0,
+      "sha256": "856463eee1ce696442fb2dd04097faaf7fbf118c3653b80fd4f3d959549dfde6"
+    },
+    {
+      "name": "real_fan_domino_3",
+      "label": "Grey knocks green",
+      "episode": 3,
+      "video": "ep03_gust_tracked.mp4",
+      "video_sha256": "f37835ee5cbfc0f8e2040dccc3d539d42635dccbfefac0c51ef765232981f258",
+      "frame_index": 63,
+      "time_s": 4.2,
+      "sha256": "cb9e12fbafe7a8d60db77da34a73f86df02527ded4930cbf2e5d317303722305"
+    },
+    {
+      "name": "real_fan_domino_4",
+      "label": "Green in patch",
+      "episode": 3,
+      "video": "ep03_gust_tracked.mp4",
+      "video_sha256": "f37835ee5cbfc0f8e2040dccc3d539d42635dccbfefac0c51ef765232981f258",
+      "frame_index": 104,
+      "time_s": 6.933,
+      "sha256": "dcf8c28952b9e09017283999af45ee6be0913d875c65cf3bf5690f61051cce12"
+    }
+  ]
+}
