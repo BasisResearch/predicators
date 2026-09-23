@@ -10,6 +10,7 @@ import inspect
 import logging
 import os
 import re
+from collections import Counter
 from types import SimpleNamespace
 from typing import List, Optional, Sequence, Set, Tuple, cast
 
@@ -261,8 +262,13 @@ def _refine(task,
             predicates,
             seed=0,
             max_samples=200,
-            timeout=600.0):
-    """Run backtracking refinement with informed Place sampling."""
+            timeout=600.0,
+            failures=None):
+    """Run backtracking refinement with informed Place sampling.
+
+    ``failures``, when given, counts each rejected sample by step and
+    reason so a failing caller can report where refinement got stuck.
+    """
     rng = np.random.default_rng(seed)
     n = len(sketch)
     max_tries = [
@@ -296,8 +302,12 @@ def _refine(task,
             current_atoms = utils.abstract(post_state, predicates)
             if not step.subgoal_atoms.issubset(current_atoms):
                 missing = step.subgoal_atoms - current_atoms
+                if failures is not None:
+                    failures[(idx, f"subgoal missing: {missing}")] += 1
                 return False, f"subgoal missing: {missing}"
         if idx == n - 1 and not task.goal_holds(post_state):
+            if failures is not None:
+                failures[(idx, "goal not reached")] += 1
             return False, "goal not reached"
         return True, ""
 
@@ -334,12 +344,24 @@ def test_boil_sketch_refinement(model_type):
 
     sketch = _parse_sketch_from_file(SKETCH_FILE, options, env.types,
                                      predicates, list(task.init))
+    failures: Counter = Counter()
+    rollout = option_model.get_next_state_and_num_actions
+
+    def _traced_rollout(state, option):
+        next_state, num_actions = rollout(state, option)
+        if num_actions == 0:
+            reason = str(option_model.last_execution_failure)[:160]
+            failures[(option.name, reason)] += 1
+        return next_state, num_actions
+
+    option_model.get_next_state_and_num_actions = _traced_rollout
     plan, success = _refine(task,
                             sketch,
                             option_model,
                             predicates,
                             max_samples=500,
-                            timeout=1200.0)
+                            timeout=1200.0,
+                            failures=failures)
 
     logger.info("Model=%s, success=%s, plan_len=%d", model_type, success,
                 len(plan))
@@ -350,7 +372,8 @@ def test_boil_sketch_refinement(model_type):
             logger.info("  %d: %s(%s)[%s]", i, opt.name, objs, params)
 
     assert success, (f"Refinement failed with {model_type} model. "
-                     f"Partial plan: {len(plan)} steps.")
+                     f"Partial plan: {len(plan)} steps. Most common "
+                     f"rejections: {failures.most_common(5)}")
 
     # Forward validation: re-execute the plan in the oracle model (full
     # env dynamics) to verify the plan actually solves the task.
