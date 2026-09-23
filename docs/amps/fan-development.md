@@ -9,6 +9,14 @@ Expensive checks and agent runs use compute nodes.
 Before launching agents on any new setting, show the user visualizations of its actual training and test tasks and wait for review.
 Physical diagnostics may establish feasibility before that review, but are not agent experiments.
 
+## Current scope
+
+The user explicitly requested domain-only variation: keep EMPIRIC, the direct agent, and their harness settings unchanged.
+Do not implement the proposed reconstruction, adaptive-wait, or preflight changes as part of this domain search.
+Finish the five EMPIRIC longer-landing runs before deciding the next variant or matched baseline launch.
+The less-damped, weaker-wind Fan inertial variant remains an acceptable fallback if ramp variants are unsuccessful.
+Its fresh-seed results did not confirm a solve-rate gap, so choosing it as a fallback must not be described as achieving that research objective.
+
 ## Decision rule
 
 Screen each physically validated configuration on matched seeds 0 and 1 for both agents.
@@ -154,6 +162,13 @@ Immediately before submission, all 1,158 source blobs under the frozen runtime's
 Resolved environment, flags, arguments, and accelerator settings matched the pilot per arm; only seed range and experiment identifiers changed.
 These six compute-node jobs use 8 CPUs, 16 GB, 12 hours, requeue, and primary accounts a through d; dat remains backup.
 Keep the three fresh seeds separate from screening results when assessing confirmation, and retain the unfinished direct pilot seed regardless of its eventual outcome.
+The remaining direct pilot seed 1 subsequently lost the test to an evaluator-confirmed fall: 3,328 training steps plus 116 test steps, 3,444 total and zero resets.
+The completed ramp screening batch is therefore EMPIRIC 2/2 and direct 0/2.
+Fresh confirmation seed 4 succeeded for EMPIRIC in 2,435 steps (1,117 training plus 1,318 test), with both episodes accepted and no resets.
+Direct confirmation seed 3 succeeded in 1,722 steps (791 training plus 931 test), with both episodes accepted and no resets.
+Direct confirmation seed 4 lost to an evaluator-confirmed test fall in 1,584 steps (1,246 training plus 338 test), with no resets.
+These confirmation scorecards are under `logs/agent_continual/fan_ramp-mb_opus_ramp_confirmation_r1/seed4/run_20260920_130308`, `logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_confirmation_r1/seed3/run_20260920_130303`, and `logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_confirmation_r1/seed4/run_20260920_130259` respectively.
+EMPIRIC confirmation seeds 2 and 3 and direct confirmation seed 2 remain unfinished; current fresh-seed results are EMPIRIC 1/1 finished and direct 1/2 finished, not final confirmation rates.
 During its unfinished test run, direct ramp seed 0 implemented Monte Carlo checks over correlated drag and ramp-acceleration estimates and compared delayed-braking survival predictions.
 The evidence is its `agent/002_play_20260920_114411.md` log under `logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_pilot_r1/seed0/run_20260920_112733`.
 These are the agent's own model predictions, not measured success probabilities or completed task outcomes.
@@ -169,6 +184,163 @@ No agent experiment is authorized for launch before the user's visual review and
 
 ## Reporting
 
+### Additional Fan inertial arms, September 21
+
+The user requested five seeds each for the five remaining paper arms on Fan inertial, without modifying agents or the domain.
+The existing saved no-ramp inertial results are EMPIRIC 5/5 and direct control 4/5, not both 5/5; direct pilot seed 1 ended with a give-up.
+The new runtime `logs/fan-inertial-baselines-runtime-20260921` is a clean clone of the original inertial commit `8d12ae07d89a994889b03f5cfe2488dacbdf8140`.
+The external launch configuration `scripts/configs/predicatorv3/continual_fan_inertial_baselines_r1.yaml` preserves its environment and arm menus, selects seeds 0 through 4, and uses distinct experiment keys.
+The submitted arrays are Oracle dynamics `23383838`, Direct + scene `23383839`, Standalone sim `23383840`, No harness fitting `23383841`, and No explicit uncertainty `23383842`.
+Each array contains five tasks on `mit_preemptable`, with requeue, 8 CPUs, 16 GB, and a 12-hour allocation per task.
+Accounts a through d are eligible; dat remains backup only.
+No ramp is enabled, preflight and validation audit remain off, and paper results are unchanged.
+
+### Longer-landing candidate following the five-seed ramp results
+
+The final original-ramp direct-agent run, confirmation seed 2, subsequently succeeded in 4,708 charged steps (1,800 training and 2,908 test), with one training reset and no test reset.
+Its scorecard is `logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_confirmation_r1/seed2/run_20260920_130303/scorecard.json`.
+Original-ramp results are now complete: EMPIRIC 3/5 and direct 2/5 overall, but fresh confirmation was EMPIRIC 1/3 and direct 2/3.
+The screening advantage therefore did not replicate on fresh seeds; the pooled difference is not evidence of a reliable advantage.
+
+EMPIRIC confirmation seeds 2 and 3 subsequently finished with evaluator-confirmed test falls, in 1,312 and 1,533 total steps respectively.
+Together with successful seed 4, fresh confirmation is 1/3 for EMPIRIC, and the combined screening plus confirmation result is 3/5.
+The original ramp therefore did not establish reliable EMPIRIC success.
+Seed 2's execution log and postmortem identify an assumed 21-step switch approach that instead took 42 steps, extending acceleration from approximately 46 to 68 steps before braking.
+Seed 3's postmortem identifies an artificial seam in its reconstructed simulator that dissipated momentum in prediction but not in execution.
+These diagnoses do not establish that excessive terminal waiting was the primary cause of either failure.
+
+The next candidate adds 0.10 m to the exposed test landing in the downhill direction, without moving the target, widening the turn, adding walls, or changing the training tray, ramp, noise, dynamics, or goal tolerance.
+It is opt-in via `fan_ramp_landing_extension=0.10`; the default remains zero and the original frozen runtime is untouched.
+This is a robustness-margin hypothesis, not a guarantee of 5/5 or a preserved advantage over direct control.
+Both agents must receive identical candidate geometry and interfaces.
+The geometry/model-restoration suite passed all 26 checks on a compute node.
+A fresh seed-0 privileged controller replay with opposing-fan braking succeeded in 588 steps; the corresponding unbraked sequence fell off the extended landing.
+These two reference trajectories establish limited feasibility and retained fall risk, not either agent's performance or the size of the safe timing window.
+Diagnostic outputs are `logs/fan-ramp-long-landing-validation.log` and `logs/fan-ramp-long-landing-replays.log`.
+Following visual review, the user approved EMPIRIC-only testing on five seeds without additional environment changes.
+Array `23285842` launches seeds 0 through 4 under the distinct run key `fan_ramp-mb_opus_ramp_long_landing_r1`.
+The frozen runtime is `logs/fan-ramp-long-landing-runtime-20260920`, commit `b6d9243be`, based on the original ramp runtime with only the landing-extension implementation, its regression tests, and the new launch configuration added.
+The resolved flags differ from the original EMPIRIC ramp pilot only by `fan_ramp_landing_extension=0.10`; preflight and validation audit remain off.
+All 26 physical regression tests passed again in this frozen runtime before submission.
+Jobs use `mit_preemptable`, 8 CPUs, 16 GB, a 12-hour allocation with requeue, and accounts a through d; dat remains backup.
+No direct-agent jobs were launched for this candidate.
+Longer-landing EMPIRIC seed 1 finished with `agent_ended` after an explicit `give_up`, at 2,228 total steps (1,610 accepted training steps and 618 unsuccessful test steps).
+Its scorecard is `logs/agent_continual/fan_ramp-mb_opus_ramp_long_landing_r1/seed1/run_20260920_152607/scorecard.json`.
+This is an agent forfeiture, not an evaluator-confirmed `level_lost`: the agent reports the ball overshot the open landing and became stranded against its side, then judged recovery impossible.
+Its postmortem attributes the overshoot to late brake activation through three switch maneuvers and a faster-than-predicted descent; those causal and irrecoverability claims remain agent interpretations pending trajectory review.
+The batch can no longer reach 5/5; retain this result and let the other four runs finish unchanged.
+Longer-landing EMPIRIC seed 3 subsequently finished with `all_levels_won`, in 2,640 total steps (1,722 training and 918 test).
+Its scorecard is `logs/agent_continual/fan_ramp-mb_opus_ramp_long_landing_r1/seed3/run_20260920_152607/scorecard.json`.
+With seeds 0, 2, and 4 still unfinished, this is one success and one forfeiture among two completed runs, not a final five-seed solve rate.
+Seed 3's test postmortem reports jointly checking force and seam-height hypotheses and selecting a descent whose underpowered outcome returns to the protected bay.
+It reports a measured first-leg peak x of 1.3381 m, which is inside even the original seed-3 landing edge (target x plus 0.16 m, approximately 1.394 m).
+Thus this successful first leg does not by itself demonstrate that the extra landing length was necessary; the reported geometry reconstruction and control strategy also changed relative to the failed original run.
+These strategy and peak-position claims come from `agent/002_play_20260920_161558.md` and require independent trajectory replay before causal attribution.
+Longer-landing EMPIRIC seed 2 subsequently received an evaluator-confirmed test loss: `rejected: The ball fell off the platform.`, after 638 test steps and 1,094 accepted training steps (1,732 total).
+Its scorecard is `logs/agent_continual/fan_ramp-mb_opus_ramp_long_landing_r1/seed2/run_20260920_152621/scorecard.json`; the terminal episode is recorded even while run-level postprocessing remains pending.
+The batch now has one accepted full success, two unsuccessful test outcomes, and two unresolved runs (seeds 0 and 4), so its maximum possible final success count is 3/5.
+Seed 2's test postmortem (`agent/003_play_20260920_162040.md`) reports a simulated 39-step brake-switch invocation that took 107 steps in execution after changing the skill parameters to an untested setting.
+It reports sweeping dynamics parameters but not planner trials for this crossing, despite using trials earlier during training.
+These are reported causal details, not independently replayed findings; they suggest that another small landing extension alone may not address the dominant timing hazard.
+Keep the agent and harness fixed as requested, and finish seeds 0 and 4 before selecting a further domain-only variant.
+Longer-landing EMPIRIC seed 0 subsequently finished with `all_levels_won`, in 2,279 total steps (988 training and 1,291 test).
+Its scorecard is `logs/agent_continual/fan_ramp-mb_opus_ramp_long_landing_r1/seed0/run_20260920_152605/scorecard.json`.
+The batch now has two accepted full successes, two unsuccessful tests, and only seed 4 unresolved; this remains a development result, not a matched comparison with direct control.
+Any subsequent screening must retain all outcomes and be followed by fresh matched seeds before claiming a reliable gap.
+Longer-landing EMPIRIC seed 4 subsequently finished with `all_levels_won`, in 1,809 total steps (738 training and 1,071 test).
+Its scorecard is `logs/agent_continual/fan_ramp-mb_opus_ramp_long_landing_r1/seed4/run_20260920_152637/scorecard.json`.
+The completed longer-landing batch is therefore 3/5: seeds 0, 3, and 4 succeeded, seed 1 forfeited, and seed 2 suffered an evaluator-confirmed fall.
+This equals the original ramp's aggregate EMPIRIC success count and does not establish an improvement in reliability or a gap against direct control, which has not been run on the longer landing.
+The agent and harness remained unchanged throughout this batch; paper results remain untouched.
+
+![Longer landing candidate, training and test](figures/fan-ramp-long-landing/fan-ramp-overview.png)
+
+![Longer landing candidate, actual scenes](figures/fan-ramp-long-landing/fan-ramp-scenes.png)
+
+### Lower-drop ramp candidate
+
+Following the completed longer-landing batch, the proposed next candidate retains the 0.10 m landing extension and reduces the visible ramp drop from 0.004 m to 0.003 m in both training and test.
+Ramp length remains 0.40 m; other geometry, dynamics, observation noise, goal tolerance, agents, and harness settings are unchanged.
+The optional setting is `fan_ramp_rise=0.003`, with the historical default preserved at 0.004.
+This tests whether reduced gravity-driven acceleration affords more braking margin; it does not establish that the observed switch-duration mismatch is resolved or that direct control remains difficult.
+All 28 tests in `tests/envs/test_pybullet_fan_transfer.py` passed on a compute node, covering both drops and both landing extensions, including geometry, downhill motion, and model restoration.
+The first test pass exposed hard-coded 4 mm expectations in the newly parameterized test; these were replaced by the analytical height formula before the successful rerun.
+The renderer's hard-coded profile and label were also corrected, and the regenerated images were inspected.
+Following visual review, the user approved testing and then restricted the first launch to EMPIRIC only, two seeds.
+Array `23370647` submits seeds 0 and 1 under the new key `fan_ramp-mb_opus_ramp_low_drop_r1` on `mit_preemptable` with requeue, 8 CPUs, and 16 GB per task.
+The frozen runtime is `logs/fan-ramp-low-drop-runtime-20260921`, commit `ed7fb86a3`, based on the longer-landing snapshot with only the optional ramp-rise setting, domain implementation, and launch configuration changed.
+Configuration resolution confirmed exactly one EMPIRIC batch with two seeds; preflight and validation audit remain off.
+Accounts a through d are eligible and dat remains backup; no direct-control jobs were submitted.
+Any promising comparison still requires matched direct-control runs and fresh confirmation seeds before claiming a reliable gap.
+Both lower-drop EMPIRIC screening seeds completed with `all_levels_won`, with evaluator-accepted training and test episodes and zero resets.
+Seed 0 used 1,150 total steps (580 training, 570 test); seed 1 used 1,984 total steps (712 training, 1,272 test).
+Their scorecards are under `logs/agent_continual/fan_ramp-mb_opus_ramp_low_drop_r1/seed{0,1}/run_20260921_024850/scorecard.json`, both recording frozen commit `ed7fb86a3ad0`.
+This is 2/2 screening success, not evidence of 5/5 reliability or a gap against direct control.
+The scheduler still listed both tasks as running when the terminal scorecards were inspected, with temporary video outputs present; experiment outcomes are complete even while postprocessing continues.
+No further agent jobs were launched after these results pending the next user decision.
+The user subsequently approved three additional EMPIRIC seeds, 2 through 4.
+Array `23376645` submits these seeds on `mit_preemptable` from the same unchanged frozen commit `ed7fb86a3ad0`, with requeue, 8 CPUs, 16 GB, and accounts a through d (dat backup only).
+The confirmation configuration resolves to exactly the same experiment key, agent, and flags as seeds 0 and 1; only the seed range changes.
+These three additional runs complete the planned five-seed EMPIRIC cohort when finished; no direct-control jobs have been submitted.
+
+![Lower-drop candidate, actual training and test scenes](figures/fan-ramp-low-drop/fan-ramp-scenes.png)
+
+![Lower-drop candidate, vertically exaggerated profile](figures/fan-ramp-low-drop/fan-ramp-profile.png)
+
+## Shared-skill repair cohort, September 21
+
+At the user's request, five EMPIRIC seeds (0-4) were launched as array `23385440` on `mit_preemptable`.
+All five tasks were verified running on compute nodes after submission.
+The separate experiment key is `fan_ramp-mb_opus_ramp_skill_repair_r1`; original lower-drop results remain untouched.
+The frozen runtime is `logs/fan-ramp-skill-repair-runtime-20260921` at commit `ff11bc76f4652c6964e73beda7e41a6655d670d9`.
+Relative to the original lower-drop runtime, only the three shared skill implementation files change production behavior; regression fixtures and a launch configuration are also included.
+The resolved experiment flags exactly match the original EMPIRIC lower-drop cohort: the reviewed 3 mm ramp, 10 cm landing extension, Opus 5, and preflight off.
+The exact frozen runtime passed 126 targeted skill and motion-planning tests, with four existing expected failures, before submission.
+These are matched development reruns, not fresh held-out confirmation or paper results.
+
+The launcher uses accounts `a,b,d`, all of which passed live tool-free model probes before submission.
+The backup account `dat` also passed but is not in the active pool.
+Account `c` has an active limit marker until September 23 at 00:00 UTC and is excluded.
+Usage percentages were unavailable from the service endpoint; successful probes establish current access, not a guarantee of sufficient remaining quota for full runs.
+Each task requests 8 CPUs and 16 GB, with requeue enabled for preemption, time limits, and recognized account-limit exits.
+The launch configuration is [continual_fan_ramp_skill_repair_r1.yaml](../../scripts/configs/predicatorv3/continual_fan_ramp_skill_repair_r1.yaml).
+The shared repair and its measured extra interaction cost are documented in [the switch investigation](fan-switch-seed4-investigation.md).
+
+Seed 0's original job stopped after account `a` reported that its organization had disabled subscription access for Claude Code.
+This was an infrastructure interruption after training succeeded and the test reached 207 steps, not a task failure.
+With the user's approval, job `23395354` resumes only seed 0 on `dat`, from the same frozen runtime, experiment key, run directory, sandbox, and recorded state.
+The resume configuration is [continual_fan_ramp_skill_repair_seed0_resume.yaml](../../scripts/configs/predicatorv3/continual_fan_ramp_skill_repair_seed0_resume.yaml).
+
+### Six matched comparison arms
+
+The user approved five seeds each for all six other paper agents on this repaired Fan ramp setup.
+All 30 tasks were verified running on compute nodes after submission.
+They use the same frozen runtime `ff11bc76f4652c6964e73beda7e41a6655d670d9`, reviewed geometry, observation noise, step budget, and preflight-off setting as the repaired EMPIRIC cohort.
+The [six-arm configuration](../../scripts/configs/predicatorv3/continual_fan_ramp_skill_repair_baselines_r1.yaml) resolves to exactly six five-seed arrays, with only the intended approach and ablation flag differences.
+
+- Oracle dynamics: array `23398858`, seeds 0-4, accounts b/d.
+- Direct agent: array `23398859`, seeds 0-4, account dat.
+- Direct + scene: array `23398860`, seeds 0-4, accounts b/d.
+- Standalone sim: array `23398861`, seeds 0-4, accounts b/d.
+- No harness fitting: array `23398862`, seeds 0-4, accounts b/d.
+- No explicit uncertainty: array `23398863`, seeds 0-4, accounts b/d.
+
+Account a failed the prelaunch model probe with the organization-access-disabled error; c remains marked limited and was excluded.
+Accounts b, d, and dat passed live model probes; dat hosts five of the 30 new runs as occasional overflow.
+The arrays use separate `<arm>_opus_ramp_skill_repair_r1` experiment keys, leaving older ramp cohorts untouched.
+At submission, EMPIRIC seeds 1-4 had terminal all-levels-won scorecards; resumed seed 0 remained in progress at test step 1010.
+The user's apparent 5/5 success is therefore not yet confirmed by all five terminal scorecards.
+
 Do not replace the original Fan maze or paper results during development.
 Do not count diagnostic reference-policy successes as EMPIRIC results.
 Do not count unfinished, account-limited, or infrastructure-failed runs as task failures.
+
+### September 21, 16:43 UTC health check
+
+All five repaired EMPIRIC seeds now have terminal `all_levels_won` scorecards.
+All 30 comparison jobs were running, with recent execution, planning, or model-analysis activity and no current account-limit errors on b, d, or dat.
+Scheduler accounting confirmed that recent restarts were compute-node preemptions; the jobs resumed their existing unfinished runs.
+One exception was already-finished EMPIRIC seed 0: requeued job `23395354_0` created redundant directory `run_20260921_124237` after its original `run_20260921_090823` had won both levels.
+The redundant job was cancelled, with both directories preserved; do not resume or count the redundant partial run.
+The original seed-0 accepted result remains 1,623 training steps plus 1,120 test steps.
+The Markdown result monitor remained active; none of the 30 comparison seeds had a terminal scorecard at this check.

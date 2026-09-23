@@ -7,6 +7,26 @@ from scripts.plotting import monitor_benchmark_arms as monitor
 from scripts.plotting import plot_benchmark_arms as plot
 
 
+def test_assets_pilot_selection() -> None:
+    """Ten intended seeds, never cancelled maze runs or paper records."""
+    paths = [(domain, path) for domain, dirs in plot.DOMAINS
+             for path in dirs["from_assets"]]
+    assert len(paths) == 10
+    assert {d
+            for d, _ in paths} == {
+                "Domino", "Bridge (4-span)", "Balloons (composition)",
+                "Boil (2-jug)", "Fan (ramp transfer)"
+            }
+    assert all("from_assets_opus_pilot_r1/seed" in p for _, p in paths)
+    assert not any("/fan-from_assets" in p for _, p in paths)
+    assert "from_assets" not in plot.PAPER_ARMS
+    report = monitor.report_text(monitor.REPORT.read_text(), [], vars(plot),
+                                 "test")
+    assert "EMPIRIC from assets: 0/10 seeds finished" in report
+    assert "Cancelled Fan maze pilots are excluded" in report
+    assert report.count("## EMPIRIC from assets development") == 1
+
+
 def test_paper_cohort_selection() -> None:
     """Replace whole Oracle cohorts without pooling rounds or changing
     input."""
@@ -16,14 +36,40 @@ def test_paper_cohort_selection() -> None:
         for s in [int(path.rsplit("seed", 1)[1]) for path in paths]
     ]
     selected = plot.paper_records(rows)
-    assert len(selected) == 5 * 7 * 5
-    assert len({(r["domain"], r["arm"], r["seed"]) for r in selected}) == 175
+    assert len(selected) == 5 * 7 * 5 + 6
+    assert len({(r["domain"], r["arm"], r["seed"]) for r in selected}) == 181
     assert {r["arm"] for r in selected} == set(plot.PAPER_ARMS)
     for row in selected:
         expected = row["arm"]
         assert row["source_arm"] == expected
         assert row["source"] == f"{row['domain']}/{expected}/{row['seed']}"
     assert all("source_arm" not in row for row in rows)
+
+
+def test_current_fan_is_only_ramp() -> None:
+    """Both figures use ramp, never fallback or pool historical variants."""
+    assert plot.PAPER_DOMAINS == ("Domino", "Bridge (4-span)",
+                                  "Balloons (composition)", "Boil (2-jug)",
+                                  "Fan (ramp transfer)")
+    assert plot.DISPLAY_TITLE["Fan (ramp transfer)"] == "Fan"
+
+
+def test_default_fan_config_preserves_archived_variants() -> None:
+    """The menu promotes the reviewed layout without altering old pilots."""
+    from scripts.cluster_utils import \
+        parse_configs  # pylint: disable=import-outside-toplevel
+    config = next(parse_configs("predicatorv3/envs/continual.yaml"))
+    fan = config["ENVS"]["fan"]["FLAGS"]
+    assert fan["fan_ramp_transfer"]
+    assert fan["fan_inertial_transfer"]
+    assert fan["fan_exposed_transfer"]
+    assert fan["fan_ramp_rise"] == 0.003
+    assert fan["fan_ramp_landing_extension"] == 0.10
+    for variant in ("transfer", "inertial", "ramp"):
+        pilot = next(
+            parse_configs(
+                f"predicatorv3/continual_fan_{variant}_pilot_r1.yaml"))
+        assert pilot["ENVS"][f"fan_{variant}"]["EXTENDS"] == "fan_maze"
 
 
 def test_oracle_r2_layout_and_scope() -> None:
@@ -39,6 +85,10 @@ def test_oracle_r2_layout_and_scope() -> None:
         assert "MB_r2" not in dirs
         assert len(dirs["MB"]) == 5
         assert {d[-1] for d in dirs["MB"]} == set("01234")
+        if domain == "Fan (ramp transfer)":
+            assert len(dirs["oracle_dynamics"]) == 11
+            assert all("ramp_skill_repair_r1" in p for p in dirs["MB"])
+            continue
         assert all("mb_opus_benchmark_r2/seed" in d for d in dirs["MB"][3:])
         if domain in ("Boil (2-jug)", "Balloons (composition)"):
             assert dirs["MB"][2].endswith("mb_opus_benchmark_r2/seed2")
@@ -77,9 +127,9 @@ def test_oracle_r2_finished_only_and_report(tmp_path: Path,
     assert not rows
     original = monitor.REPORT.read_text(encoding="utf-8")
     report = monitor.report_text(original, rows, vars(plot), "test")
-    assert "Oracle dynamics: 0/25 seeds finished" in report
+    assert "Oracle dynamics: 0/31 seeds finished" in report
     unfinished = report.split("## Unfinished runs", 1)[1]
-    assert unfinished.count("Oracle dynamics") == 25
+    assert unfinished.count("Oracle dynamics") == 41
     assert "| Boil (two-jug) | 1. Oracle dynamics" in report
     assert monitor.report_text(report, rows, vars(plot), "test") == report
 
@@ -151,10 +201,29 @@ def test_fan_variants_have_matched_five_seed_cohorts() -> None:
     for domain in plot.FAN_VARIANTS:
         directories = dict(plot.DOMAINS)[domain]
         for arm, paths in directories.items():
-            assert len(paths) == (5 if arm in ("MB", "MF") else 0)
+            if arm == "from_assets":
+                assert len(paths) == (2 if domain == "Fan (ramp transfer)" else
+                                      0)
+                continue
+            launched = {"MB", "MF"}
+            if domain in plot.FAN_VARIANTS:
+                launched.update({
+                    "oracle_dynamics", "mf_scene_package", "standalone",
+                    "no_fitting", "no_uncertainty"
+                })
+                expected = 5 if arm in launched else 0
+                if domain == "Fan (ramp transfer)" and arm == "oracle_dynamics":
+                    expected = 11
+                assert len(paths) == expected
             for seed, path in enumerate(paths):
                 assert path.endswith(f"/seed{seed}")
-                assert ("pilot_r1" if seed < 2 else "confirmation_r1") in path
+                if domain == "Fan (ramp transfer)":
+                    assert "_opus_ramp_skill_repair_r1/" in path
+                elif arm in ("MB", "MF"):
+                    assert ("pilot_r1"
+                            if seed < 2 else "confirmation_r1") in path
+                else:
+                    assert f"{arm}_opus_inertial_r1" in path
         row = dict(domain=domain,
                    arm="MB",
                    seed=0,
@@ -163,8 +232,44 @@ def test_fan_variants_have_matched_five_seed_cohorts() -> None:
                    steps=100,
                    resets=0,
                    source="development")
-        assert not plot.paper_records([row])
+        assert bool(plot.paper_records(
+            [row])) == (domain == "Fan (ramp transfer)")
         report = monitor.report_text(monitor.REPORT.read_text(), [row],
                                      vars(plot), "test")
-        assert f"{domain}: EMPIRIC 1/1 solved, 1/5 finished" in report
+        status = next(line for line in report.splitlines()
+                      if line.startswith(f"- {domain}:"))
+        assert "EMPIRIC 1/1 solved, 1/5 finished" in status
         assert monitor.report_text(report, [row], vars(plot), "test") == report
+
+
+def test_inertial_baseline_completion_stays_out_of_paper(
+        tmp_path: Path, monkeypatch: Any) -> None:
+    """Publish finished development seeds without changing paper counts."""
+    monkeypatch.setattr(plot, "LOGS", str(tmp_path))
+    domain = "Fan (inertial transfer)"
+    directory = dict(plot.DOMAINS)[domain]["oracle_dynamics"][0]
+    run = tmp_path / directory / "run_20260921"
+    run.mkdir(parents=True)
+    (run / "scorecard.json").write_text(json.dumps({
+        "end_reason":
+        "all_levels_won",
+        "levels": [{
+            "won": True
+        }, {
+            "won": True
+        }],
+        "totals": {
+            "total_steps": 100,
+            "total_resets": 0
+        },
+    }),
+                                        encoding="utf-8")
+    rows = plot.records()
+    assert len(rows) == 1 and rows[0]["domain"] == domain
+    assert not plot.paper_records(rows)
+    report = monitor.report_text(monitor.REPORT.read_text(), rows, vars(plot),
+                                 "test")
+    assert "Oracle dynamics: 0/31 seeds finished" in report
+    assert f"{domain}: Oracle dynamics 1/1 solved, 1/5 finished" in report
+    row = "| Fan (inertial transfer) | 1. Oracle dynamics | 1/1 (100%)"
+    assert row in report

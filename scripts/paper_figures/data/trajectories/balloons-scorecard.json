@@ -1,0 +1,174 @@
+{
+  "arm": "agent_continual",
+  "claude_account": "b",
+  "config": "balloons-mb_opus_compose_r2",
+  "end_note": "",
+  "end_reason": "all_levels_won",
+  "env": "pybullet_balloons",
+  "finished_at": 1789664592.349717,
+  "git_sha": "5d1c857c5377",
+  "levels": [
+    {
+      "attempted": true,
+      "divergences": 0,
+      "downtime": 0.0,
+      "episodes": [
+        {
+          "end": "win",
+          "index": 0,
+          "rejected": false,
+          "reward": 1.0,
+          "steps": 86,
+          "terminated": true
+        }
+      ],
+      "failed_skill_invocations": 0,
+      "finished_at": 1789651878.4618235,
+      "game_overs": [],
+      "goal": [
+        "InBand(box:box, band:band)"
+      ],
+      "goal_nl": "Open clips to free balloons so that the oak box floats up and hangs still with its centre inside the green band (0.51 to 0.56 m). Each balloon is held by the clip in front of it: gold (balloon0, clip0), red (balloon1, clip1), green (balloon2, clip2). A balloon that reaches the ceiling bursts and the level is lost; a freed balloon cannot be clipped back. Success requires remaining inside the band at speed below 0.01 m/s for 25 consecutive environment steps.",
+      "harness_resets": 0,
+      "index": 0,
+      "interrupted_invocations": 0,
+      "lost": false,
+      "preemptions": 0,
+      "resets": 0,
+      "resets_before_first_win": 0,
+      "resumes": 0,
+      "sandbox": {
+        "fits": 1.0,
+        "llm_cost_usd": 10.842266000000006,
+        "rounds": 1.0,
+        "sim_rollouts": 568.0,
+        "turns": 101.0
+      },
+      "skill_invocations": 3,
+      "split": "train",
+      "started_at": 1789647704.306293,
+      "steps": 86,
+      "steps_before_first_win": 86,
+      "task_idx": 0,
+      "wall_clock": 4174.15554022789,
+      "wall_clock_env": 0.9148425660096109,
+      "won": true,
+      "won_at_step": 86
+    },
+    {
+      "attempted": true,
+      "divergences": 0,
+      "downtime": 0.0,
+      "episodes": [
+        {
+          "end": "win",
+          "index": 0,
+          "rejected": false,
+          "reward": 1.0,
+          "steps": 248,
+          "terminated": true
+        }
+      ],
+      "failed_skill_invocations": 0,
+      "finished_at": 1789663933.4012012,
+      "game_overs": [],
+      "goal": [
+        "InBand(box:box, band:band)"
+      ],
+      "goal_nl": "Open clips to free balloons so that the pine box floats up and hangs still with its centre inside the green band (0.76 to 0.81 m). Each balloon is held by the clip in front of it: blue (balloon0, clip0), gold (balloon1, clip1), green (balloon2, clip2). A balloon that reaches the ceiling bursts and the level is lost; a freed balloon cannot be clipped back. Success requires remaining inside the band at speed below 0.01 m/s for 25 consecutive environment steps.",
+      "harness_resets": 0,
+      "index": 1,
+      "interrupted_invocations": 0,
+      "lost": false,
+      "preemptions": 0,
+      "resets": 0,
+      "resets_before_first_win": 0,
+      "resumes": 0,
+      "sandbox": {
+        "fits": 1.0,
+        "llm_cost_usd": 10.713556500000003,
+        "rounds": 1.0,
+        "sim_rollouts": 91.0,
+        "turns": 12.0
+      },
+      "skill_invocations": 4,
+      "split": "train",
+      "started_at": 1789651879.263219,
+      "steps": 248,
+      "steps_before_first_win": 248,
+      "task_idx": 1,
+      "wall_clock": 12054.137991666794,
+      "wall_clock_env": 2.9242993406951427,
+      "won": true,
+      "won_at_step": 248
+    },
+    {
+      "attempted": true,
+      "divergences": 0,
+      "downtime": 0.0,
+      "episodes": [
+        {
+          "end": "win",
+          "index": 0,
+          "rejected": false,
+          "reward": 1.0,
+          "steps": 348,
+          "terminated": true
+        }
+      ],
+      "failed_skill_invocations": 0,
+      "finished_at": 1789664592.2186172,
+      "game_overs": [],
+      "goal": [
+        "InBand(box:box, band:band)"
+      ],
+      "goal_nl": "Open clips to free balloons so that the pine box floats up and hangs still with its centre inside the green band (0.84 to 0.89 m). Each balloon is held by the clip in front of it: red (balloon0, clip0), gold (balloon1, clip1), blue (balloon2, clip2), green (balloon3, clip3). A balloon that reaches the ceiling bursts and the level is lost; a freed balloon cannot be clipped back. Success requires remaining inside the band at speed below 0.01 m/s for 25 consecutive environment steps.",
+      "harness_resets": 0,
+      "index": 2,
+      "interrupted_invocations": 0,
+      "lost": false,
+      "preemptions": 0,
+      "resets": 0,
+      "resets_before_first_win": 0,
+      "resumes": 0,
+      "sandbox": {
+        "llm_cost_usd": 7.849360499999998,
+        "rounds": 1.0,
+        "sim_rollouts": 38.0,
+        "turns": 22.0
+      },
+      "skill_invocations": 6,
+      "split": "test",
+      "started_at": 1789663934.2646956,
+      "steps": 348,
+      "steps_before_first_win": 348,
+      "task_idx": 0,
+      "wall_clock": 657.9539313316345,
+      "wall_clock_env": 5.57983072148636,
+      "won": true,
+      "won_at_step": 348
+    }
+  ],
+  "obs_noise_declared": true,
+  "obs_noise_orientation": 0.02,
+  "obs_noise_position": 0.01,
+  "obs_noise_scalar": 0.0,
+  "run_id": "pybullet_balloons__agent_continual__0______balloons-mb_opus_compose_r2",
+  "schema": 1,
+  "seed": 0,
+  "started_at": 1789647703.612758,
+  "step_cap": 15000,
+  "totals": {
+    "levels_completed": 3,
+    "levels_total": 3,
+    "steps_remaining": 14318,
+    "total_downtime": 0.0,
+    "total_llm_cost": 29.405183000000008,
+    "total_resets": 0,
+    "total_skill_invocations": 13,
+    "total_steps": 682,
+    "total_wall_clock": 16886.24746322632
+  },
+  "updated_at": 1789664592.3497188,
+  "wall_clock_cap": 172800.0
+}

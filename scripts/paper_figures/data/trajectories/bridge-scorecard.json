@@ -1,0 +1,127 @@
+{
+  "arm": "agent_continual",
+  "claude_account": "b",
+  "config": "bridge-mb_opus_span_transfer_r2",
+  "end_note": "",
+  "end_reason": "all_levels_won",
+  "env": "pybullet_bridge",
+  "finished_at": 1789604571.3375146,
+  "git_sha": "eb0095c7d116",
+  "levels": [
+    {
+      "attempted": true,
+      "divergences": 0,
+      "downtime": 0.0,
+      "episodes": [
+        {
+          "end": "win",
+          "index": 0,
+          "rejected": false,
+          "reward": 1.0,
+          "steps": 1362,
+          "terminated": true
+        }
+      ],
+      "failed_skill_invocations": 0,
+      "finished_at": 1789601365.6369598,
+      "game_overs": [],
+      "goal": [
+        "Bridged(site0:site, site1:site)"
+      ],
+      "goal_nl": "Build an n-shaped bridge standing at the two marked sites: stand a leg on each site pad, join the 3 span blocks end-to-end into one rigid span, and seat it resting across the two leg tops. Finish with the robot at least 0.01 m away from every block.",
+      "harness_resets": 0,
+      "index": 0,
+      "interrupted_invocations": 0,
+      "lost": false,
+      "preemptions": 0,
+      "resets": 0,
+      "resets_before_first_win": 0,
+      "resumes": 0,
+      "sandbox": {
+        "llm_cost_usd": 7.0665385,
+        "rounds": 1.0,
+        "sim_rollouts": 71.0,
+        "turns": 80.0
+      },
+      "skill_invocations": 21,
+      "split": "train",
+      "started_at": 1789600034.338078,
+      "steps": 1362,
+      "steps_before_first_win": 1362,
+      "task_idx": 0,
+      "wall_clock": 1331.2988848686218,
+      "wall_clock_env": 19.974019018933177,
+      "won": true,
+      "won_at_step": 1362
+    },
+    {
+      "attempted": true,
+      "divergences": 0,
+      "downtime": 0.0,
+      "episodes": [
+        {
+          "end": "win",
+          "index": 0,
+          "rejected": false,
+          "reward": 1.0,
+          "steps": 1940,
+          "terminated": true
+        }
+      ],
+      "failed_skill_invocations": 0,
+      "finished_at": 1789604570.8377838,
+      "game_overs": [],
+      "goal": [
+        "Bridged(site0:site, site1:site)"
+      ],
+      "goal_nl": "Build an n-shaped bridge standing at the two marked sites: stand a leg on each site pad, join the 4 span blocks end-to-end into one rigid span, and seat it resting across the two leg tops. Finish with the robot at least 0.01 m away from every block.",
+      "harness_resets": 0,
+      "index": 1,
+      "interrupted_invocations": 0,
+      "lost": false,
+      "preemptions": 0,
+      "resets": 0,
+      "resets_before_first_win": 0,
+      "resumes": 0,
+      "sandbox": {
+        "fits": 1.0,
+        "llm_cost_usd": 17.54592550000001,
+        "rounds": 1.0,
+        "sim_rollouts": 131.0,
+        "turns": 100.0
+      },
+      "skill_invocations": 27,
+      "split": "test",
+      "started_at": 1789601366.8346548,
+      "steps": 1940,
+      "steps_before_first_win": 1940,
+      "task_idx": 0,
+      "wall_clock": 3204.003133535385,
+      "wall_clock_env": 34.30708427261561,
+      "won": true,
+      "won_at_step": 1940
+    }
+  ],
+  "obs_noise_declared": true,
+  "obs_noise_orientation": 0.02,
+  "obs_noise_position": 0.005,
+  "obs_noise_scalar": 0.0,
+  "run_id": "pybullet_bridge__agent_continual__0______bridge-mb_opus_span_transfer_r2",
+  "schema": 1,
+  "seed": 0,
+  "started_at": 1789600033.6561387,
+  "step_cap": 20000,
+  "totals": {
+    "levels_completed": 2,
+    "levels_total": 2,
+    "steps_remaining": 16698,
+    "total_downtime": 0.0,
+    "total_llm_cost": 24.61246400000001,
+    "total_resets": 0,
+    "total_skill_invocations": 48,
+    "total_steps": 3302,
+    "total_wall_clock": 4535.302018404007
+  },
+  "updated_at": 1789604571.3375168,
+  "wall_clock_cap": 172800.0
+}

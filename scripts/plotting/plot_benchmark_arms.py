@@ -40,23 +40,23 @@ MF = "agent_continual_model_free"
 ARMS = [
     "oracle_dynamics", "MB", "MF", "mf_scene_package", "standalone",
     "no_fitting", "no_uncertainty", "mb_scene_package", "scene_only",
-    "zero_shot", "real_to_sim"
+    "zero_shot", "real_to_sim", "from_assets"
 ]
 LABELS = [
     "Oracle dynamics", "EMPIRIC", "Direct agent",
     "Direct agent + scene assets", "Standalone sim.", "No harness fitting",
     "No explicit uncert.", "EMPIRIC + scene pkg.", "Scene only",
-    "Zero-shot model", "Agentic real-to-sim"
+    "Zero-shot model", "Agentic real-to-sim", "EMPIRIC from assets"
 ]
 COLORS = [
     "#88929d", "#087f8c", "#bd5929", "#7a3312", "#7467a6", "#b19658",
-    "#397957", "#0b4f6c", "#6b9483", "#5588ad", "#a5573f"
+    "#397957", "#0b4f6c", "#6b9483", "#5588ad", "#a5573f", "#c04483"
 ]
 GROUPS = [
     ("Oracle reference", 0, 1),
     ("Methods", 1, 5),
     ("EMPIRIC ablations", 5, 7),
-    ("Additional comparisons", 7, 11),
+    ("Additional comparisons", 7, 12),
 ]
 APPROACH_DIR = {
     "mb_scene_package": "agent_continual",
@@ -167,7 +167,7 @@ _ORDER = [
 DOMAINS.sort(key=lambda d: _ORDER.index(d[0]))
 DISPLAY_TITLE = {domain: domain.split(" (", 1)[0] for domain in _ORDER}
 # Keep exploratory columns out of both paper records and paper rendering.
-PAPER_DOMAINS = tuple(_ORDER)
+PAPER_DOMAINS = tuple(_ORDER[:-1] + ["Fan (ramp transfer)"])
 FAN_TRANSFER = "Fan (exposed transfer)"
 _transfer_dirs: Dict[str, List[str]] = {arm: [] for arm in ARMS}
 for _arm, _approach, _round in (("MB", MB, "mb"), ("MF", MF, "mf")):
@@ -187,7 +187,47 @@ for _variant, _title in zip(("inertial", "ramp"), FAN_VARIANTS):
             for s in range(5)
         ]
     DOMAINS.append((_title, _variant_dirs))
-    DISPLAY_TITLE[_title] = f"Fan {_variant}"
+    DISPLAY_TITLE[_title] = "Fan" if _variant == "ramp" else "Fan inertial"
+    if _variant == "inertial":
+        for _arm, _approach in (("oracle_dynamics",
+                                 "agent_continual_oracle_dynamics"),
+                                ("mf_scene_package",
+                                 "agent_continual_model_free"),
+                                ("standalone",
+                                 "agent_continual_program_world_model"),
+                                ("no_fitting", "agent_continual_no_fitting"),
+                                ("no_uncertainty",
+                                 "agent_continual_no_uncertainty")):
+            _variant_dirs[_arm] = [
+                f"{_approach}/fan_inertial-{_arm}_opus_inertial_r1/seed{s}"
+                for s in range(5)
+            ]
+# Use only the matched repaired-skill cohort for the current ramp column.
+# Pending seeds must not fall back to the earlier geometry/skill experiments.
+_ramp_dirs = dict(DOMAINS)["Fan (ramp transfer)"]
+for _arm, _approach, _round in (
+    ("MB", MB, "mb"),
+    ("MF", MF, "mf"),
+    ("oracle_dynamics", "agent_continual_oracle_dynamics", "oracle_dynamics"),
+    ("mf_scene_package", MF, "mf_scene_package"),
+    ("standalone", "agent_continual_program_world_model", "standalone"),
+    ("no_fitting", "agent_continual_no_fitting", "no_fitting"),
+    ("no_uncertainty", "agent_continual_no_uncertainty", "no_uncertainty"),
+):
+    _ramp_dirs[_arm] = [
+        f"{_approach}/fan_ramp-{_round}_opus_ramp_skill_repair_r1/seed{s}"
+        for s in range(11 if _arm == "oracle_dynamics" else 5)
+    ]
+# Assets-only EMPIRIC is a separate two-seed development arm.
+# Exclude its cancelled maze runs and never substitute them for ramp data.
+for _domain, _dirs in DOMAINS:
+    _asset_key = ("fan_ramp" if _domain == "Fan (ramp transfer)" else
+                  ENV_KEY.get(_domain))
+    _dirs["from_assets"] = ([
+        f"agent_continual_from_assets/{_asset_key}-"
+        f"from_assets_opus_pilot_r1/seed{s}" for s in range(2)
+    ] if _asset_key is not None and _domain != "Fan (maze)" else [])
+
 # Arms shown de-emphasised (grey bars and labels).
 GREYED = {"mb_scene_package", "scene_only", "zero_shot", "real_to_sim"}
 GREY = "#c3c9cd"
@@ -262,7 +302,7 @@ def records() -> List[Row]:
 
 
 def paper_records(rows: List[Row]) -> List[Row]:
-    """Select five-seed paper cohorts, preserving every row's provenance."""
+    """Select current paper cohorts, preserving every row's provenance."""
     selected = []
     for row in rows:
         if row["domain"] not in PAPER_DOMAINS:
@@ -454,16 +494,9 @@ def render(rows: List[Row],
     groups = [("Oracle", 0, 1), ("Methods", 1, 5),
               ("Ablations", 5, 7)] if paper else GROUPS
     fields = ["solve", "steps"] if paper else ["solve", "steps", "resets"]
-    # Retain the superseded pilot in records and tables, not the figure.
-    domains = [item for item in DOMAINS if item[0] != FAN_TRANSFER]
-    if paper:
-        paper_order = [
-            "Domino", "Bridge (4-span)", "Balloons (composition)",
-            "Boil (2-jug)", "Fan (maze)"
-        ]
-        domains = sorted(
-            (item for item in DOMAINS if item[0] in PAPER_DOMAINS),
-            key=lambda item: paper_order.index(item[0]))
+    # Preserve historical variants in records, never pool them into Fan.
+    domains = sorted((item for item in DOMAINS if item[0] in PAPER_DOMAINS),
+                     key=lambda item: PAPER_DOMAINS.index(item[0]))
     columns = len(domains)
     fig, axes = plt.subplots(len(fields),
                              columns,

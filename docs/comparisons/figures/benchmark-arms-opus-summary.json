@@ -463,6 +463,28 @@
       "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_real_to_sim/domino_high_friction_turn-real_to_sim_opus_benchmark_r1/seed2/run_20260918_095756"
     },
     {
+      "domain": "Domino",
+      "arm": "from_assets",
+      "source_arm": "from_assets",
+      "seed": 0,
+      "won": 1,
+      "levels": 2,
+      "steps": 541,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_from_assets/domino_high_friction_turn-from_assets_opus_pilot_r1/seed0/run_20260921_145605"
+    },
+    {
+      "domain": "Domino",
+      "arm": "from_assets",
+      "source_arm": "from_assets",
+      "seed": 1,
+      "won": 1,
+      "levels": 2,
+      "steps": 339,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_from_assets/domino_high_friction_turn-from_assets_opus_pilot_r1/seed1/run_20260921_145556"
+    },
+    {
       "domain": "Bridge (4-span)",
       "arm": "MB",
       "source_arm": "MB",
@@ -947,6 +969,28 @@
       "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_real_to_sim/bridge-real_to_sim_opus_benchmark_r1/seed2/run_20260918_095755"
     },
     {
+      "domain": "Bridge (4-span)",
+      "arm": "from_assets",
+      "source_arm": "from_assets",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 3061,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_from_assets/bridge-from_assets_opus_pilot_r1/seed0/run_20260921_145106"
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "from_assets",
+      "source_arm": "from_assets",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 4234,
+      "resets": 1,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_from_assets/bridge-from_assets_opus_pilot_r1/seed1/run_20260921_145106"
+    },
+    {
       "domain": "Balloons (composition)",
       "arm": "MB",
       "source_arm": "MB",
@@ -1420,6 +1464,28 @@
       "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_real_to_sim/balloons-real_to_sim_opus_benchmark_r1/seed2/run_20260918_095755"
     },
     {
+      "domain": "Balloons (composition)",
+      "arm": "from_assets",
+      "source_arm": "from_assets",
+      "seed": 0,
+      "won": 3,
+      "levels": 3,
+      "steps": 627,
+      "resets": 1,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_from_assets/balloons-from_assets_opus_pilot_r1/seed0/run_20260921_145557"
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "from_assets",
+      "source_arm": "from_assets",
+      "seed": 1,
+      "won": 2,
+      "levels": 3,
+      "steps": 524,
+      "resets": 1,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_from_assets/balloons-from_assets_opus_pilot_r1/seed1/run_20260921_145557"
+    },
+    {
       "domain": "Boil (2-jug)",
       "arm": "MB",
       "source_arm": "MB",
@@ -1891,6 +1957,28 @@
       "steps": 967,
       "resets": 0,
       "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_real_to_sim/boil-real_to_sim_opus_benchmark_r1/seed2/run_20260918_095755"
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "from_assets",
+      "source_arm": "from_assets",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 1089,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_from_assets/boil-from_assets_opus_pilot_r1/seed0/run_20260921_145558"
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "from_assets",
+      "source_arm": "from_assets",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 1175,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_from_assets/boil-from_assets_opus_pilot_r1/seed1/run_20260921_145555"
     },
     {
       "domain": "Fan (maze)",
@@ -2400,6 +2488,61 @@
     },
     {
       "domain": "Fan (inertial transfer)",
+      "arm": "oracle_dynamics",
+      "source_arm": "oracle_dynamics",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 737,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_inertial-oracle_dynamics_opus_inertial_r1/seed0/run_20260921_081429"
+    },
+    {
+      "domain": "Fan (inertial transfer)",
+      "arm": "oracle_dynamics",
+      "source_arm": "oracle_dynamics",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 717,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_inertial-oracle_dynamics_opus_inertial_r1/seed1/run_20260921_081426"
+    },
+    {
+      "domain": "Fan (inertial transfer)",
+      "arm": "oracle_dynamics",
+      "source_arm": "oracle_dynamics",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 1034,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_inertial-oracle_dynamics_opus_inertial_r1/seed2/run_20260921_081426"
+    },
+    {
+      "domain": "Fan (inertial transfer)",
+      "arm": "oracle_dynamics",
+      "source_arm": "oracle_dynamics",
+      "seed": 3,
+      "won": 2,
+      "levels": 2,
+      "steps": 1052,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_inertial-oracle_dynamics_opus_inertial_r1/seed3/run_20260921_084722"
+    },
+    {
+      "domain": "Fan (inertial transfer)",
+      "arm": "oracle_dynamics",
+      "source_arm": "oracle_dynamics",
+      "seed": 4,
+      "won": 2,
+      "levels": 2,
+      "steps": 809,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_inertial-oracle_dynamics_opus_inertial_r1/seed4/run_20260921_081426"
+    },
+    {
+      "domain": "Fan (inertial transfer)",
       "arm": "MB",
       "source_arm": "MB",
       "seed": 0,
@@ -2509,15 +2652,334 @@
       "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_inertial-mf_opus_inertial_confirmation_r1/seed4/run_20260920_111039"
     },
     {
+      "domain": "Fan (inertial transfer)",
+      "arm": "mf_scene_package",
+      "source_arm": "mf_scene_package",
+      "seed": 0,
+      "won": 1,
+      "levels": 2,
+      "steps": 1990,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_inertial-mf_scene_package_opus_inertial_r1/seed0/run_20260921_081426"
+    },
+    {
+      "domain": "Fan (inertial transfer)",
+      "arm": "mf_scene_package",
+      "source_arm": "mf_scene_package",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 1385,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_inertial-mf_scene_package_opus_inertial_r1/seed1/run_20260921_081424"
+    },
+    {
+      "domain": "Fan (inertial transfer)",
+      "arm": "mf_scene_package",
+      "source_arm": "mf_scene_package",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 1136,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_inertial-mf_scene_package_opus_inertial_r1/seed2/run_20260921_081424"
+    },
+    {
+      "domain": "Fan (inertial transfer)",
+      "arm": "mf_scene_package",
+      "source_arm": "mf_scene_package",
+      "seed": 3,
+      "won": 2,
+      "levels": 2,
+      "steps": 1195,
+      "resets": 1,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_inertial-mf_scene_package_opus_inertial_r1/seed3/run_20260921_081424"
+    },
+    {
+      "domain": "Fan (inertial transfer)",
+      "arm": "mf_scene_package",
+      "source_arm": "mf_scene_package",
+      "seed": 4,
+      "won": 2,
+      "levels": 2,
+      "steps": 1719,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_inertial-mf_scene_package_opus_inertial_r1/seed4/run_20260921_081424"
+    },
+    {
+      "domain": "Fan (inertial transfer)",
+      "arm": "standalone",
+      "source_arm": "standalone",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 1993,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_inertial-standalone_opus_inertial_r1/seed0/run_20260921_081424"
+    },
+    {
+      "domain": "Fan (inertial transfer)",
+      "arm": "standalone",
+      "source_arm": "standalone",
+      "seed": 1,
+      "won": 1,
+      "levels": 2,
+      "steps": 1768,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_inertial-standalone_opus_inertial_r1/seed1/run_20260921_081424"
+    },
+    {
+      "domain": "Fan (inertial transfer)",
+      "arm": "standalone",
+      "source_arm": "standalone",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 1691,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_inertial-standalone_opus_inertial_r1/seed2/run_20260921_081424"
+    },
+    {
+      "domain": "Fan (inertial transfer)",
+      "arm": "standalone",
+      "source_arm": "standalone",
+      "seed": 3,
+      "won": 2,
+      "levels": 2,
+      "steps": 1466,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_inertial-standalone_opus_inertial_r1/seed3/run_20260921_081424"
+    },
+    {
+      "domain": "Fan (inertial transfer)",
+      "arm": "standalone",
+      "source_arm": "standalone",
+      "seed": 4,
+      "won": 2,
+      "levels": 2,
+      "steps": 2248,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_inertial-standalone_opus_inertial_r1/seed4/run_20260921_081427"
+    },
+    {
+      "domain": "Fan (inertial transfer)",
+      "arm": "no_fitting",
+      "source_arm": "no_fitting",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 1923,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_inertial-no_fitting_opus_inertial_r1/seed0/run_20260921_081427"
+    },
+    {
+      "domain": "Fan (inertial transfer)",
+      "arm": "no_fitting",
+      "source_arm": "no_fitting",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 1170,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_inertial-no_fitting_opus_inertial_r1/seed1/run_20260921_081427"
+    },
+    {
+      "domain": "Fan (inertial transfer)",
+      "arm": "no_fitting",
+      "source_arm": "no_fitting",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 892,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_inertial-no_fitting_opus_inertial_r1/seed2/run_20260921_081427"
+    },
+    {
+      "domain": "Fan (inertial transfer)",
+      "arm": "no_fitting",
+      "source_arm": "no_fitting",
+      "seed": 3,
+      "won": 2,
+      "levels": 2,
+      "steps": 2373,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_inertial-no_fitting_opus_inertial_r1/seed3/run_20260921_081427"
+    },
+    {
+      "domain": "Fan (inertial transfer)",
+      "arm": "no_fitting",
+      "source_arm": "no_fitting",
+      "seed": 4,
+      "won": 2,
+      "levels": 2,
+      "steps": 826,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_inertial-no_fitting_opus_inertial_r1/seed4/run_20260921_081427"
+    },
+    {
+      "domain": "Fan (inertial transfer)",
+      "arm": "no_uncertainty",
+      "source_arm": "no_uncertainty",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 865,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_inertial-no_uncertainty_opus_inertial_r1/seed0/run_20260921_081427"
+    },
+    {
+      "domain": "Fan (inertial transfer)",
+      "arm": "no_uncertainty",
+      "source_arm": "no_uncertainty",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 1106,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_inertial-no_uncertainty_opus_inertial_r1/seed1/run_20260921_081427"
+    },
+    {
+      "domain": "Fan (inertial transfer)",
+      "arm": "no_uncertainty",
+      "source_arm": "no_uncertainty",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 1236,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_inertial-no_uncertainty_opus_inertial_r1/seed2/run_20260921_081713"
+    },
+    {
+      "domain": "Fan (inertial transfer)",
+      "arm": "no_uncertainty",
+      "source_arm": "no_uncertainty",
+      "seed": 3,
+      "won": 2,
+      "levels": 2,
+      "steps": 1600,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_inertial-no_uncertainty_opus_inertial_r1/seed3/run_20260921_081428"
+    },
+    {
+      "domain": "Fan (inertial transfer)",
+      "arm": "no_uncertainty",
+      "source_arm": "no_uncertainty",
+      "seed": 4,
+      "won": 2,
+      "levels": 2,
+      "steps": 1595,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_inertial-no_uncertainty_opus_inertial_r1/seed4/run_20260921_081428"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "oracle_dynamics",
+      "source_arm": "oracle_dynamics",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 3253,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed0/run_20260921_121402"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "oracle_dynamics",
+      "source_arm": "oracle_dynamics",
+      "seed": 1,
+      "won": 1,
+      "levels": 2,
+      "steps": 1488,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed1/run_20260921_121401"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "oracle_dynamics",
+      "source_arm": "oracle_dynamics",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 8111,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed2/run_20260921_121409"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "oracle_dynamics",
+      "source_arm": "oracle_dynamics",
+      "seed": 3,
+      "won": 2,
+      "levels": 2,
+      "steps": 3675,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed3/run_20260921_121409"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "oracle_dynamics",
+      "source_arm": "oracle_dynamics",
+      "seed": 4,
+      "won": 1,
+      "levels": 2,
+      "steps": 6925,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed4/run_20260921_121409"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "oracle_dynamics",
+      "source_arm": "oracle_dynamics",
+      "seed": 5,
+      "won": 2,
+      "levels": 2,
+      "steps": 5472,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed5/run_20260921_155606"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "oracle_dynamics",
+      "source_arm": "oracle_dynamics",
+      "seed": 6,
+      "won": 1,
+      "levels": 2,
+      "steps": 1348,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed6/run_20260921_155606"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "oracle_dynamics",
+      "source_arm": "oracle_dynamics",
+      "seed": 7,
+      "won": 1,
+      "levels": 2,
+      "steps": 5406,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed7/run_20260921_164759"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "oracle_dynamics",
+      "source_arm": "oracle_dynamics",
+      "seed": 8,
+      "won": 1,
+      "levels": 2,
+      "steps": 1551,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_ramp-oracle_dynamics_opus_ramp_skill_repair_r1/seed8/run_20260921_164759"
+    },
+    {
       "domain": "Fan (ramp transfer)",
       "arm": "MB",
       "source_arm": "MB",
       "seed": 0,
       "won": 2,
       "levels": 2,
-      "steps": 2626,
+      "steps": 2743,
       "resets": 0,
-      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_pilot_r1/seed0/run_20260920_112730"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_skill_repair_r1/seed0/run_20260921_090823"
     },
     {
       "domain": "Fan (ramp transfer)",
@@ -2526,9 +2988,31 @@
       "seed": 1,
       "won": 2,
       "levels": 2,
-      "steps": 2076,
+      "steps": 1564,
       "resets": 0,
-      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_pilot_r1/seed1/run_20260920_112733"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_skill_repair_r1/seed1/run_20260921_090827"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "MB",
+      "source_arm": "MB",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 3003,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_skill_repair_r1/seed2/run_20260921_090827"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "MB",
+      "source_arm": "MB",
+      "seed": 3,
+      "won": 2,
+      "levels": 2,
+      "steps": 2333,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_skill_repair_r1/seed3/run_20260921_090824"
     },
     {
       "domain": "Fan (ramp transfer)",
@@ -2537,53 +3021,306 @@
       "seed": 4,
       "won": 2,
       "levels": 2,
-      "steps": 2435,
+      "steps": 2731,
       "resets": 0,
-      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_confirmation_r1/seed4/run_20260920_130308"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_skill_repair_r1/seed4/run_20260921_090824"
     },
     {
       "domain": "Fan (ramp transfer)",
       "arm": "MF",
       "source_arm": "MF",
       "seed": 0,
-      "won": 1,
+      "won": 2,
       "levels": 2,
-      "steps": 1919,
+      "steps": 5363,
       "resets": 0,
-      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_pilot_r1/seed0/run_20260920_112733"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_skill_repair_r1/seed0/run_20260921_121409"
     },
     {
       "domain": "Fan (ramp transfer)",
       "arm": "MF",
       "source_arm": "MF",
       "seed": 1,
-      "won": 1,
+      "won": 0,
       "levels": 2,
-      "steps": 3444,
+      "steps": 1852,
+      "resets": 3,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_skill_repair_r1/seed1/run_20260921_121409"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "MF",
+      "source_arm": "MF",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 2722,
       "resets": 0,
-      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_pilot_r1/seed1/run_20260920_112729"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_skill_repair_r1/seed2/run_20260921_121409"
     },
     {
       "domain": "Fan (ramp transfer)",
       "arm": "MF",
       "source_arm": "MF",
       "seed": 3,
-      "won": 2,
+      "won": 0,
       "levels": 2,
-      "steps": 1722,
-      "resets": 0,
-      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_confirmation_r1/seed3/run_20260920_130303"
+      "steps": 3232,
+      "resets": 16,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_skill_repair_r1/seed3/run_20260921_121409"
     },
     {
       "domain": "Fan (ramp transfer)",
       "arm": "MF",
       "source_arm": "MF",
       "seed": 4,
+      "won": 2,
+      "levels": 2,
+      "steps": 1209,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_skill_repair_r1/seed4/run_20260921_121409"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "mf_scene_package",
+      "source_arm": "mf_scene_package",
+      "seed": 0,
       "won": 1,
       "levels": 2,
-      "steps": 1584,
+      "steps": 1645,
       "resets": 0,
-      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_confirmation_r1/seed4/run_20260920_130259"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_scene_package_opus_ramp_skill_repair_r1/seed0/run_20260921_121409"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "mf_scene_package",
+      "source_arm": "mf_scene_package",
+      "seed": 1,
+      "won": 1,
+      "levels": 2,
+      "steps": 7268,
+      "resets": 1,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_scene_package_opus_ramp_skill_repair_r1/seed1/run_20260921_121409"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "mf_scene_package",
+      "source_arm": "mf_scene_package",
+      "seed": 2,
+      "won": 1,
+      "levels": 2,
+      "steps": 1755,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_scene_package_opus_ramp_skill_repair_r1/seed2/run_20260921_121626"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "mf_scene_package",
+      "source_arm": "mf_scene_package",
+      "seed": 3,
+      "won": 1,
+      "levels": 2,
+      "steps": 2570,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_scene_package_opus_ramp_skill_repair_r1/seed3/run_20260921_121408"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "mf_scene_package",
+      "source_arm": "mf_scene_package",
+      "seed": 4,
+      "won": 1,
+      "levels": 2,
+      "steps": 2974,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_scene_package_opus_ramp_skill_repair_r1/seed4/run_20260921_121408"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "standalone",
+      "source_arm": "standalone",
+      "seed": 0,
+      "won": 1,
+      "levels": 2,
+      "steps": 3236,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_ramp-standalone_opus_ramp_skill_repair_r1/seed0/run_20260921_121408"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "standalone",
+      "source_arm": "standalone",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 8825,
+      "resets": 9,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_ramp-standalone_opus_ramp_skill_repair_r1/seed1/run_20260921_121408"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "standalone",
+      "source_arm": "standalone",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 1250,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_ramp-standalone_opus_ramp_skill_repair_r1/seed2/run_20260921_121409"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "standalone",
+      "source_arm": "standalone",
+      "seed": 3,
+      "won": 2,
+      "levels": 2,
+      "steps": 1676,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_ramp-standalone_opus_ramp_skill_repair_r1/seed3/run_20260921_121409"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "standalone",
+      "source_arm": "standalone",
+      "seed": 4,
+      "won": 1,
+      "levels": 2,
+      "steps": 2203,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_ramp-standalone_opus_ramp_skill_repair_r1/seed4/run_20260921_121408"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "no_fitting",
+      "source_arm": "no_fitting",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 4428,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_ramp-no_fitting_opus_ramp_skill_repair_r1/seed0/run_20260921_121408"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "no_fitting",
+      "source_arm": "no_fitting",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 1693,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_ramp-no_fitting_opus_ramp_skill_repair_r1/seed1/run_20260921_121408"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "no_fitting",
+      "source_arm": "no_fitting",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 2015,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_ramp-no_fitting_opus_ramp_skill_repair_r1/seed2/run_20260921_121408"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "no_fitting",
+      "source_arm": "no_fitting",
+      "seed": 3,
+      "won": 2,
+      "levels": 2,
+      "steps": 882,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_ramp-no_fitting_opus_ramp_skill_repair_r1/seed3/run_20260921_121424"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "no_fitting",
+      "source_arm": "no_fitting",
+      "seed": 4,
+      "won": 2,
+      "levels": 2,
+      "steps": 3163,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_ramp-no_fitting_opus_ramp_skill_repair_r1/seed4/run_20260921_121424"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "no_uncertainty",
+      "source_arm": "no_uncertainty",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 2094,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_ramp-no_uncertainty_opus_ramp_skill_repair_r1/seed0/run_20260921_121414"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "no_uncertainty",
+      "source_arm": "no_uncertainty",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 3917,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_ramp-no_uncertainty_opus_ramp_skill_repair_r1/seed1/run_20260921_121408"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "no_uncertainty",
+      "source_arm": "no_uncertainty",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 916,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_ramp-no_uncertainty_opus_ramp_skill_repair_r1/seed2/run_20260921_121408"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "no_uncertainty",
+      "source_arm": "no_uncertainty",
+      "seed": 3,
+      "won": 2,
+      "levels": 2,
+      "steps": 988,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_ramp-no_uncertainty_opus_ramp_skill_repair_r1/seed3/run_20260921_121408"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "no_uncertainty",
+      "source_arm": "no_uncertainty",
+      "seed": 4,
+      "won": 2,
+      "levels": 2,
+      "steps": 1342,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_ramp-no_uncertainty_opus_ramp_skill_repair_r1/seed4/run_20260921_121408"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "from_assets",
+      "source_arm": "from_assets",
+      "seed": 0,
+      "won": 1,
+      "levels": 2,
+      "steps": 2314,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_from_assets/fan_ramp-from_assets_opus_pilot_r1/seed0/run_20260921_145636"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "from_assets",
+      "source_arm": "from_assets",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 1713,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_from_assets/fan_ramp-from_assets_opus_pilot_r1/seed1/run_20260921_145651"
     }
   ],
   "summary": [
@@ -2729,6 +3466,17 @@
     },
     {
       "domain": "Domino",
+      "arm": "from_assets",
+      "metric": "solve",
+      "mean": 0.0,
+      "n": 2,
+      "values": [
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Domino",
       "arm": "oracle_dynamics",
       "metric": "resets",
       "mean": 0.0,
@@ -2863,6 +3611,17 @@
       "n": 3,
       "values": [
         0,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Domino",
+      "arm": "from_assets",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 2,
+      "values": [
         0,
         0
       ]
@@ -3005,6 +3764,17 @@
       "n": 3,
       "values": [
         100,
+        100,
+        100
+      ]
+    },
+    {
+      "domain": "Bridge (4-span)",
+      "arm": "from_assets",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 2,
+      "values": [
         100,
         100
       ]
@@ -3152,6 +3922,17 @@
       ]
     },
     {
+      "domain": "Bridge (4-span)",
+      "arm": "from_assets",
+      "metric": "resets",
+      "mean": 0.5,
+      "n": 2,
+      "values": [
+        0,
+        1
+      ]
+    },
+    {
       "domain": "Balloons (composition)",
       "arm": "oracle_dynamics",
       "metric": "solve",
@@ -3290,6 +4071,17 @@
         100,
         100,
         100
+      ]
+    },
+    {
+      "domain": "Balloons (composition)",
+      "arm": "from_assets",
+      "metric": "solve",
+      "mean": 50.0,
+      "n": 2,
+      "values": [
+        100,
+        0
       ]
     },
     {
@@ -3434,6 +4226,17 @@
       ]
     },
     {
+      "domain": "Balloons (composition)",
+      "arm": "from_assets",
+      "metric": "resets",
+      "mean": 1.0,
+      "n": 2,
+      "values": [
+        1,
+        1
+      ]
+    },
+    {
       "domain": "Boil (2-jug)",
       "arm": "oracle_dynamics",
       "metric": "solve",
@@ -3571,6 +4374,17 @@
       "n": 3,
       "values": [
         100,
+        100,
+        100
+      ]
+    },
+    {
+      "domain": "Boil (2-jug)",
+      "arm": "from_assets",
+      "metric": "solve",
+      "mean": 100.0,
+      "n": 2,
+      "values": [
         100,
         100
       ]
@@ -3718,21 +4532,36 @@
       ]
     },
     {
-      "domain": "Fan (maze)",
-      "arm": "oracle_dynamics",
-      "metric": "solve",
-      "mean": 100.0,
-      "n": 5,
+      "domain": "Boil (2-jug)",
+      "arm": "from_assets",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 2,
       "values": [
-        100,
-        100,
-        100,
-        100,
-        100
+        0,
+        0
       ]
     },
     {
-      "domain": "Fan (maze)",
+      "domain": "Fan (ramp transfer)",
+      "arm": "oracle_dynamics",
+      "metric": "solve",
+      "mean": 44.44444444444444,
+      "n": 9,
+      "values": [
+        100,
+        0,
+        100,
+        100,
+        0,
+        100,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Fan (ramp transfer)",
       "arm": "MB",
       "metric": "solve",
       "mean": 100.0,
@@ -3746,49 +4575,49 @@
       ]
     },
     {
-      "domain": "Fan (maze)",
+      "domain": "Fan (ramp transfer)",
       "arm": "MF",
       "metric": "solve",
-      "mean": 100.0,
-      "n": 5,
-      "values": [
-        100,
-        100,
-        100,
-        100,
-        100
-      ]
-    },
-    {
-      "domain": "Fan (maze)",
-      "arm": "mf_scene_package",
-      "metric": "solve",
-      "mean": 100.0,
-      "n": 5,
-      "values": [
-        100,
-        100,
-        100,
-        100,
-        100
-      ]
-    },
-    {
-      "domain": "Fan (maze)",
-      "arm": "standalone",
-      "metric": "solve",
-      "mean": 80.0,
+      "mean": 60.0,
       "n": 5,
       "values": [
         100,
         0,
         100,
-        100,
+        0,
         100
       ]
     },
     {
-      "domain": "Fan (maze)",
+      "domain": "Fan (ramp transfer)",
+      "arm": "mf_scene_package",
+      "metric": "solve",
+      "mean": 0.0,
+      "n": 5,
+      "values": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "standalone",
+      "metric": "solve",
+      "mean": 60.0,
+      "n": 5,
+      "values": [
+        0,
+        100,
+        100,
+        100,
+        0
+      ]
+    },
+    {
+      "domain": "Fan (ramp transfer)",
       "arm": "no_fitting",
       "metric": "solve",
       "mean": 100.0,
@@ -3802,469 +4631,18 @@
       ]
     },
     {
-      "domain": "Fan (maze)",
-      "arm": "no_uncertainty",
-      "metric": "solve",
-      "mean": 100.0,
-      "n": 5,
-      "values": [
-        100,
-        100,
-        100,
-        100,
-        100
-      ]
-    },
-    {
-      "domain": "Fan (maze)",
-      "arm": "mb_scene_package",
-      "metric": "solve",
-      "mean": 100.0,
-      "n": 3,
-      "values": [
-        100,
-        100,
-        100
-      ]
-    },
-    {
-      "domain": "Fan (maze)",
-      "arm": "scene_only",
-      "metric": "solve",
-      "mean": 100.0,
-      "n": 3,
-      "values": [
-        100,
-        100,
-        100
-      ]
-    },
-    {
-      "domain": "Fan (maze)",
-      "arm": "zero_shot",
-      "metric": "solve",
-      "mean": null,
-      "n": 0,
-      "values": []
-    },
-    {
-      "domain": "Fan (maze)",
-      "arm": "real_to_sim",
-      "metric": "solve",
-      "mean": 100.0,
-      "n": 3,
-      "values": [
-        100,
-        100,
-        100
-      ]
-    },
-    {
-      "domain": "Fan (maze)",
-      "arm": "oracle_dynamics",
-      "metric": "resets",
-      "mean": 0.0,
-      "n": 5,
-      "values": [
-        0,
-        0,
-        0,
-        0,
-        0
-      ]
-    },
-    {
-      "domain": "Fan (maze)",
-      "arm": "MB",
-      "metric": "resets",
-      "mean": 0.0,
-      "n": 5,
-      "values": [
-        0,
-        0,
-        0,
-        0,
-        0
-      ]
-    },
-    {
-      "domain": "Fan (maze)",
-      "arm": "MF",
-      "metric": "resets",
-      "mean": 0.0,
-      "n": 5,
-      "values": [
-        0,
-        0,
-        0,
-        0,
-        0
-      ]
-    },
-    {
-      "domain": "Fan (maze)",
-      "arm": "mf_scene_package",
-      "metric": "resets",
-      "mean": 0.0,
-      "n": 5,
-      "values": [
-        0,
-        0,
-        0,
-        0,
-        0
-      ]
-    },
-    {
-      "domain": "Fan (maze)",
-      "arm": "standalone",
-      "metric": "resets",
-      "mean": 0.4,
-      "n": 5,
-      "values": [
-        0,
-        2,
-        0,
-        0,
-        0
-      ]
-    },
-    {
-      "domain": "Fan (maze)",
-      "arm": "no_fitting",
-      "metric": "resets",
-      "mean": 0.0,
-      "n": 5,
-      "values": [
-        0,
-        0,
-        0,
-        0,
-        0
-      ]
-    },
-    {
-      "domain": "Fan (maze)",
-      "arm": "no_uncertainty",
-      "metric": "resets",
-      "mean": 0.0,
-      "n": 5,
-      "values": [
-        0,
-        0,
-        0,
-        0,
-        0
-      ]
-    },
-    {
-      "domain": "Fan (maze)",
-      "arm": "mb_scene_package",
-      "metric": "resets",
-      "mean": 0.0,
-      "n": 3,
-      "values": [
-        0,
-        0,
-        0
-      ]
-    },
-    {
-      "domain": "Fan (maze)",
-      "arm": "scene_only",
-      "metric": "resets",
-      "mean": 0.0,
-      "n": 3,
-      "values": [
-        0,
-        0,
-        0
-      ]
-    },
-    {
-      "domain": "Fan (maze)",
-      "arm": "zero_shot",
-      "metric": "resets",
-      "mean": null,
-      "n": 0,
-      "values": []
-    },
-    {
-      "domain": "Fan (maze)",
-      "arm": "real_to_sim",
-      "metric": "resets",
-      "mean": 0.0,
-      "n": 3,
-      "values": [
-        0,
-        0,
-        0
-      ]
-    },
-    {
-      "domain": "Fan (inertial transfer)",
-      "arm": "oracle_dynamics",
-      "metric": "solve",
-      "mean": null,
-      "n": 0,
-      "values": []
-    },
-    {
-      "domain": "Fan (inertial transfer)",
-      "arm": "MB",
-      "metric": "solve",
-      "mean": 100.0,
-      "n": 5,
-      "values": [
-        100,
-        100,
-        100,
-        100,
-        100
-      ]
-    },
-    {
-      "domain": "Fan (inertial transfer)",
-      "arm": "MF",
-      "metric": "solve",
-      "mean": 80.0,
-      "n": 5,
-      "values": [
-        100,
-        0,
-        100,
-        100,
-        100
-      ]
-    },
-    {
-      "domain": "Fan (inertial transfer)",
-      "arm": "mf_scene_package",
-      "metric": "solve",
-      "mean": null,
-      "n": 0,
-      "values": []
-    },
-    {
-      "domain": "Fan (inertial transfer)",
-      "arm": "standalone",
-      "metric": "solve",
-      "mean": null,
-      "n": 0,
-      "values": []
-    },
-    {
-      "domain": "Fan (inertial transfer)",
-      "arm": "no_fitting",
-      "metric": "solve",
-      "mean": null,
-      "n": 0,
-      "values": []
-    },
-    {
-      "domain": "Fan (inertial transfer)",
-      "arm": "no_uncertainty",
-      "metric": "solve",
-      "mean": null,
-      "n": 0,
-      "values": []
-    },
-    {
-      "domain": "Fan (inertial transfer)",
-      "arm": "mb_scene_package",
-      "metric": "solve",
-      "mean": null,
-      "n": 0,
-      "values": []
-    },
-    {
-      "domain": "Fan (inertial transfer)",
-      "arm": "scene_only",
-      "metric": "solve",
-      "mean": null,
-      "n": 0,
-      "values": []
-    },
-    {
-      "domain": "Fan (inertial transfer)",
-      "arm": "zero_shot",
-      "metric": "solve",
-      "mean": null,
-      "n": 0,
-      "values": []
-    },
-    {
-      "domain": "Fan (inertial transfer)",
-      "arm": "real_to_sim",
-      "metric": "solve",
-      "mean": null,
-      "n": 0,
-      "values": []
-    },
-    {
-      "domain": "Fan (inertial transfer)",
-      "arm": "oracle_dynamics",
-      "metric": "resets",
-      "mean": null,
-      "n": 0,
-      "values": []
-    },
-    {
-      "domain": "Fan (inertial transfer)",
-      "arm": "MB",
-      "metric": "resets",
-      "mean": 0.0,
-      "n": 5,
-      "values": [
-        0,
-        0,
-        0,
-        0,
-        0
-      ]
-    },
-    {
-      "domain": "Fan (inertial transfer)",
-      "arm": "MF",
-      "metric": "resets",
-      "mean": 0.0,
-      "n": 5,
-      "values": [
-        0,
-        0,
-        0,
-        0,
-        0
-      ]
-    },
-    {
-      "domain": "Fan (inertial transfer)",
-      "arm": "mf_scene_package",
-      "metric": "resets",
-      "mean": null,
-      "n": 0,
-      "values": []
-    },
-    {
-      "domain": "Fan (inertial transfer)",
-      "arm": "standalone",
-      "metric": "resets",
-      "mean": null,
-      "n": 0,
-      "values": []
-    },
-    {
-      "domain": "Fan (inertial transfer)",
-      "arm": "no_fitting",
-      "metric": "resets",
-      "mean": null,
-      "n": 0,
-      "values": []
-    },
-    {
-      "domain": "Fan (inertial transfer)",
-      "arm": "no_uncertainty",
-      "metric": "resets",
-      "mean": null,
-      "n": 0,
-      "values": []
-    },
-    {
-      "domain": "Fan (inertial transfer)",
-      "arm": "mb_scene_package",
-      "metric": "resets",
-      "mean": null,
-      "n": 0,
-      "values": []
-    },
-    {
-      "domain": "Fan (inertial transfer)",
-      "arm": "scene_only",
-      "metric": "resets",
-      "mean": null,
-      "n": 0,
-      "values": []
-    },
-    {
-      "domain": "Fan (inertial transfer)",
-      "arm": "zero_shot",
-      "metric": "resets",
-      "mean": null,
-      "n": 0,
-      "values": []
-    },
-    {
-      "domain": "Fan (inertial transfer)",
-      "arm": "real_to_sim",
-      "metric": "resets",
-      "mean": null,
-      "n": 0,
-      "values": []
-    },
-    {
-      "domain": "Fan (ramp transfer)",
-      "arm": "oracle_dynamics",
-      "metric": "solve",
-      "mean": null,
-      "n": 0,
-      "values": []
-    },
-    {
-      "domain": "Fan (ramp transfer)",
-      "arm": "MB",
-      "metric": "solve",
-      "mean": 100.0,
-      "n": 3,
-      "values": [
-        100,
-        100,
-        100
-      ]
-    },
-    {
-      "domain": "Fan (ramp transfer)",
-      "arm": "MF",
-      "metric": "solve",
-      "mean": 25.0,
-      "n": 4,
-      "values": [
-        0,
-        0,
-        100,
-        0
-      ]
-    },
-    {
-      "domain": "Fan (ramp transfer)",
-      "arm": "mf_scene_package",
-      "metric": "solve",
-      "mean": null,
-      "n": 0,
-      "values": []
-    },
-    {
-      "domain": "Fan (ramp transfer)",
-      "arm": "standalone",
-      "metric": "solve",
-      "mean": null,
-      "n": 0,
-      "values": []
-    },
-    {
-      "domain": "Fan (ramp transfer)",
-      "arm": "no_fitting",
-      "metric": "solve",
-      "mean": null,
-      "n": 0,
-      "values": []
-    },
-    {
       "domain": "Fan (ramp transfer)",
       "arm": "no_uncertainty",
       "metric": "solve",
-      "mean": null,
-      "n": 0,
-      "values": []
+      "mean": 100.0,
+      "n": 5,
+      "values": [
+        100,
+        100,
+        100,
+        100,
+        100
+      ]
     },
     {
       "domain": "Fan (ramp transfer)",
@@ -4300,19 +4678,42 @@
     },
     {
       "domain": "Fan (ramp transfer)",
+      "arm": "from_assets",
+      "metric": "solve",
+      "mean": 50.0,
+      "n": 2,
+      "values": [
+        0,
+        100
+      ]
+    },
+    {
+      "domain": "Fan (ramp transfer)",
       "arm": "oracle_dynamics",
       "metric": "resets",
-      "mean": null,
-      "n": 0,
-      "values": []
+      "mean": 0.0,
+      "n": 9,
+      "values": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
     },
     {
       "domain": "Fan (ramp transfer)",
       "arm": "MB",
       "metric": "resets",
       "mean": 0.0,
-      "n": 3,
+      "n": 5,
       "values": [
+        0,
+        0,
         0,
         0,
         0
@@ -4322,9 +4723,52 @@
       "domain": "Fan (ramp transfer)",
       "arm": "MF",
       "metric": "resets",
-      "mean": 0.0,
-      "n": 4,
+      "mean": 3.8,
+      "n": 5,
       "values": [
+        0,
+        3,
+        0,
+        16,
+        0
+      ]
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "mf_scene_package",
+      "metric": "resets",
+      "mean": 0.2,
+      "n": 5,
+      "values": [
+        0,
+        1,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "standalone",
+      "metric": "resets",
+      "mean": 1.8,
+      "n": 5,
+      "values": [
+        0,
+        9,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "no_fitting",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 5,
+      "values": [
+        0,
         0,
         0,
         0,
@@ -4333,35 +4777,17 @@
     },
     {
       "domain": "Fan (ramp transfer)",
-      "arm": "mf_scene_package",
-      "metric": "resets",
-      "mean": null,
-      "n": 0,
-      "values": []
-    },
-    {
-      "domain": "Fan (ramp transfer)",
-      "arm": "standalone",
-      "metric": "resets",
-      "mean": null,
-      "n": 0,
-      "values": []
-    },
-    {
-      "domain": "Fan (ramp transfer)",
-      "arm": "no_fitting",
-      "metric": "resets",
-      "mean": null,
-      "n": 0,
-      "values": []
-    },
-    {
-      "domain": "Fan (ramp transfer)",
       "arm": "no_uncertainty",
       "metric": "resets",
-      "mean": null,
-      "n": 0,
-      "values": []
+      "mean": 0.0,
+      "n": 5,
+      "values": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
     },
     {
       "domain": "Fan (ramp transfer)",
@@ -4394,6 +4820,17 @@
       "mean": null,
       "n": 0,
       "values": []
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "from_assets",
+      "metric": "resets",
+      "mean": 0.0,
+      "n": 2,
+      "values": [
+        0,
+        0
+      ]
     }
   ]
 }

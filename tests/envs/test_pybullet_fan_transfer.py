@@ -224,7 +224,9 @@ def test_transfer_wind_model_and_moving_restart(env):
         p.disconnect(restarted._physics_client_id)
 
 
-def test_ramp_geometry_gravity_and_model_restore():
+@pytest.mark.parametrize("landing_extension", [0.0, 0.10])
+@pytest.mark.parametrize("ramp_rise", [0.003, 0.004])
+def test_ramp_geometry_gravity_and_model_restore(landing_extension, ramp_rise):
     """Visible wedge geometry causes downhill motion in real and model
     worlds."""
     utils.reset_config({
@@ -235,6 +237,8 @@ def test_ramp_geometry_gravity_and_model_restore():
         "fan_exposed_transfer": True,
         "fan_inertial_transfer": True,
         "fan_ramp_transfer": True,
+        "fan_ramp_landing_extension": landing_extension,
+        "fan_ramp_rise": ramp_rise,
         "fan_train_num_walls_per_task": [0],
         "fan_test_num_walls_per_task": [0],
     })
@@ -248,18 +252,30 @@ def test_ramp_geometry_gravity_and_model_restore():
             base._set_state(real)
             restored = base._get_state()
             assert np.allclose(restored[ramp], real[ramp], atol=1e-5)
-            assert real.get(ramp, "rise") == pytest.approx(0.004)
+            assert real.get(ramp, "rise") == pytest.approx(ramp_rise)
+            landing = env._platforms[1]
+            for feature in ("x", "x_len"):
+                assert restored.get(landing, feature) == pytest.approx(
+                    real.get(landing, feature))
+            left = real.get(landing, "x") - real.get(landing, "x_len") / 2
+            right = real.get(landing, "x") + real.get(landing, "x_len") / 2
+            assert left == pytest.approx(1.07)
+            expected_right = (real.get(env._target, "x") + 0.16 +
+                              landing_extension if split == "test" else 1.45)
+            assert right == pytest.approx(expected_right)
             for x in (0.75, 1.00):
                 ray = p.rayTest((x, real.get(ramp, "y"), 0.8),
                                 (x, real.get(ramp, "y"), 0.1),
                                 physicsClientId=env._physics_client_id)[0]
                 assert ray[0] == env._boundary_named(ramp).id
-                assert ray[3][2] == pytest.approx(0.404 - (x - 0.67) * 0.01,
+                assert ray[3][2] == pytest.approx(0.4 + ramp_rise *
+                                                  (1 - (x - 0.67) / 0.4),
                                                   abs=1e-5)
         real = real.copy()
         real.set(env._ball, "x", 0.76)
         real.set(env._ball, "y", real.get(ramp, "y"))
-        real.set(env._ball, "z", 0.404 - 0.09 * 0.01 + env.ball_radius)
+        real.set(env._ball, "z",
+                 0.4 + ramp_rise * (1 - 0.09 / 0.4) + env.ball_radius)
         simulated = real.copy()
         saved = None
         for tick in range(25):

@@ -28,6 +28,8 @@ from predicators.agent_sdk.sandbox_prompts import build_claude_md
 from predicators.agent_sdk.sketch_prompts import build_early_stop_note, \
     build_solve_prompt, build_solve_system_prompt
 from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES
+from predicators.approaches.agent_continual_frozen_approach import \
+    AgentContinualOracleDynamicsApproach
 from predicators.structs import Action, GroundAtom, Object, \
     ParameterizedOption, Predicate, State, Task, TaskEvaluator, Type
 
@@ -484,6 +486,19 @@ def test_golden_continual_system_scene_package():
     assert "sim.fit" in text
 
 
+@pytest.mark.parametrize("preflight", [False, True])
+def test_model_gate_does_not_imply_preflight(preflight):
+    """The rendered test-model gate must not promise disabled rehearsal."""
+    utils.reset_config({
+        "continual_require_model_on_test": True,
+        "continual_skill_preflight": preflight,
+    })
+    text = play_prompts.build_play_system_prompt(["run_python"] +
+                                                 list(CONTINUAL_TOOL_NAMES))
+    assert "every skill request is rehearsed in it before it runs" not in text
+    assert ("### Every skill request is rehearsed first" in text) == preflight
+
+
 @pytest.mark.parametrize("arm", [
     "scene_only", "oracle_dynamics", "zero_shot", "no_fitting",
     "no_uncertainty", "real_to_sim"
@@ -521,6 +536,7 @@ def test_golden_continual_system_ablation(arm):
         options = {
             "frozen_section": render("play_frozen", arm),
             "frozen_model_supplied": arm != "zero_shot",
+            "oracle_dynamics": arm == "oracle_dynamics",
         }
     if scene_built:
         options = {"scene_built": True}
@@ -539,6 +555,19 @@ def test_golden_continual_system_ablation(arm):
         assert "sim.fit" not in text
         assert "When the model disagrees" not in text
         assert "earns its keep" not in text
+    if arm == "oracle_dynamics":
+        oracle = object.__new__(AgentContinualOracleDynamicsApproach)
+        # pylint: disable=protected-access
+        assert oracle._play_prompt_options() == options
+        shared = render("play_system", "rehearsal_reliability")
+        assert shared in text
+        assert shared in play_prompts.build_play_system_prompt(tools)
+        restriction = ("do not fit, edit, or substitute a hand-built "
+                       "dynamics model")
+        assert restriction in text
+    elif frozen or arm == "no_uncertainty":
+        heading = "### State estimates, timing, and execution discrepancies"
+        assert heading not in text
     if scene_built:
         # sim.fit is named once, as disabled; it is never offered.
         assert "sim.fit()" not in text and "call sim.fit" not in text

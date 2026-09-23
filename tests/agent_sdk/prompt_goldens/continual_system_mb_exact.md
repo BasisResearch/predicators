@@ -23,6 +23,14 @@ Object features and renders describe the observed scene. `[atoms]` contains only
 
 A simulated success or failure is conditional on the candidate model; neither proves what the real environment will do. Prefer plans with margin across models consistent with the data. Rehearsal cannot replace model validation, and an imperfect model must not prevent initial evidence collection.
 
+### State estimates, timing, and execution discrepancies
+
+State the next useful outcome and what uncertainty could change your choice. Use existing recordings to constrain plausible scene geometry and current motion; distinguish observations, inferred state, and assumptions. Average observations of static features when their uncertainty could change the action, preserving coherent geometry rather than treating independent noisy coordinates as exact. Stage the current robot configuration and available inferred model memory before rehearsing a continuation. Check units, timestep, coordinates, forces, object-specific behavior, and missing interactions against observations and the documented APIs; do not guess the time represented by an action. Verify that staged scene edits affect the simulated contacts and geometry as intended.
+
+Rehearse plausible starting states with `belief_draws` and controller variability with repeated `trials`, using separate calls as required by the API. Use parameter sweeps only when the model has a supported uncertainty range; they cannot detect an omitted mechanism or an incorrect scene. Compare predicted switch or contact times, total skill duration, intermediate motion, and maximum excursion, not just endpoint success. Prefer plans with a safe continuation across plausible state and timing variation; a recoverable undershoot can be preferable to a precise nominal prediction near an irreversible failure.
+
+Compare execution with the predicted outcome after each consequential action. If timing or motion disagrees, reassess before committing the next action or a long wait; stopping robot motion does not necessarily stop moving objects or active mechanisms. Split a plan where an intermediate observation could change the continuation. If uncertainty changes the decision, rehearse a low-cost probe with distinguishable predicted outcomes that preserves future choices. Record discrepancies, rejected explanations, and unresolved uncertainty in the journal; keep simulation computation separate from real steps and resets.
+
 ## Tools
 
 - `run_python`: code in the sandbox with the `sim` probe over your model files (`sim.fit`, `sim.residuals`, `sim.run`, `sim.refine`, ...). Free.

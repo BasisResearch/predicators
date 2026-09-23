@@ -1,0 +1,15 @@
+{
+  "generated_by": "scripts/render_cycles_scene.py; do not edit manually",
+  "blender_version": "4.5.3 LTS",
+  "engine": "CYCLES",
+  "device": "CPU",
+  "samples": 48,
+  "scene_source": "/home/ycliang/sim-predicator-paper/review/rendering/scenes/fan_start.json",
+  "scene_sha256": "0be190fec88294c27512bacdd06c562e033edd0d608962204d124a132a4e205a",
+  "output_sha256": "197bd36e085b6fa3d7e7ca65cb06924d98335f1e314cd68970879c4490595ea7",
+  "visual_shapes": 305,
+  "blender_mesh_objects": 300,
+  "geometry": "Recorded world transforms; box edges receive at most 0.6 mm visual bevels",
+  "appearance": "Procedural materials, soft area lighting, AgX; duplicate surfaces removed",
+  "physics_steps": 0
+}

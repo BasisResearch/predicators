@@ -319,6 +319,8 @@ def create_push_skill(
                   target_fn=_close_fingers_target,
                   finger_direction="close"))
 
+    planned_approach = (CFG.skill_phase_use_motion_planning
+                        if plan_transit is None else plan_transit)
     for i in range(n_waypoints):
         # Waypoint_2 (push into target) and the waypoints after it (the
         # retreat from the target) expect robot-object contact, so
@@ -352,6 +354,11 @@ def create_push_skill(
                 finger_status=hand,
                 expect_contact=(i >= 2),
                 use_motion_planning=(False if i >= 2 else plan_transit),
+                # Approach the stroke along a checked Cartesian descent,
+                # as for grasp/place approaches. A joint-space shortcut can
+                # bow into the target before the intentional contact phase.
+                direct_descend=(i == 1 and planned_approach),
+                allow_approach_detour=(i == 1 and planned_approach),
                 freeze_target=(freeze_stroke and i == 2),
                 step_norm_fn=(stroke_step_norm_fn if i == 2 else None)))
 

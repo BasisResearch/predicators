@@ -1043,16 +1043,23 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
             # A shallow, visible grade converts elevation to momentum before
             # the exposed turn. Calibration has the same grade and a wide,
             # fenced landing, not a different hidden physical mechanism.
-            rise = 0.004
+            rise = CFG.fan_ramp_rise
+            if not 0.0 < rise <= 0.004:
+                raise ValueError("Fan ramp rise must be in (0, 0.004]")
             start_y = ball_xy[1]
             turn_x = target_xy[0] + 0.26
+            landing_extension = CFG.fan_ramp_landing_extension
+            if not 0.0 <= landing_extension <= 0.10:
+                raise ValueError(
+                    "Fan ramp landing extension must be in [0, 0.10]")
             if transfer:
                 initial[self._platforms[0]] = slab(
                     0.51, start_y, 0.32, 0.36, self.table_height + rise,
                     (self.table_height + rise) / 2)
                 initial[self._platforms[1]] = slab(
-                    (1.07 + turn_x + 0.16) / 2, start_y, turn_x + 0.16 - 1.07,
-                    0.28, self.table_height, self.table_height / 2)
+                    (1.07 + turn_x + 0.16 + landing_extension) / 2, start_y,
+                    turn_x + 0.16 + landing_extension - 1.07, 0.28,
+                    self.table_height, self.table_height / 2)
                 initial[self._platforms[2]] = slab(turn_x,
                                                    (start_y + 0.14 + 2.02) / 2,
                                                    0.28, 2.02 - start_y - 0.14,

@@ -1,0 +1,475 @@
+{
+  "renderer": "PyBullet GUI, Apple M5 OpenGL 4.1",
+  "configuration": "scripts/configs/predicatorv3/envs/continual.yaml",
+  "benchmark_report": "docs/comparisons/ten-agent-opus-benchmark.md",
+  "runs": "| 3. EMPIRIC | 0 | 2/2 | 1,324 | 1 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/boil-mb_opus_gate_preflight_two_jug_tight_r1/seed0/run_20260917_073118) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual/boil-mb_opus_gate_preflight_two_jug_tight_r1/seed0/run_20260917_073118/scorecard.json) |\n| 3. EMPIRIC | 0 | 2/2 | 368 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-mb_opus_gate_r1/seed0/run_20260917_082017) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-mb_opus_gate_r1/seed0/run_20260917_082017/scorecard.json) |\n| 3. EMPIRIC | 0 | 3/3 | 682 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/balloons-mb_opus_compose_r2/seed0/run_20260917_082044) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual/balloons-mb_opus_compose_r2/seed0/run_20260917_082044/scorecard.json) |\n| 3. EMPIRIC | 0 | 2/2 | 3,302 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/bridge-mb_opus_span_transfer_r2/seed0/run_20260916_190710) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual/bridge-mb_opus_span_transfer_r2/seed0/run_20260916_190710/scorecard.json) |\n| 3. EMPIRIC | 0 | 2/2 | 486 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_maze-mb_opus_gate_r1/seed0/run_20260916_140340) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_maze-mb_opus_gate_r1/seed0/run_20260916_140340/scorecard.json) |",
+  "panels": [
+    {
+      "node": "119:6",
+      "source": "boil_L02_start.png",
+      "crop": [
+        560,
+        223,
+        1440,
+        1067
+      ],
+      "path": "figures/sources/benchmark_gui/119-6.png",
+      "sha256": "53fd84dacd93f2d36df1bb9337984b1f5ed2e560da110b66cc2e39bfc8eb6160"
+    },
+    {
+      "node": "119:7",
+      "source": "boil_L02_win.png",
+      "crop": [
+        560,
+        223,
+        1440,
+        1067
+      ],
+      "path": "figures/sources/benchmark_gui/119-7.png",
+      "sha256": "4ae44e5e7675a995c3a73a8adf8f47f7d8767dc76b0326cb7ba8f7557d891faa"
+    },
+    {
+      "node": "119:11",
+      "source": "domino_L02_start.png",
+      "crop": [
+        378,
+        200,
+        1242,
+        1030
+      ],
+      "path": "figures/sources/benchmark_gui/119-11.png",
+      "sha256": "4309fb379b2ca35fc1f032977e257ee768fcfe4eeb2bbec3dfe04fca1cd4a964"
+    },
+    {
+      "node": "119:12",
+      "source": "domino_L02_win.png",
+      "crop": [
+        378,
+        200,
+        1242,
+        1030
+      ],
+      "path": "figures/sources/benchmark_gui/119-12.png",
+      "sha256": "ba23565b5766c3ba964752af6c820371fec92b938d0ea8e0efbdbe0b9f51039b"
+    },
+    {
+      "node": "119:16",
+      "source": "fan_L02_start.png",
+      "crop": [
+        610,
+        237,
+        1470,
+        1063
+      ],
+      "path": "figures/sources/benchmark_gui/119-16.png",
+      "sha256": "b96239d39368f181cd51dabd6a6507eba5c608ce5e26ffd03b2732a039bfb17d"
+    },
+    {
+      "node": "119:17",
+      "source": "fan_L02_win.png",
+      "crop": [
+        610,
+        237,
+        1470,
+        1063
+      ],
+      "path": "figures/sources/benchmark_gui/119-17.png",
+      "sha256": "034ea4737bb84f90ffc0b41de6bfe952a96d3d90f2c684a4f79719afb1a9a355"
+    },
+    {
+      "node": "119:21",
+      "source": "bridge_L02_start.png",
+      "crop": [
+        550,
+        279,
+        1270,
+        971
+      ],
+      "path": "figures/sources/benchmark_gui/119-21.png",
+      "sha256": "679e5bb768a92163f93dd4e2908bc07f0b9b4a8c04b5f3902aa5e7a7edbc2eb7"
+    },
+    {
+      "node": "119:22",
+      "source": "bridge_L02_win.png",
+      "crop": [
+        550,
+        279,
+        1270,
+        971
+      ],
+      "path": "figures/sources/benchmark_gui/119-22.png",
+      "sha256": "d703f1a00f66ee3e53aa61dac5a4352c9439eaecce300c1602c7ae61f3bde800"
+    },
+    {
+      "node": "119:26",
+      "source": "balloons_preview_start.png",
+      "crop": [
+        337,
+        190,
+        1212,
+        1030
+      ],
+      "path": "figures/sources/benchmark_gui/119-26.png",
+      "sha256": "bec9beb386d2fd339bc993122ccbeb2072f6799dfbaee9ad41d38920d1fe1b85"
+    },
+    {
+      "node": "119:27",
+      "source": "balloons_preview_win.png",
+      "crop": [
+        337,
+        190,
+        1212,
+        1030
+      ],
+      "path": "figures/sources/benchmark_gui/119-27.png",
+      "sha256": "8116e4f618c509ec801f688304ce1de40d422fe8b4bf3aa565ccf2a57d3a6aed"
+    },
+    {
+      "node": "117:91",
+      "source": "boil_L02_start.png",
+      "crop": [
+        447,
+        330,
+        1553,
+        960
+      ],
+      "path": "figures/sources/benchmark_gui/117-91.png",
+      "sha256": "8b9acd9cf8d3c9d87a1b66f362800b9fb3a9817cab9c9e10bf400d4f02a3686a"
+    },
+    {
+      "node": "117:94",
+      "source": "domino_L02_start.png",
+      "crop": [
+        82,
+        200,
+        1538,
+        1030
+      ],
+      "path": "figures/sources/benchmark_gui/117-94.png",
+      "sha256": "fdc515b3167b2a2d18d5e72921024cd5e6517db39656f4ba1a69c81d3de66495"
+    },
+    {
+      "node": "117:97",
+      "source": "fan_L02_start.png",
+      "crop": [
+        267,
+        270,
+        1600,
+        1030
+      ],
+      "path": "figures/sources/benchmark_gui/117-97.png",
+      "sha256": "2ba4f9a0bf3168bd1dbbf0fe31559b7caa9c158b3e107026f46803c56f9f08f7"
+    },
+    {
+      "node": "117:100",
+      "source": "bridge_L02_start.png",
+      "crop": [
+        340,
+        300,
+        1480,
+        950
+      ],
+      "path": "figures/sources/benchmark_gui/117-100.png",
+      "sha256": "38fb278d66246ce227e7adc7fb03886c753a83e4ec76e43f3f58e90a15f60a77"
+    },
+    {
+      "node": "117:103",
+      "source": "balloons_preview_start.png",
+      "crop": [
+        38,
+        190,
+        1512,
+        1030
+      ],
+      "path": "figures/sources/benchmark_gui/117-103.png",
+      "sha256": "7ca45459c45be3c46527c800f222c5ede0e5701748ac56fe8f3a8b2443f3d325"
+    },
+    {
+      "node": "117:71",
+      "source": "bridge_L02_wet.png",
+      "crop": [
+        569,
+        270,
+        1151,
+        820
+      ],
+      "path": "figures/sources/benchmark_gui/117-71.png",
+      "sha256": "d598e278c536c42d9c8877bad7ab8dd618b4a62cf1060305d3476df50ac4da5b"
+    },
+    {
+      "node": "117:72",
+      "source": "bridge_L02_bonded.png",
+      "crop": [
+        569,
+        270,
+        1151,
+        820
+      ],
+      "path": "figures/sources/benchmark_gui/117-72.png",
+      "sha256": "de16c06b20d26b40357d02bff33f0a5ad2b6aa771e5f931923c485c041c17364"
+    },
+    {
+      "node": "117:84",
+      "source": "bridge_L02_win.png",
+      "crop": [
+        498,
+        340,
+        1292,
+        800
+      ],
+      "path": "figures/sources/benchmark_gui/117-84.png",
+      "sha256": "4b61c47f92a7b78df1cc141747c0d30dfdf5cbe6a980a6a098ad882c495acfa7"
+    },
+    {
+      "node": "117:10",
+      "source": "bridge_L02_start.png",
+      "crop": [
+        477,
+        330,
+        1353,
+        890
+      ],
+      "path": "figures/sources/benchmark_gui/117-10.png",
+      "sha256": "91590017f55fd8bac5326fa0bcd41d7c708dc4c8c09ccd4016ee7dd41e6e2850"
+    },
+    {
+      "node": "117:28",
+      "source": "bridge_L01_start.png",
+      "crop": [
+        438,
+        330,
+        1392,
+        890
+      ],
+      "path": "figures/sources/benchmark_gui/117-28.png",
+      "sha256": "f022adfd50465c95e1e30e2fcc3b622bd03bf3f6ec21f5547fa1313e20144f26"
+    },
+    {
+      "node": "117:39",
+      "source": "bridge_L01_win.png",
+      "crop": [
+        438,
+        330,
+        1392,
+        890
+      ],
+      "path": "figures/sources/benchmark_gui/117-39.png",
+      "sha256": "46b58fb7380130f0263119cc2ed894983a4348019f9e1877f0b5c1b04574f0ed"
+    },
+    {
+      "node": "117:44",
+      "source": "bridge_L01_win.png",
+      "crop": [
+        438,
+        330,
+        1392,
+        890
+      ],
+      "path": "figures/sources/benchmark_gui/117-44.png",
+      "sha256": "46b58fb7380130f0263119cc2ed894983a4348019f9e1877f0b5c1b04574f0ed"
+    },
+    {
+      "node": "117:47",
+      "source": "bridge_L02_start.png",
+      "crop": [
+        461,
+        330,
+        1369,
+        890
+      ],
+      "path": "figures/sources/benchmark_gui/117-47.png",
+      "sha256": "02ab7223c28bc82aabd470c9128fdfe660e92cf2a053862fbb3b6639ef415ea5"
+    },
+    {
+      "node": "117:58",
+      "source": "bridge_L02_win.png",
+      "crop": [
+        461,
+        330,
+        1369,
+        890
+      ],
+      "path": "figures/sources/benchmark_gui/117-58.png",
+      "sha256": "c651f2009853c69791c00216c8fdebc78ba710c91025b4f48bdb07691234c4e6"
+    }
+  ],
+  "lookup": {
+    "281:0:18": "figures/sources/benchmark_gui/119-6.png",
+    "281:0:136": "figures/sources/benchmark_gui/119-7.png",
+    "281:107:18": "figures/sources/benchmark_gui/119-11.png",
+    "281:107:136": "figures/sources/benchmark_gui/119-12.png",
+    "281:214:18": "figures/sources/benchmark_gui/119-16.png",
+    "281:214:136": "figures/sources/benchmark_gui/119-17.png",
+    "281:321:18": "figures/sources/benchmark_gui/119-21.png",
+    "281:321:136": "figures/sources/benchmark_gui/119-22.png",
+    "281:428:18": "figures/sources/benchmark_gui/119-26.png",
+    "281:428:136": "figures/sources/benchmark_gui/119-27.png",
+    "304:0:210": "figures/sources/benchmark_gui/117-91.png",
+    "304:107:210": "figures/sources/benchmark_gui/117-94.png",
+    "304:214:210": "figures/sources/benchmark_gui/117-97.png",
+    "304:321:210": "figures/sources/benchmark_gui/117-100.png",
+    "304:428:210": "figures/sources/benchmark_gui/117-103.png",
+    "304:7:57": "figures/sources/benchmark_gui/117-71.png",
+    "304:87:57": "figures/sources/benchmark_gui/117-72.png",
+    "304:370:57": "figures/sources/benchmark_gui/117-84.png",
+    "353:9:57": "figures/sources/benchmark_gui/117-10.png",
+    "353:3:257": "figures/sources/benchmark_gui/117-28.png",
+    "353:159:257": "figures/sources/benchmark_gui/117-39.png",
+    "353:237:257": "figures/sources/benchmark_gui/117-44.png",
+    "353:315:257": "figures/sources/benchmark_gui/117-47.png",
+    "353:465:257": "figures/sources/benchmark_gui/117-58.png"
+  },
+  "balloons_layout": "Box, chute, freed balloons and band translated +0.22m in y; target band centered and widened. No rollout steps added.",
+  "bridge_wet": "Illustrative counterfactual: held span from recorded step 1850; other spans restored to pre-lift step 1800.",
+  "behavior_checks": {
+    "old": [
+      {
+        "order": [
+          0,
+          1,
+          3
+        ],
+        "status": "burst",
+        "steps": 61,
+        "height": 0.982190635531825,
+        "speed": 0.04564974096969942,
+        "wall_supported": false
+      },
+      {
+        "order": [
+          3,
+          0,
+          1
+        ],
+        "status": "burst",
+        "steps": 200,
+        "height": 0.9841093551754663,
+        "speed": 0.770481004578713,
+        "wall_supported": false
+      },
+      {
+        "order": [
+          1,
+          0,
+          3
+        ],
+        "status": "won",
+        "steps": 210,
+        "height": 0.8449679904808299,
+        "speed": 0.0023432666258091403,
+        "wall_supported": false
+      },
+      {
+        "order": [
+          0
+        ],
+        "status": "resting_outside",
+        "steps": 41,
+        "height": 0.4357424323418924,
+        "speed": 4.035469315815804e-06,
+        "wall_supported": false
+      },
+      {
+        "order": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "status": "burst",
+        "steps": 61,
+        "height": 0.9821904066824054,
+        "speed": 0.04564960285097988,
+        "wall_supported": false
+      }
+    ],
+    "new": [
+      {
+        "order": [
+          0,
+          1,
+          3
+        ],
+        "status": "burst",
+        "steps": 61,
+        "height": 0.982190790333755,
+        "speed": 0.04564716738944118,
+        "wall_supported": false
+      },
+      {
+        "order": [
+          3,
+          0,
+          1
+        ],
+        "status": "burst",
+        "steps": 200,
+        "height": 0.9841093551754665,
+        "speed": 0.7704810045787136,
+        "wall_supported": false
+      },
+      {
+        "order": [
+          1,
+          0,
+          3
+        ],
+        "status": "won",
+        "steps": 210,
+        "height": 0.8449679905907415,
+        "speed": 0.0023432682057380303,
+        "wall_supported": false
+      },
+      {
+        "order": [
+          0
+        ],
+        "status": "resting_outside",
+        "steps": 41,
+        "height": 0.43574243234189236,
+        "speed": 4.035469320756835e-06,
+        "wall_supported": false
+      },
+      {
+        "order": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "status": "burst",
+        "steps": 61,
+        "height": 0.9821904066824056,
+        "speed": 0.04564960285098084,
+        "wall_supported": false
+      }
+    ]
+  },
+  "validation": "All 10 tests in tests/envs/test_pybullet_balloons.py passed (two disjoint selections). Five old/new release probes matched status and step count.",
+  "balloons_cable_visuals": {
+    "geometry": "Cylinders indicate active attachments only for released, intact balloons; radius 0.0012 m; no mass/collisions/constraints. Unreleased, popped and absent balloons have no cable.",
+    "camera_yaw_degrees": 210,
+    "previous_camera_yaw_degrees": 150,
+    "camera_change": "Mirrored across robot/table longitudinal plane; scene positions unchanged",
+    "validation": "100-step decorated/plain trajectory comparison passed; five existing dynamics tests passed",
+    "release_semantics": "Release relocates a balloon above the payload and attaches it; travel from the rack is not simulated."
+  },
+  "domino_camera": {
+    "yaw_degrees": 210,
+    "pitch_degrees": -14,
+    "target": [
+      0.75,
+      1.25,
+      0.65
+    ],
+    "description": "Across the table facing the robot, matching the Balloons viewing angle; recorded states unchanged"
+  },
+  "boil_jug_colors": {
+    "rgb": [
+      0.9,
+      0.65,
+      0.18
+    ],
+    "description": "Warm gold jug bodies for contrast with blue water in paper GUI renders; only jug r/g/b display features changed in copies of recorded states."
+  }
+}

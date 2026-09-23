@@ -237,6 +237,7 @@ ChangeFingersTargetFn = Callable[[State, Sequence[Object], Array, SkillConfig],
 # Memory keys used per phase, keyed by phase object id.
 _BIRRT_TRAJ_KEY = "birrt_traj_{}"  # stores List[JointPositions] or None
 _BIRRT_STEP_KEY = "birrt_step_{}"  # stores int index into trajectory
+_BIRRT_DETOUR_KEY = "birrt_detour_{}"  # planned free-space approach detour
 _BIRRT_FINGER_KEY = "birrt_finger_{}"  # stores finger_status str
 _BIRRT_HOLD_KEY = "birrt_hold_{}"  # consecutive re-commands of a waypoint
 _BIRRT_LAST_CMD_KEY = "birrt_last_cmd_{}"  # index of the waypoint last sent
@@ -367,6 +368,10 @@ class Phase:
     # single-shot IK that then chased the toppling block flipped the
     # arm branch and swept it off the table (2026-09-07 seed 2).
     direct_descend: bool = False
+    # Non-contact approaches may prefer a Cartesian descent without requiring
+    # it: a joint-limit obstruction can instead be routed around by BiRRT.
+    # Never enable this for a contact stroke or a constrained grasp/place.
+    allow_approach_detour: bool = False
     # What a direct path does when the arm cannot follow it (the
     # tracking gate re-commands a waypoint past
     # CFG.pybullet_direct_path_max_hold_steps, or the post-path
@@ -509,6 +514,7 @@ class PhaseSkill:
         # attached to the OptionExecutionFailure so agents learn which
         # object blocked the motion plan.
         self._last_plan_diagnostics: List[str] = []
+        self._last_plan_used_detour = False
 
     def build(self) -> ParameterizedOption:
         """Build and return the ParameterizedOption."""
@@ -941,10 +947,10 @@ class PhaseSkill:
         """
         pid = id(phase)
         for key_fmt in (_BIRRT_TRAJ_KEY, _BIRRT_STEP_KEY, _BIRRT_FINGER_KEY,
-                        _BIRRT_HOLD_KEY, _BIRRT_LAST_CMD_KEY,
-                        _FINGER_TARGET_KEY, _DWELL_COUNT_KEY, _STROKE_BEST_KEY,
-                        _STROKE_NOPROG_KEY, _IK_STALL_BEST_KEY,
-                        _IK_STALL_COUNT_KEY):
+                        _BIRRT_DETOUR_KEY, _BIRRT_HOLD_KEY,
+                        _BIRRT_LAST_CMD_KEY, _FINGER_TARGET_KEY,
+                        _DWELL_COUNT_KEY, _STROKE_BEST_KEY, _STROKE_NOPROG_KEY,
+                        _IK_STALL_BEST_KEY, _IK_STALL_COUNT_KEY):
             memory.pop(key_fmt.format(pid), None)
 
     # ------------------------------------------------------------------
@@ -1207,6 +1213,7 @@ class PhaseSkill:
             memory[finger_key] = finger_status
 
             self._last_plan_diagnostics = []
+            self._last_plan_used_detour = False
             if self._config.simulator is not None:
                 traj = self._plan_with_simulator(pb_state, target_pose,
                                                  phase.name,
@@ -1215,6 +1222,7 @@ class PhaseSkill:
             else:
                 traj = self._plan_without_simulator(pb_state, target_pose,
                                                     phase.name)
+            memory[_BIRRT_DETOUR_KEY.format(pid)] = self._last_plan_used_detour
 
             if traj is None:
                 if phase.expect_contact:
@@ -1298,6 +1306,8 @@ class PhaseSkill:
             robot.set_joints(pb_state.joint_positions)
 
         traj = memory[traj_key]
+        direct_path = phase.direct_descend and not memory.get(
+            _BIRRT_DETOUR_KEY.format(pid), False)
         if phase.disturbance_abort_tol is not None:
             self._check_target_disturbance(phase, state, memory, objects,
                                            params)
@@ -1332,6 +1342,21 @@ class PhaseSkill:
                 memory[hold_key] = memory.get(hold_key, 0) + 1
                 return self._waypoint_action(pb_state, memory[finger_key],
                                              last)
+            if phase.allow_approach_detour and not phase.expect_contact:
+                # Finishing a checked path is not permission to take an
+                # unchecked IK correction through the scene. Replan once
+                # from the measured arm pose, retaining the requested goal.
+                # Keep this option-local budget across trajectory resets.
+                replan_key = f"approach_replans_{pid}"
+                if memory.get(replan_key, 0) >= 1:
+                    raise utils.OptionExecutionFailure(
+                        f"[{self._name}/{phase.name}] checked approach "
+                        "did not converge after replanning; refusing "
+                        "unchecked final motion")
+                memory[replan_key] = memory.get(replan_key, 0) + 1
+                self._clear_phase_memory(phase, memory)
+                return self._execute_move_birrt(phase, state, memory, objects,
+                                                params)
             try:
                 self._check_ik_stall(phase, state, memory, objects, params)
             except utils.OptionExecutionFailure as e:
@@ -1379,13 +1404,12 @@ class PhaseSkill:
                     cur,
                     cmd) in enumerate(zip(pb_state.joint_positions, prev_cmd))
                 if idx not in (finger_idx_l, finger_idx_r))
-            max_hold = (CFG.pybullet_direct_path_max_hold_steps
-                        if phase.direct_descend else
-                        CFG.pybullet_birrt_replay_max_hold_steps)
+            max_hold = (CFG.pybullet_direct_path_max_hold_steps if direct_path
+                        else CFG.pybullet_birrt_replay_max_hold_steps)
             if arm_err > track_tol and memory.get(hold_key, 0) < max_hold:
                 memory[hold_key] = memory.get(hold_key, 0) + 1
                 target_joints = prev_cmd
-            elif arm_err > track_tol and phase.direct_descend and \
+            elif arm_err > track_tol and direct_path and \
                     self._ee_short_of(pb_state, prev_cmd) > \
                     CFG.pybullet_direct_path_step:
                 # Blocked, not sagging: an arm that has settled within a
@@ -1834,10 +1858,13 @@ class PhaseSkill:
         direct_diagnostics: List[str] = []
 
         def _plan(
-            candidates: List[JointPositions]
+            candidates: List[JointPositions],
+            direct: Optional[bool] = None,
         ) -> Optional[Sequence[JointPositions]]:
             direct_diagnostics.clear()
-            return run_motion_planning(
+            if direct is None:
+                direct = phase.direct_descend if phase is not None else False
+            traj = run_motion_planning(
                 robot=planning_robot,
                 initial_positions=pb_state.joint_positions,
                 target_positions=candidates[0],
@@ -1855,11 +1882,21 @@ class PhaseSkill:
                 held_bystander_clearance=(
                     self._config.held_bystander_clearance),
                 goal_candidates=candidates,
-                relaxed_direct=(phase.direct_descend
-                                if phase is not None else False),
+                relaxed_direct=direct,
                 direct_diagnostics=direct_diagnostics,
                 body_names=body_names,
             )
+            if traj is None and direct and phase is not None and \
+                    phase.allow_approach_detour and not expect_contact:
+                # A preferred Cartesian approach may be kinematically
+                # impossible from this arm branch. A checked free-space
+                # route is legitimate before contact, but never substitute
+                # an unchecked IK stroke for it.
+                traj = _plan(candidates, direct=False)
+                if traj is not None:
+                    self._last_plan_used_detour = True
+                    direct_diagnostics.clear()
+            return traj
 
         def _resolve_goal_ik(
             num_restarts: Optional[int] = None
