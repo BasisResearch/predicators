@@ -121,7 +121,10 @@ def test_four_span_staging_is_pickable_with_public_skills(seed: int) -> None:
         'pybullet_birrt_contact_margin': -.005,
         'pybullet_pin_held_weld_assemblies': True
     })
-    env: Any = create_new_env('pybullet_bridge', do_cache=False)
+    # Cache the env: get_gt_options builds the skills from the cached env's
+    # types, and this env's partially-observable block type differs from
+    # the block type of an env an earlier test left in the cache.
+    env: Any = create_new_env('pybullet_bridge', do_cache=True)
     _SHARED_SIMULATOR_CACHE.pop(type(env), None)
     options = {o.name: o for o in get_gt_options('pybullet_bridge')}
     try:

@@ -276,6 +276,11 @@ def _refine(task,
             params = np.array([], dtype=np.float32)
         elif step.option.name == "Place":
             params = _informed_place_params(state, sketch, idx, rng_, n)
+        elif step.option.name == "Wait":
+            # Wait now exposes an unbounded duration parameter; its real
+            # execution is capped. Annotated waits need that finite horizon,
+            # not an invalid uniform draw over [0, infinity).
+            params = np.array([CFG.wait_option_max_steps], dtype=np.float32)
         else:
             low = step.option.params_space.low
             high = step.option.params_space.high

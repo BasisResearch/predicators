@@ -22,6 +22,7 @@ from predicators.ground_truth_models.boil.gt_simulator import PARAM_SPECS, \
     RESIDUAL_FEATURES, RESIDUAL_RULES
 from predicators.option_model import _OracleOptionModel
 from predicators.planning import run_backtracking_refinement
+from predicators.settings import CFG
 from predicators.structs import Action, GroundAtom, LowLevelTrajectory, \
     Object, ParameterizedOption, Predicate, State
 
@@ -216,6 +217,11 @@ def _generate_oracle_transitions(
             params = np.array([], dtype=np.float32)
         elif step.option.name == "Place":
             params = _informed_place_params(state, sketch, idx, rng_, n)
+        elif step.option.name == "Wait":
+            # Wait now exposes an unbounded duration parameter; its real
+            # execution is capped. Annotated waits need that finite horizon,
+            # not an invalid uniform draw over [0, infinity).
+            params = np.array([CFG.wait_option_max_steps], dtype=np.float32)
         else:
             low = step.option.params_space.low
             high = step.option.params_space.high
