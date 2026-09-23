@@ -562,19 +562,14 @@ def _code(d: Drawing,
         d.code(x + 4, base, line, size)
 
 
-def _parameter_particles() -> List[Tuple[float, float]]:
-    """Return schematic parameter particles and their normalized weights."""
+def _parameter_draws() -> List[float]:
+    """Return schematic equal-weight draws from the parameter belief."""
     rng = random.Random(11)
-    raw = []
-    for _ in range(24):
-        theta = min(0.95, max(0.05, rng.gauss(0.55, 0.17)))
-        raw.append((theta, math.exp(-(theta - 0.58)**2 / 0.018)))
-    top = max(w for _, w in raw)
-    return [(t, w / top) for t, w in raw]
+    return [min(0.95, max(0.05, rng.gauss(0.58, 0.095))) for _ in range(20)]
 
 
 def _posterior(d: Drawing, px: float, py: float, pw: float, ph: float) -> None:
-    """Draw weighted parameter particles under their marginal posterior."""
+    """Draw the parameter belief and equal-weight draws from it."""
     oy = py + ph
     d.add("path",
           d=f"M{px} {py} L{px} {oy} L{px + pw + 4} {oy}",
@@ -585,33 +580,28 @@ def _posterior(d: Drawing, px: float, py: float, pw: float, ph: float) -> None:
     curve = [(px + pw * k / 60,
               oy - 0.9 * ph * math.exp(-(k / 60 - 0.58)**2 / 0.018))
              for k in range(61)]
+    outline = " L".join(f"{x:.2f} {y:.2f}" for x, y in curve)
     d.add("path",
-          d="M" + " L".join(f"{x:.2f} {y:.2f}" for x, y in curve),
-          fill="none",
-          stroke=TEAL,
-          stroke_width=1.2,
-          stroke_opacity=0.45)
-    # Each particle's stem height is its weight, so the tops trace the curve.
-    for theta, weight in _parameter_particles():
-        x = round(px + theta * pw, 2)
-        top = round(oy - 0.9 * ph * weight, 2)
-        d.add("path",
-              d=f"M{x} {oy} L{x} {top}",
-              stroke=TEAL,
-              stroke_width=0.9,
-              stroke_opacity=round(0.3 + 0.6 * weight, 2))
+          d=f"M{px} {oy} L{outline} L{px + pw} {oy} Z",
+          fill=TEAL,
+          fill_opacity=0.1,
+          stroke="none")
+    d.add("path", d="M" + outline, fill="none", stroke=TEAL, stroke_width=1.3)
+    # Equal-weight draws sit on the axis like a rug, dense where the belief
+    # is high.
+    rng = random.Random(5)
+    for theta in _parameter_draws():
         d.add("circle",
-              cx=x,
-              cy=top,
-              r=round(1.1 + 1.6 * math.sqrt(weight), 2),
+              cx=round(px + theta * pw, 2),
+              cy=round(oy - 5 + rng.uniform(-2.2, 2.2), 2),
+              r=1.9,
               fill=TEAL,
-              fill_opacity=round(0.35 + 0.6 * weight, 2))
-    d.rich(px + 6, py + 6, [("p", "i"), "(", ("θ", "i"), " | ",
-                            ("D", "i"), ")"], 8.2, TEAL)
+              fill_opacity=0.75)
+    d.rich(px + 6, py + 6, [("q", "i"), "(", ("θ", "i"), ")"], 8.2, TEAL)
 
 
 def _estimate(d: Drawing, px: float, py: float, pw: float, ph: float) -> None:
-    """Draw noisy readings and the state estimate built from them."""
+    """Draw noisy readings and the state belief built from them."""
     oy = py + ph
     d.add("path",
           d=f"M{px} {py} L{px} {oy} L{px + pw + 4} {oy}",
@@ -638,22 +628,50 @@ def _estimate(d: Drawing, px: float, py: float, pw: float, ph: float) -> None:
           fill="none",
           stroke=TEAL,
           stroke_width=1.4)
+    # The belief at step t: the rest-window mean with its shrunken spread,
+    # and a few draws from it.
     end = px + 6 + step * 17
-    d.add("circle", cx=f"{end:.2f}", cy=f"{truth[-1]:.2f}", r=3, fill=TEAL)
-    d.text(end, truth[-1] - 7, "ŝₜ", 9, TEAL, "bold", "middle", italic=True)
+    spread = 0.055 * ph
+    d.add("rect",
+          x=f"{end - 3.5:.2f}",
+          y=f"{truth[-1] - 2 * spread:.2f}",
+          width=7,
+          height=f"{4 * spread:.2f}",
+          rx=3.5,
+          fill=TEAL,
+          fill_opacity=0.16)
+    for z in (-1.4, -0.6, 0.1, 0.7, 1.5):
+        d.add("circle",
+              cx=f"{end:.2f}",
+              cy=f"{truth[-1] + z * spread:.2f}",
+              r=1.6,
+              fill=TEAL,
+              fill_opacity=0.8)
+    d.text(end,
+           truth[-1] - 2 * spread - 5,
+           "xₜ⁽ⁱ⁾",
+           9,
+           TEAL,
+           "bold",
+           "middle",
+           italic=True)
     d.text(px + 8, py + 8, "noisy oₜ", 7.6, RUST, italic=True)
 
 
 def _rehearse(d: Drawing, x: float, y: float, w: float) -> None:
-    """Draw rollouts from the state estimate under posterior draws."""
+    """Draw rollouts from joint draws of the belief."""
     sx0, sy0 = x + 16, y + 66
     gx = x + w - 40
     d.rect(gx, y + 42, 26, 40, fill="#e3f1e7", stroke=GREEN, radius=2)
-    for offset in (34, 46, 51, 56, 61, 66, 71, 76, 80, 92):
+    offsets = (34, 46, 51, 56, 61, 66, 71, 76, 80, 92)
+    # Each rollout starts from its own state draw.
+    starts = (-3.6, 2.4, -1.2, 3.6, 0.0, -2.4, 1.2, -4.4, 4.4, -0.4)
+    for offset, start in zip(offsets, starts):
         end = y + offset
         inside = y + 42 <= end <= y + 82
+        begin = sy0 + start
         d.add("path",
-              d=f"M{sx0} {sy0} Q{x + 0.49 * w:.2f} {sy0 - 22} "
+              d=f"M{sx0} {begin} Q{x + 0.49 * w:.2f} {begin - 22} "
               f"{gx + 13} {end}",
               fill="none",
               stroke=GREEN if inside else RUST,
@@ -664,10 +682,11 @@ def _rehearse(d: Drawing, x: float, y: float, w: float) -> None:
               cy=end,
               r=1.8,
               fill=GREEN if inside else RUST)
-    d.add("circle", cx=sx0, cy=sy0, r=3, fill=TEAL)
-    d.text(sx0, sy0 + 13, "ŝₜ", 9, TEAL, "bold", "middle", italic=True)
+        d.add("circle", cx=sx0, cy=begin, r=1.6, fill=TEAL, fill_opacity=0.85)
+    d.text(sx0, sy0 + 16, "xₜ⁽ⁱ⁾", 9, TEAL, "bold", "middle", italic=True)
     d.rich(x + 8, y + 32,
-           ["Σᵢ ", ("w", "i"), "ᵢ ", ("R", "i"), "(τ⁽ⁱ⁾) = 0.8"], 7.8, GREEN)
+           ["(1/", ("K", "i"), ") Σᵢ ",
+            ("R", "i"), "(τ⁽ⁱ⁾) = 0.8"], 7.8, GREEN)
 
 
 def _continual(d: Drawing, y: float) -> None:
@@ -691,19 +710,23 @@ CODE_TITLE: List[Segment] = [
     "Write or revise ", ("P", "i"), " and ", ("Φ", "i")
 ]
 # One step infers the parameters and the current state.
-INFER_TITLE: List[Segment] = ["Infer ", ("θ", "i"), " and ", ("ŝₜ", "i")]
-PLAN_TITLE: List[Segment] = ["Plan under ", ("θ", "i"), "⁽ⁱ⁾"]
+INFER_TITLE: List[Segment] = ["Infer ", ("θ", "i"), " and ", ("xₜ", "i")]
+PLAN_TITLE: List[Segment] = [
+    "Plan under (", ("θ", "i"), "⁽ⁱ⁾, ", ("xₜ", "i"), "⁽ⁱ⁾)"
+]
 MONITOR_TITLE = "Monitor with predicates"
 CODE_CAPTION: List[List[Segment]] = [[
-    "Code adds mechanisms, state ", ("z", "i"), ", and"
+    "Code adds mechanisms, hidden state, and"
 ], ["predicates for expected outcomes."]]
 POSTERIOR_CAPTION: List[List[Segment]] = [[
-    "SMC replays ", ("D", "i"), " for each particle,"
-], ["then reweights and resamples."]]
-ESTIMATE_CAPTION: List[List[Segment]] = [["One estimate from the history,"],
-                                         ["shared by all rollouts."]]
+    "Replaying ", ("D", "i"), " fits a belief ", ("q", "i"), "(", ("θ", "i"),
+    ");"
+], ["the dots are draws from it."]]
+ESTIMATE_CAPTION: List[List[Segment]] = [[
+    "A belief over the model state;"
+], ["each draw has its own hidden state."]]
 PLAN_CAPTION: List[List[Segment]] = [["Rehearse plans under the draws;"],
-                                     ["pick one, or run an experiment."]]
+                                     ["run the likeliest, or experiment."]]
 
 
 def _numbered(number: int, title: Sequence[Segment]) -> List[Segment]:

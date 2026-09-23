@@ -1,7 +1,7 @@
 {
   "generated_by": "scripts/paper_figures/build_figures.py --overview; do not edit manually",
   "inputs": {
-    "build_figures.py": "afad9d9957cb1f6984d176a2dbc8bd3c2cf7b541b8bf2d0ae2e4605d2ded3f15",
+    "build_figures.py": "4c8c1275cd27384305561cbd6f2c79f3e1aa7a02a5a027e640747c4cb383fd11",
     "data/gui-figure-manifest.json": "5710c818b5bca7090312245386cd9292695711ed08bcd7f39693ee67a3ffdaa9",
     "data/trajectories/figure3.json": "e8123b0b2570db85c5b11e6ca0727b580fa11a5957fbe40917b0cdb49dd550c4",
     "data/trajectories/real_fan_domino.json": "7e977062e1480f2bb407aa54918f5038290fd5d9ce3429e18e2d2165d175d20d",
@@ -35,13 +35,13 @@
     "figures/sources/trajectory_bridge_train_3_cycles.png": "af23f680e0df0efc24781e9cc33141279fca0357b9595a8b12fecdf9e1a9efae"
   },
   "outputs": {
-    "fig1_residual.pdf": "052e66c010dd198250c6e37b7e3b7666bca9f039c9fb472ba4f66c59f1f36b5c",
+    "fig1_residual.pdf": "67b61a6fcd8881aab6131b90f4befba8878c605d0e1ae3bdc3bcc66106fafbb8",
     "fig1_residual.png": "61d5fe443ed0479986fae9dfc139ddf89928954149bda1892fe911905599e047",
     "fig1_residual.svg": "b187084bf410cc4e60cd4e261be2fe62482f0d3a0c1208ce86f0ce846d737983",
-    "fig2_method.pdf": "f30d802df76610653184837f5b5e264034d93ce0dedcac0f53f4e9025b7ce20d",
-    "fig2_method.png": "d652bed4538385d6663e7f88238f462b52790f502b0d05f29171f440b0b9e2eb",
-    "fig2_method.svg": "b643c2eb1a5c7cbca689debf5e537f7313aff7f673a98a8f1fa2e1e842e92699",
-    "fig3_trajectories.pdf": "786f7152ee181885f022ad39b8cfa68ec16a334cc297bfe0e0331777cf8429bd",
+    "fig2_method.pdf": "00f0fb5355d1d84608203335bff6517c17b8faec333636dbc0c5f852f6c95377",
+    "fig2_method.png": "ef1110144f586adf08344a1ffa997a840573512ecd9bc2ac64177d525f929d7d",
+    "fig2_method.svg": "b3dad6589b4f5fedcd2f1222590d8c9ccddfddd94f1a32ff44ff8aa5c4d17010",
+    "fig3_trajectories.pdf": "ba8d9764b87f4a65899fdb75ee0f14054239a7839f3d404d33bb3decea2cf35f",
     "fig3_trajectories.png": "3308db0e82905988f17e5ebe037c37eaac6cf31694f6725b9f956a37997be0d0",
     "fig3_trajectories.svg": "9b025712dcf45fc432c247fb2f102ae51c2f95afd12f2870d7f9aa04c3bf74c6"
   }
