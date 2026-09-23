@@ -19,28 +19,25 @@ from tests.code_sim_learning.test_continual_oracle import _load
 
 
 def test_transfer_comparisons_preserve_arm_contracts(monkeypatch: Any) -> None:
-    """All six arms parse with the pilot's task, noise, and interaction
-    budget."""
-    original = list(
-        generate_run_configs(
-            "predicatorv3/protocol_continual_comparisons_noisy_r1.yaml",
-            False))
-    transfer = list(
-        generate_run_configs(
-            "predicatorv3/protocol_continual_bridge_span_comparisons_r1.yaml",
-            False))
-    assert len(transfer) == 18
-    assert len({cfg.approach for cfg in transfer}) == 6
+    """The current eight-arm benchmark uses the four-span task consistently.
+
+    The old pilot launchers were removed when these settings became the
+    benchmark defaults; test the maintained menu-based launcher instead.
+    """
+    transfer = [
+        c for c in generate_run_configs(
+            "predicatorv3/continual_eight_agent_noisy_sweep.yaml", False)
+        if c.env == "pybullet_bridge"
+    ]
+    assert len(transfer) == 24
+    assert len({cfg.approach for cfg in transfer}) == 8
     for cfg in transfer:
         assert isinstance(cfg, SingleSeedRunConfig)
         assert cfg.env == "pybullet_bridge"
         assert cfg.seed in (0, 1, 2)
-        reference = next(c for c in original
-                         if c.env == cfg.env and c.approach == cfg.approach)
-        assert cfg.flags == {
-            **reference.flags, "bridge_train_span_blocks": 3,
-            "bridge_test_span_blocks": 4
-        }
+        assert cfg.flags["bridge_train_span_blocks"] == 3
+        assert cfg.flags["bridge_test_span_blocks"] == 4
+        assert cfg.flags["continual_steps_per_level"] == 10000
         monkeypatch.setattr(
             sys, "argv",
             ["predicators/main.py", *shlex.split(config_to_cmd_flags(cfg))])
