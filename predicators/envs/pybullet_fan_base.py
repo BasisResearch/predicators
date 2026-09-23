@@ -116,8 +116,10 @@ class PyBulletFanBaseEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     # Fan Count & Layout
     # -------------------------------------------------------------------------
-    num_left_fans: ClassVar[int] = 5
-    num_right_fans: ClassVar[int] = 5
+    # The left and right banks span the shorter workspace dimension. Four
+    # fans match the visual density of the five-fan front and back banks.
+    num_left_fans: ClassVar[int] = 4
+    num_right_fans: ClassVar[int] = 4
     num_back_fans: ClassVar[int] = 5
     num_front_fans: ClassVar[int] = 5
 
@@ -129,6 +131,17 @@ class PyBulletFanBaseEnv(PyBulletEnv):
     fan_y_len: ClassVar[float] = 1.5 * fan_scale  # Width of fan blades
     fan_z_len: ClassVar[float] = 1.5 * fan_scale  # Height of fan base
 
+    # Each fan stands on its own narrow pedestal. The posts are visual-only:
+    # the fans are already fixed bodies, and collision geometry here could
+    # catch a ball after it leaves the exposed platforms.
+    fan_support_x_len: ClassVar[float] = 0.02
+    fan_support_y_len: ClassVar[float] = 0.06
+    # Meet the bottom of the fan housing without entering it. The supports are
+    # visual-only, so a small seam is preferable to visibly bisecting a fan.
+    fan_support_height: ClassVar[float] = table_height
+    fan_support_color: ClassVar[Tuple[float, float, float,
+                                      float]] = (0.32, 0.34, 0.36, 1.0)
+
     # -------------------------------------------------------------------------
     # Fan Positioning
     # -------------------------------------------------------------------------
@@ -137,7 +150,7 @@ class PyBulletFanBaseEnv(PyBulletEnv):
     # Front (far) fan row sits at the upper edge of the second table. The two
     # tables together span y in [1.1, 2.1]; keep the fan body just inside that
     # far edge. Deepening the arena this way gives the left/right sides room
-    # for 5 evenly-spaced fans, and re-centers the grid (loc_y_mid, the
+    # for evenly-spaced fans, and re-centers the grid (loc_y_mid, the
     # midpoint of down_fan_y/up_fan_y) between the top and bottom fan rows.
     # Both rows are pushed this much further from the robot than the
     # geometry above would otherwise place them. The down row's rotor
@@ -163,6 +176,15 @@ class PyBulletFanBaseEnv(PyBulletEnv):
         float] = left_fan_x + fan_x_len / 2 + fan_y_len / 2 + 0.01
     fan_x_ub: ClassVar[
         float] = right_fan_x - fan_x_len / 2 - fan_y_len / 2 - 0.01
+    # The exposed ramp extends farther right than the standard arena. Spread
+    # its horizontal fan banks over the landing platform as well as the ramp.
+    ramp_fan_x_ub: ClassVar[float] = 1.45
+    # Center the exposed platform envelope on the robot's x coordinate.
+    ramp_scene_x_offset: ClassVar[float] = -0.11
+    # The articulated fan housing extends inward from its support post. Keep
+    # the right bank far enough outside the landing deck that the housing does
+    # not visually intersect the table edge.
+    ramp_right_fan_offset: ClassVar[float] = 0.40
 
     # =========================================================================
     # SWITCH CONFIGURATION
@@ -269,7 +291,7 @@ class PyBulletFanBaseEnv(PyBulletEnv):
             "facing_side",  # 0=left,1=right,2=back,3=front
             "is_on",  # whether the controlling switch is on
         ],
-        sim_features=["id", "side_idx", "fan_ids", "joint_ids"],
+        sim_features=["id", "side_idx", "fan_ids", "joint_ids", "support_ids"],
         angular_features=["rot"])
     # New separate switch type:
     _switch_type = Type(
@@ -495,6 +517,35 @@ class PyBulletFanBaseEnv(PyBulletEnv):
         bodies["fan_ids_back"] = back_fan_ids
         bodies["fan_ids_front"] = front_fan_ids
 
+        # Give every fan an independent floor-mounted pedestal. These are
+        # deliberately non-colliding so the visible support cannot bridge an
+        # exposed gap or rescue a ball that should fall to the floor.
+        def create_fan_supports(count: int) -> List[int]:
+            visual = p.createVisualShape(
+                p.GEOM_BOX,
+                halfExtents=(cls.fan_support_x_len / 2,
+                             cls.fan_support_y_len / 2,
+                             cls.fan_support_height / 2),
+                rgbaColor=cls.fan_support_color,
+                physicsClientId=physics_client_id)
+            return [
+                p.createMultiBody(baseMass=0.0,
+                                  baseCollisionShapeIndex=-1,
+                                  baseVisualShapeIndex=visual,
+                                  basePosition=(0.0, -10.0,
+                                                cls.fan_support_height / 2),
+                                  baseOrientation=(0, 0, 0, 1),
+                                  physicsClientId=physics_client_id)
+                for _ in range(count)
+            ]
+
+        bodies["fan_support_ids_left"] = create_fan_supports(cls.num_left_fans)
+        bodies["fan_support_ids_right"] = create_fan_supports(
+            cls.num_right_fans)
+        bodies["fan_support_ids_back"] = create_fan_supports(cls.num_back_fans)
+        bodies["fan_support_ids_front"] = create_fan_supports(
+            cls.num_front_fans)
+
         # ---------------------------------------------------------------------
         # Create 4 switches at the requested positions
         #   order: left=0, right=1, back=2, front=3
@@ -618,11 +669,18 @@ class PyBulletFanBaseEnv(PyBulletEnv):
             pybullet_bodies["fan_ids_back"],  # side 2
             pybullet_bodies["fan_ids_front"]  # side 3
         ]
+        support_ids_by_side = [
+            pybullet_bodies["fan_support_ids_left"],
+            pybullet_bodies["fan_support_ids_right"],
+            pybullet_bodies["fan_support_ids_back"],
+            pybullet_bodies["fan_support_ids_front"],
+        ]
 
         # Update each fan object with its side's fan IDs and joint IDs
         for side_idx, fan_obj in enumerate(self._fans):
             fan_obj.side_idx = side_idx
             fan_obj.fan_ids = fan_ids_by_side[side_idx]
+            fan_obj.support_ids = support_ids_by_side[side_idx]
             fan_obj.joint_ids = [
                 self._get_joint_id(fid, "joint_0", self._physics_client_id)
                 for fid in fan_obj.fan_ids
@@ -877,76 +935,47 @@ class PyBulletFanBaseEnv(PyBulletEnv):
                          physicsClientId=self._physics_client_id)
         return body
 
+    @classmethod
+    def _fan_bank_poses(cls,
+                        side_idx: int) -> List[Tuple[float, float, float]]:
+        """Return evenly spaced ``(x, y, yaw)`` poses for one fan bank."""
+        x_offset = cls.ramp_scene_x_offset if CFG.fan_ramp_transfer else 0.0
+        if side_idx in (0, 1):
+            count = cls.num_left_fans if side_idx == 0 else cls.num_right_fans
+            coordinates = np.linspace(cls.fan_y_lb, cls.fan_y_ub, count)
+            x = (cls.left_fan_x if side_idx == 0 else cls.right_fan_x +
+                 (cls.ramp_right_fan_offset if CFG.fan_ramp_transfer else 0.0))
+            yaw = 0.0 if side_idx == 0 else np.pi
+            return [(x + x_offset, float(y), yaw) for y in coordinates]
+        if side_idx in (2, 3):
+            count = cls.num_back_fans if side_idx == 2 else cls.num_front_fans
+            upper_x = (cls.ramp_fan_x_ub
+                       if CFG.fan_ramp_transfer else cls.fan_x_ub)
+            coordinates = np.linspace(cls.fan_x_lb, upper_x, count)
+            y = cls.down_fan_y if side_idx == 2 else cls.up_fan_y
+            yaw = np.pi / 2 if side_idx == 2 else -np.pi / 2
+            return [(float(x) + x_offset, y, yaw) for x in coordinates]
+        raise ValueError(f"Unknown fan side {side_idx}")
+
     def _position_fans_on_sides(self) -> None:
-        """Position all PyBullet fan bodies correctly on their respective
-        sides."""
-        # Calculate positions for each side. Back/front fans span the arena's
-        # x-extent (fan_x_lb..fan_x_ub); left/right fans span the y-extent
-        # (fan_y_lb..fan_y_ub), i.e. corner-to-corner between the bottom and
-        # top fan rows. With the deepened arena these bands are long enough for
-        # 5 evenly-spaced, non-overlapping fans on every side.
-        left_coords = np.linspace(self.fan_y_lb, self.fan_y_ub,
-                                  self.num_left_fans)
-        right_coords = np.linspace(self.fan_y_lb, self.fan_y_ub,
-                                   self.num_right_fans)
-        front_coords = np.linspace(self.fan_x_lb, self.fan_x_ub,
-                                   self.num_front_fans)
-        back_coords = np.linspace(self.fan_x_lb, self.fan_x_ub,
-                                  self.num_back_fans)
-
-        # Position fans for each side
+        """Position each fan and its floor-mounted support."""
         for fan_obj in self._fans:
-            side_idx = fan_obj.side_idx
-            fan_ids = fan_obj.fan_ids
-
-            if side_idx == 0:  # left
-                for i, fan_id in enumerate(fan_ids):
-                    px = self.left_fan_x
-                    py = left_coords[i] if i < len(
-                        left_coords) else left_coords[-1]
-                    pz = self.table_height + self.fan_z_len / 2
-                    rot = [0.0, 0.0, 0.0]  # facing right
-                    update_object(fan_id,
-                                  position=(px, py, pz),
-                                  orientation=p.getQuaternionFromEuler(rot),
-                                  physics_client_id=self._physics_client_id)
-
-            elif side_idx == 1:  # right
-                for i, fan_id in enumerate(fan_ids):
-                    px = self.right_fan_x + (0.4
-                                             if CFG.fan_ramp_transfer else 0)
-                    py = right_coords[i] if i < len(
-                        right_coords) else right_coords[-1]
-                    pz = self.table_height + self.fan_z_len / 2
-                    rot = [0.0, 0.0, np.pi]  # facing left
-                    update_object(fan_id,
-                                  position=(px, py, pz),
-                                  orientation=p.getQuaternionFromEuler(rot),
-                                  physics_client_id=self._physics_client_id)
-
-            elif side_idx == 2:  # back
-                for i, fan_id in enumerate(fan_ids):
-                    px = back_coords[i] if i < len(
-                        back_coords) else back_coords[-1]
-                    py = self.down_fan_y
-                    pz = self.table_height + self.fan_z_len / 2
-                    rot = [0.0, 0.0, np.pi / 2]  # facing forward
-                    update_object(fan_id,
-                                  position=(px, py, pz),
-                                  orientation=p.getQuaternionFromEuler(rot),
-                                  physics_client_id=self._physics_client_id)
-
-            elif side_idx == 3:  # front
-                for i, fan_id in enumerate(fan_ids):
-                    px = front_coords[i] if i < len(
-                        front_coords) else front_coords[-1]
-                    py = self.up_fan_y
-                    pz = self.table_height + self.fan_z_len / 2
-                    rot = [0.0, 0.0, -np.pi / 2]  # facing backward
-                    update_object(fan_id,
-                                  position=(px, py, pz),
-                                  orientation=p.getQuaternionFromEuler(rot),
-                                  physics_client_id=self._physics_client_id)
+            poses = self._fan_bank_poses(fan_obj.side_idx)
+            assert len(fan_obj.fan_ids) == len(
+                fan_obj.support_ids) == len(poses)
+            for fan_id, support_id, (px, py,
+                                     yaw) in zip(fan_obj.fan_ids,
+                                                 fan_obj.support_ids, poses):
+                orientation = p.getQuaternionFromEuler([0.0, 0.0, yaw])
+                update_object(support_id,
+                              position=(px, py, self.fan_support_height / 2),
+                              orientation=orientation,
+                              physics_client_id=self._physics_client_id)
+                update_object(fan_id,
+                              position=(px, py, self.table_height +
+                                        self.fan_z_len / 2),
+                              orientation=orientation,
+                              physics_client_id=self._physics_client_id)
 
     def _get_domain_specific_feature(self, obj: Object, feature: str) -> float:
         """Extract features for creating the State object."""

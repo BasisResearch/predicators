@@ -110,9 +110,9 @@ class PyBulletDominoBaseEnv(PyBulletEnv):
     # CAMERA CONFIGURATION
     # =========================================================================
     _camera_distance: ClassVar[float] = 1.3
-    _camera_yaw: ClassVar[float] = -70
-    _camera_pitch: ClassVar[float] = -40
-    _camera_target: ClassVar[Pose3D] = (0.75, 1.25, 0.42)
+    _camera_yaw: ClassVar[float] = 210
+    _camera_pitch: ClassVar[float] = -14
+    _camera_target: ClassVar[Pose3D] = (0.75, 1.25, 0.65)
 
     # =========================================================================
     # DOMINO CONFIGURATION

@@ -25,15 +25,24 @@ INK, MUTED = "#203744", "#5b6e79"
 TEAL, RUST, GREEN = "#087f8c", "#bd5929", "#397957"
 NS = "http://www.w3.org/2000/svg"
 USED_IMAGES = set()
+RENDERER = "gui"
 ET.register_namespace("", NS)
 # Crops retain task objects and their surroundings in 900-pixel renders.
 CROPS = {
     "boil": (190, 185, 890, 830),
     "domino": (0, 145, 710, 850),
-    "fan": (270, 150, 900, 745),
+    "fan": (0, 90, 860, 825),
     "bridge": (220, 200, 880, 850),
     "balloons": (280, 350, 890, 800),
 }
+# The original Bridge illustrations and trajectory panels used this tighter
+# crop. Keep it shared with prepare_figma_assets.py so the paper and Figma use
+# identical framing.
+BRIDGE_FOCUS_CROP = (270, 280, 810, 860)
+# Figure 1's compact mechanism panels retain the gripper as context. The
+# solved panel is wider and therefore uses its own crop.
+BRIDGE_MECHANISM_CROP = (250, 160, 790, 668)
+BRIDGE_SOLVED_CROP = (210, 220, 820, 560)
 
 
 class Drawing:
@@ -150,7 +159,20 @@ class Drawing:
         if gui_manifest.exists():
             gui_panel = json.loads(gui_manifest.read_text())["lookup"].get(
                 gui_key or f"{self.height}:{x}:{y}")
-        if gui_panel:
+        cycles_name = name.replace("balloons_refined_", "balloons_")
+        if cycles_name in {"bridge_wet_lift", "bridge_bonded_lift"}:
+            cycles_name += "_cycles"
+        elif cycles_name == "bridge_exec_04_done":
+            cycles_name = "bridge_cycles_win"
+        elif cycles_name.startswith("trajectory_"):
+            cycles_name += "_cycles"
+        elif cycles_name.rsplit("_", 1)[-1] in {"start", "win"}:
+            domain, state = cycles_name.rsplit("_", 1)
+            cycles_name = f"{domain}_cycles_{state}"
+        cycles_source = FIG / "sources" / f"{cycles_name}.png"
+        if RENDERER == "cycles" and cycles_source.exists():
+            sources = [cycles_source]
+        elif gui_panel:
             sources = [ROOT / gui_panel]
             crop = None
         else:
@@ -240,8 +262,20 @@ def teaser() -> None:
                             (368, "Predict and solve", GREEN)]:
         d.rect(x, 27, 160, 127, fill="#f7f9fa", stroke="#d9e2e7")
         d.text(x + 8, 45, title, 10.4, color, "bold")
-    d.photo("bridge_wet_lift", 8, 54, 68, 64, gui_key="304:7:57")
-    d.photo("bridge_bonded_lift", 84, 54, 68, 64, gui_key="304:87:57")
+    d.photo("bridge_wet_lift",
+            8,
+            54,
+            68,
+            64,
+            crop=BRIDGE_MECHANISM_CROP,
+            gui_key="304:7:57")
+    d.photo("bridge_bonded_lift",
+            84,
+            54,
+            68,
+            64,
+            crop=BRIDGE_MECHANISM_CROP,
+            gui_key="304:87:57")
     d.text(42, 132, "One lifts", 9.5, RUST, anchor="middle")
     d.text(118, 132, "All lift", 9.5, GREEN, anchor="middle")
     d.text(80,
@@ -262,7 +296,13 @@ def teaser() -> None:
             leading=11,
             mono=True)
     d.text(192, 146, "Fit the program to observations.", 8.5)
-    d.photo("bridge_exec_04_done", 376, 54, 144, 78, gui_key="304:370:57")
+    d.photo("bridge_exec_04_done",
+            376,
+            54,
+            144,
+            78,
+            crop=BRIDGE_SOLVED_CROP,
+            gui_key="304:370:57")
     d.text(448,
            146,
            "Rehearse, then complete the bridge.",
@@ -443,5 +483,7 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--overview", action="store_true", required=True)
-    parser.parse_args()
+    parser.add_argument("--renderer", choices=("gui", "cycles"), default="gui")
+    args = parser.parse_args()
+    RENDERER = args.renderer
     build_overview_figures()

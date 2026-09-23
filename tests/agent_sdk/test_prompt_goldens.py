@@ -565,6 +565,8 @@ def test_golden_continual_system_ablation(arm):
         restriction = ("do not fit, edit, or substitute a hand-built "
                        "dynamics model")
         assert restriction in text
+        assert render("play_system", "robustness_oracle") in text
+        assert "checks replay verdicts across" not in text
     elif frozen or arm == "no_uncertainty":
         heading = "### State estimates, timing, and execution discrepancies"
         assert heading not in text

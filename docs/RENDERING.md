@@ -28,13 +28,87 @@ The generated manifest records input and output hashes.
 Do not edit generated images or manifests manually.
 Compile the paper from its own checkout with `latexmk -pdf main.tex`.
 
+## Blender Cycles renders
+
+The committed Cycles images were generated with Blender 4.5.3, Cycles CPU, 48 samples, eight render threads, AgX Medium High Contrast, and deterministic seed zero.
+The renderer environment needs `bpy==4.5.3` and `pycollada`.
+The scene exporters restore recorded states and verify that rendering does not advance physics.
+Run the expensive render step on a compute node.
+
+The complete refresh sequence is:
+
+```bash
+# Run these two exporters in the Predicators environment.
+python scripts/paper_figures/export_trajectory_scenes.py
+python scripts/paper_figures/export_static_scenes.py
+
+# Run this renderer in a Blender 4.5.3 Python environment on a compute node.
+python scripts/paper_figures/render_cycles_scenes.py \
+  --blender-python /path/to/blender-python \
+  --samples 48 \
+  --threads 8
+
+# These steps are inexpensive and can run on a login node.
+python scripts/paper_figures/prepare_figma_assets.py \
+  --output-dir /tmp/empiric-figma-assets
+python scripts/paper_figures/build_figures.py --overview --renderer cycles
+python scripts/paper_figures/verify_figures.py
+```
+
+To render only selected Bridge scenes after changing their exported state or appearance, use:
+
+```bash
+python scripts/paper_figures/render_cycles_scenes.py \
+  --blender-python /path/to/blender-python \
+  --domains Bridge \
+  --scenes bridge_start trajectory_bridge_0 bridge_wet_lift \
+  --samples 48 \
+  --threads 8
+```
+
+On the cluster, the equivalent self-contained invocation is:
+
+```bash
+uv run --no-project --python 3.11 \
+  --with bpy==4.5.3 --with pycollada \
+  python scripts/paper_figures/render_cycles_scenes.py \
+  --samples 48 --threads 8
+```
+
+`--domains` now filters both static and trajectory scenes.
+`--scenes` selects exact scene stems.
+Add `--dry-run` to inspect the selected scene list without invoking Blender.
+Renderer logs are temporary unless `--log-dir` is supplied.
+
+The renderer preserves recorded transforms and authored mesh normals, uses flat normals on planar compound boxes, and records hashes and settings in `scripts/paper_figures/data/cycles-render-manifest.json` and beside each rendered PNG.
+The saturated-blue Boil jug has a local ambient material response so its deep interior remains readable under the shared studio lighting.
+Commit the scene JSON, rendered PNGs, PNG sidecars, and render manifest.
+Do not commit transient renderer logs or the temporary Figma assets.
+
+The Figure 3 trajectory selection, steps, labels, source hashes, and display crops are recorded in `scripts/paper_figures/data/trajectories/figure3.json`.
+The selected Domino and Fan runs and their environment settings are declared in `scripts/paper_figures/export_static_scenes.py`.
+Update those declarations before re-exporting when new data should replace an existing figure panel.
+
+The selected Balloons run predates the current chute placement, so the exporter translates the box and attached assembly to the current chute column and records that visualization-only migration in each scene file.
+It also uses the current robot-facing camera and centres the target-height marker inside the chute with clearance from both walls.
+The Bridge crop constants in `scripts/paper_figures/build_figures.py` reproduce the tighter framing used by the earlier figures.
+`scripts/paper_figures/prepare_figma_assets.py` imports those same constants and adds phase-specific wide crops for Figure 2.
+
+For reproducible appearance, use Blender 4.5.3, Cycles CPU, the same sample count, AgX settings, and the archived scene JSON.
+CPU renders on Linux and macOS should look effectively identical, although denoising and floating-point implementation details may prevent byte-identical files.
+Changing Blender versions or switching to Metal or CUDA rendering can produce small differences in noise, denoising, and color.
+
 ## Figure 2: Figma
 
 The paper uses `fig2_illustrated_figma.png`, exported from the [editable illustrated pipeline](https://www.figma.com/design/PgS1btsW3SH28tvW52xjrk/EMPIRIC?node-id=133-2).
-Re-export that frame after editing it.
+Generate the image fills with `prepare_figma_assets.py`, then upload every PNG to the node listed in its generated `manifest.json`.
+The current phase mapping is Bridge steps 0, 563, 1652, the illustrative wet-lift state, and step 1940 for Explore, Hypothesize, Design experiment, Execute and observe, and Rehearse and solve.
+Export Figma node `133:2` at its native 924 by 512 pixels to `figures/fig2_illustrated_figma.png` in the paper checkout.
 The compositor does not overwrite Figure 2.
 Its thought annotations and code are illustrative, not verbatim agent traces.
 Figure 4 quantitative plots are also outside this compositor.
+The same Figma file contains the editable [Figure 1 teaser](https://www.figma.com/design/PgS1btsW3SH28tvW52xjrk/EMPIRIC?node-id=117-62).
+The generated Figma asset manifest also maps Figure 1's eight raster fills so its editable source remains synchronized with the paper compositor.
 
 ## Re-render with a local GUI
 
@@ -76,7 +150,8 @@ Example:
 ```
 
 Crop coordinates refer to the replacement image; omit them for an already cropped panel.
-Original Bridge and Balloons trajectory crops are respectively `(270, 280, 810, 860)` and `(290, 170, 760, 720)`.
+Original Bridge and Balloons trajectory crops are respectively `(270, 280, 810, 860)` and `(410, 170, 880, 720)`.
+The Balloons crop is shifted right relative to the earlier composition so that both chute walls remain visible throughout the trajectory.
 Semantic frame names end in indices 0 through 4.
 Explicit gallery keys take precedence over semantic names.
 
@@ -106,4 +181,18 @@ Keep this applicability case study distinct from the simulated baseline comparis
 
 Old preliminary-result builders, manuscript audits, renderer-comparison outputs, and static scene exports are not part of this workflow.
 They have been removed from the paper checkout.
-The unfinished results-snapshot script is not a supported figure-generation tool.
+The old unfinished results-snapshot script has been replaced for appendix tables by `scripts/plotting/export_paper_results_tables.py`.
+
+## Result tables
+
+Generate the appendix tables from the same selected-run manifest as the paper result figure:
+
+```bash
+python scripts/plotting/export_paper_results_tables.py \
+  docs/comparisons/figures/paper-results-opus-summary.json \
+  /home/ycliang/sim-predicator-paper/data/current-results
+```
+
+Use the local paper checkout's path for the last argument when rendering on another machine.
+This command preserves the figure's domain variants and selected seeds, and leaves missing results blank instead of substituting an older run.
+Regenerate the tables whenever the figure's selected runs change.

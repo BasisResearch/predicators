@@ -143,12 +143,15 @@ def report_text(original: str, rows: List[Row], plot: Dict[str, Any],
     pilot_note = (
         "Oracle dynamics combines r2 seeds 0-4 for Domino and Bridge "
         "with r1 seeds 0-2 and r2 seeds 3-4 for the other domains.\n"
+        "Fan instead uses the fresh five-seed prompt-aligned Oracle cohort; "
+        "earlier Fan Oracle results are excluded rather than pooled.\n"
         "The " + validation_link + " also shows the two Oracle "
         "rounds side by side.\n\n")
     if validation_link in prefix:
         prefix = re.sub(
             r"(?:Oracle dynamics r2 is a separate entry.*?\n)?"
             r"(?:Oracle dynamics combines.*?\n)?"
+            r"(?:Fan instead uses.*?\n)?"
             r"(?:Only finished Domino and Bridge r2 runs.*?\n)?"
             r"(?:The r2 entry includes.*?\n)?"
             r"The \[Oracle repair pilot\].*?\n\n",
@@ -323,8 +326,8 @@ def report_text(original: str, rows: List[Row], plot: Dict[str, Any],
         "ramp candidate; pooled development results are not independent "
         "confirmation.",
         "The Fan ramp column now uses only the matched repaired-skill "
-        "cohort (ramp_skill_repair_r1), with five seeds planned for each "
-        "of the seven methods.\n"
+        "cohort for the six non-Oracle methods and the fresh prompt-aligned "
+        "five-seed cohort for Oracle dynamics.\n"
         "Earlier ramp results are replaced, not pooled; pending new seeds "
         "never fall back to old results.")
     prefix = prefix.replace(
@@ -348,8 +351,10 @@ def report_text(original: str, rows: List[Row], plot: Dict[str, Any],
     average_intro = original.split("## Averages across seeds",
                                    1)[1].split("| Domain |", 1)[0]
     prefix = prefix.replace(
-        "with nine Oracle dynamics seeds (0-8) and five seeds for each ",
-        "with eleven Oracle dynamics seeds (0-10) and five seeds for each ")
+        "with eleven Oracle dynamics seeds (0-10) and five seeds for each "
+        "of the other six methods.",
+        "with five prompt-aligned Oracle dynamics seeds and five seeds for "
+        "each of the other six methods.")
     average_intro = average_intro.replace(
         "The last column gives how many of the three seeds have finished; "
         "rows with fewer than three are provisional.",

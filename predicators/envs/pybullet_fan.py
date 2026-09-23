@@ -133,19 +133,29 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
     # Environment initialization
     # -------------------------------------------------------------------------
     def _get_camera_matrices(self) -> Tuple[Any, Any, int, int]:
-        view, projection, width, height = super()._get_camera_matrices()
-        # Pan right from the same camera position, preserving zoom and roll.
         if CFG.fan_ramp_transfer:
-            pose = np.linalg.inv(np.asarray(view).reshape(4, 4, order="F"))
-            eye = pose[:3, 3]
-            angle = np.deg2rad(15)
-            direction = (-pose[:3, 2] * np.cos(angle) +
-                         pose[:3, 0] * np.sin(angle))
-            view = p.computeViewMatrix(cameraEyePosition=eye,
-                                       cameraTargetPosition=eye + direction,
-                                       cameraUpVector=pose[:3, 1],
-                                       physicsClientId=self._physics_client_id)
-        return view, projection, width, height
+            # The ramp scene is wider than the original table: it includes
+            # the switch bench, the robot and a displaced right fan bank.
+            # Frame the complete apparatus rather than panning a tight camera
+            # toward the target and clipping the controls and right bank.
+            view = p.computeViewMatrixFromYawPitchRoll(
+                cameraTargetPosition=(0.90, 1.35, 0.38),
+                distance=2.20,
+                yaw=65,
+                pitch=-50,
+                roll=0,
+                upAxisIndex=2,
+                physicsClientId=self._physics_client_id)
+            width = CFG.pybullet_camera_width
+            height = CFG.pybullet_camera_height
+            projection = p.computeProjectionMatrixFOV(
+                fov=self._camera_fov,
+                aspect=float(width / height),
+                nearVal=0.1,
+                farVal=100.0,
+                physicsClientId=self._physics_client_id)
+            return view, projection, width, height
+        return super()._get_camera_matrices()
 
     def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
         # Side helper objects (left/right/down/up), injected only for
@@ -849,31 +859,11 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
                     init_dict[self._target] = target_dict
 
                     for fan_obj in self._fans:
-                        # Each fan_obj now represents all fans on one side
+                        # The state represents each evenly spaced bank by its
+                        # physical middle fan.
                         side_idx = fan_obj.side_idx
-                        # Set position based on the center or representative
-                        # position for the side
-                        if side_idx == 2:  # down
-                            px = (self.fan_x_lb +
-                                  self.fan_x_ub) / 2  # center of back fans
-                            py = self.down_fan_y
-                            rot = np.pi / 2
-                        elif side_idx == 3:  # up
-                            px = (self.fan_x_lb +
-                                  self.fan_x_ub) / 2  # center of front fans
-                            py = self.up_fan_y
-                            rot = -np.pi / 2
-                        elif side_idx == 0:  # left
-                            px = self.left_fan_x
-                            py = (self.fan_y_lb +
-                                  self.fan_y_ub) / 2  # center of left fans
-                            rot = 0.0
-                        else:  # right (side_idx == 1)
-                            px = self.right_fan_x + (
-                                0.4 if CFG.fan_ramp_transfer else 0)
-                            py = (self.fan_y_lb +
-                                  self.fan_y_ub) / 2  # center of right fans
-                            rot = np.pi
+                        bank = self._fan_bank_poses(side_idx)
+                        px, py, rot = bank[len(bank) // 2]
                         fan_dict = {
                             "x": px,
                             "y": py,
@@ -987,10 +977,9 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
                         transfer: bool) -> Dict[Object, Dict[str, float]]:
         """Visible support geometry, sampled without agent-outcome filtering.
 
-        Calibration has a full tray. Transfer starts in a three-sided
-        bay feeding an exposed L-shaped deck with no stop at the turn or
-        target. The same force, contact physics and goal tolerance apply
-        in both.
+        Calibration has a full tray. Transfer starts in a three-sided bay
+        feeding an exposed L-shaped deck with no stop at the turn or target.
+        The same force, contact physics and goal tolerance apply in both.
         """
         if CFG.fan_use_kinematic:
             raise ValueError("Exposed transfer requires dynamic ball physics")
@@ -1087,6 +1076,12 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
                                                 rise=rise)
             initial[self._ball]["z"] += rise
             initial[self._target]["x"] = turn_x
+            # Keep the wider ramp scene centered on the robot. Fans are
+            # translated by _fan_bank_poses(), so translate every other
+            # non-robot scene object here exactly once.
+            for obj, features in initial.items():
+                if obj != self._robot and obj.type != self._fan_type:
+                    features["x"] += self.ramp_scene_x_offset
         return initial
 
     def _get_strategic_wall_position(  # pylint: disable=redefined-outer-name

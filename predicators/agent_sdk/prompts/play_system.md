@@ -379,6 +379,9 @@ After an edit, the candidate uses the values written in its declarations; inspec
 <!-- section: robustness_point_estimate -->
 | Check reliability | Repeated rehearsals at the same state and dynamics (`trials>=2`) check controller reliability. Parameter sweeps, belief draws and `sim.belief()` are disabled in this run. |
 
+<!-- section: robustness_oracle -->
+| Check robustness | Physical parameters are supplied and fixed; do not request `physics_sweep=True` or invent parameter ranges. With declared observation noise, `sim.run(plan, belief_draws=K)` tests plausible starting poses and `sim.belief()` reports the pose belief. Repeated `trials` test controller variability. Use separate calls as required by the API. These checks remain conditional on scene and state reconstruction. |
+
 <!-- section: frozen_line_supplied -->
 The supplied model is fixed for the run and not exposed as source: rollouts run the real skill controllers on it, and no call fits or changes its parameters.
 

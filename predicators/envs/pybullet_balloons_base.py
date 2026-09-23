@@ -34,7 +34,7 @@ Physical layout (a tabletop, the robot at the near side):
 - The ``ceiling``: a plate drawn over the table, at ``ceiling_z``.
   Nothing in this file says what reaching it does to a balloon.
 """
-from typing import Any, ClassVar, Dict, FrozenSet, List, Set, Tuple
+from typing import Any, ClassVar, Dict, FrozenSet, List, Optional, Set, Tuple
 
 import numpy as np
 import pybullet as p
@@ -46,7 +46,7 @@ from predicators.pybullet_helpers.objects import cap_switch_joint_travel, \
     update_object
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
-from predicators.structs import Object, State, Type
+from predicators.structs import Action, Object, State, Type, Video
 
 
 class PyBulletBalloonsBaseEnv(PyBulletEnv):
@@ -101,7 +101,7 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
     # CAMERA
     # =========================================================================
     _camera_distance: ClassVar[float] = 1.3
-    _camera_yaw: ClassVar[float] = 150
+    _camera_yaw: ClassVar[float] = 210
     _camera_pitch: ClassVar[float] = -14
     _camera_target: ClassVar[Tuple[float, float, float]] = (0.7, 1.28, 0.72)
 
@@ -217,10 +217,11 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
               2 * cls.balloon_radius * tier)
         return float(dx), float(dy), float(dz)
 
-    # The band crosses the box's column and both chute walls. It is visual
-    # only; ``lo`` and ``hi`` remain heights of the box's centre.
+    # The band is centred in the chute with a small clearance from both
+    # walls. It is visual only; ``lo`` and ``hi`` remain heights of the
+    # box's centre.
     band_offset_x: ClassVar[float] = 0.0
-    band_half_xy: ClassVar[float] = 0.075
+    band_half_xy: ClassVar[float] = 0.044
     band_color: ClassVar[Tuple[float, float, float,
                                float]] = (0.30, 0.80, 0.40, 0.45)
 
@@ -353,6 +354,8 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
         self._popped: Dict[str, bool] = {}
         self._band_lo: float = 0.0
         self._band_hi: float = 0.0
+        self._cable_shapes: Dict[int, int] = {}
+        self._cable_bodies: Dict[str, Tuple[int, int]] = {}
         super().__init__(use_gui, **kwargs)
         if CFG.balloons_scene == "hatch":
             # Preserve construction, then make recorded contacts repeatable.
@@ -651,6 +654,83 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
                             -1,
                             rgbaColor=color,
                             physicsClientId=self._physics_client_id)
+
+    def _sync_cable_visuals(self) -> None:
+        """Draw observable tethers without adding contacts or constraints.
+
+        Real visual geometry is included in camera exports (unlike GUI
+        debug lines). Lengths are rounded to millimetres so visual shapes
+        can be reused as the payload moves. These bodies are never objects
+        in the task state and carry neither mass nor collision geometry.
+        Only released, intact balloons show active attachment indicators.
+        """
+        client = self._physics_client_id
+        box_pos, box_orn = p.getBasePositionAndOrientation(
+            self._box.id, physicsClientId=client)
+        balloons = [
+            b for b in self._balloons if b.name in self._balloon_colors
+        ]
+        visible = set()
+        for index, balloon in enumerate(balloons):
+            if (not self._tied.get(balloon.name, False)
+                    or self._popped.get(balloon.name, False)):
+                continue
+            start, _ = p.multiplyTransforms(
+                box_pos, box_orn, (self._attach_offset(
+                    index, len(balloons)), 0, self.box_half_extents()[2]),
+                (0, 0, 0, 1))
+            center, _ = p.getBasePositionAndOrientation(balloon.id,
+                                                        physicsClientId=client)
+            start = np.asarray(start)
+            delta = np.asarray(center) - start
+            distance = float(np.linalg.norm(delta))
+            direction = delta / max(distance, 1e-8)
+            end = np.asarray(center) - direction * self.balloon_radius
+            # Cables indicate active attachment after abstract release;
+            # there is no simulated cable path from the rack to the box.
+            visible.add(balloon.name)
+            length_mm = max(
+                1, round(1000 * max(distance - self.balloon_radius, 0.001)))
+            if length_mm not in self._cable_shapes:
+                self._cable_shapes[length_mm] = p.createVisualShape(
+                    p.GEOM_CYLINDER,
+                    radius=0.0012,
+                    length=length_mm / 1000,
+                    rgbaColor=(0.22, 0.19, 0.14, 1.0),
+                    physicsClientId=client)
+            previous = self._cable_bodies.get(balloon.name)
+            if previous is None or previous[1] != length_mm:
+                if previous is not None:
+                    p.removeBody(previous[0], physicsClientId=client)
+                body = p.createMultiBody(
+                    baseMass=0,
+                    baseCollisionShapeIndex=-1,
+                    baseVisualShapeIndex=self._cable_shapes[length_mm],
+                    physicsClientId=client)
+                self._cable_bodies[balloon.name] = (body, length_mm)
+            body = self._cable_bodies[balloon.name][0]
+            # Rotate the cylinder's local z axis toward the balloon.
+            yaw = float(np.arctan2(direction[1], direction[0]))
+            pitch = float(np.arccos(np.clip(direction[2], -1, 1)))
+            p.resetBasePositionAndOrientation(body, (start + end) / 2,
+                                              p.getQuaternionFromEuler(
+                                                  (0, pitch, yaw)),
+                                              physicsClientId=client)
+        for name in set(self._cable_bodies) - visible:
+            p.removeBody(self._cable_bodies.pop(name)[0],
+                         physicsClientId=client)
+
+    def _get_state(self, _render_obs: bool = False) -> State:
+        state = super()._get_state(_render_obs)
+        if self.using_gui:
+            self._sync_cable_visuals()
+        return state
+
+    def render(self,
+               action: Optional[Action] = None,
+               caption: Optional[str] = None) -> Video:
+        self._sync_cable_visuals()
+        return super().render(action, caption)
 
     def _get_domain_specific_feature(self, obj: Object, feature: str) -> float:
         if obj.type.name == "box":
