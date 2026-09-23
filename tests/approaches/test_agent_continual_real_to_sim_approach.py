@@ -116,7 +116,11 @@ def _dispose_test_physics_clients(monkeypatch: Any) -> Iterator[None]:
 def _arm_flags() -> Dict[str, Any]:
     cfg = next(c for c in generate_run_configs(CONFIG, False)
                if c.env == "pybullet_boil")
-    flags = {k: v for k, v in cfg.flags.items() if k != "log"}
+    # The launcher pins machine-specific output paths; tests keep their own.
+    flags = {
+        k: v
+        for k, v in cfg.flags.items() if k not in ("log", "continual_runs_dir")
+    }
     flags.update(approach=cfg.approach,
                  env=cfg.env,
                  continual_render=False,
