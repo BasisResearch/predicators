@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Dict, \
 import numpy as np
 
 from predicators import utils
+from predicators.agent_sdk.preflight_audit import audit_safely
 from predicators.agent_sdk.primitive_policy import open_primitive_policy, \
     primitive_action, primitive_observation
 from predicators.agent_sdk.sketch_parsing import parse_sketch_from_text
@@ -465,7 +466,13 @@ def build_continual_tools(
             ctx.before_real_action()
         observer = observer or ExecutionObserver()
         observer.on_attempt = attempted
-        await session.executor.execute(request, progress, observer)
+        audit = ctx.execution_audit
+        prediction = audit_safely(audit, "before", request) if audit else None
+        try:
+            await session.executor.execute(request, progress, observer)
+        finally:
+            if audit is not None and prediction is not None:
+                audit_safely(audit, "after", prediction, progress)
 
     def _skill_reporter(lines: List[str], total: int = 0) -> ExecutionObserver:
         before: Set[GroundAtom] = set()

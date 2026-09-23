@@ -9,11 +9,13 @@ terms - the certificate's reason strings never reach the agent.
 """
 
 import numpy as np
+import pytest
 from gym.spaces import Box
 
 from predicators import utils
 from predicators.agent_sdk.belief_probe import BeliefProbe
 from predicators.agent_sdk.tools import ToolContext
+from predicators.envs.pybullet_domino.cascade_probe import _apply_process_step
 from predicators.structs import Action, GroundAtom, LowLevelTrajectory, \
     Object, ParameterizedOption, Predicate, State, Task, TaskEvaluator, Type
 
@@ -80,7 +82,7 @@ class _BandEvaluator(TaskEvaluator):
         return False, "band: outside the certified interval"
 
 
-def _run_refine(evaluator):
+def _make_probe(evaluator, model=None):
     utils.reset_config({
         # 200 uniform draws in [0, 1] make "no goal-reaching draw at all"
         # (p = 0.1 each) a 1e-9 event, so the certified/rejected paths
@@ -91,7 +93,8 @@ def _run_refine(evaluator):
     init = State({_block: np.array([0.0], dtype=np.float32)})
     goal = {GroundAtom(_ReachedHi, [_block])}
     task = Task(init, goal, evaluator=evaluator)
-    model = _Model()
+    if model is None:
+        model = _Model()
     ctx = ToolContext(
         types={_block_type},
         predicates={_ReachedHi},
@@ -102,11 +105,14 @@ def _run_refine(evaluator):
         option_model=model,
         current_task=task,
     )
-    probe = BeliefProbe(ctx).reset(task_idx=0)
-    return probe.refine(_SKETCH_TEXT,
-                        timeout=10,
-                        require_goal=True,
-                        require_solved=True)
+    return BeliefProbe(ctx).reset(task_idx=0)
+
+
+def _run_refine(evaluator, model=None):
+    return _make_probe(evaluator, model).refine(_SKETCH_TEXT,
+                                                timeout=10,
+                                                require_goal=True,
+                                                require_solved=True)
 
 
 def test_certified_refinement_reports_success():
@@ -171,3 +177,69 @@ def test_non_solve_attempt_recovered_by_resampling():
     assert res.total_samples >= 2
     assert "stub: first parameterization rejected" not in text
     assert "legitimate" not in text
+
+
+class _BrokenEvaluator(TaskEvaluator):
+    """An infrastructure failure is not a successful task certificate."""
+
+    def _certify(self, states, step_options, sim_env=None):
+        raise NotImplementedError("internal evaluator detail")
+
+
+class _CoarseModel(_Model):
+    """An option-boundary trace cannot certify a causal cascade."""
+
+    def get_next_state_and_num_actions(self, state, option):
+        result = super().get_next_state_and_num_actions(state, option)
+        self.last_trajectory = None
+        return result
+
+
+@pytest.mark.parametrize("coarse", [False, True])
+def test_unavailable_certificate_never_reports_solved(coarse):
+    """Exercise require_solved via the public API, including its report."""
+    goal = {GroundAtom(_ReachedHi, [_block])}
+    evaluator = (_BandEvaluator(goal, 0.9, 1.0)
+                 if coarse else _BrokenEvaluator(goal))
+    result = _run_refine(evaluator, _CoarseModel() if coarse else _Model())
+    assert not result.success
+    assert "evaluator-solved" not in result.verdict
+    assert result.near_miss is not None
+    assert "unavailable" in result.near_miss["reason"].lower()
+    assert "internal evaluator detail" not in str(result)
+
+
+@pytest.mark.parametrize(
+    "status",
+    ["accepted", "rejected", "error", "unavailable", "not_requested"])
+def test_trial_evaluation_status_is_explicit(status):
+    """Goal reach, task rejection and evaluator failure stay
+    distinguishable."""
+    goal = {GroundAtom(_ReachedHi, [_block])}
+    evaluator = (_BrokenEvaluator(goal) if status == "error" else
+                 _BandEvaluator(goal, 2.0 if status == "rejected" else 0.9,
+                                3.0 if status == "rejected" else 1.0))
+    model = _CoarseModel() if status == "unavailable" else _Model()
+    probe = _make_probe(evaluator, model)
+    result = probe.run("Move(block0:block)[1.0]",
+                       trials=2,
+                       solved=status != "not_requested")
+    assert result.successes == 2
+    assert all(t["evaluation_status"] == status for t in result.trials)
+    expected = {"accepted": True, "rejected": False}.get(status)
+    assert all(t["solved"] is expected for t in result.trials)
+    if status in {"error", "unavailable"}:
+        assert "NOT certified" in str(result)
+        assert "internal evaluator detail" not in str(result)
+
+
+def test_counterfactual_process_error_is_not_base_physics_success():
+    """A broken learned rule cannot be silently removed from a certificate."""
+
+    def broken_rule(_state, _action):
+        raise RuntimeError("broken learned dynamics")
+
+    state = State({_block: np.array([0.0], dtype=np.float32)})
+    with pytest.raises(RuntimeError, match="broken learned dynamics"):
+        _apply_process_step(None, broken_rule, state,
+                            Action(np.zeros(1, dtype=np.float32)))

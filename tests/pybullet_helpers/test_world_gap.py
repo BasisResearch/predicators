@@ -244,3 +244,75 @@ def test_fitted_scales_apply_per_type_and_never_compound(worlds: Any) -> None:
                 assert np.isclose(_bodies(twin)[body][1], mass)
     finally:
         twin.dispose()
+
+
+@pytest.mark.parametrize("env_name, present, absent", [
+    ("pybullet_boil", {"mass_scale_jug"}, set()),
+    ("pybullet_fan", {"mass_scale_ball", "friction_scale_ball"}, set()),
+    ("pybullet_bridge", {"mass_scale_block", "mass_scale_bottle"}, set()),
+    ("pybullet_domino", {"lateral_friction"},
+     {"mass_scale_domino", "friction_scale_domino", "mass_scale_block"}),
+    ("pybullet_balloons", {"mass_oak", "air_drag"}, {"mass_scale_box"}),
+])
+def test_each_domain_lists_its_calibration_menu(env_name: str, present: set,
+                                                absent: set) -> None:
+    """Every benchmark twin merges the calibration scales into its menu,
+    skipping the types its own menu covers, and accepts them back."""
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.envs import create_new_env
+    utils.reset_config({
+        "env": env_name,
+        "seed": 0,
+        "num_train_tasks": 1,
+        "num_test_tasks": 1,
+        "sim_calibration_menu": True,
+    })
+    env: Any = create_new_env(env_name,
+                              do_cache=False,
+                              use_gui=False,
+                              skip_residual_dynamics=True)
+    try:
+        info = env.get_physical_param_info()
+        assert "friction_scale_support" in info
+        assert present <= set(info), sorted(info)
+        assert not absent & set(info), sorted(info)
+        assert not any(k.endswith("_robot") for k in info)
+        env.apply_physical_param_overrides({"friction_scale_support": 1.2})
+        assert env._calibration.values["friction_scale_support"] == 1.2
+    finally:
+        env.dispose()
+
+
+def test_manifest_ignores_a_disconnected_worlds_assets() -> None:
+    """A world built on a client id a disconnected world used describes only
+    its own bodies' assets."""
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.envs import create_new_env
+
+    def twin(env_name: str) -> Any:
+        utils.reset_config({
+            "env": env_name,
+            "seed": 0,
+            "num_train_tasks": 1,
+            "num_test_tasks": 0
+        })
+        return create_new_env(env_name,
+                              do_cache=False,
+                              use_gui=False,
+                              skip_residual_dynamics=True)
+
+    clean = twin("pybullet_bridge")
+    state = clean._generate_train_tasks()[0].init
+    expected, _ = build_scene_manifest(clean, state)
+    clean.dispose()
+    # A URDF-heavy world disconnected without releasing its records.
+    boil = twin("pybullet_boil")
+    stale_client = boil._physics_client_id
+    p.disconnect(stale_client)
+    reused = twin("pybullet_bridge")
+    try:
+        assert reused._physics_client_id == stale_client
+        manifest, _ = build_scene_manifest(reused, state)
+        assert manifest["bodies"] == expected["bodies"]
+    finally:
+        reused.dispose()

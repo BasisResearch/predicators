@@ -40,6 +40,8 @@ import sys
 import time
 
 from predicators import utils
+from predicators.agent_sdk.account_limits import ACCOUNT_LIMITED_EXIT_CODE
+from predicators.agent_sdk.session_base import AccountLimitedError
 from predicators.cogman import CogMan
 from predicators.execution_monitoring import create_execution_monitor
 from predicators.perception import create_perceiver
@@ -100,6 +102,11 @@ if __name__ == "__main__":  # pragma: no cover
     # Write out the exception to the log file.
     try:
         main()
+    except AccountLimitedError as _err:
+        # A requeue-enabled batch script requeues this exit code; the
+        # restart picks another account and auto-resumes.
+        logging.error("main.py stopped: %s", _err)
+        sys.exit(ACCOUNT_LIMITED_EXIT_CODE)
     except Exception as _err:  # pylint: disable=broad-except
         logging.exception("main.py crashed")
         raise _err

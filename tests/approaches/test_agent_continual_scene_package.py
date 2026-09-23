@@ -98,7 +98,9 @@ def test_boil_plays_on_the_twin_with_the_package(tmp_path: Any,
         assert "scene/scene_manifest.json" in refs
         assert "assets/urdf/jug-pixel.urdf" in refs
         assert "base_sim/scene_base.py" not in refs
-        assert not any("pybullet_boil" in r for r in refs)
+        # The twin's observable core is listed; the hidden module never.
+        assert "base_sim/pybullet_boil_base.py" in refs
+        assert not any("pybullet_boil.py" in r for r in refs)
         manifest = json.loads(
             (sandbox / "reference/scene/scene_manifest.json").read_text())
         assert manifest["objects"]["jug0"] == "jug"

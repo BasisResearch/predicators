@@ -29,12 +29,12 @@ Physical layout (a tabletop, the robot at the near side):
   per balloon, directly in front of it. ``is_on`` is the switch's
   latched state; the robot pushes a clip open. Nothing in this file
   says what opening one does.
-- The ``band``: a translucent slab floating beside the box's column,
+- The ``band``: a translucent slab crossing the box's chute,
   spanning the heights the goal wants the box to float at.
 - The ``ceiling``: a plate drawn over the table, at ``ceiling_z``.
   Nothing in this file says what reaching it does to a balloon.
 """
-from typing import Any, ClassVar, Dict, List, Set, Tuple
+from typing import Any, ClassVar, Dict, FrozenSet, List, Set, Tuple
 
 import numpy as np
 import pybullet as p
@@ -57,6 +57,9 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
     domain-specific step, so env discovery skips it; the concrete env is
     ``PyBulletBalloonsEnv``.
     """
+
+    # The menu below already exposes the boxes' mass and friction.
+    CALIBRATION_COVERED_TYPES: ClassVar[FrozenSet[str]] = frozenset({"box"})
 
     @classmethod
     def get_base_sim_source_files(cls) -> List[str]:
@@ -106,8 +109,8 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
     # LAYOUT
     # =========================================================================
     box_half: ClassVar[float] = 0.035
-    # The box sits at the left of the table, clear of the rack.
-    box_xy: ClassVar[Tuple[float, float]] = (0.42, 1.2)
+    # The box and chute align with the balloon row, clear of the rack.
+    box_xy: ClassVar[Tuple[float, float]] = (0.42, 1.42)
     box_z: ClassVar[float] = table_height + box_half
     # The mass every box has in this file.
     box_base_mass: ClassVar[float] = 0.1
@@ -214,10 +217,10 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
               2 * cls.balloon_radius * tier)
         return float(dx), float(dy), float(dz)
 
-    # The band: a translucent slab beside the box's column. Its ``lo``
-    # and ``hi`` are heights of the box's centre.
-    band_offset_x: ClassVar[float] = -0.08
-    band_half_xy: ClassVar[float] = 0.03
+    # The band crosses the box's column and both chute walls. It is visual
+    # only; ``lo`` and ``hi`` remain heights of the box's centre.
+    band_offset_x: ClassVar[float] = 0.0
+    band_half_xy: ClassVar[float] = 0.075
     band_color: ClassVar[Tuple[float, float, float,
                                float]] = (0.30, 0.80, 0.40, 0.45)
 
@@ -399,9 +402,10 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
             "description": ("linear damping of the box and the balloons: "
                             "the engine's velocity decay per second"),
         }
-        return {**info, **self._agent_param_info()}
+        return {**info, **self._agent_param_info(), **self._calibration_info()}
 
     def apply_physical_param_overrides(self, params: Dict[str, float]) -> None:
+        params = self._take_calibration_params(params)
         unknown = set(params) - set(self.get_physical_param_info())
         if unknown:
             raise ValueError(f"Unknown physical params: {sorted(unknown)}")

@@ -92,6 +92,13 @@ Apply a mechanism to every relevant object or pair, using stable object names fo
 Do not put mutable model state on shared `Object` instances or class attributes.
 Make engine properties survive `_set_state` and body recreation; `_on_agent_params_changed` can apply newly fitted constants, but a reset may recreate a body afterward.
 Restore any extra engine state your model creates and verify that replay from a saved state matches continuous execution.
+If inferred memory creates attachments or other persistent engine effects, implement `restore_model_state(self)` to realize them immediately after reset, before controller initiation and motion planning.
+The hook must be idempotent: do not step physics, advance counters, snap poses, or infer new joints there.
+For rigid links inferred by your own observation-driven model, call `self.restore_model_attachments([(name_a, name_b), ...])` from this hook and when the inferred links change during dynamics.
+This registers links for held-assembly collision checking and snapshot restoration; creating an unregistered engine constraint is insufficient.
+The helper does not supply attachment rules or infer links from the real environment.
+Run `sim.reset(current=True).check_restore()` after model edits and before trusting a held-assembly rehearsal.
+It checks pose and inferred-memory round trips in fresh worlds without physical steps; a pass does not establish that your inferred memory is correct.
 
 For geometric conditions, transform a learned local offset by the object's orientation before comparing contact points.
 Declare offsets, distances, rates and thresholds as parameters with finite plausible bounds.

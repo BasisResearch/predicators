@@ -18,6 +18,40 @@ from scripts.cluster_utils import SingleSeedRunConfig, config_to_cmd_flags, \
 from tests.code_sim_learning.test_continual_oracle import _load
 
 
+def test_oracle_repair_pilot_is_six_new_preflight_off_runs() -> None:
+    """The pilot cannot launch other domains or resume historical seeds."""
+    runs = list(
+        generate_run_configs(
+            "predicatorv3/continual_oracle_validation_r2.yaml", False))
+    assert len(runs) == 6
+    assert {r.env for r in runs} == {"pybullet_bridge", "pybullet_domino"}
+    seeds = set()
+    for run in runs:
+        assert isinstance(run, SingleSeedRunConfig)
+        seeds.add(run.seed)
+        assert run.approach == "agent_continual_oracle_dynamics"
+        assert run.flags["continual_skill_preflight"] is False
+        assert "benchmark_r2" in run.experiment_id
+    assert seeds == {0, 1, 2}
+
+
+def test_empiric_r2_is_ten_new_shadow_runs() -> None:
+    """The prospective round has two fresh seeds, no mandatory gate."""
+    runs = list(
+        generate_run_configs(
+            "predicatorv3/continual_empiric_benchmark_r2.yaml", False))
+    assert len(runs) == 10
+    assert len({r.env for r in runs}) == 5
+    for run in runs:
+        assert isinstance(run, SingleSeedRunConfig)
+        assert run.seed in (3, 4)
+        assert run.approach == "agent_continual"
+        assert run.flags["continual_skill_preflight"] is False
+        assert run.flags["continual_validation_audit"] is True
+        assert run.flags["continual_validation_audit_seconds"] == 600.
+        assert run.experiment_id.endswith("-mb_opus_benchmark_r2")
+
+
 def test_transfer_comparisons_preserve_arm_contracts(monkeypatch: Any) -> None:
     """The current eight-arm benchmark uses the four-span task consistently.
 

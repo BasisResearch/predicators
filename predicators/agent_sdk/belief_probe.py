@@ -295,7 +295,10 @@ class ProbeTrialsResult(_StrLikeResult):
     plain ``run(plan, seed=...)`` executes on the WARM shared env, a
     different substrate that reads optimistic; with
     ``solved=True`` also ``solved``/``reward`` from the task evaluator,
-    ``None`` when the verdict errored). ``successes`` counts
+    ``None`` when the check is unavailable or errored), plus
+    ``evaluation_status`` (accepted, rejected, unavailable, error, or
+    not_requested) and a non-sensitive ``evaluation_error`` diagnostic.
+    ``successes`` counts
     goal-reaching trials. The current state is NOT advanced - repeated
     trials are a measurement, not a navigation step.
     """
@@ -307,7 +310,7 @@ class ProbeTrialsResult(_StrLikeResult):
     def __repr__(self) -> str:
         n = len(self.trials)
         env_note = ("fresh physics env + varied motion-planner seed per "
-                    "trial - the rate estimates real execution reliability"
+                    "trial - reliability under this model and start state"
                     if self.fresh_env_per_trial else
                     "shared session env - trials are correlated, treat the "
                     "rate as optimistic; this session has no fresh-env "
@@ -333,6 +336,9 @@ class ProbeTrialsResult(_StrLikeResult):
             if t.get("solved") is not None:
                 line += (f" - evaluator: solved={t['solved']}, "
                          f"reward={t['reward']:.2f}")
+            elif t.get("evaluation_status") in {"unavailable", "error"}:
+                line += (f" - evaluator: {t['evaluation_status']} "
+                         f"({t['evaluation_error']}); NOT certified")
             lines.append(line)
         replay_notes = [t["note"] for t in scored if t.get("note")]
         if replay_notes:
@@ -700,6 +706,15 @@ class BeliefProbe:
             return provider()
         return self._ctx.option_model
 
+    def _fresh_scope(self) -> Optional[Callable[..., Any]]:
+        """Select isolation for the model this probe actually executes."""
+        if not ValidationConfig.from_cfg().fresh_env:
+            return None
+        ctx = self._ctx
+        if ctx.probe_option_model_provider is not None:
+            return ctx.probe_validation_env_scope
+        return ctx.validation_env_scope
+
     def reset(self,
               task_idx: Optional[int] = None,
               mods: Optional[Modifications] = None,
@@ -782,6 +797,17 @@ class BeliefProbe:
                 "features": feats
             } for name, feats in mods.items()]
         return list(mods)
+
+    def check_restore(self) -> Dict[str, Any]:
+        """Check current candidate memory/poses across fresh worlds, no ticks.
+
+        This checks reconstruction, not whether the inferred state is
+        true. Use after model edits and on held assemblies before
+        trusting lifts.
+        """
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.restoration import check_restore
+        return check_restore(self._ctx, self._require_state())
 
     def snapshot(self) -> int:
         """Bank a copy of the current state; returns an id for restore.
@@ -1236,10 +1262,7 @@ class BeliefProbe:
         from_belief = (isinstance(belief, BeliefFrame)
                        and ctx.current_observation is not None
                        and current.allclose(ctx.current_observation))
-        fresh_scope = (ctx.validation_env_scope
-                       if ValidationConfig.from_cfg().fresh_env
-                       and ctx.validation_env_scope is not None
-                       and ctx.probe_option_model_provider is None else None)
+        fresh_scope = self._fresh_scope()
         if fresh_scope is None:
             notices.append("no fresh-env scope in this session: the draws "
                            "ran on the shared env, so they are correlated.")
@@ -1611,11 +1634,7 @@ class BeliefProbe:
                                           notices)
 
         if physics_sweep:
-            fresh_scope = (ctx.validation_env_scope
-                           if ValidationConfig.from_cfg().fresh_env
-                           and ctx.validation_env_scope is not None
-                           and ctx.probe_option_model_provider is None else
-                           None)
+            fresh_scope = self._fresh_scope()
             if fresh_scope is None:
                 raise ValueError(
                     "physics_sweep=True needs the session's fresh-env "
@@ -1738,16 +1757,9 @@ class BeliefProbe:
             return ProbeSweepResult(point_dicts, sweep_successes, notices)
 
         if trials > 1:
-            # Fresh physics per trial when the session provides the scope
-            # (solve sessions do; a synthesis probe's candidate model has
-            # its own env, which the scope does not manage). Same CFG gate
-            # as submit_plan's validation rollouts, so the two
-            # surfaces sample the same distribution.
-            fresh_scope = (ctx.validation_env_scope
-                           if ValidationConfig.from_cfg().fresh_env
-                           and ctx.validation_env_scope is not None
-                           and ctx.probe_option_model_provider is None else
-                           None)
+            # The candidate-aware scope preserves the deployed model while
+            # replacing physics for every trial, including synthesis.
+            fresh_scope = self._fresh_scope()
             trial_dicts: List[Dict[str, Any]] = []
             base_planner_seed = seed if seed is not None else CFG.seed
 
@@ -1755,6 +1767,10 @@ class BeliefProbe:
                 trial_solved: Optional[bool] = None
                 trial_reward: Optional[float] = None
                 trial_note = ""
+                evaluation_status = ("unavailable" if evaluator is not None
+                                     else "not_requested")
+                evaluation_error = ("per-step states missing"
+                                    if evaluator is not None else "")
                 coarse = False
                 # decorrelated_rollout_seed: a fresh env alone gives
                 # bit-identical repeats (motion planning reads the
@@ -1797,7 +1813,10 @@ class BeliefProbe:
                     # Score INSIDE the scope: the evaluator's
                     # certificate probes at the (fresh) env the
                     # rollout ran on, same as the capture path.
-                    if (collector is not None and len(collector.states) > 1):
+                    if collector is not None:
+                        coarse = collector.coarse
+                    if (collector is not None and not coarse
+                            and len(collector.states) > 1):
                         try:
                             verdict = evaluate_states_with(
                                 evaluator,
@@ -1812,13 +1831,18 @@ class BeliefProbe:
                             trial_reward = float(verdict["reward"])
                             trial_solved = bool(verdict["solved"])
                             trial_note = str(verdict.get("note") or "")
-                            # Only a produced verdict can be coarse; an
-                            # errored one must not trip the coarse
-                            # caveat.
-                            coarse = collector.coarse
+                            evaluation_status = ("accepted" if trial_solved
+                                                 else "rejected")
+                            evaluation_error = ""
                         except Exception as e:  # pylint: disable=broad-except
                             logging.debug("Trial evaluator verdict failed: %s",
                                           e)
+                            trial_solved = None
+                            trial_reward = None
+                            evaluation_status = "error"
+                            # Exception messages can contain private task
+                            # rules or values. Keep details in host logs.
+                            evaluation_error = type(e).__name__
                 failure: Optional[str] = None
                 if r.first_failure_idx is not None:
                     fs = r.steps[r.first_failure_idx]
@@ -1834,6 +1858,8 @@ class BeliefProbe:
                     "reward": trial_reward,
                     "note": trial_note,
                     "verdict_coarse": coarse,
+                    "evaluation_status": evaluation_status,
+                    "evaluation_error": evaluation_error,
                     "planner_seed": base_planner_seed + trial_idx,
                     "inexact_start_features": sorted(set(trial_inexact)),
                 }
@@ -1862,14 +1888,12 @@ class BeliefProbe:
             if evaluator is not None:
                 if any(t["verdict_coarse"] for t in trial_dicts):
                     notices.append(
-                        "some verdicts are coarse (per-step states were "
-                        "unavailable, scored on option-boundary states "
-                        "only) - a coarse verdict can falsely reject.")
-                if any(t["goal_reached"] and t["solved"] is None
-                       for t in trial_dicts):
+                        "per-step states were unavailable for some trials; "
+                        "their evaluator checks are unavailable, NOT passes.")
+                if any(t["evaluation_status"] == "error" for t in trial_dicts):
                     notices.append(
-                        "the evaluator errored on some goal-reaching "
-                        "trials, so their solved verdicts are missing.")
+                        "the evaluator errored on some trials; these are "
+                        "NOT certified, even if the goal atoms held.")
             budget = utils.real_episode_step_budget(ctx.phase)
             over = [
                 t for t in trial_dicts
@@ -1897,16 +1921,11 @@ class BeliefProbe:
 
         run_fresh_scope = None
         if fresh:
-            run_fresh_scope = (ctx.validation_env_scope
-                               if ValidationConfig.from_cfg().fresh_env
-                               and ctx.validation_env_scope is not None
-                               and ctx.probe_option_model_provider is None else
-                               None)
+            run_fresh_scope = self._fresh_scope()
             if run_fresh_scope is None:
                 raise ValueError(
                     "fresh=True needs the session's fresh-env scope "
-                    "(unavailable here - synthesis sessions run the "
-                    "candidate model on its own env). Rerun without "
+                    "(unavailable for this model). Rerun without "
                     "fresh=True.")
             if render:
                 render = False
@@ -2133,11 +2152,7 @@ class BeliefProbe:
                                           max_policy_options=max_opts)
 
         if trials > 1:
-            fresh_scope = (ctx.validation_env_scope
-                           if ValidationConfig.from_cfg().fresh_env
-                           and ctx.validation_env_scope is not None
-                           and ctx.probe_option_model_provider is None else
-                           None)
+            fresh_scope = self._fresh_scope()
             trial_dicts: List[Dict[str, Any]] = []
             base_planner_seed = seed if seed is not None else CFG.seed
             try:
@@ -2447,10 +2462,8 @@ class BeliefProbe:
         if require_solved:
             require_goal = True
             evaluator = self._require_solved_evaluator("require_solved")
-            # Same gate (and therefore same accept policy: coarse and
-            # evaluator errors never block, non-terminated never blocks)
-            # as submit_plan, so identical params can't get
-            # contradictory verdicts across the two surfaces.
+            # An unavailable certificate must not become a successful
+            # refinement, even when the goal predicates hold.
             inner_check = make_solved_check(
                 evaluator, getattr(self._option_model(), "sim_env", None))
 

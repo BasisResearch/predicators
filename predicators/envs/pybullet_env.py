@@ -56,7 +56,8 @@ from predicators.pybullet_helpers import retry_pybullet_call, studio_visuals, \
 from predicators.pybullet_helpers.geometry import Pose, Pose3D, Quaternion
 from predicators.pybullet_helpers.joint import JointPositions
 from predicators.pybullet_helpers.link import get_link_state
-from predicators.pybullet_helpers.objects import update_object
+from predicators.pybullet_helpers.objects import begin_asset_build, \
+    drop_stale_assets, forget_client_assets, update_object
 from predicators.pybullet_helpers.real_robot_bridge import \
     GripperJointLayout, gripper_joint_layout_from_robot
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot, \
@@ -294,6 +295,10 @@ class PyBulletEnv(BaseEnv):
     _gui_background_rgb: ClassVar[Optional[Tuple[float, float, float]]] = \
         (0.82, 0.83, 0.85)
     _gui_light_position: ClassVar[Optional[Tuple[float, float, float]]] = None
+    # Object types whose mass and friction the domain's own physical-
+    # parameter menu already exposes; the calibration menu
+    # (CFG.sim_calibration_menu) adds no scales for them.
+    CALIBRATION_COVERED_TYPES: ClassVar[FrozenSet[str]] = frozenset()
     _gui_shadow_map_resolution: ClassVar[Optional[int]] = 8192
     _gui_shadow_map_world_size: ClassVar[Optional[int]] = 6
 
@@ -342,18 +347,24 @@ class PyBulletEnv(BaseEnv):
         # object-name pair. Reconciled against the pending commands once
         # per action (re-emit-to-persist), cleared at episode reset.
         self._cmd_weld_constraints: Dict[FrozenSet[str], int] = {}
+        # Persistent candidate-owned links, unlike one-action rule commands.
+        self._model_attachment_pairs: Set[FrozenSet[str]] = set()
 
         # Set up all the static PyBullet content. With CFG.sim_gap the
         # live world (never a planning twin) is built with hidden
         # deviations from its nominal description.
         world_gap.begin_world(world_gap.WorldGap.from_cfg(
         ) if CFG.sim_gap and not skip_residual_dynamics else None)
+        asset_build = begin_asset_build()
         try:
             self._physics_client_id, self._pybullet_robot, pybullet_bodies = \
                 self.initialize_pybullet(self.using_gui)
         finally:
             self._world_gap = world_gap.bind_world(
                 getattr(self, "_physics_client_id", -1))
+        # Asset records a disconnected world left on this client id would
+        # mislabel this world's bodies in a scene manifest.
+        drop_stale_assets(self._physics_client_id, asset_build)
         if self._world_gap is not None:
             self._world_gap.configure_engine(self._physics_client_id)
         self._store_pybullet_bodies(pybullet_bodies)
@@ -381,7 +392,8 @@ class PyBulletEnv(BaseEnv):
         if CFG.sim_calibration_menu and self._world_gap is None:
             self._calibration = world_gap.CalibrationMenu(
                 type_name for body, type_name in self._body_types().items()
-                if p.getDynamicsInfo(
+                if type_name not in self.CALIBRATION_COVERED_TYPES
+                and p.getDynamicsInfo(
                     body, -1, physicsClientId=self._physics_client_id)[0] > 0.0
             )
         # Texture any table(s) the env registered (every env uses the
@@ -1099,7 +1111,7 @@ class PyBulletEnv(BaseEnv):
             if isinstance(cmd, Attach)
         }
         for key in list(self._cmd_weld_constraints):
-            if key not in desired:
+            if key not in desired and key not in self._model_attachment_pairs:
                 p.removeConstraint(self._cmd_weld_constraints.pop(key),
                                    physicsClientId=self._physics_client_id)
         if not desired:
@@ -1119,7 +1131,47 @@ class PyBulletEnv(BaseEnv):
             self._cmd_weld_constraints[key] = self._create_command_weld(
                 body_a, body_b)
 
-    def _create_command_weld(self, body_a: int, body_b: int) -> int:
+    def restore_model_attachments(self,
+                                  pairs: Sequence[Sequence[str]]) -> None:
+        """Realize model-inferred rigid links before a controller plans.
+
+        The candidate owns the list, usually in model_state. No hidden
+        attachment inference happens here. Registered links participate
+        in held-assembly collision checks and snapshots. Repeated calls
+        are idempotent and never snap body poses or advance physics.
+        """
+        ids = self._residual_command_body_ids()
+        desired = {}
+        for pair in pairs:
+            if len(pair) != 2 or pair[0] == pair[1]:
+                raise ValueError(f"Invalid model attachment: {pair}")
+            if any(name not in ids for name in pair):
+                raise ValueError(f"Unknown model attachment object: {pair}")
+            desired[frozenset(pair)] = pair
+        for key in self._model_attachment_pairs - desired.keys():
+            if key in self._cmd_weld_constraints:
+                p.removeConstraint(self._cmd_weld_constraints.pop(key),
+                                   physicsClientId=self._physics_client_id)
+        self._model_attachment_pairs = set(desired)
+        for key, (left, right) in desired.items():
+            if key not in self._cmd_weld_constraints:
+                self._cmd_weld_constraints[key] = self._create_command_weld(
+                    ids[left], ids[right])
+
+    def restore_model_state(self) -> None:
+        """Optional candidate hook after poses and inferred memory reset.
+
+        Rebuild model-owned engine effects, without advancing dynamics
+        or changing poses/memory. This runs before skill
+        initiation/planning. The default does nothing; observed history
+        remains the candidate's responsibility. Implementations must be
+        idempotent.
+        """
+
+    def _create_command_weld(self,
+                             body_a: int,
+                             body_b: int,
+                             frames: Optional[Dict[str, Any]] = None) -> int:
         """Weld ``body_b`` to ``body_a`` at their CURRENT relative pose.
 
         The frame lives in the parent's (``body_a``) frame with an
@@ -1132,17 +1184,19 @@ class PyBulletEnv(BaseEnv):
             body_b, physicsClientId=self._physics_client_id)
         inv_pos, inv_orn = p.invertTransform(pos_a, orn_a)
         rel_pos, rel_orn = p.multiplyTransforms(inv_pos, inv_orn, pos_b, orn_b)
-        cid = p.createConstraint(parentBodyUniqueId=body_a,
-                                 parentLinkIndex=-1,
-                                 childBodyUniqueId=body_b,
-                                 childLinkIndex=-1,
-                                 jointType=p.JOINT_FIXED,
-                                 jointAxis=[0, 0, 0],
-                                 parentFramePosition=rel_pos,
-                                 parentFrameOrientation=rel_orn,
-                                 childFramePosition=[0, 0, 0],
-                                 childFrameOrientation=[0, 0, 0, 1],
-                                 physicsClientId=self._physics_client_id)
+        saved = frames or {}
+        cid = p.createConstraint(
+            parentBodyUniqueId=body_a,
+            parentLinkIndex=-1,
+            childBodyUniqueId=body_b,
+            childLinkIndex=-1,
+            jointType=p.JOINT_FIXED,
+            jointAxis=[0, 0, 0],
+            parentFramePosition=saved.get("parent_position", rel_pos),
+            parentFrameOrientation=saved.get("parent_orientation", rel_orn),
+            childFramePosition=saved.get("child_position", [0, 0, 0]),
+            childFrameOrientation=saved.get("child_orientation", [0, 0, 0, 1]),
+            physicsClientId=self._physics_client_id)
         # PyBullet's default maxForce (500) sags under cantilevered
         # load (see the bridge env's weld_max_force).
         p.changeConstraint(cid,
@@ -1155,6 +1209,7 @@ class PyBulletEnv(BaseEnv):
         for cid in self._cmd_weld_constraints.values():
             p.removeConstraint(cid, physicsClientId=self._physics_client_id)
         self._cmd_weld_constraints.clear()
+        self._model_attachment_pairs.clear()
 
     def _command_weld_records(self) -> List[Tuple[str, str]]:
         """Live command welds as sorted ``(parent_name, child_name)`` pairs.
@@ -1179,6 +1234,28 @@ class PyBulletEnv(BaseEnv):
             records.append((parent, child))
         return sorted(records)
 
+    def _command_weld_frame_records(self) -> List[Dict[str, Any]]:
+        """Preserve model-owned joint frames, not merely current body poses."""
+        names = {
+            body: name
+            for name, body in self._residual_command_body_ids().items()
+        }
+        records = []
+        for cid in self._cmd_weld_constraints.values():
+            info = p.getConstraintInfo(cid,
+                                       physicsClientId=self._physics_client_id)
+            if info[0] not in names or info[2] not in names:
+                continue
+            records.append({
+                "parent": names[info[0]],
+                "child": names[info[2]],
+                "parent_position": info[6],
+                "child_position": info[7],
+                "parent_orientation": info[8],
+                "child_orientation": info[9]
+            })
+        return sorted(records, key=lambda r: (r["parent"], r["child"]))
+
     def _restore_commanded_attachments(self, state: State) -> None:
         """Rebuild the command welds a restored State carries.
 
@@ -1188,9 +1265,9 @@ class PyBulletEnv(BaseEnv):
         simulator posing the carried assembly for collision checks - to
         see one rigid body, exactly as the env's own native welds are
         rebuilt from the privileged channel. Each recorded pair is
-        re-frozen at the RESTORED relative pose (the recorded frame
-        belongs to the poses the constraint was created at; after a
-        teleport a stale frame would make the solver yank the pair).
+        restored with its saved local frames when present. A deflected
+        beam must not acquire a different rest shape on reconstruction.
+        Legacy snapshots without frames use the restored relative pose.
         During stepping the emitting rule stays the authority: a pair
         it no longer re-emits is dropped by the per-action reconcile.
         """
@@ -1201,6 +1278,8 @@ class PyBulletEnv(BaseEnv):
         if not records:
             return
         ids_by_name = self._residual_command_body_ids()
+        frames = {(r["parent"], r["child"]): r
+                  for r in sim_state.get("command_weld_frames", ())}
         for parent_name, child_name in records:
             key = frozenset((parent_name, child_name))
             if key in self._cmd_weld_constraints:
@@ -1214,7 +1293,7 @@ class PyBulletEnv(BaseEnv):
                     child_name)
                 continue
             self._cmd_weld_constraints[key] = self._create_command_weld(
-                body_a, body_b)
+                body_a, body_b, frames.get((parent_name, child_name)))
 
     def _weld_constraint_edges(self) -> Dict[FrozenSet[int], int]:
         """Every live rigid-attachment constraint, as ``{frozenset({body_a,
@@ -1662,6 +1741,7 @@ class PyBulletEnv(BaseEnv):
         self._restore_commanded_attachments(state)
         # 5) Subclass-specific state always runs (idempotent and cheap).
         self._set_domain_specific_state(state)
+        self.restore_model_state()
 
         # 6) Reconstruction check - only when we actually wrote something
         # kinematic. React by mismatch magnitude (see the threshold
@@ -2218,6 +2298,8 @@ class PyBulletEnv(BaseEnv):
         command_welds = self._command_weld_records()
         if command_welds:
             sim_state_dict["command_welds"] = command_welds
+            sim_state_dict[
+                "command_weld_frames"] = self._command_weld_frame_records()
         # Body velocities ride along by object NAME: a state read while
         # something flies or slides restores as flying or sliding (see
         # _reset_single_object), so a derived ``speed`` feature
@@ -2757,6 +2839,7 @@ class PyBulletEnv(BaseEnv):
     def dispose(self) -> None:
         """Disconnect this instance's PyBullet client."""
         world_gap.release_world(self._physics_client_id)
+        forget_client_assets(self._physics_client_id)
         p.disconnect(self._physics_client_id)
 
     # ── Task Utilities ──────────────────────────────────────────

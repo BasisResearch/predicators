@@ -94,6 +94,9 @@ class ToolContext:
     # skill fails there, or None when the request may run. Nothing is
     # charged for a refusal; force=true on the request skips it.
     skill_preflight: Optional[Callable[[str], Optional[str]]] = None
+    # Optional nonblocking observer of requested and executed actions.
+    # Kept separate from the legacy refusal callback, including raw routes.
+    execution_audit: Optional[Any] = None
     # Synthesis-session ``sim.residuals`` backend: computes the
     # per-feature residual report for the current simulator.py rules
     # (see ``SynthesisToolkit.residuals_runner``). None in solve
@@ -241,6 +244,10 @@ class ToolContext:
     # None ⇒ validation rollouts share the session env. Gated by
     # agent_plan_validation_fresh_env.
     validation_env_scope: Optional[Callable[..., Any]] = None
+    # Candidate-aware counterpart: loads the deployed candidate before
+    # cloning its physics and rebinds its option model for the whole rollout.
+    # Never substitute the solve-time model for a synthesis candidate.
+    probe_validation_env_scope: Optional[Callable[..., Any]] = None
     # Physics-margin points for the capture gate: a zero-arg callable
     # returning the current grid of perturbations spanning +-1 posterior
     # sigma of the identified physical params (full override dicts,

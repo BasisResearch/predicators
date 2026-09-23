@@ -535,6 +535,28 @@ def test_fresh_validation_env_scope_applies_physics_overrides(monkeypatch):
     assert disposed == [fresh_env]
 
 
+def test_fresh_candidate_scope_preserves_deployed_params(monkeypatch):
+    """An unfitted candidate uses deployed values, not declaration defaults."""
+    prev_env, fresh_env = _FakeScopeEnv(), _FakeScopeEnv()
+    monkeypatch.setattr(prev_env,
+                        "_agent_param_values", {"friction": 0.63},
+                        raising=False)
+    disposed = []
+    approach = _make_scope_approach(monkeypatch, prev_env, fresh_env, disposed)
+    candidate = SimpleNamespace(_simulator=prev_env.simulate, sim_env=prev_env)
+    stale = SimpleNamespace(_simulator=prev_env.simulate, sim_env=prev_env)
+    approach._option_model = stale
+    approach._tool_context = SimpleNamespace(
+        probe_option_model_provider=lambda: candidate)
+    with approach._fresh_candidate_validation_scope():
+        assert candidate.sim_env is fresh_env
+        assert stale.sim_env is prev_env
+        assert fresh_env.overrides == {"friction": 0.63}
+    assert candidate.sim_env is prev_env
+    assert stale.sim_env is prev_env
+    assert disposed == [fresh_env]
+
+
 def test_apply_identified_params_clears_sigma_points():
     """Any (re)application of identified params invalidates the standing.
 
