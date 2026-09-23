@@ -13,9 +13,9 @@
     1080
   ],
   "teaser_crop": [
-    180,
+    80,
     110,
-    680,
+    580,
     540
   ],
   "measured": [
@@ -138,7 +138,7 @@
       "video_sha256": "0b78b088d25e1697259b66f64ca2a918386eaf860f37b398a7810b1a8b650435",
       "frame_index": 0,
       "time_s": 0.0,
-      "sha256": "70a2aa6e82b09201df319d1e990867453054461b884b3c8304ffeda1ca645a6b"
+      "sha256": "80c0938c21bca3d3017977f7e0430156f4488205ef128aa669194b27ac9511cf"
     },
     {
       "name": "real_fan_domino_win",
@@ -147,7 +147,7 @@
       "video_sha256": "0b78b088d25e1697259b66f64ca2a918386eaf860f37b398a7810b1a8b650435",
       "frame_index": 2790,
       "time_s": 93.0,
-      "sha256": "2303f86cf4cbe0e23057dca34cc571fe959edb10f4d941181089b5665ee79769"
+      "sha256": "1eb9f6c4609efce27486ca680f332d90598d8c20c5db457233fc6776750ecca9"
     }
   ]
 }

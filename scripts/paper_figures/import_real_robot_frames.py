@@ -37,7 +37,7 @@ FPS = 15
 # Figure 1 shows the test task before and after the run, from the front
 # camera in the left half of the side-by-side test video.
 TEASER = [("casc_test.mp4", 0, "start"), ("casc_test.mp4", 2790, "win")]
-TEASER_CROP = (180, 110, 680, 540)
+TEASER_CROP = (80, 110, 580, 540)
 TEASER_FPS = 30
 
 
