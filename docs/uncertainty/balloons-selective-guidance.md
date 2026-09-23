@@ -38,7 +38,7 @@ The CDF gap is descriptive; it is not a p-value or a complete convergence test.
 
 This supports a concrete numerical concern: concentration inherited from the initial proposal and resampling can persist even along directions where the checked likelihood does not change.
 A higher likelihood at a retained point cannot establish that its surrounding parameter uncertainty is correct.
-The new default-centered fits remain a separate ongoing comparison and are not replaced by this diagnostic.
+The default-centered fits remain a separate comparison and are not replaced by this diagnostic.
 
 ## Target-preserving numerical change
 
@@ -73,12 +73,12 @@ Its particle decoder binds the new guide and all five uniform-coordinate selecti
 
 ## Remaining acceptance work
 
-Compare these populations with the original and default-centered fits, keeping each treatment's identity and proposal mapping separate.
+The completed comparison below retains the original and default-centered fits with their separate identities and proposal mappings.
 Check parameter marginals, independent-run agreement, budget sensitivity and full weighted reserved-action predictions.
 Broader marginals alone do not establish adequate inference in the remaining scene and dynamics coordinates.
 Improving numerical exploration also does not fix an inadequate dynamics or discrepancy model.
 The [Balloons transition diagnostics](balloons-transition-sensitivity.md) remain relevant to that separate predictive issue.
-No Stage B acceptance or live-agent improvement follows from this experiment's launch.
+No Stage B acceptance or live-agent improvement follows from the completed comparison.
 
 
 ## Weighted prediction pipeline
@@ -112,3 +112,76 @@ The exact shell failure was reproduced, and replacement reader array `22755276` 
 Comparison `22755277` follows successful completion of both readers.
 No fit or forecast is regenerated for this invocation-only recovery.
 The recovery manifest and outputs are in `logs/uncertainty_balloons_selective_reader_recovery_20260914`.
+
+## Completed comparison and information limitation
+
+Recovery readers `22755276_0` and `22755276_1` completed in 27:58 and 28:15, followed by comparison `22755277` in twenty seconds.
+Each reader checks 1,024 histories, 2,165,760 joint factors or draws, 153,088 radial-density references and all 64 retained particles' native prefixes, using 4,096 reference actions.
+The reader source, script and plan hashes match the frozen files.
+The completed comparison is `logs/uncertainty_balloons_selective_reader_recovery_20260914/comparison.json`; all eighteen referenced source hashes and its script and plan hashes were verified.
+No fitting or forecasting output was regenerated for the reader recovery.
+
+The table reports predictions on the same development continuation, not agent solve-rate seeds.
+The clean trajectory finishes at the goal with no burst.
+The incumbent row is its selected-point forecast and retains its different state preparation and historical defaults.
+
+| Treatment | Numerical seed | Box-height RMSE | Box-speed RMSE | Final burst probability | Final goal probability |
+|---|---:|---:|---:|---:|---:|
+| Incumbent selected point | N/A | 0.0100 | 0.0480 | 0 | 0 |
+| Original proposal | 620 | 0.1617 | 0.6034 | 0.4234 | 0 |
+| Original proposal | 621 | 0.0973 | 0.3461 | 0.7037 | 0 |
+| Default-centered proposal | 620 | 0.1890 | 0.0841 | 0 | 0.0156 |
+| Default-centered proposal | 621 | 0.1755 | 0.1167 | 0.0007 | 0 |
+| Selective proposal and refresh | 620 | 0.2146 | 0.4759 | 0.9922 | 0 |
+| Selective proposal and refresh | 621 | 0.2098 | 0.4678 | 0.9688 | 0 |
+
+The selective proposal broadens the five locally inactive parameter marginals, but does not recover their prior distributions or establish convergence of the joint fit.
+Their prior-unit standard deviations span 0.0697 to 0.2389, compared with approximately 0.289 for a uniform prior.
+Both selective fits still retain one initial lineage; gold lift and oak mass have zero empirical marginal width.
+The fitting evaluations are 13,572 and 13,520, within the unchanged cap.
+The between-fit height RMS gap falls to 0.0641, but both height errors worsen, and the speed gap remains 0.1997.
+Agreement on a poor prediction is not predictive acceptance.
+
+There is also an information limitation distinct from numerical exploration or simulation error.
+The public noisy observations in `posterior-assessment.json` show only the gold balloon attached at step 65, red first attached at step 106, and green first attached at step 220.
+The 64-action fitting prefix therefore precedes the red and green releases whose outcomes are assessed later.
+The verified dependence audit already shows that changing their lift coefficients leaves the two tested fitting histories unchanged.
+The model source documents historically learned gold and red defaults, so an incumbent initialized from those defaults has information that this short-prefix posterior cannot recreate from a broad prior.
+These observations do not establish that every future error is caused by missing information, and a single fixed continuation cannot calibrate the broad prior.
+They do preclude treating worse point prediction after broadening unseen parameters as proof that a narrower posterior is correct.
+
+The next diagnostic should separate interpolation after observed releases from extrapolation to a new color.
+Use an explicitly identified longer development prefix containing the red-release response, assess a continuation before the green release separately, and retain the green-release suffix as an unseen-color case.
+Keep the original 64-action case, original priors, fixed program, sensor law and discrepancy law as controls.
+First verify whether the added observations constrain the relevant dynamics conditionally before commissioning another full joint fit.
+The native preflight below starts that investigation; no full longer-prefix fit or acceptance result is available.
+A new untouched evaluation remains required after selecting an implementation using this inspected recording.
+
+## Longer-prefix native preflight
+
+Frozen bundle `logs/uncertainty_balloons_release_prefix_20260914` introduces an explicit action-160 cutoff in an offline copy of the validated continuation worker.
+It receives only observations 65 through 160 in addition to the original prefix, covering the red release at 106 and ending before green is released at 220.
+The original priors, probability laws, model source and initialization protocol are unchanged.
+The later 161-219 continuation and 220-235 unseen-green continuation remain separate prospective development assessments.
+Those assessments have not yet been run.
+
+The two starting candidates are the maximum-weight particles from the latest verified selective fits, with lowest index breaking ties.
+Selection uses fitting weights, not future prediction scores.
+The preflight replays their archived full histories exactly, checks that the action-160 history matches truncating an uninterrupted full replay, and verifies the original 64-action likelihood.
+Changing a later action must leave the shorter history unchanged, and supplying observations beyond the cutoff must be rejected.
+It probes red and green lift at prior-unit coordinates 0.05 and 0.95 while keeping every other candidate coordinate fixed.
+These finite sensitivity checks are not a normalized conditional posterior or evidence of full-scene learnability.
+Exact support failures remain explicit and are not softened to obtain a finite score.
+
+Native job `22764761` and dependent independent reader `22764762` use the previously audited Intel node on `mit_preemptable`, with unchanged frozen runtime preparation.
+The independent reader reconstructs joint and radial factors, checks the complete shorter histories and scores, rejects corrupted factors and repeats selected histories in fresh worlds.
+Native preflight `22764761` completed in 1:12 with 2,828 actions and all ten planned cases.
+The original reader `22764762` failed during import, before verification, because worker imports changed module search order and `run` resolved to an unrelated diagnostic.
+Recovery reader `22764827` loads the original adapter by its exact path under a unique module name; the completed native report and numerical checks are reused unchanged.
+The recovery bundle is `logs/uncertainty_balloons_release_prefix_reader_recovery_20260914`.
+Recovery reader `22764827` completed in 45 seconds and passes all ten cases, 14,400 independent joint-factor checks, 1,600 radial-density checks and four corrupt-factor controls, using 768 native actions.
+The completed report and checker hashes, plus both frozen input manifests, were verified.
+In both fixed histories, lowering red lift to prior-unit 0.05 substantially improves the action-160 score, while green-lift changes leave the complete history and score unchanged.
+A high-red-lift candidate in the first history predicts a burst at action 116 that contradicts the exact observation and retains zero likelihood.
+This verifies conditional sensitivity and the causal cutoff; a parameter profile over additional values and latent draws remains necessary before claiming a conditional distribution or constructing a full longer-prefix fit.
+A wider conditional parameter study or another full fit must follow the resulting evidence rather than assume that extending the prefix resolves the discrepancy.

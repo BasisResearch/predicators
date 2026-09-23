@@ -75,7 +75,9 @@ It does not demonstrate held-out forecasting accuracy: no such score was compute
 
 ## Next integration requirement
 
-A complete comparison on the longer prefix must define a new data identity and update the joint scene and parameter inference using all observations through that prefix.
+The [complete heating-aware joint target](boil-heating-joint-target.md) and corrected thermal proposal now pass their native and independent reader checks.
+Matched uniform and guided fitting fixtures, full fits and readers are queued with validation dependencies.
+A complete comparison on the longer prefix uses the new data identity and must update the joint scene and parameter inference using all observations through that prefix.
 The all-off independence certificate cannot be carried forward for onset and width.
 Conditional thermal draws must preserve their dependence on each other and on the candidate scene and nonthermal parameters.
 Do not substitute the conditional means in this table into every particle or independently sample these marginal standard deviations.
