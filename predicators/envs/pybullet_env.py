@@ -51,7 +51,8 @@ from predicators.code_sim_learning.commands import ApplyForce, ApplyTorque, \
 from predicators.code_sim_learning.model_state import advance_model_state, \
     has_model_state, initial_model_state, restored_model_state
 from predicators.envs import BaseEnv
-from predicators.pybullet_helpers import retry_pybullet_call, studio_visuals
+from predicators.pybullet_helpers import retry_pybullet_call, studio_visuals, \
+    world_gap
 from predicators.pybullet_helpers.geometry import Pose, Pose3D, Quaternion
 from predicators.pybullet_helpers.joint import JointPositions
 from predicators.pybullet_helpers.link import get_link_state
@@ -342,9 +343,19 @@ class PyBulletEnv(BaseEnv):
         # per action (re-emit-to-persist), cleared at episode reset.
         self._cmd_weld_constraints: Dict[FrozenSet[str], int] = {}
 
-        # Set up all the static PyBullet content.
-        self._physics_client_id, self._pybullet_robot, pybullet_bodies = \
-            self.initialize_pybullet(self.using_gui)
+        # Set up all the static PyBullet content. With CFG.sim_gap the
+        # live world (never a planning twin) is built with hidden
+        # deviations from its nominal description.
+        world_gap.begin_world(world_gap.WorldGap.from_cfg(
+        ) if CFG.sim_gap and not skip_residual_dynamics else None)
+        try:
+            self._physics_client_id, self._pybullet_robot, pybullet_bodies = \
+                self.initialize_pybullet(self.using_gui)
+        finally:
+            self._world_gap = world_gap.bind_world(
+                getattr(self, "_physics_client_id", -1))
+        if self._world_gap is not None:
+            self._world_gap.configure_engine(self._physics_client_id)
         self._store_pybullet_bodies(pybullet_bodies)
         # Public recordings contain names and features, never engine handles.
         # Resolve their objects against this world's roster on restoration.
@@ -363,6 +374,16 @@ class PyBulletEnv(BaseEnv):
         for value in list(vars(self).values()):
             if value is not self._body_objects:
                 collect_objects(value)
+        # With CFG.sim_calibration_menu, a world without a sim gap (the
+        # planning twin) exposes per-type mass and friction scales for
+        # the harness to fit (world_gap.CalibrationMenu).
+        self._calibration: Optional[world_gap.CalibrationMenu] = None
+        if CFG.sim_calibration_menu and self._world_gap is None:
+            self._calibration = world_gap.CalibrationMenu(
+                type_name for body, type_name in self._body_types().items()
+                if p.getDynamicsInfo(
+                    body, -1, physicsClientId=self._physics_client_id)[0] > 0.0
+            )
         # Texture any table(s) the env registered (every env uses the
         # "table_id"/"table_id2" convention) with the studio wood texture.
         studio_visuals.apply_table_textures(type(self),
@@ -856,6 +877,13 @@ class PyBulletEnv(BaseEnv):
             # reconcile once per action (create newly commanded welds,
             # remove ones whose command was not re-emitted).
             self._reconcile_commanded_attachments()
+            if self._world_gap is not None:
+                self._world_gap.apply_dynamics(self._physics_client_id,
+                                               [self._pybullet_robot.robot_id])
+            elif self._calibration is not None:
+                self._calibration.apply(self._physics_client_id,
+                                        [self._pybullet_robot.robot_id],
+                                        self._body_types())
             for _ in range(CFG.pybullet_sim_steps_per_action):
                 # Residual physics commands act during this one action
                 # (applyExternalForce is cleared by each stepSimulation,
@@ -962,7 +990,38 @@ class PyBulletEnv(BaseEnv):
         """
         info = dict(super().get_physical_param_info())
         info.update(self._agent_param_info())
+        info.update(self._calibration_info())
         return info
+
+    def _calibration_info(self) -> Dict[str, Dict]:
+        """The calibration menu's entries, or none when it is off.
+
+        Domain envs that define their own menu merge these in too.
+        """
+        calibration = getattr(self, "_calibration", None)
+        return calibration.info() if calibration is not None else {}
+
+    def _take_calibration_params(self,
+                                 params: Dict[str, float]) -> Dict[str, float]:
+        """Store the calibration menu's values; return the other params."""
+        calibration = getattr(self, "_calibration", None)
+        return calibration.take(params) if calibration is not None else \
+            dict(params)
+
+    def _body_types(self) -> Dict[int, str]:
+        """Body id -> object type name of every object with a body other than
+        the robot."""
+        client = self._physics_client_id
+        live = {
+            p.getBodyUniqueId(i, physicsClientId=client)
+            for i in range(p.getNumBodies(physicsClientId=client))
+        }
+        live.discard(self._pybullet_robot.robot_id)
+        return {
+            obj.id: obj.type.name
+            for obj in self._body_objects.values()
+            if getattr(obj, "id", None) in live
+        }
 
     def apply_physical_param_overrides(self, params: Dict[str, float]) -> None:
         """Accept AGENT_PARAM_SPECS overrides here; pass the rest through.
@@ -973,6 +1032,7 @@ class PyBulletEnv(BaseEnv):
         ``AGENT_PARAM_SPECS`` means nothing is peeled off and the call
         is the stock env's.
         """
+        params = self._take_calibration_params(params)
         agent_names = {spec.name for spec in type(self).AGENT_PARAM_SPECS}
         mine = {k: float(v) for k, v in params.items() if k in agent_names}
         rest = {k: v for k, v in params.items() if k not in agent_names}
@@ -2469,6 +2529,14 @@ class PyBulletEnv(BaseEnv):
             parentFrameOrientation=[0, 0, 0, 1],
             childFrameOrientation=self._held_obj_to_base_link[1],
             physicsClientId=self._physics_client_id)
+        if CFG.pybullet_grasp_max_force is not None:
+            # A carried assembly is only as rigid as this constraint:
+            # welded partners are pinned to the held root each step, but
+            # the root itself sags under a cantilever at the default
+            # strength (see settings.pybullet_grasp_max_force).
+            p.changeConstraint(self._held_constraint_id,
+                               maxForce=CFG.pybullet_grasp_max_force,
+                               physicsClientId=self._physics_client_id)
 
     def _fingers_closing(self, action: Action) -> bool:
         """True if this action's finger target is below current position.
@@ -2688,6 +2756,7 @@ class PyBulletEnv(BaseEnv):
 
     def dispose(self) -> None:
         """Disconnect this instance's PyBullet client."""
+        world_gap.release_world(self._physics_client_id)
         p.disconnect(self._physics_client_id)
 
     # ── Task Utilities ──────────────────────────────────────────

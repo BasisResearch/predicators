@@ -18,13 +18,17 @@ from tests.code_sim_learning.test_balloons_subclass_form import _hold, _level
 from tests.code_sim_learning.test_fan_gt_simulator import _make_noop
 
 
-def _load() -> Any:
+def _load_namespace() -> Dict[str, Any]:
     namespace: Dict[str, Any] = {
         "BaseSimulator": base_simulator_class(CFG.env),
         "ParamSpec": ParamSpec
     }
     exec(oracle_source(), namespace)  # pylint: disable=exec-used
-    return namespace["RESIDUAL_ENV"]
+    return namespace
+
+
+def _load() -> Any:
+    return _load_namespace()["RESIDUAL_ENV"]
 
 
 @pytest.mark.parametrize("env_name", [
@@ -32,22 +36,25 @@ def _load() -> Any:
     "pybullet_bridge"
 ])
 def test_oracle_source_loads_fixed_values(env_name: str) -> None:
-    """Every supplied parameter is pinned, including material calibration."""
+    """The true values are module constants, never declared parameters."""
     utils.reset_config({
         "env": env_name,
         "seed": 0,
         "domino_true_friction": 0.5,
         "domino_planning_friction": 0.1
     })
-    cls = _load()
-    for spec in cls.AGENT_PARAM_SPECS:
-        assert spec.lo == spec.hi == spec.init_value
+    namespace = _load_namespace()
+    cls = namespace["RESIDUAL_ENV"]
+    assert cls.AGENT_PARAM_SPECS == []
     if env_name == "pybullet_domino":
-        assert cls.AGENT_PARAM_SPECS[0].init_value == 0.5
+        assert namespace["_FIXED_PARAMS"] == {"lateral_friction": 0.5}
     elif env_name == "pybullet_balloons":
-        values = {s.name: s.init_value for s in cls.AGENT_PARAM_SPECS}
+        values = namespace["_FIXED_PARAMS"]
         assert values["air_drag"] == CFG.balloons_drag
         assert values["mass_oak"] == CFG.balloons_box_masses[1]
+        assert set(values) >= {"lift_gold", "fade_height"}
+    else:
+        assert "_FIXED_PARAMS" not in namespace
 
 
 @pytest.mark.parametrize("release_steps", [(0, 0, 0), (0, 35, 70)])
@@ -334,7 +341,7 @@ def test_bridge_oracle_process_and_observed_memory(mode: str,
 
 @pytest.mark.parametrize("domain",
                          ["bridge", "fan", "domino", "boil", "balloons"])
-def test_oracle_scene_physical_calibration(domain: str) -> None:
+def test_scene_only_physical_calibration(domain: str) -> None:
     """Match native body and articulation calibration without hidden
     effects."""
     import copy  # pylint: disable=import-outside-toplevel
@@ -342,13 +349,13 @@ def test_oracle_scene_physical_calibration(domain: str) -> None:
     import pybullet as p  # pylint: disable=import-outside-toplevel
 
     from predicators.approaches.agent_continual_frozen_approach import \
-        AgentContinualOracleSceneApproach  # pylint: disable=import-outside-toplevel
+        AgentContinualSceneOnlyApproach  # pylint: disable=import-outside-toplevel
     from scripts.cluster_utils import \
         generate_run_configs  # pylint: disable=import-outside-toplevel
     config = next(c for c in generate_run_configs(
-        "predicatorv3/protocol_continual_comparisons_noisy_r1.yaml", False)
+        "predicatorv3/continual_eight_agent_noisy_sweep.yaml", False)
                   if c.env == f"pybullet_{domain}"
-                  and c.approach == "agent_continual_oracle_scene")
+                  and c.approach == "agent_continual_scene_only")
     utils.reset_config({
         **{k: v
            for k, v in config.flags.items() if k != "log"}, "env": config.env,
@@ -359,7 +366,7 @@ def test_oracle_scene_physical_calibration(domain: str) -> None:
         "BaseSimulator": base_simulator_class(CFG.env),
         "ParamSpec": ParamSpec
     }
-    exec(AgentContinualOracleSceneApproach._scene_source(), namespace)  # pylint: disable=exec-used
+    exec(AgentContinualSceneOnlyApproach._scene_source(), namespace)  # pylint: disable=exec-used
     model = namespace["RESIDUAL_ENV"](use_gui=False)
     initial = real.get_train_tasks()[0].init
     real._set_state(copy.deepcopy(initial))

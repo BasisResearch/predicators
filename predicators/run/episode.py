@@ -29,8 +29,12 @@ from predicators.structs import Action, EpisodeEvaluation, GroundAtom, \
 
 
 def public_skill_failure(error: Exception) -> str:
-    """Expose controller outcome categories, never private planning
-    geometry."""
+    """Return controller outcome categories without private collision geometry.
+
+    Detailed diagnostics stay in host logs. This boundary is shared by
+    individual skills and skill policies, so records and tools expose
+    the same public outcome to every agent.
+    """
     logging.debug("[private skill failure] %s", error)
     message = str(error).lower()
     if "timeout" in message or "max_option_steps" in message:

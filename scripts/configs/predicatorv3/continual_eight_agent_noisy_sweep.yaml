@@ -1,0 +1,55 @@
+# The eight-agent benchmark sweep (Sept 18, 2026): the two main agents,
+# model-based (EMPIRIC, agent_continual) and model-free (the direct
+# agent, agent_continual_model_free), plus the six ablation arms
+# (standalone program world model, oracle dynamics, scene-only, zero
+# shot, no harness fitting, no explicit uncertainty), all on Opus, on
+# the five benchmark test settings, three seeds each: 8 approaches x 5
+# domains x 3 seeds = 120 runs. Envs and arms come from the menus
+# (envs/continual.yaml, approaches/continual.yaml): Balloons composition
+# test levels with the 25-step dwell, Bridge four-span test row, Boil
+# two-jug test level, Fan maze test level, Domino high-friction turn.
+# The skill preflight is off (the runtime default). The round keys keep
+# these logs apart from the Sept 17 rounds
+# (logs/<approach>/<env>-<round key>/seed<N>).
+#
+# The Sept 12-14 version of this sweep ran the same eight arms on the
+# Sept 14 settings (three-span Bridge, uniform Fan, one-jug Boil, the
+# original Balloons distribution) under runtime 091d8c5db.
+#
+# Forty Slurm arrays of three seeds; the Opus arms saturate one Claude
+# account's session limit in about an hour, so spread the accounts:
+# python scripts/engaging/launch.py -c predicatorv3/continual_eight_agent_noisy_sweep.yaml --partition mit_preemptable,mit_normal --requeue --accounts b,c
+includes:
+  - continual_common.yaml
+  - envs/continual.yaml
+  - approaches/continual.yaml
+START_SEED: 0
+NUM_SEEDS: 3
+ENVS:
+  balloons:
+    SKIP: false
+  bridge:
+    SKIP: false
+  boil:
+    SKIP: false
+  fan:
+    SKIP: false
+  domino_high_friction_turn:
+    SKIP: false
+APPROACHES:
+  mb_opus_benchmark_r1:
+    EXTENDS: mb_opus
+  mf_opus_benchmark_r1:
+    EXTENDS: mf_opus
+  standalone_opus_benchmark_r1:
+    EXTENDS: standalone_opus
+  oracle_dynamics_opus_benchmark_r1:
+    EXTENDS: oracle_dynamics_opus
+  scene_only_opus_benchmark_r1:
+    EXTENDS: scene_only_opus
+  zero_shot_opus_benchmark_r1:
+    EXTENDS: zero_shot_opus
+  no_fitting_opus_benchmark_r1:
+    EXTENDS: no_fitting_opus
+  no_uncertainty_opus_benchmark_r1:
+    EXTENDS: no_uncertainty_opus

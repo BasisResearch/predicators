@@ -587,6 +587,12 @@ def setup_sandbox_directory(
     # 1. Copy reference files from host repo
     registry = dict(extra_reference_files)
     ref_dir = sandbox / "reference"
+    # References are harness-owned. Rebuild them when a session reopens so
+    # a removed implementation export cannot survive a changed contract.
+    if ref_dir.is_symlink():
+        ref_dir.unlink()
+    elif ref_dir.exists():
+        shutil.rmtree(ref_dir)
     for dest_rel, src_rel in registry.items():
         src = Path(repo_root) / src_rel
         dest = ref_dir / dest_rel

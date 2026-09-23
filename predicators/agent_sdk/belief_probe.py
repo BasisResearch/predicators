@@ -951,6 +951,7 @@ class BeliefProbe:
         and monotonicity (a milestone flips False->True once and
         stays true). Call it after every edit of ``predicates.py``.
         """
+        self._require_available("predicates")
         loader = self._artifact_loader("predicates")
         return loader(
             max_trajectories=max_trajectories,
@@ -967,6 +968,7 @@ class BeliefProbe:
         draws) on a representative train-task state. Call it after every
         edit of ``samplers.py``.
         """
+        self._require_available("samplers")
         return self._artifact_loader("samplers")()
 
     def _artifact_loader(self, name: str) -> Callable[..., str]:
@@ -1108,6 +1110,7 @@ class BeliefProbe:
         mark candidate positions, offsets, and reference points on the
         staged scene.
         """
+        self._require_available("render")
         # pylint: disable=import-outside-toplevel
         import pybullet as pb
 
@@ -1115,9 +1118,9 @@ class BeliefProbe:
         ctx = self._ctx
         cur = self._require_state()
         ctx.test_call_id += 1
+        if ctx.env is None:
+            raise ValueError("No environment available for rendering.")
         if annotations:
-            if ctx.env is None:
-                raise ValueError("No environment available for rendering.")
             ctx.env._set_state(cur)  # pylint: disable=protected-access
             physics_id = ctx.env._physics_client_id  # pylint: disable=protected-access
             debug_ids: List[int] = []
@@ -1158,6 +1161,7 @@ class BeliefProbe:
         ``continual_belief_draws``. Needs a declared observation-noise
         channel.
         """
+        self._require_available("belief")
         # pylint: disable=import-outside-toplevel
         import numpy as np
 
@@ -1518,6 +1522,16 @@ class BeliefProbe:
                              "standalone program model.")
         if trials < 1:
             raise ValueError(f"trials must be >= 1, got {trials}")
+        if trials > 1 and "trials" in self._ctx.probe_disabled:
+            raise RuntimeError(
+                "sim.run(trials>1) is unavailable in this session: run a "
+                "plan once per call.")
+        if belief_draws > 0:
+            self._require_available("belief")
+        if "render" in self._ctx.probe_disabled:
+            # Per-step scene images come from the real engine; an arm
+            # without one gets text-only rollouts.
+            render = False
         if (not CFG.continual_uncertainty_decisions
                 and (physics_sweep or belief_draws > 0)):
             raise ValueError("Explicit uncertainty is disabled; rehearse at "
@@ -2060,6 +2074,7 @@ class BeliefProbe:
         available in learn sessions (probing a candidate simulator);
         there it runs against the candidate model.
         """
+        self._require_available("run_policy")
         # pylint: disable=import-outside-toplevel
         import contextlib
 
@@ -2243,6 +2258,7 @@ class BeliefProbe:
         executes inline (under a snapshot, so the no-advance semantics
         hold) and the returned handle is already done.
         """
+        self._require_available("run_async")
         # pylint: disable-next=import-outside-toplevel
         from predicators.agent_sdk.async_rollouts import \
             AsyncRolloutRegistry, CompletedRollout, async_rollouts_available
@@ -2281,6 +2297,7 @@ class BeliefProbe:
         done one, ``handle.error`` for a failed one. Pending handles
         are still running - keep them and gather again later.
         """
+        self._require_available("gather")
         # pylint: disable-next=import-outside-toplevel
         from predicators.agent_sdk.async_rollouts import AsyncRollout
         _check_time_budget(self._ctx)
@@ -2319,6 +2336,7 @@ class BeliefProbe:
         with ``agent_explorer_info_seeking``); otherwise the result
         says so.
         """
+        self._require_available("suggest_probes")
         # pylint: disable=import-outside-toplevel
         import numpy as np
 
@@ -2410,6 +2428,7 @@ class BeliefProbe:
         evaluator's rules reference the true init, so any other start
         would give silently-wrong verdicts.
         """
+        self._require_available("refine")
         # pylint: disable=import-outside-toplevel
         import numpy as np
 
@@ -2545,6 +2564,13 @@ class BeliefProbe:
                                  verdict)
 
     # ── Internals ────────────────────────────────────────────────
+
+    def _require_available(self, call: str) -> None:
+        """Refuse a ``sim`` call this session's arm withholds."""
+        if call in self._ctx.probe_disabled:
+            raise RuntimeError(
+                f"sim.{call} is unavailable in this session: the run_python "
+                "description lists what `sim` offers here.")
 
     def _require_state(self) -> State:
         """Current state, following the harness's task pointer.

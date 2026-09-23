@@ -29,10 +29,6 @@ The evaluator judges the true state; a predicate on one noisy frame can disagree
 
 A simulated success or failure is conditional on the candidate model; neither proves what the real environment will do. Prefer plans with margin across models consistent with the data. Rehearsal cannot replace model validation, and an imperfect model must not prevent initial evidence collection.
 
-### Every skill request is rehearsed first
-
-Before `skills_invoke` or `skills_execute_plan` charges a real step, the request is rehearsed in `sim` from the last observation: against `./simulator.py` when it loads, else against the visible base physics. A skill whose controller fails in the rehearsal is refused, charging nothing, and the refusal carries the controller's diagnostic: which contact blocks the pose, that no collision-free path exists, that the lift left the object behind. Under declared observation noise the request is also rolled from several plausible poses of the objects; failing on most of them refuses it too. Fix the parameters or the plan and request again, or pass `force=true` when you have a reason to believe the rehearsal is wrong (a mechanism the model lacks). A rehearsal that passes is conditional on the model; it does not prove the real outcome.
-
 ### When the model disagrees with evidence
 
 Treat a rejected fit as evidence to investigate, not a hard action gate or a reason to give up.
@@ -52,8 +48,8 @@ Record candidate comparisons, rejected hypotheses, and unresolved uncertainty in
 - `env_reset`: restart the current level from its initial state. One step and one reset, and a last resort. The only valid action after GAME_OVER on a level with resets.
 - `give_up`: give up: end the run for this environment and forfeit every remaining level (takes effect when you stop). A last resort.
 - `skills_list`: the skill library: signatures, parameter meanings and ranges. Free.
-- `skills_invoke`: one skill invocation from one plan line, run to termination; counts the steps it took and reports the outcome and any divergence from the expected outcome you annotated. Rehearsed in `sim` from the last observation first; a controller failure there refuses the request, charging nothing, and `force=true` skips the rehearsal.
-- `skills_execute_plan`: a plan, one line per skill, executed in order; stops at a failed skill, a divergence (unless told not to), a WIN or a GAME_OVER. Rehearsed in `sim` from the last observation first; a controller failure there refuses the request, charging nothing, and `force=true` skips the rehearsal.
+- `skills_invoke`: one skill invocation from one plan line, run to termination; counts the steps it took and reports the outcome and any divergence from the expected outcome you annotated.
+- `skills_execute_plan`: a plan, one line per skill, executed in order; stops at a failed skill, a divergence (unless told not to), a WIN or a GAME_OVER.
 
 ### Skill grammar
 
@@ -91,7 +87,7 @@ The run is one conversation. A round consists of one harness prompt and your res
 
 | Task | API and meaning |
 | --- | --- |
-| Estimate parameters | `sim.fit()` fits and publishes declared parameters from the available recordings when estimation is enabled. With no learnable constants, skip fitting and validate directly. |
+| Estimate parameters | `sim.fit()` fits and publishes declared parameters from the available recordings. With no learnable constants, skip fitting and validate directly. |
 | Check recorded behavior | `sim.validate()` replays recordings at deployed values, including recordings rejected by a robust fit. `sim.residuals()` locates errors; read which parameter values its report scores. |
 | Compare hypotheses | `sim.fit(traj_idxs=[...])` reports a fit without publishing it. Pass those values to `sim.validate(traj_idxs=[...], params={...})` to compare candidates on identical data. |
 | Load predicates | `sim.predicates()` reloads and installs the current definitions and reports their behavior on recorded episodes. Call it after editing predicates. |

@@ -312,6 +312,33 @@ def parse_plan_lines(
 # ── Tools ──────────────────────────────────────────────────────────
 
 
+def _preflight_note(what: str, subject: str) -> str:
+    """The skill tools' rehearsal sentence, present only when the skill
+    preflight (``CFG.continual_skill_preflight``) is on: without it no arm
+    rehearses a request before running it."""
+    if not CFG.continual_skill_preflight:
+        return ""
+    return (f" The model arm first rehearses the {what} in `sim` from the "
+            f"last observation: {subject} whose controller fails there is "
+            "refused, charging nothing, with the controller's diagnostic.")
+
+
+def _force_property(what: str) -> Dict[str, Any]:
+    """The skill tools' ``force`` argument, offered only with the skill
+    preflight it overrides."""
+    if not CFG.continual_skill_preflight:
+        return {}
+    return {
+        "force": {
+            "type":
+            "boolean",
+            "description":
+            f"run the {what} even when its rehearsal in "
+            "`sim` fails (default false)",
+        }
+    }
+
+
 def build_continual_tools(
     ctx: ToolContext,
     session: ProtocolSession,
@@ -415,7 +442,15 @@ def build_continual_tools(
                                  "further environment interaction is "
                                  "possible. Stop.")
         logging.exception("[continual tools] unexpected error")
-        return _error_result(f"Error: {type(e).__name__}: {e}" + _footer())
+        if isinstance(e, (ValueError, TypeError)):
+            # The agent's own request was malformed (a wrong action shape,
+            # an unparseable plan line): the message is about its input,
+            # not about the environment, so it is safe and useful to show.
+            return _error_result(f"Error: {type(e).__name__}: {e}" + _footer())
+        # Anything else comes from inside the harness or a controller and
+        # may carry private geometry; the details stay in the host log.
+        return _error_result("The request could not be completed. Inspect "
+                             "the observation before continuing." + _footer())
 
     env_predicates = list(session.env_predicates)
 
@@ -656,10 +691,8 @@ def build_continual_tools(
         "skills_invoke",
         "Invoke ONE skill from one plan line and run it to termination. "
         "Counts the steps it took. Annotate the expected outcome with "
-        "`-> {atoms}` so a divergence is recorded. The model arm first "
-        "rehearses the line in `sim` from the last observation: a skill "
-        "whose controller fails there is refused, charging nothing, with "
-        "the controller's diagnostic.", {
+        "`-> {atoms}` so a divergence is recorded." +
+        _preflight_note("line", "a skill"), {
             "type": "object",
             "properties": {
                 "skill": {
@@ -670,13 +703,7 @@ def build_continual_tools(
                     "type": "string",
                     "description": "what this invocation tests (recorded)"
                 },
-                "force": {
-                    "type":
-                    "boolean",
-                    "description":
-                    "run the skill even when its rehearsal in `sim` "
-                    "fails (default false)"
-                }
+                **_force_property("skill"),
             },
             "required": ["skill"],
         })
@@ -720,10 +747,7 @@ def build_continual_tools(
         "Execute a plan: one skill per line, in order. Stops at a failed "
         "skill, at a divergence from an annotated expected outcome "
         "(unless stop_on_divergence is false), at WIN or at GAME_OVER. "
-        "Counts the steps taken. The model arm first rehearses the plan "
-        "in `sim` from the last observation: a plan whose controller "
-        "fails there is refused, charging nothing, with the controller's "
-        "diagnostic.", {
+        "Counts the steps taken." + _preflight_note("plan", "a plan"), {
             "type": "object",
             "properties": {
                 "plan": {
@@ -738,13 +762,7 @@ def build_continual_tools(
                     "type": "string",
                     "description": "what this plan tests (recorded)"
                 },
-                "force": {
-                    "type":
-                    "boolean",
-                    "description":
-                    "run the plan even when its rehearsal in `sim` "
-                    "fails (default false)"
-                }
+                **_force_property("plan"),
             },
             "required": ["plan"],
         })

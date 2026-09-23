@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import logging
 
+import pytest
+
 import predicators.approaches  # noqa: F401  # pylint: disable=unused-import
 import predicators.envs  # noqa: F401  # pylint: disable=unused-import
 import predicators.ground_truth_models  # noqa: F401  # pylint: disable=unused-import
@@ -31,62 +33,110 @@ from predicators.settings import CFG
 logger = logging.getLogger(__name__)
 
 
-def _oracle_bridge_config() -> dict:
+def _oracle_bridge_config(n_spans: int = 3, pool: int = 0) -> dict:
     """Flags from predicatorv3/{common,envs/all,oracle}.yaml flattened."""
     return {
         # --- env: bridge from envs/all.yaml ---
-        "env": "pybullet_bridge",
-        "horizon": 3000,
+        "env":
+        "pybullet_bridge",
+        "horizon":
+        3000,
         # Execute every planned waypoint: subsampled execution cuts
         # corners the plan cleared, and a carried span grazing a
         # standing 2:1 leg by a fraction of a mm topples it.
-        "pybullet_birrt_path_subsample_ratio": 1,
+        "pybullet_birrt_path_subsample_ratio":
+        1,
         # The packed staging grid leaves ~1-2 cm clearances that
         # stochastically dip into 2-3 mm grazes (e.g. a welded row's
         # frozen offsets against a seat leg at the descend goal); the
         # default 1 mm margin turns those into unrecoverable BiRRT
         # start/goal rejections.
-        "pybullet_birrt_contact_margin": -0.005,
+        "pybullet_birrt_contact_margin":
+        -0.005,
         # Each Wait ends on the FIRST atom change, so a plan waiting on
         # several concurrent cures can need a cheap replan for the tail
         # (which reduces to "Wait until the remaining joint cures").
-        "process_planning_max_execution_replans": 3,
-        "wait_option_max_steps": 120,
+        "process_planning_max_execution_replans":
+        3,
+        "wait_option_max_steps":
+        120,
         # --- common flags relevant to bilevel refinement ---
         # Match common.yaml's planning budget. The role-free Bridged
         # goal searches over bindings and exceeds the generic 10 s default.
-        "timeout": 600,
-        "skill_phase_use_motion_planning": True,
+        "timeout":
+        600,
+        "skill_phase_use_motion_planning":
+        True,
         # Bridge follows common.yaml: validated IK OFF, like every
         # other domain. Validation is not what enforces placement
         # accuracy (goal-IK branches are accepted on forward-kinematics
         # error either way) and it steered the arm into
         # worse-executing IK branches (oracle sweep: 22/24 with it on,
         # 24/24 with it off).
-        "pybullet_ik_validate": False,
-        "planning_filter_unreachable_nsrt": False,
-        "no_repeated_arguments_in_grounding": True,
-        "terminate_on_goal_reached": False,
-        "sesame_check_expected_atoms": False,
+        "pybullet_ik_validate":
+        False,
+        "planning_filter_unreachable_nsrt":
+        False,
+        "no_repeated_arguments_in_grounding":
+        True,
+        "terminate_on_goal_reached":
+        False,
+        "sesame_check_expected_atoms":
+        False,
         # --- approach: oracle_process_planning from oracle.yaml ---
-        "approach": "oracle_process_planning",
-        "demonstrator": "oracle_process_planning",
-        "terminate_on_goal_reached_and_option_terminated": True,
-        "bilevel_plan_without_sim": True,
+        "approach":
+        "oracle_process_planning",
+        "demonstrator":
+        "oracle_process_planning",
+        "terminate_on_goal_reached_and_option_terminated":
+        True,
+        "bilevel_plan_without_sim":
+        True,
         # --- test scope: keep it small ---
-        "num_train_tasks": 1,
-        "num_test_tasks": 1,
-        "seed": 0,
-        "use_gui": False,
-        "option_model_use_gui": False,
-        "option_model_terminate_on_repeat": False,
-        "wait_option_terminate_on_atom_change": True,
+        "num_train_tasks":
+        1,
+        "num_test_tasks":
+        1,
+        "seed":
+        0,
+        "use_gui":
+        False,
+        "option_model_use_gui":
+        False,
+        "option_model_terminate_on_repeat":
+        False,
+        "wait_option_terminate_on_atom_change":
+        True,
+        # --- span count: the three-span task keeps the original flags;
+        # the four-span task runs with the four-span repairs (a rigid
+        # grasp, the lift-first transit, the withdrawal gate), the
+        # runtime of that cohort ---
+        # ``pool`` > n_spans models the transfer run: the body pool holds
+        # the larger test row while this task uses n_spans of it.
+        "bridge_train_span_blocks":
+        n_spans,
+        "bridge_test_span_blocks":
+        max(n_spans, pool),
+        **({
+            "pybullet_pin_held_weld_assemblies": True,
+            "pybullet_grasp_max_force": 10000.0,
+            "bridge_lift_before_transit": True,
+            "bridge_goal_robot_clearance": 0.01,
+            # The cohort's bridge entry (envs/all.yaml): a weighted
+            # skeleton search and the sag-discharge preload on release.
+            "process_planning_heuristic_weight": 10.0,
+            "skill_place_settle_preload_force": 3.0,
+        } if max(n_spans, pool) == 4 else {}),
     }
 
 
-def test_oracle_process_planning_solves_bridge_task():
-    """Smoke test: oracle_process_planning builds the simple n-bridge."""
-    utils.reset_config(_oracle_bridge_config())
+@pytest.mark.parametrize("n_spans,pool", [(3, 0), (4, 0), (3, 4)])
+def test_oracle_process_planning_solves_bridge_task(n_spans, pool):
+    """Smoke test: oracle_process_planning builds the n-bridge, for the three-
+    span training rows, the four-span test rows, and a three-span row built
+    from the four-span pool (the transfer run's training level, whose
+    certificate must ignore the pooled fourth span)."""
+    utils.reset_config(_oracle_bridge_config(n_spans, pool))
     env = create_new_env("pybullet_bridge", do_cache=False, use_gui=False)
     options = get_gt_options(env.get_name())
     train_tasks = [t.task for t in env.get_train_tasks()]
@@ -100,12 +150,17 @@ def test_oracle_process_planning_solves_bridge_task():
         train_tasks,
     )
 
-    test_task = env.get_test_tasks()[0].task
+    # With a larger pool the task under test is the TRAIN task (the
+    # transfer run's three-span level); otherwise the test task.
+    split = "train" if pool > n_spans else "test"
+    tasks = env.get_train_tasks() if split == "train" \
+        else env.get_test_tasks()
+    test_task = tasks[0].task
 
     policy = approach.solve(test_task, timeout=CFG.timeout)
     assert policy is not None, "oracle_process_planning returned no policy"
 
-    env.reset("test", 0)
+    env.reset(split, 0)
     goal_step = None
     for step in range(CFG.horizon):
         if test_task.goal_holds(env._current_state):

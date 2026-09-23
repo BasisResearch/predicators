@@ -2,7 +2,9 @@
 # un-parks arms, usually under a round-specific key with EXTENDS (see
 # continual_common.yaml). MB arms are gated on a deployable model on the
 # test level (continual_require_model_on_test). MF arms switch off the
-# model-side machinery so the two differ only in the model.
+# model-side machinery so the two differ only in the model. The skill
+# preflight (continual_skill_preflight) is off by default since Sept 18,
+# 2026; a launcher that wants the Sept 17 Sonnet setting sets it to true.
 APPROACHES:
   mb_opus:
     NAME: agent_continual
@@ -16,6 +18,18 @@ APPROACHES:
     FLAGS:
       agent_sdk_model_name: claude-sonnet-5
       continual_require_model_on_test: true
+  # EMPIRIC with what the agentic real-to-sim arm receives (Sept 18,
+  # 2026): the engine wrapper, the scene manifest and the URDF and mesh
+  # files, plus the twin's own core module where the domain declares one
+  # (Fan and Balloons). The domain twin still backs the model.
+  mb_scene_package_opus:
+    NAME: agent_continual
+    SKIP: true
+    FLAGS:
+      agent_sdk_model_name: claude-opus-5
+      continual_require_model_on_test: true
+      agent_sim_provide_base_sim_source: true
+      continual_provide_scene_package: true
   mf_opus:
     NAME: agent_continual_model_free
     SKIP: true
@@ -36,12 +50,12 @@ APPROACHES:
     FLAGS:
       <<: *mf_flags
       agent_sdk_model_name: claude-sonnet-5
-  # ---- The other six arms of the eight-agent comparison (Sept 12-14
-  # noisy sweep, protocol_continual_eight_agent_noisy_sweep.yaml). Their
-  # approach classes come from the continual-comparisons line (frozen
-  # worktrees, codex branches); they are not on bridge-learning until that
-  # merge lands, so these entries only resolve on a runtime that has them.
-  # Ids follow the mb_/mf_ pattern: <arm>_<model>.
+  # ---- The other six arms of the eight-agent comparison
+  # (continual_eight_agent_noisy_sweep.yaml). Their approach classes
+  # came over from the continual-comparisons line in the Sept 17 merge
+  # (agent_continual_program_approach.py, agent_continual_frozen_approach.py,
+  # agent_continual_ablation_approach.py). Ids follow the mb_/mf_
+  # pattern: <arm>_<model>.
   # Standalone: the agent writes and owns a program world model, no harness
   # fitting.
   standalone_opus:
@@ -66,14 +80,15 @@ APPROACHES:
     SKIP: true
     FLAGS:
       agent_sdk_model_name: claude-sonnet-5
-  # Oracle scene: the true scene parameters are given, the model is learned.
-  oracle_scene_opus:
-    NAME: agent_continual_oracle_scene
+  # Scene-only: the exact scene twin with corrected base calibration and
+  # no mechanism code, frozen for the run (formerly "oracle scene").
+  scene_only_opus:
+    NAME: agent_continual_scene_only
     SKIP: true
     FLAGS:
       agent_sdk_model_name: claude-opus-5
-  oracle_scene_sonnet:
-    NAME: agent_continual_oracle_scene
+  scene_only_sonnet:
+    NAME: agent_continual_scene_only
     SKIP: true
     FLAGS:
       agent_sdk_model_name: claude-sonnet-5
@@ -89,7 +104,8 @@ APPROACHES:
     FLAGS:
       agent_sdk_model_name: claude-sonnet-5
   # No fitting: the MB agent with only its declared parameters, no
-  # harness parameter fitting. Gated like the MB arms.
+  # harness parameter fitting (the agent may fit in its own sandbox
+  # code). Gated like the MB arms.
   no_fitting_opus:
     NAME: agent_continual_no_fitting
     SKIP: true
@@ -103,14 +119,16 @@ APPROACHES:
     FLAGS:
       <<: *no_fitting_flags
       agent_sdk_model_name: claude-sonnet-5
-  # No uncertainty: the MB agent with every uncertainty-driven decision,
-  # margin and information-seeking switch off. Gated like the MB arms.
+  # No uncertainty handling: fit raw noisy observations, with no state
+  # smoothing, uncertainty margins or information seeking. Gated like MB.
   no_uncertainty_opus:
     NAME: agent_continual_no_uncertainty
     SKIP: true
     FLAGS: &no_uncertainty_flags
       agent_sdk_model_name: claude-opus-5
       continual_require_model_on_test: true
+      code_sim_learning_rollout_noise_filter: false
+      continual_belief_frame: false
       continual_uncertainty_decisions: false
       agent_sim_learn_param_uncertainty: false
       agent_plan_validation_rule_param_margin: false
@@ -120,9 +138,42 @@ APPROACHES:
       agent_explorer_info_seeking_noise_aware: false
       code_sim_learning_interval_belief: false
       code_sim_learning_carry_posterior: false
+      # Nothing about the observation noise is declared to this arm: no
+      # noise section, no [noise] line, and the harness fit models none
+      # of it (Sept 18, 2026).
+      continual_obs_noise_declared: false
   no_uncertainty_sonnet:
     NAME: agent_continual_no_uncertainty
     SKIP: true
     FLAGS:
       <<: *no_uncertainty_flags
+      agent_sdk_model_name: claude-sonnet-5
+  # Agentic real-to-sim baseline (Sept 18, 2026): no domain twin. The
+  # agent gets the generic PyBulletEnv, a domain-agnostic SceneBase, the
+  # scene manifest and the asset files, and builds its own simulator;
+  # the harness fits nothing and runs no uncertainty machinery. Gated
+  # like the MB arms. Runs with the same skill library as the other
+  # arms (composite by default); set skill_library: primitive for the
+  # robot-stack variant.
+  real_to_sim_opus:
+    NAME: agent_continual_real_to_sim
+    SKIP: true
+    FLAGS: &real_to_sim_flags
+      agent_sdk_model_name: claude-opus-5
+      continual_require_model_on_test: true
+      agent_sim_learn_declared_params_only: true
+      continual_uncertainty_decisions: false
+      agent_sim_learn_param_uncertainty: false
+      agent_plan_validation_rule_param_margin: false
+      agent_plan_validation_physics_margin: false
+      agent_explorer_info_seeking: false
+      agent_explorer_info_seeking_adaptive: false
+      agent_explorer_info_seeking_noise_aware: false
+      code_sim_learning_interval_belief: false
+      code_sim_learning_carry_posterior: false
+  real_to_sim_sonnet:
+    NAME: agent_continual_real_to_sim
+    SKIP: true
+    FLAGS:
+      <<: *real_to_sim_flags
       agent_sdk_model_name: claude-sonnet-5

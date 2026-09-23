@@ -31,6 +31,7 @@ import hashlib
 import logging
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, FrozenSet, List, \
     Optional, Set, Tuple
 
@@ -38,6 +39,7 @@ from predicators.agent_sdk import journal as journal_mod
 from predicators.agent_sdk.fit_status import format_fit_status
 from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES, \
     play_tool_names
+from predicators.agent_sdk.tools.exploration import ProbeSurface
 from predicators.agent_sdk.tools.sandbox_guard import \
     _screen_text_for_sandbox_escape
 from predicators.agent_sdk.tools.synthesis import create_synthesis_tools
@@ -50,6 +52,8 @@ from predicators.approaches.agent_sim_predicate_invention_approach import \
     AgentSimPredicateInventionApproach
 from predicators.approaches.continual_play_mixin import ContinualPlayMixin
 from predicators.code_sim_learning.rollout_env import dispose_env
+from predicators.code_sim_learning.scene_manifest import \
+    build_scene_manifest, write_scene_manifest
 from predicators.code_sim_learning.utils import LearnedSimulator, apply_rules
 from predicators.envs import create_new_env
 from predicators.observation_noise import ObservationNoise
@@ -128,6 +132,8 @@ class AgentContinualApproach(ContinualPlayMixin,
         # paths are set in _round_extra_tools and consumed in
         # _after_round.
         self._workbench = _Workbench()
+        # (bodies, asset files) of the last scene manifest, for the prompt.
+        self._scene_package_summary: Tuple[int, int] = (0, 0)
         self._round_model: Optional[_RoundModel] = None
         self._fit_version_before: Optional[str] = None
         self._episodes_at_last_fit = 0
@@ -157,20 +163,54 @@ class AgentContinualApproach(ContinualPlayMixin,
 
     def _play_system_prompt(self) -> str:
         # pylint: disable-next=import-outside-toplevel
-        from predicators.agent_sdk.play_prompts import build_model_contract, \
-            build_play_system_prompt
-
-        # The contract of the model files (docs/protocol/design.md,
-        # 5): model memory follows CFG.partially_observable, the
-        # system-identification menu is the base env's.
-        contract = build_model_contract(
-            partially_observable=CFG.partially_observable,
-            physical_params_section=self._physical_params_prompt_section(),
-            declared_params_only=CFG.agent_sim_learn_declared_params_only)
+        from predicators.agent_sdk.play_prompts import build_play_system_prompt
         return build_play_system_prompt(
             self._continual_tool_names(),
             base_sim_refs=self._base_sim_reference_paths(),
-            model_contract=contract)
+            model_contract=self._play_model_contract(),
+            **self._play_prompt_options())
+
+    def _play_model_contract(self, **options: Any) -> str:
+        """The contract of the model files (docs/protocol/design.md, 5).
+
+        Model memory follows CFG.partially_observable, the system-
+        identification menu is the base env's. ``options`` are the
+        frozen arms' keyword arguments for build_model_contract.
+        """
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.play_prompts import build_model_contract
+        return build_model_contract(
+            partially_observable=CFG.partially_observable,
+            physical_params_section=self._physical_params_prompt_section(),
+            declared_params_only=CFG.agent_sim_learn_declared_params_only,
+            **options)
+
+    def _play_prompt_options(self) -> Dict[str, Any]:
+        """Extra keyword arguments for build_play_system_prompt.
+
+        The frozen arms pass their arm statement here.
+        """
+        if CFG.continual_provide_scene_package:
+            return {"scene_package": True}
+        return {}
+
+    def _probe_surface(self) -> ProbeSurface:
+        """What this arm's ``sim`` probe accepts (``run_python``'s
+        description)."""
+        return ProbeSurface(fit=self._fit_available(),
+                            uncertainty=CFG.continual_uncertainty_decisions)
+
+    def _no_model_section(self) -> str:
+        """The play_query section shown while no model file exists."""
+        return "no_model"
+
+    def _fit_available(self) -> bool:
+        """Whether the harness fits parameters in this arm.
+
+        Frozen and no-fitting arms return False, so the query never asks
+        for a refit that the probe would refuse.
+        """
+        return True
 
     def _model_status(self, session: ProtocolSession) -> str:
         n_eps, n_steps = self._episode_counts(session)
@@ -178,13 +218,13 @@ class AgentContinualApproach(ContinualPlayMixin,
         from predicators.agent_sdk.prompt_templates import render
         if self._current_simulator_version is None:
             status = render("play_query",
-                            "no_model",
+                            self._no_model_section(),
                             n_episodes=str(n_eps),
                             n_steps=str(n_steps))
         else:
             new = max(0, n_eps - self._episodes_at_last_fit)
             refit_note = (" Refit with `sim.fit()` before you rely on the "
-                          "model." if new else "")
+                          "model." if new and self._fit_available() else "")
             status = render("play_query",
                             "model_status",
                             simulator_version=self._current_simulator_version,
@@ -251,6 +291,7 @@ class AgentContinualApproach(ContinualPlayMixin,
             sandbox_dir_for_agent=paths.sandbox_dir_for_agent,
             cycle_index_provider=self._learning_cycle_index,
             budget_check=lambda: _check_time_budget(self._tool_context),
+            probe_surface=self._probe_surface(),
         )
         self._install_extra_synthesis_surfaces(exec_ns, base_pred_triples,
                                                inferred_hint, extra_paths)
@@ -296,7 +337,7 @@ class AgentContinualApproach(ContinualPlayMixin,
         exec_ns["sim"] = probe_ns["sim"]
         exec_ns["BeliefProbe"] = probe_ns["BeliefProbe"]
         ctx.skill_preflight = (self._make_skill_preflight(
-            session, probe_ns["BeliefProbe"])
+            session, probe_ns["BeliefProbe"], paths.simulator_file)
                                if CFG.continual_skill_preflight else None)
         self._load_probe_extension(exec_ns, paths.base)
         declared = set(self._get_synthesis_tool_names() or ())
@@ -521,13 +562,12 @@ class AgentContinualApproach(ContinualPlayMixin,
         return cache[1]
 
     def _make_skill_preflight(
-            self, session: ProtocolSession,
-            probe_factory: Callable[[],
-                                    Any]) -> Callable[[str], Optional[str]]:
+            self, session: ProtocolSession, probe_factory: Callable[[], Any],
+            simulator_file: str) -> Callable[[str], Optional[str]]:
         """The ``ToolContext.skill_preflight`` of this round under
         ``continual_skill_preflight``: the request's plan text rehearsed
         on a private probe from the last real observation, against the
-        candidate ``simulator.py`` or the base physics before one exists.
+        agent's candidate ``simulator.py``.
 
         The sim runs the real skill controllers, so a controller failure
         there (a grasp pose in contact, no collision-free path, a lift
@@ -535,10 +575,16 @@ class AgentContinualApproach(ContinualPlayMixin,
         controller's diagnostic that the real env withholds. When the
         observation channel is noisy and uncertainty decisions are on,
         the request is also rolled from ``continual_skill_preflight_draws``
-        plausible poses; failing on more than half refuses it too. A
-        rehearsal that cannot run (no observation yet, the probe's
-        budget spent, a broken candidate) never blocks the request: the
-        failure is logged and the skill runs.
+        plausible poses; failing on more than half refuses it too.
+
+        Before a candidate exists the request runs unrehearsed. The
+        probe's fallback, the base physics with the hidden mechanisms
+        disabled, is not the real env: the Opus Bridge runs of Sept 17,
+        2026 had no model, and every refusal there was false, a welded
+        partner rehearsed as a loose block. A rehearsal that cannot run
+        (no observation yet, the probe's budget spent, a broken
+        candidate) never blocks the request either: the failure is
+        logged and the skill runs.
         """
         ctx = self._tool_context
 
@@ -549,6 +595,8 @@ class AgentContinualApproach(ContinualPlayMixin,
             return bool(failure) and failure != "0 actions"
 
         def preflight(plan_text: str) -> Optional[str]:
+            if not os.path.isfile(simulator_file):
+                return None
             try:
                 session.observe()
             except EpisodeOver:
@@ -674,19 +722,108 @@ class AgentContinualApproach(ContinualPlayMixin,
         opened on first use."""
         if not obs_triples:
             return []
+        return self._compute_base_pred_triples(obs_triples,
+                                               self._workbench_env())
+
+    def _workbench_env(self) -> Any:
+        """The workbench's own base-sim world (the visible physics with no
+        hidden mechanism), opened on first use and released with the round."""
         bench = self._workbench
         if bench.env is None:
             bench.env = create_new_env(CFG.env,
                                        do_cache=False,
                                        use_gui=False,
                                        skip_residual_dynamics=True)
-        return self._compute_base_pred_triples(obs_triples, bench.env)
+        return bench.env
 
     def _release_workbench_env(self) -> None:
         bench = self._workbench
         if bench.env is not None:
             dispose_env(bench.env)
             bench.env = None
+
+    # -- The scene package (engine, manifest, assets) -----------------------
+
+    def _scene_state(self) -> State:
+        """The initial state of the level being played (the run's first train
+        task before any level starts): what the manifest describes."""
+        task = self._tool_context.current_task
+        if task is None:
+            task = self._train_tasks[0]
+        return task.init
+
+    @staticmethod
+    def _standalone_source(name: str, directory: Path) -> Path:
+        """A copy of one engine module whose imports point at the copies beside
+        it, so the reference reads as a self-contained package."""
+        package = Path(__file__).resolve().parents[1]
+        sources = {
+            "pybullet_env.py": package / "envs" / "pybullet_env.py",
+            "scene_base.py": package / "code_sim_learning" / "scene_base.py",
+        }
+        text = sources[name].read_text(encoding="utf-8")
+        rebinds = {
+            "from predicators.envs import BaseEnv\n":
+            "from reference.base_sim.base_env import BaseEnv\n",
+            "from predicators.envs.pybullet_env import PyBulletEnv\n":
+            "from reference.base_sim.pybullet_env import PyBulletEnv\n",
+        }
+        for original, replacement in rebinds.items():
+            if text.count(original) == 1:
+                text = text.replace(original, replacement)
+        target = directory / name
+        target.write_text(text, encoding="utf-8")
+        return target
+
+    def _scene_package_files(self) -> Dict[str, str]:
+        """Sandbox reference path -> source file of the engine wrapper, the
+        scene manifest of the level being played and the asset files its bodies
+        were loaded from (what the agentic real-to-sim arm builds its scene
+        from)."""
+        package = Path(__file__).resolve().parents[1]
+        directory = Path(self._get_log_dir()) / "reference_sources"
+        directory.mkdir(parents=True, exist_ok=True)
+        files = {
+            "base_sim/base_env.py":
+            str(package / "envs" / "base_env.py"),
+            "base_sim/pybullet_env.py":
+            str(self._standalone_source("pybullet_env.py", directory)),
+        }
+        manifest, assets = build_scene_manifest(self._workbench_env(),
+                                                self._scene_state())
+        files["scene/scene_manifest.json"] = write_scene_manifest(
+            manifest, str(directory / "scene_manifest.json"))
+        files.update(assets)
+        self._scene_package_summary = (len(manifest["bodies"]), len(assets))
+        return files
+
+    def _scene_package_paths(self) -> List[str]:
+        """Agent-visible paths of :meth:`_scene_package_files`."""
+        bodies, assets = self._scene_package_summary
+        return [
+            "./reference/base_sim/pybullet_env.py",
+            "./reference/base_sim/base_env.py",
+            f"./reference/scene/scene_manifest.json ({bodies} bodies)",
+            f"./reference/assets/ ({assets} URDF and mesh files, named in "
+            "the manifest)",
+        ]
+
+    def _get_sandbox_reference_files(self) -> Dict[str, str]:
+        files = super()._get_sandbox_reference_files()
+        if CFG.continual_provide_scene_package:
+            files.update(self._scene_package_files())
+        return files
+
+    def _base_sim_reference_paths(self) -> List[str]:
+        paths = super()._base_sim_reference_paths()
+        if not CFG.continual_provide_scene_package:
+            return paths
+        package = self._scene_package_paths()
+        names = {os.path.basename(path.split(" ")[0]) for path in package}
+        # The twin's own core modules first, then the package; the
+        # engine wrapper is listed once.
+        return [path for path in paths if os.path.basename(path) not in names
+                ] + package
 
     def _fit_status_text(self) -> str:
         """The last fit as one line for the prompt: the point estimate per

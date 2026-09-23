@@ -21,7 +21,8 @@ import copy
 import logging
 import os
 from contextlib import contextmanager
-from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, cast
+from typing import Any, Callable, Dict, FrozenSet, Iterator, List, Optional, \
+    Tuple, cast
 
 import numpy as np
 
@@ -191,7 +192,9 @@ class AgentProgramWorldModelApproach(AgentSimPredicateInventionApproach):
             cycle_index_provider=self._learning_cycle_index,
             budget_check=lambda: _check_time_budget(ctx),
             rng=np.random.default_rng(CFG.seed),
+            **self._program_tool_overrides(),
         )
+        ctx.probe_disabled = self._program_probe_disabled()
         self._install_extra_synthesis_surfaces(exec_ns, [], {}, extra_paths)
         declared = set(self._get_synthesis_tool_names() or ())
         ctx.extra_mcp_tools = [
@@ -212,6 +215,16 @@ class AgentProgramWorldModelApproach(AgentSimPredicateInventionApproach):
             extra_paths)
         ctx.extra_session_hooks = self._build_synthesis_session_hooks(
             targets, paths.base)
+
+    def _program_tool_overrides(self) -> Dict[str, Any]:
+        """Keyword overrides for the program-synthesis toolkit (none here; an
+        arm with a narrower probe supplies its own ``run_python``
+        description)."""
+        return {}
+
+    def _program_probe_disabled(self) -> FrozenSet[str]:
+        """The ``sim`` calls this approach's probe refuses (none here)."""
+        return frozenset()
 
     def _build_write_snapshot_targets(
         self,

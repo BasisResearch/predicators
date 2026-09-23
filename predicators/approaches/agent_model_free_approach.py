@@ -17,7 +17,6 @@ Example command:
 """
 import copy
 import datetime
-import inspect as _inspect
 import logging
 import os
 import subprocess
@@ -343,6 +342,8 @@ and update before doing anything else.**"""
         return "\n".join(sections)
 
     def _get_sandbox_reference_files(self) -> Dict[str, str]:
+        """Document public control semantics without exporting
+        implementation."""
         return {"skills.md": "predicators/agent_sdk/prompts/public_skills.md"}
 
     def _get_solve_tool_names(self) -> Optional[List[str]]:
@@ -1245,28 +1246,3 @@ Output ONLY the option plan lines at the end, after any analysis."""
             "trajectories", self._run_id, original_run_id,
             len(self._offline_dataset.trajectories),
             len(self._online_trajectories))
-
-
-# --------------------------------------------------------------------------- #
-# Helpers
-# --------------------------------------------------------------------------- #
-
-
-def _get_gt_options_module_path(env_name: str) -> Optional[str]:
-    """Return repo-relative path to the options.py for the given env.
-
-    Looks up the GroundTruthOptionFactory subclass that handles
-    *env_name* and returns the path to its module file, relative to
-    the repository root (e.g.
-    ``predicators/ground_truth_models/boil/options.py``).
-    """
-    # Importing ground_truth_models triggers import_submodules, which
-    # registers all factory subclasses.
-    from predicators.ground_truth_models import \
-        GroundTruthOptionFactory  # pylint: disable=import-outside-toplevel
-    for cls in utils.get_all_subclasses(GroundTruthOptionFactory):
-        if not cls.__abstractmethods__ and env_name in cls.get_env_names():
-            module = _inspect.getmodule(cls)
-            if module and module.__name__:
-                return module.__name__.replace(".", os.sep) + ".py"
-    return None

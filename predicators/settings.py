@@ -105,17 +105,21 @@ class GlobalSettings:
     # Whether the model arm rehearses every skills_invoke /
     # skills_execute_plan request in its sim before real steps are
     # charged: the candidate ./simulator.py when one loads, else the
-    # visible base physics with hidden mechanisms disabled, rolled from
-    # the last real observation. The sim runs the real skill
-    # controllers, so a controller failure there (a grasp pose in
-    # contact, no collision-free path, a lift that leaves the object
-    # behind) refuses the request, charging nothing, and returns the
-    # controller's diagnostic, which the real env withholds.
-    # force=true on the request runs it anyway. Bridge seed 2 of the
-    # Sept 17, 2026 Sonnet pilots spent 79 failed real picks, most of
-    # them on a knocked-over leg, that the base physics refuses. On
-    # every level; the model-free arm has no sim.
-    continual_skill_preflight = True
+    # agent's candidate simulator.py, rolled from the last real
+    # observation. The sim runs the real skill controllers, so a
+    # controller failure there (a grasp pose in contact, no
+    # collision-free path, a lift that leaves the object behind) refuses
+    # the request, charging nothing, and returns the controller's
+    # diagnostic, which the real env withholds. force=true on the
+    # request runs it anyway. Before a candidate exists the request
+    # runs unrehearsed: the base physics has the hidden mechanisms
+    # disabled, and its Bridge refusals (a welded partner rehearsed as
+    # a loose block) were false. On every level; the model-free arm has
+    # no sim. Off by default (Sept 18, 2026): the Opus agent's requests
+    # were rarely refused (at most 7 per run against 24-68 for Sonnet)
+    # and it won the Bridge four-span test 3/3 without it; the prompt's
+    # own rehearse-in-sim instruction stays either way.
+    continual_skill_preflight = False
     # Belief draws per preflight when observation noise is declared and
     # continual_uncertainty_decisions is on: the request is also rolled
     # from this many plausible poses of the objects, and a request that
@@ -515,6 +519,14 @@ class GlobalSettings:
     # 0 mm) - while resting and released assemblies keep normal
     # constraint physics (plus any env re-anchoring machinery).
     pybullet_pin_held_weld_assemblies = False
+    # Strength of the gripper-to-held-object JOINT_FIXED constraint
+    # (PyBullet's maxForce); None keeps PyBullet's default of 500. The
+    # default sags under a cantilevered payload: a welded span row
+    # carried by an end block tilted 15.9 deg at the grasp with the far
+    # block 55 mm low (Bridge four-span audit, 2026-09-13). The welds are
+    # enforced at 10000 and pinned partners follow the held root
+    # rigidly, so the grasp was the one compliant link of the carry.
+    pybullet_grasp_max_force: Optional[float] = None
 
     # IKFast parameters
     ikfast_max_time = 0.05
@@ -665,15 +677,6 @@ class GlobalSettings:
 
     # skill phase parameters
     skill_phase_use_motion_planning = False
-    # EE yaw relative to the pushed object's yaw during Push. None (the
-    # default) takes it from the robot.
-    skill_push_ee_yaw_offset = None
-    # Place settle-stroke preload (N): when > 0, the guarded settle ends
-    # at this much support normal force instead of first touch, pressing
-    # the arm's position-control sag out against the support before the
-    # release (see create_place_skill's settle_preload_force). 0 keeps
-    # the first-touch behavior. Read by envs whose place skill enables
-    # the settle stroke (currently pybullet_bridge).
     # Which skill library get_gt_options builds for the PyBullet
     # continual envs. "composite" (the default) is each env's own
     # factory-built skills (PickJug, SwitchFaucetOn, Push, Release, ...),
@@ -684,6 +687,15 @@ class GlobalSettings:
     # get_primitive_skill_context, with the grasp points, push strokes
     # and release moments left to the agent.
     skill_library = "composite"
+    # EE yaw relative to the pushed object's yaw during Push. None (the
+    # default) takes it from the robot.
+    skill_push_ee_yaw_offset = None
+    # Place settle-stroke preload (N): when > 0, the guarded settle ends
+    # at this much support normal force instead of first touch, pressing
+    # the arm's position-control sag out against the support before the
+    # release (see create_place_skill's settle_preload_force). 0 keeps
+    # the first-touch behavior. Read by envs whose place skill enables
+    # the settle stroke (currently pybullet_bridge).
     skill_place_settle_preload_force = 0.0
 
     # coffee env parameters
@@ -1901,6 +1913,16 @@ class GlobalSettings:
     # Span counts for train/test task distributions; the body pool is their max.
     bridge_train_span_blocks = 3
     bridge_test_span_blocks = 3
+    # Four-span repairs, opt-in: a cohort that sets them is not
+    # comparable with earlier Bridge cohorts.
+    # Place lifts straight up at the pick's xy before the transit at
+    # transport height, so a carried row clears the standing legs
+    # instead of sweeping across them from the pick height.
+    bridge_lift_before_transit = False
+    # Certify a candidate bridge only once every robot link is at least
+    # this far from every block (0 = certify at the release step), so
+    # the settle check never runs against a gripper still on the row.
+    bridge_goal_robot_clearance = 0.0
 
     # bridge policy parameters
     bridge_policy = "learned_ldl"  # default bridge policy
@@ -2766,10 +2788,11 @@ class GlobalSettings:
     # the info-seeking disagreement score have nothing to score). Fits
     # still run; only their point estimates are used.
     agent_sim_learn_param_uncertainty = True
-    # Ablation A4 ("no parameter fitting"): when True, no parameter
-    # estimation runs anywhere - not sim.fit (it refuses), not the
-    # harness-side fallback fit, not the residual report's fit_params /
-    # sweep_params. Each parameter's
+    # Ablation A4 ("no harness parameter fitting"): when True, no
+    # harness-side parameter estimation runs - not sim.fit (it refuses),
+    # not the deployment-time fit, not the residual report's fit_params /
+    # sweep_params. The agent may still estimate values in its own
+    # sandbox code and write them into its declarations. Each parameter's
     # declared init_value is its point estimate and its declared
     # [lo, hi] box is its plausible interval: the physics-margin points
     # span the box and the rule-parameter ensemble is drawn uniformly
@@ -2845,6 +2868,34 @@ class GlobalSettings:
     # the base-sim rollouts execute. Envs that declare no source files
     # are unaffected.
     agent_sim_provide_base_sim_source = False
+    # The continual model arm's copy of what the agentic real-to-sim arm
+    # receives: the generic engine wrapper (pybullet_env.py, base_env.py),
+    # the scene manifest (bodies, shapes, joints, colours; no masses,
+    # frictions or damping) and the URDF and mesh files, under
+    # ./reference/. The domain twin still backs the model.
+    continual_provide_scene_package = False
+
+    # Realistic sim gap (predicators/pybullet_helpers/world_gap.py): the
+    # live world differs from its nominal description in hidden ways
+    # drawn once per run from seed + sim_gap_seed_offset. Movable bodies
+    # are built up to sim_gap_geometry larger or smaller (relative size),
+    # every body's mass and lateral friction are scaled by a factor in
+    # [1 / (1 + x), 1 + x], and nonzero solver settings replace the
+    # engine defaults. Planning twins, the scene manifest and the assets
+    # stay nominal, so every arm starts from the same description.
+    sim_gap = False
+    sim_gap_geometry = 0.03
+    sim_gap_mass = 0.25
+    sim_gap_friction = 0.3
+    sim_gap_solver_iterations = 0
+    sim_gap_substeps = 0
+    sim_gap_seed_offset = 0
+    # The planning twin's calibration menu (world_gap.CalibrationMenu):
+    # per-type mass_scale_<type> / friction_scale_<type> for movable
+    # object types plus friction_scale_support, multipliers on the
+    # nominal values the harness fits with the rest of the physical
+    # parameters. Meant for the model arm under sim_gap.
+    sim_calibration_menu = False
 
     @classmethod
     def get_arg_specific_settings(cls, args: Dict[str, Any]) -> Dict[str, Any]:

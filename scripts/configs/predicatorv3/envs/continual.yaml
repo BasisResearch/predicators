@@ -2,6 +2,11 @@
 # launcher un-parks the one it runs (see continual_common.yaml). Env FLAGS
 # override the approach's and the common ones, so per-domain noise levels
 # and level budgets live here. Keys are the env half of the experiment id.
+#
+# The benchmark settings (Sept 18, 2026) are balloons (composition test
+# levels), bridge (four-span test row), boil (two-jug test level), fan
+# (maze test level) and domino_high_friction_turn; the other entries are
+# the earlier or alternative splits they replaced.
 ENVS:
   # Balloons: the main tree's benchmark, composition test levels (every test
   # level composes lifts the
@@ -46,10 +51,10 @@ ENVS:
       continual_steps_per_level: 5000
       num_train_tasks: 2
   # Bridge, three spans on both splits (the Sept 14 comparison setting).
-  bridge:
+  bridge_three_span:
     NAME: pybullet_bridge
     SKIP: true
-    FLAGS: &bridge_flags
+    FLAGS: &bridge_three_span_flags
       max_initial_demos: 0
       horizon: 3000
       max_num_steps_interaction_request: 2000
@@ -66,20 +71,27 @@ ENVS:
       num_train_tasks: 1
       bridge_train_span_blocks: 3
       bridge_test_span_blocks: 3
-  # Bridge span transfer: a three-span training row, a four-span test row,
-  # with the Sept 16 four-span repairs (rigid grasp, lift-first transit,
-  # certificate that waits for the robot to withdraw). Not comparable with
-  # the span_transfer_r1 cohort, which ran without the repairs.
-  bridge_span_transfer:
+  # Bridge, the benchmark setting: a three-span training row, a four-span
+  # test row, with the Sept 16 four-span repairs (rigid grasp, lift-first
+  # transit, certificate that waits for the robot to withdraw). Not
+  # comparable with the span_transfer_r1 cohort, which ran without the
+  # repairs. Opus MB 3/3 at 3852 steps against MF 3/3 at 6134 (Sept 17-18).
+  bridge:
     NAME: pybullet_bridge
     SKIP: true
-    FLAGS:
-      <<: *bridge_flags
+    FLAGS: &bridge_flags
+      <<: *bridge_three_span_flags
       bridge_train_span_blocks: 3
       bridge_test_span_blocks: 4
       pybullet_grasp_max_force: 10000.0
       bridge_lift_before_transit: true
       bridge_goal_robot_clearance: 0.01
+  # The same setting under the key the Sept 17 span-transfer rounds ran
+  # under (their logs live at bridge_span_transfer-<experiment>).
+  bridge_span_transfer:
+    NAME: pybullet_bridge
+    SKIP: true
+    FLAGS: *bridge_flags
   # Boil: one jug in training, two jugs on the test level, the 5 cm faucet
   # tolerance (the code default since d3ac34f02, pinned here; the old 10 cm
   # rows were dropped on Sept 17).
