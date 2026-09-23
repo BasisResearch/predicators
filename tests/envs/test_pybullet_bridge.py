@@ -14,6 +14,7 @@ import pybullet as p
 import pytest
 
 from predicators import utils
+from predicators.envs import _MOST_RECENT_ENV_INSTANCE
 from predicators.structs import Action, EnvironmentTask, GroundAtom
 
 
@@ -197,6 +198,9 @@ def test_place_settles_to_contact():
     from predicators.ground_truth_models import \
         get_gt_options  # pylint: disable=import-outside-toplevel
     env = PyBulletBridgeEnv(use_gui=False)
+    # get_gt_options builds the skills from the cached env's types: cache
+    # this env so they match its block type, not one an earlier test left.
+    _MOST_RECENT_ENV_INSTANCE[env.get_name()] = env
     try:
         task = env._generate_train_tasks()[0]
         env._set_state(task.init)
@@ -573,6 +577,9 @@ def test_degenerate_top_edge_grasp_fails_honestly():
     from predicators.ground_truth_models import \
         get_gt_options  # pylint: disable=import-outside-toplevel
     env = PyBulletBridgeEnv(use_gui=False)
+    # get_gt_options builds the skills from the cached env's types: cache
+    # this env so they match its block type, not one an earlier test left.
+    _MOST_RECENT_ENV_INSTANCE[env.get_name()] = env
     try:
         env.reset("test", 0)
         state = env._get_state()
