@@ -18,11 +18,11 @@ The [proposal](simplification-proposal.md) records the full implementation decis
 
 | Domain | Latest evidence | Remaining difficulty |
 |---|---|---|
-| Domino | Both 64- and 128-particle comparisons are complete. | Agreement does not persist across numerical budgets; fixing the initial state is not a validated shortcut. |
+| Domino | Both 64- and 128-particle comparisons are complete, including the fixed-state joint-transition alternative. | That alternative passes its 128-particle replica screens but retains a 0.1928 cross-budget final-toppling gap; uncertain-state composition is now queued for validation. |
 | Fan | Fixed-fixture treatment reduces between-fit positional disagreement from 6.69 mm to 0.619 mm, with improved goal Brier scores on this recording. | Maximum future goal-probability disagreement remains 0.367; most sampled histories assign zero density to the recorded future. |
 | Boil | Full reduced fits, forecasts, independent readers and comparison are complete. | The thermal prior is now represented correctly, but both fits retain one initial lineage and predictions remain worse than the incumbent. |
 | Bridge | Both resumed fits, complete forecasts and independent readers are complete. | Both fits retain one initial lineage; all methods miss the final clean geometric goal, and the two posterior fits disagree on glue events. |
-| Balloons | Both default-guided fits, forecasts and comparison are complete; selective fits and forecasts are complete. | Default-guided predictions remain inconsistent; selective forecast readers require invocation recovery before the full comparison can be assessed. |
+| Balloons | Original, default-guided and selective comparisons are complete and independently verified. | Selective proposals broaden some marginals but worsen height error and predict 97-99% final burst probability; the short fitting prefix also excludes later color releases. |
 
 The earlier source-program audit found no learnable parameters in the saved Boil and Bridge programs from the original noisy sweep.
 Those remain incomplete-model controls.
@@ -30,6 +30,10 @@ The positive Boil and Bridge comparisons instead use separately identified histo
 Their selected-point incumbent rows therefore carry historical information that an uninformative fitting prefix cannot recreate from a broad parameter prior.
 This is a known comparison difference, not evidence that sensor noise should be enlarged or priors narrowed after seeing future scores.
 See the [historical model controls](historical-model-controls.md) and [Boil incumbent control](boil-incumbent-control.md).
+
+The new [Domino composition check](domino-uncertain-transition.md) preserves the original initial-scene prior and combines it with the already declared joint-transition law.
+Fourteen cases include archived joint proposals, fixed-state controls and unselected proposal vectors.
+Native `22766058` and independent reader `22766059` are pending; preparation checks alone do not establish native parity or an adequate uncertain-state posterior.
 
 ## Boil reduced-target outcome
 
@@ -63,6 +67,27 @@ Conditional onset and width become concentrated at means 30.12237 and 5.71475, w
 The two histories give the same conditional heating target, not independent evidence of full-scene posterior agreement.
 See the [informative-heating diagnostic](boil-informative-heating.md) for the original failed precision comparison, prior-retention control and remaining integration requirements.
 
+The subsequent [complete 224-action joint target](boil-heating-joint-target.md) passes native preflight `22757366` and independent reader `22757367`.
+It retains all 84 joint coordinates and includes every observation channel under the original priors and noise laws.
+The corrected thermal proposal also passes native preflight `22757771` and independent density and mapping reader `22757772`.
+All four matched uniform and guided fitting fixtures and their recovered readers now pass on `mit_preemptable`.
+The [reader recovery](boil-heating-reader-recovery.md) corrects only a tuple/list transport mismatch, preserving all numerical checks and reusing the completed fits.
+The dependency-cancelled downstream jobs are replaced with identical scientific inputs and budgets; verified runtime references support six-hour full-fit and two-hour reader allocations.
+Uniform seed 410, guided seed 410, uniform seed 411 and guided seed 411 completed all 64 temperatures with 14,870, 14,773, 14,987 and 14,850 target evaluations respectively, each retaining one initial lineage.
+Their saved populations and checkpoints agree; independent native readers and full forecasts remain pending, and their assessments remain explicitly unevaluated.
+All four forecast fixtures pass independent verification of their complete histories and weighted summaries; full native verification and forecasts remain pending.
+The [40-action forecast adapter](boil-heating-forecasts.md) passes native fixture `22759308` with 5,120 simulator actions.
+Independent reader `22759309` verifies all twelve artifacts and sixteen corruption controls, with another 1,424 native actions.
+Weighted population check `22759907` also passes its proposal mapping, nonuniform moment and zero-density controls.
+Remaining forecast work follows its fitting and fixture dependencies.
+Predictive and numerical comparisons remain unfinished.
+The [matched collector](boil-heating-comparison.md) passes its known-error, weighted-covariance, identity and incomplete-source checks in `22761384`; replacement collection `22762518` waits on all four complete forecast readers.
+The matched-prefix incumbent fit `22761363` and independent reader `22761364` have completed.
+Its point prediction matches all five clean event curves and the final goal; water-volume RMSE is 0.008744 and bubbling error is zero on the already-saturated suffix.
+Its configuration and parameter specifications are verified unchanged from the earlier control.
+The combined incumbent/posterior report check `22761575` passes all eleven rejection controls and retains the real inputs as incomplete.
+Replacement final collector `22762519` remains queued behind the verified incumbent and complete posterior comparison, with recovery provenance and allocation costs retained.
+
 ## Bridge completed recovery
 
 The completed source is `logs/uncertainty_bridge_resumed_forecasts_v2_20260914/paired-comparison.json`.
@@ -91,13 +116,16 @@ This is a verification-launch failure, not a failed fit, prediction, or agent se
 The exact failing expansion was reproduced in `logs/uncertainty_balloons_selective_reader_recovery_20260914/reproduction.json`.
 Recovery array `22755276` explicitly supplies report and index to the unchanged frozen launcher and verifier.
 Comparison `22755277` depends on successful completion of both readers.
-No completed fit or forecast is regenerated, and old frozen source files are not edited.
+Both recovered readers and comparison `22755277` have now completed successfully.
+No completed fit or forecast was regenerated, and old frozen source files were not edited.
 The recovery manifest pins the original reports, scripts and invocation wrapper.
+The [completed selective comparison](balloons-selective-guidance.md#completed-comparison-and-information-limitation) worsens height error in both fits despite broader marginals.
+It also identifies a separate information limitation: the 64-action prefix ends before the red and green releases assessed in the continuation.
 
 ## Next acceptance work
 
-Read and verify the recovered Balloons comparison when it completes.
-Use the completed informative-heating diagnostic to construct a separately identified heating-aware joint target, retaining correlations and the original all-off control.
+For Balloons, distinguish prediction after an observed release from extrapolation to an unseen color using a separately identified longer-prefix diagnostic.
+For Boil, finish the active heating-aware joint fits and their forecast comparisons, retaining the original all-off control.
 Use their results to choose a numerical or model change rather than repeat the same unstable fits at a larger budget without a specific hypothesis.
 Existing conditional scalar-discrepancy, joint-variance and physical-transition experiments remain distinct model choices.
 Any new law motivated by these already-inspected future recordings needs a new untouched evaluation before acceptance.

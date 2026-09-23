@@ -11,13 +11,39 @@ Full-prefix replay is the required reference; arbitrary mid-trajectory restorati
 The discrepancy policy now explicitly separates replay bugs, missing program mechanisms, uninformative data and residual model error.
 The [informative-heating diagnostic](boil-informative-heating.md) preserves the thermal priors under the 132-action all-off prefix and constrains onset and width after 224 actions in two fixed candidate histories.
 Native replay, later-observation isolation, independent direct Gaussian references and a higher-precision integration comparison pass.
-This is conditional learnability evidence; a full-scene heating-aware target and held-out forecast remain separate requirements.
+The subsequent [heating-aware joint target](boil-heating-joint-target.md) includes all observations through action 224 and retains all 84 joint coordinates under the original priors and noise laws.
+Native and independent target readers pass, as do separate checks of a density-corrected thermal sampling guide.
+All four matched uniform and guided fitting fixtures now pass their numerical and native readers after the [documented JSON transport correction](boil-heating-reader-recovery.md).
+The completed fits and checkpoints were reused unchanged; every reader rechecks all 32 final native targets.
+Replacement full jobs restore the dependency-cancelled pipeline with identical scientific inputs and budgets, using six-hour fit allocations.
+Pending full-reader allocations were subsequently reduced from two hours to thirty minutes using verified reader timings, with the full verification workload and frozen inputs unchanged.
+All four uniform and guided full fits have completed all 64 temperatures.
+Their saved populations, checkpoints and source hashes agree, but each retains one initial lineage and their independent native readers remain pending.
+All four forecast fixtures pass independent verification of their complete histories and weighted summaries.
+The [224/40-action continuation adapter](boil-heating-forecasts.md) now passes its four-case native fixture, including generation/density round trips and exact-constraint rejection.
+Its independent reader verifies twelve artifacts, 28,512 joint factors and sixteen corruption controls, including two fresh complete histories.
+The weighted population checks also pass, covering 24 proposal mappings and eight malformed summaries.
+Remaining forecast fixtures, full forecasts and their readers follow their fitting and verification dependencies.
+The [matched comparison collector](boil-heating-comparison.md) passes its ten validation controls and preserves the four pending forecasts explicitly.
+A separate full incumbent fit and its literal replay reader have completed on the same 224-action prefix.
+Its selected-point prediction matches all event curves and the final goal on this development suffix; clean bubbling error is zero and water-volume RMSE is 0.008744.
+Bubbling is saturated throughout the suffix, so this does not establish general thermal identification.
+The incumbent configuration and parameter specifications match the earlier verified control; its selected-point predictions remain a separate comparison from the incumbent planning policy.
+The [combined incumbent/posterior report](boil-heating-legacy-comparison.md) passes eleven contract and incomplete-source controls in `22761575`.
+Replacement collectors `22762518` and `22762519` preserve the frozen metric calculations and append verified transport provenance and replacement allocation accounting.
+They leave all performance differences unset until the posterior side is complete.
+Full joint numerical agreement and the corresponding forecast comparison remain unfinished; fresh untouched predictive evaluation is still required before migration acceptance.
 
 Stage 0 interface preservation is complete, with scripted behavior parity checked.
 Stage A has implemented probability and replay components, but physical support and numerical validation remain incomplete.
 The active work is Stage B offline comparison; Stage C live posterior use and Stage E retirement have not passed their evidence requirements.
 Stage D execution smoothing remains optional and deferred.
 The full plan remains incomplete, and the incumbent estimator remains the production default.
+
+The [Domino uncertain-state transition preflight](domino-uncertain-transition.md) now tests the existing joint-transition law with the original uncertain initial-scene prior.
+It retains the varying base weights that the earlier fixed-state approximation could omit, and includes archived joint targets, exact fixed-state controls and causal future round trips.
+Preparation and scalar-reference checks pass; native job `22766058` and reader `22766059` are pending on a compute node.
+This is a composition check rather than another posterior fit, and it does not resolve the completed transition model's cross-budget prediction disagreement.
 
 The [independent-prior representation](independent-prior-factors.md) now supports an explicitly checked product of a sampled joint marginal and independent uniform prior factors.
 Compute-node check `22717200` passes 27 focused tests, typing, repository lint and formatting checks.
@@ -59,6 +85,13 @@ Paired fits `22715405` and final-target readers `22715406`/`22715407` have compl
 The selective proposal's weighted future adapter and independent reader `22715541`/`22715542` now pass, including rejection of a decoder that omits the selective mask.
 Forecasts `22715569`/`22715571` completed, but their reader invocations omitted the required numerical index and failed before verification.
 The cancelled comparison `22715574` is replaced by `22755277`, after invocation-recovery reader array `22755276`.
+Both recovered readers and comparison `22755277` now pass, with all eighteen comparison source hashes verified.
+The selective treatment broadens several marginals but worsens height error, retains one initial lineage per fit, and assigns zero final-goal probability.
+The [completed comparison](balloons-selective-guidance.md#completed-comparison-and-information-limitation) distinguishes those numerical concerns from the unobserved red and green releases after the short fitting prefix.
+The separately frozen [action-160 preflight](balloons-selective-guidance.md#longer-prefix-native-preflight) now passes native `22764761` and recovered independent reader `22764827`, keeping the original laws and verifying red/green sensitivity and the information cutoff.
+The original reader import error is preserved separately; its correction reuses the completed native output.
+Red lift becomes conditionally informative while green remains inactive in these two fixed histories.
+The [conditional red-lift profile](balloons-red-profile.md) is now submitted with two grid resolutions, independent latent-draw banks, zero-density preservation and independent verification before another full joint fit.
 The comparison fixture `22715573` passes its marginal and configuration guards, retaining the four pending forecasts explicitly.
 The comparison preserves the original and default-centered controls and reports parameter spread alongside future predictions.
 It retains the complete prior, likelihood and Metropolis correction and does not assume global parameter independence.
