@@ -10,10 +10,10 @@
       "split": "train",
       "seed": 0,
       "crop": [
-        240,
-        140,
-        740,
-        672
+        250,
+        224,
+        820,
+        670
       ],
       "recording": "bridge-mb_opus_span_transfer_r2/seed0/run_20260916_190710/L01/episodes.pkl",
       "recording_sha256": "2bb906d023d4d9fc263e987ee1997f7992f795aa1d56f2549092ad16239f1574",
@@ -149,10 +149,10 @@
       "split": "test",
       "seed": 0,
       "crop": [
-        270,
-        280,
-        810,
-        860
+        250,
+        224,
+        820,
+        670
       ],
       "recording": "bridge-mb_opus_span_transfer_r2/seed0/run_20260916_190710/L02/episodes.pkl",
       "recording_sha256": "f5360b97252cdd5793f3429b42f71dcb672c0f2a420733c777f552d1465a8da3",

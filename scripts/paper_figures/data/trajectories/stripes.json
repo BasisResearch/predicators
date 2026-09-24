@@ -1,0 +1,216 @@
+{
+ "description": "One recorded EMPIRIC run per domain, from experiments to the solved test task. Frames with 'states' come from the agent's own model, replayed by render_model_rollout.py on the run's own code.",
+ "rows": [
+  {
+   "domain": "Domino",
+   "run": "domino_high_friction_turn-mb_opus_gate_r1/seed0/run_20260917_082017",
+   "frames": [
+    {
+     "level": "L01",
+     "episode": 0,
+     "step": 173,
+     "caption": "Train: row topples",
+     "detail": "friction 0.50, not 0.10"
+    },
+    {
+     "states": "figure_model_rollouts/domino_seed0/side_hit/rollout_states.pkl",
+     "index": -1,
+     "caption": "Model: side-on hit",
+     "detail": "falls with the blow"
+    },
+    {
+     "states": "figure_model_rollouts/domino_seed0/cand_a/rollout_states.pkl",
+     "index": -1,
+     "caption": "Plan: two blues",
+     "detail": "12/12 jittered runs"
+    },
+    {
+     "level": "L02",
+     "episode": 0,
+     "step": 156,
+     "caption": "Test: build, re-plan",
+     "detail": "blue 2 fit to blue 1"
+    },
+    {
+     "level": "L02",
+     "episode": 0,
+     "step": "last",
+     "caption": "Solved",
+     "detail": "chain turns 90°"
+    }
+   ]
+  },
+  {
+   "domain": "Bridge",
+   "run": "bridge-mb_opus_benchmark_r2/seed3/run_20260919_124955",
+   "frames": [
+    {
+     "level": "L01",
+     "episode": 0,
+     "step": 173,
+     "caption": "Probe: dab an end",
+     "detail": "end face turns yellow"
+    },
+    {
+     "level": "L01",
+     "episode": 0,
+     "step": 779,
+     "caption": "Probe: lift one",
+     "detail": "glued neighbour rises"
+    },
+    {
+     "states": "figure_model_rollouts/bridge_seed3/out/rollout_states.pkl",
+     "index": -1,
+     "show_memory_glue": true,
+     "caption": "Plan: six dabs",
+     "detail": "model: all six glued"
+    },
+    {
+     "level": "L02",
+     "episode": 0,
+     "step": 321,
+     "caption": "Test: six dabs",
+     "detail": "all six glued"
+    },
+    {
+     "level": "L02",
+     "episode": 0,
+     "step": "last",
+     "caption": "Solved",
+     "detail": "release raised after sag"
+    }
+   ]
+  },
+  {
+   "domain": "Balloons",
+   "run": "balloons-mb_opus_benchmark_r2/seed3/run_20260919_124956",
+   "resolution": [
+    1280,
+    800
+   ],
+   "flags": {
+    "balloons_scene": "chute"
+   },
+   "frames": [
+    {
+     "level": "L01",
+     "episode": 0,
+     "step": 90,
+     "caption": "Probe: three",
+     "detail": "top one pops at 1.18 m"
+    },
+    {
+     "level": "L01",
+     "episode": 1,
+     "step": 193,
+     "caption": "Probe: one green",
+     "detail": "lift fades with height"
+    },
+    {
+     "states": "figure_model_rollouts/balloons_seed3/out/rollout_states.pkl",
+     "index": -1,
+     "caption": "Plan: gold, then blue",
+     "detail": "0.886 m, no burst"
+    },
+    {
+     "level": "L03",
+     "episode": 0,
+     "step": 144,
+     "caption": "Test: blue joins",
+     "detail": "gold alone as predicted"
+    },
+    {
+     "level": "L03",
+     "episode": 0,
+     "step": "last",
+     "caption": "Solved",
+     "detail": "0.880 m, in the band"
+    }
+   ]
+  },
+  {
+   "domain": "Boil",
+   "run": "boil-mb_opus_gate_preflight_two_jug_tight_r1/seed1/run_20260917_082805",
+   "frames": [
+    {
+     "level": "L01",
+     "episode": 0,
+     "step": 106,
+     "caption": "Probe: tap misses jug",
+     "detail": "water spills in front"
+    },
+    {
+     "level": "L01",
+     "episode": 0,
+     "step": 270,
+     "caption": "Probe: jug on puddle",
+     "detail": "fills 0.014 per step"
+    },
+    {
+     "states": "figure_model_rollouts/boil_seed1/out/rollout_states.pkl",
+     "index": -1,
+     "caption": "Plan: overlap two jugs",
+     "detail": "model: both boil, no spill"
+    },
+    {
+     "level": "L02",
+     "episode": 0,
+     "step": 334,
+     "caption": "Test: boil one, fill one",
+     "detail": "no idle waiting"
+    },
+    {
+     "level": "L02",
+     "episode": 0,
+     "step": "last",
+     "caption": "Solved",
+     "detail": "both boiled, no spill"
+    }
+   ]
+  },
+  {
+   "domain": "Fan",
+   "run": "fan_ramp-mb_opus_ramp_skill_repair_r1/seed2/run_20260921_090827",
+   "frames": [
+    {
+     "level": "L01",
+     "episode": 0,
+     "step": 138,
+     "split": "train",
+     "caption": "Probe: fan burst",
+     "detail": "ball rolls 0.9 m"
+    },
+    {
+     "states": "figure_model_rollouts/fan_seed2/l1_lip/rollout_states.pkl",
+     "index": -1,
+     "split": "train",
+     "caption": "Model: stuck at a lip",
+     "detail": "lip from noise, fixed"
+    },
+    {
+     "states": "figure_model_rollouts/fan_seed2/l2_plan/rollout_states.pkl",
+     "index": -1,
+     "split": "test",
+     "caption": "Plan: push, then brake",
+     "detail": "model: reaches the pad"
+    },
+    {
+     "level": "L02",
+     "episode": 0,
+     "step": 183,
+     "split": "test",
+     "caption": "Test: fan brakes",
+     "detail": "1.23 m; model 1.21 m"
+    },
+    {
+     "level": "L02",
+     "episode": 0,
+     "step": "last",
+     "split": "test",
+     "caption": "Solved",
+     "detail": "6 mm from the model"
+    }
+   ]
+  }
+ ]
+}

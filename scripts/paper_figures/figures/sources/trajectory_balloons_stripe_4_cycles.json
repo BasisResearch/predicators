@@ -1,0 +1,15 @@
+{
+  "generated_by": "scripts/render_cycles_scene.py; do not edit manually",
+  "blender_version": "4.5.3 LTS",
+  "engine": "CYCLES",
+  "device": "CPU",
+  "samples": 48,
+  "scene_source": "/orcd/home/002/ycliang/predicators/scripts/paper_figures/data/cycles_scenes/trajectory_balloons_stripe_4.json",
+  "scene_sha256": "50e9e929e6dcd1a713293acdb5b91e517f2e08a626474ad95a29f27fce61e1b6",
+  "output_sha256": "44a2fb6e42f997a496e28c7bce87847e9020e0ec24bd4e34748abb3546747091",
+  "visual_shapes": 85,
+  "blender_mesh_objects": 81,
+  "geometry": "Recorded world transforms; box edges receive at most 0.6 mm visual bevels",
+  "appearance": "Procedural materials, soft area lighting, AgX; duplicate surfaces removed",
+  "physics_steps": 0
+}

@@ -13,14 +13,17 @@ RUN = "bridge-mb_opus_span_transfer_r2/seed0/run_20260916_190710"
 # Each row follows one level of the same run. Steps are within the level.
 # Steps 122 (mid-dip) and 1290 (mid-carry) fall inside a skill, so they have
 # no GUI render and are archived by their recorded state index alone.
+# Both levels share the camera, so one crop keeps the table in the same place
+# in both rows. It spans the tabletop and the gripper above it and drops most
+# of the table's front face.
+CROP = (250, 224, 820, 670)
 SELECTION = [
     ("bridge_train", "L01", "train",
      ((0, "Initial scene"), (122, "Dip a block end"),
-      (1290, "Row lifts as one"), (1362, "Level solved")), (240, 140, 740,
-                                                            672)),
+      (1290, "Row lifts as one"), (1362, "Level solved")), CROP),
     ("bridge_test", "L02", "test",
      ((0, "New task"), (563, "Apply glue"), (1652, "Re-seat joint"),
-      (1702, "Lift assembly"), (1940, "Bridge solved")), (270, 280, 810, 860)),
+      (1702, "Lift assembly"), (1940, "Bridge solved")), CROP),
 ]
 
 

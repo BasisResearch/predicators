@@ -1,0 +1,15 @@
+{
+  "generated_by": "scripts/render_cycles_scene.py; do not edit manually",
+  "blender_version": "4.5.3 LTS",
+  "engine": "CYCLES",
+  "device": "CPU",
+  "samples": 48,
+  "scene_source": "/orcd/home/002/ycliang/predicators/scripts/paper_figures/data/cycles_scenes/trajectory_boil_stripe_0.json",
+  "scene_sha256": "10a0beaf914e04091b124c4f378b1593e25d4d815594e43ad0381254e79d26c6",
+  "output_sha256": "c4807ee1bec2e635d33d73a1c28c1adc121e072dd730329276b36d9a78b0de21",
+  "visual_shapes": 69,
+  "blender_mesh_objects": 66,
+  "geometry": "Recorded world transforms; box edges receive at most 0.6 mm visual bevels",
+  "appearance": "Procedural materials, soft area lighting, AgX; duplicate surfaces removed",
+  "physics_steps": 0
+}

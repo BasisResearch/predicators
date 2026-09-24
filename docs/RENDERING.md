@@ -24,7 +24,7 @@ python scripts/paper_figures/build_figures.py --overview
 python scripts/paper_figures/verify_figures.py
 ```
 
-Figure 1 uses `fig1_residual`, Figure 2 uses `fig2_method`, and Figure 3 uses `fig3_trajectories`.
+Figure 1 uses `fig1_residual`, Figure 2 uses `fig2_method`, Figure 3 uses `fig3_trajectories`, and the appendix trajectory figure uses `figA_trajectories`.
 PDF, SVG, and PNG outputs are generated.
 The generated manifest records input and output hashes.
 Do not edit generated images or manifests manually.
@@ -88,7 +88,7 @@ The saturated-blue Boil jug has a local ambient material response so its deep in
 Commit the scene JSON, rendered PNGs, PNG sidecars, and render manifest.
 Do not commit transient renderer logs or the temporary Figma assets.
 
-The Figure 3 Bridge selection, steps, labels, source hashes, and display crops are recorded in `scripts/paper_figures/data/trajectories/figure3.json`, which `import_figure3_trajectories.py` writes.
+The Bridge selection behind Figure 2's act panel and Figure 1's lift illustration, with its steps, labels, source hashes, and display crops, is recorded in `scripts/paper_figures/data/trajectories/figure3.json`, which `import_figure3_trajectories.py` writes.
 The selected Domino and Fan runs and their environment settings are declared in `scripts/paper_figures/export_static_scenes.py`.
 Update those declarations before re-exporting when new data should replace an existing figure panel.
 
@@ -116,7 +116,7 @@ Use the original run's runtime, configuration, primitive actions, and recording/
 The replay helpers are `predicators/run/continual_video.py` and `scripts/continual_video.py`.
 A local capture driver must select the archived events or restore complete saved states.
 
-The Figure 3 Bridge selection is recorded in `scripts/paper_figures/data/trajectories/figure3.json`:
+The earlier Figure 3 Bridge selection is recorded in `scripts/paper_figures/data/trajectories/figure3.json`; Figure 3 now uses the stripes below, but these frames still supply Figure 2's act panel and Figure 1's lift illustration:
 
 | Row | Run under logs/agent_continual | Level | Within-level steps |
 |---|---|---|---|
@@ -124,7 +124,6 @@ The Figure 3 Bridge selection is recorded in `scripts/paper_figures/data/traject
 | Bridge test | bridge-mb_opus_span_transfer_r2/seed0/run_20260916_190710 | L02 | 0, 563, 1652, 1702, 1940 |
 
 Steps 122 (mid-dip) and 1290 (mid-carry) fall inside a skill, so they have no GUI render and are archived by their recorded state index alone.
-The between-levels panel summarizes the run's journal (`sandbox/journal.md`): the written glue program, the replay of the six recorded dips, the rejected first bond model, and the rehearsed test plan.
 
 Do not reconstruct execution by resetting visible object poses alone.
 Preserve attachments, velocities, glue/contact history, and other hidden state.
@@ -146,13 +145,13 @@ Example:
   },
   "trajectory_bridge_test_3": {
     "path": "figures/sources/local_gui/bridge_step1702.png",
-    "crop": [270, 280, 810, 860]
+    "crop": [250, 224, 820, 670]
   }
 }
 ```
 
 Crop coordinates refer to the replacement image; omit them for an already cropped panel.
-The Bridge test-level crop is `(270, 280, 810, 860)`; the training level uses its own crop in `figure3.json`.
+Both Bridge rows use the crop `(250, 224, 820, 670)`, recorded in `figure3.json`, so the table sits in the same place in every frame.
 Semantic frame names end in their index within the row.
 Explicit gallery keys take precedence over semantic names.
 
@@ -173,9 +172,45 @@ To refresh the archived Figure 3 selection deliberately, run:
 `python scripts/paper_figures/import_figure3_trajectories.py`.
 This reads local logs and restores original images; it is not the command for installing GUI replacements.
 
+## Trajectory stripes (Figure 3 and the appendix)
+
+Figure 3 and the appendix figure show one recorded EMPIRIC run per domain as a stripe of five frames, from the run's experiments to the solved test task.
+`scripts/paper_figures/data/trajectories/stripes.json` records each stripe's run, frames (level, episode and level step, or a saved model state), captions, and display settings; `MAIN_STRIPES` and `APPENDIX_STRIPES` in `build_figures.py` choose which stripes go where.
+Level steps run on across a level's episodes, and a reset costs one step.
+
+Dashed frames show the agent's own model.
+Most runs checked their plans with `render=False`, so these frames are re-created with `scripts/paper_figures/render_model_rollout.py`: it loads the run's launch flags, executes the saved simulator version the agent had at the time, applies the parameter values the harness deployed then (the carry rule for unfitted versions included), rebuilds the noisy observations and belief the agent saw at the plan's start, and runs the same plan through the same probe.
+Run it on the code the run used: the recorded commit is in the run's `info.log`, and the frozen worktrees or runtime folders at those commits are listed in the table below.
+Check each replay against numbers the agent printed before using it.
+
+| Stripe | Run | Model frames (replay code) |
+|---|---|---|
+| Domino | `domino_high_friction_turn-mb_opus_gate_r1/seed0` | two level-2 probes (`predicators-rebase`, 5d1c857c5) |
+| Bridge | `bridge-mb_opus_benchmark_r2/seed3` | the six-dab check (`predicators-empiric-r2-frozen-20260919`, f2ed37aef) |
+| Balloons | `balloons-mb_opus_benchmark_r2/seed3` | the gold-then-blue rehearsal (f2ed37aef) |
+| Boil | `boil-mb_opus_gate_preflight_two_jug_tight_r1/seed1` | the two-jug rehearsal (5d1c857c5) |
+| Fan | `fan_ramp-mb_opus_ramp_skill_repair_r1/seed2` | the level-1 burst replay and the level-2 plan (`logs/fan-ramp-skill-repair-runtime-20260921`, ff11bc76f) |
+
+The replays' outputs, plans and parameters are under `logs/figure_model_rollouts/`.
+Then export and render the stripe scenes and rebuild:
+
+```bash
+python scripts/paper_figures/export_stripe_scenes.py --preview /tmp/stripe-previews
+uv run --no-project --python 3.11 --with bpy==4.5.3 --with pycollada \
+  python scripts/paper_figures/render_cycles_scenes.py --samples 48 --threads 8 \
+  --scenes trajectory_domino_stripe_0 ...  # every trajectory_*_stripe_* scene
+python scripts/paper_figures/build_figures.py --overview --renderer cycles
+python scripts/paper_figures/verify_figures.py
+```
+
+The exporter records each display adjustment in the scene metadata.
+Fan and Balloons states move into the current scene layouts that Figure 1 uses, so positions relative to the platforms and the chute are unchanged.
+Boil liquid is drawn no higher than the jug rim, because the environment lets water rise above the rim before it overflows, which reads as an upturned jug.
+The Bridge model frame draws the glue the model remembers as the environment's glue patches.
+
 ## Real-world trajectory
 
-The third row of Figure 3 shows the real-robot Fan-Domino cascade run of 2026-09-22 (`exp_20260922_134142`).
+The last row of Figure 3 shows the real-robot Fan-Domino cascade run of 2026-09-22 (`exp_20260922_134142`).
 Its logs, videos, posterior, and report are in the [shared run folder](https://drive.google.com/drive/folders/1bcFFkaMb1ZKa0p1sK5KuMdQQ92xojnBO).
 Download it to `logs/real_robot/fan_domino_drive`, for example with `gdown` file by file, and then run:
 
@@ -184,8 +219,8 @@ uv run --no-project --with imageio-ffmpeg --with pillow \
   python scripts/paper_figures/import_real_robot_frames.py
 ```
 
-The importer extracts five frames from the gust camera's tracking videos, crops them identically, and writes their video hashes, frame indices, measured slides, the test plan's prediction, and the posterior summary to `scripts/paper_figures/data/trajectories/real_fan_domino.json`.
-The tracking overlays are the tracker's fitted boxes, not predictions.
+The importer extracts five gust-camera frames from the left half of the side-by-side episode videos (`casc_explore.mp4` and `casc_test.mp4`), crops them identically, and writes their video hashes, frame indices, measured slides, the test plan's prediction, and the posterior summary to `scripts/paper_figures/data/trajectories/real_fan_domino.json`.
+These videos carry no overlays; the `epNN_gust_tracked.mp4` clips show the same camera at twice the resolution but draw the tracker's fitted boxes and angles, so the paper does not use them.
 Keep this applicability case study distinct from the simulated baseline comparison.
 
 ## Removed legacy tooling

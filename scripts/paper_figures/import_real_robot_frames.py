@@ -3,9 +3,11 @@
 
 The source is the shared folder of the 2026-09-22 cascade run,
 downloaded to ``logs/real_robot/fan_domino_drive`` (for example with
-``gdown``). Figure 3's frames come from the gust camera's tracking
-videos, which overlay the fitted box of the probed or goal block. Figure
-1's come from the front camera of the test video, without overlays.
+``gdown``). All frames come from the gust camera, the left half of the
+side-by-side episode videos, which carry no tracker overlays. The
+``epNN_gust_tracked.mp4`` clips show the same camera at twice the
+resolution but draw the tracker's fitted box and angle on the probed or
+goal block.
 """
 import hashlib
 import io
@@ -22,23 +24,23 @@ ROOT = Path(__file__).resolve().parent
 RUN = ROOT.parents[1] / "logs/real_robot/fan_domino_drive"
 DRIVE = ("https://drive.google.com/drive/folders/"
          "1bcFFkaMb1ZKa0p1sK5KuMdQQ92xojnBO")
-# Two exploration probes, then the test after the patch was moved.
+# Two exploration probes, then the test after the patch was moved. These are
+# the moments of tracked-clip frames 106, 104, 45, 63, and 104, found by
+# matching the clips against the overlay-free videos.
 SELECTION = [
-    ("ep01_gust_tracked.mp4", 106, 1, "Probe: green stays"),
-    ("ep02_gust_tracked.mp4", 104, 2, "Probe: grey slides"),
-    ("ep03_gust_tracked.mp4", 45, 3, "Test: grey upwind"),
-    ("ep03_gust_tracked.mp4", 63, 3, "Grey knocks green"),
-    ("ep03_gust_tracked.mp4", 104, 3, "Green in patch"),
+    ("casc_explore.mp4", 1655, 1, "Probe: green stays"),
+    ("casc_explore.mp4", 4313, 2, "Probe: grey slides"),
+    ("casc_test.mp4", 2505, 3, "Test: grey upwind"),
+    ("casc_test.mp4", 2595, 3, "Grey knocks green"),
+    ("casc_test.mp4", 2800, 3, "Green in patch"),
 ]
 # Keeps the gripper at the button, the fan, both blocks, and both patch
 # placements in every frame.
-CROP = (230, 400, 1210, 1080)
-FPS = 15
-# Figure 1 shows the test task before and after the run, from the front
-# camera in the left half of the side-by-side test video.
+CROP = (115, 200, 605, 540)
+FPS = 30
+# Figure 1 shows the test task before and after the run in a wider crop.
 TEASER = [("casc_test.mp4", 0, "start"), ("casc_test.mp4", 2790, "win")]
 TEASER_CROP = (80, 110, 580, 540)
-TEASER_FPS = 30
 
 
 def _digest(path: Path) -> str:
@@ -71,7 +73,7 @@ def main() -> None:
     frames: List[Dict[str, Any]] = []
     for i, (video, index, episode, label) in enumerate(SELECTION):
         image = _frame(RUN / video, index)
-        assert image.size == (1920, 1080), image.size
+        assert image.size == (1920, 540), image.size
         dest = ROOT / "figures/sources" / f"real_fan_domino_{i}.png"
         image.crop(CROP).save(dest)
         frames.append(
@@ -95,14 +97,14 @@ def main() -> None:
                  video=video,
                  video_sha256=_digest(RUN / video),
                  frame_index=index,
-                 time_s=round(index / TEASER_FPS, 3),
+                 time_s=round(index / FPS, 3),
                  sha256=_digest(dest)))
     archive = dict(
         generated_by="scripts/paper_figures/import_real_robot_frames.py; "
         "do not edit manually",
-        description="Recorded frames from one real-robot run: gust-camera "
-        "frames for Figure 3, whose overlays are the tracker's fitted boxes, "
-        "not predictions, and front-camera frames of the test for Figure 1.",
+        description="Recorded gust-camera frames from one real-robot run, "
+        "without tracker overlays: the two probes and the test for Figure 3, "
+        "and the test's first and last frames for Figure 1.",
         experiment="exp_20260922_134142",
         seed=int((RUN / "seed").read_text()),
         source_folder=DRIVE,

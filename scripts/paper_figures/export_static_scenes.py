@@ -4,6 +4,7 @@ import json
 import pickle
 from contextlib import nullcontext
 from pathlib import Path
+from typing import Any, Dict
 from unittest.mock import patch
 
 import pybullet as p
@@ -13,6 +14,8 @@ from render_scene_support import export_visual_scene, raised_flat_markers, \
 
 from predicators import utils
 from predicators.envs import create_new_env
+from predicators.envs.pybullet_fan import PyBulletFanEnv
+from predicators.structs import State
 
 ROOT = Path(__file__).resolve().parent
 LOGS = ROOT.parents[1] / "logs/agent_continual"
@@ -66,7 +69,8 @@ ROWS = (
 )
 
 
-def _migrate_fan_layout(env, state, current_initial):
+def _migrate_fan_layout(env: PyBulletFanEnv, state: State,
+                        current_initial: State) -> State:
     """Combine an archived outcome with the current static ramp layout."""
     static_types = {
         env._platform_type,  # pylint: disable=protected-access
@@ -88,7 +92,8 @@ def _migrate_fan_layout(env, state, current_initial):
     return state
 
 
-def _export_row(row):
+def _export_row(row: Dict[str, Any]) -> None:
+    """Export the start and win scenes of one row's winning episode."""
     source = LOGS / row["run"] / row["level"] / "episodes.pkl"
     source_bytes = source.read_bytes()
     scorecard = LOGS / row["run"] / "scorecard.json"
@@ -104,7 +109,7 @@ def _export_row(row):
                  pybullet_camera_width=900,
                  pybullet_camera_height=900)
     utils.reset_config(flags)
-    env = create_new_env(row["env"], do_cache=False, use_gui=False)
+    env: Any = create_new_env(row["env"], do_cache=False, use_gui=False)
     try:
         current_initial = env.reset("test", 0)
         output = ROOT / "data/cycles_scenes"
@@ -145,7 +150,7 @@ def _export_row(row):
         env.dispose()
 
 
-def main():
+def main() -> None:
     """Export the current Domino and ramp Fan scenes."""
     with record_procedural_meshes():
         for row in ROWS:

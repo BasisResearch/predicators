@@ -7,27 +7,32 @@ JSON.
 import argparse
 import hashlib
 import json
-import math
 import os
 from pathlib import Path
+from typing import Any, Dict, List, Set, Tuple
 
 # Limit Blender/TBB discovery before importing the module on shared hosts.
 os.sched_setaffinity(
     0,
     sorted(os.sched_getaffinity(0))
     [:int(os.environ.get('EMPIRIC_RENDER_THREADS', '8'))])
+# These modules exist only in the Blender environment named above.
+# pylint: disable=import-error,wrong-import-position
 # isort: off
-import bpy
+import bpy  # type: ignore[import-not-found]
 # The PyPI module registers Blender's companion modules lazily.
 _ = bpy.app.version_string
-import bmesh
-from mathutils import Matrix, Quaternion, Vector
+import bmesh  # type: ignore[import-not-found]
+import collada  # type: ignore[import-not-found]
+from mathutils import (  # type: ignore[import-not-found]
+    Matrix, Quaternion, Vector)
 # isort: on
+# pylint: enable=import-error,wrong-import-position
 
 REPO = Path(__file__).resolve().parents[2]
 
 
-def resolve_mesh(path):
+def resolve_mesh(path: str) -> Path:
     """Resolve archived cluster mesh paths against the current checkout."""
     source = Path(path)
     if source.exists():
@@ -40,11 +45,13 @@ def resolve_mesh(path):
     raise FileNotFoundError(path)
 
 
-def linear(value):
+def linear(value: float) -> float:
+    """Convert one sRGB channel to linear light."""
     return value / 12.92 if value <= .04045 else ((value + .055) / 1.055)**2.4
 
 
-def material_for(shape):
+def material_for(shape: Dict[str, Any]) -> Any:
+    """Build the Cycles material for one recorded visual shape."""
     rgba = shape['rgba']
     identity = (shape['mesh'] + ' ' + shape['name']).lower()
     wood = 'table' in identity
@@ -106,7 +113,8 @@ def material_for(shape):
     return mat
 
 
-def primitive(shape):
+def primitive(shape: Dict[str, Any]) -> List[Any]:
+    """Create the Blender mesh for a Bullet primitive or procedural visual."""
     kind, dims = shape['kind'], shape['dimensions']
     if kind == 5 and 'vertices' in shape:
         mesh = bpy.data.meshes.new('Recorded procedural visual')
@@ -153,7 +161,8 @@ def primitive(shape):
     return [obj]
 
 
-def add_shape(shape):
+def add_shape(shape: Dict[str, Any]) -> int:
+    """Add one recorded visual shape and return its mesh object count."""
     if shape['kind'] == 0:
         raise ValueError(
             'Invalid visual metadata: export from a client without EGL')
@@ -164,7 +173,6 @@ def add_shape(shape):
         before = set(bpy.data.objects)
         mesh_path = resolve_mesh(path)
         if mesh_path.suffix.lower() == '.dae':
-            import collada
             document = collada.Collada(str(mesh_path),
                                        ignore=[collada.DaeBrokenRefError])
             assert document.assetInfo.upaxis == 'Z_UP', mesh_path
@@ -181,7 +189,8 @@ def add_shape(shape):
                     # Collada stores authored per-corner normals. Preserve them
                     # rather than smoothing across every triangle, which makes
                     # planar robot panels show diagonal shading artifacts.
-                    if part.normal is not None and part.normal_index is not None:
+                    if (part.normal is not None
+                            and part.normal_index is not None):
                         normal_indices = part.normal_index.reshape(-1)
                         normals = [
                             tuple(part.normal[i]) for i in normal_indices
@@ -223,7 +232,8 @@ def add_shape(shape):
             mesh.from_mesh(obj.data)
             bmesh.ops.remove_doubles(mesh, verts=list(mesh.verts), dist=1e-7)
             mesh.verts.index_update()
-            seen, duplicates = set(), []
+            seen: Set[Tuple[int, ...]] = set()
+            duplicates: List[Any] = []
             for face in mesh.faces:
                 key = tuple(sorted(v.index for v in face.verts))
                 if key in seen:
@@ -241,7 +251,8 @@ def add_shape(shape):
                     face.use_smooth = False
                 obj['switch_color'] = ','.join(str(v) for v in shape['rgba'])
         obj.matrix_world = world @ obj.matrix_world
-        obj.name = f"body_{shape['body']}_link_{shape['link']}_visual_{shape['index']}_{obj.name}"
+        obj.name = (f"body_{shape['body']}_link_{shape['link']}"
+                    f"_visual_{shape['index']}_{obj.name}")
         obj.data.materials.clear()
         obj.data.materials.append(material)
         for face in obj.data.polygons:
@@ -262,10 +273,10 @@ def add_shape(shape):
     return len(objects)
 
 
-def union_compound_boxes():
+def union_compound_boxes() -> None:
     """Render compound solid boxes as a union, removing coplanar wall
     patches."""
-    groups = {}
+    groups: Dict[str, List[Any]] = {}
     for obj in list(bpy.data.objects):
         if obj.type == 'MESH' and 'box_union_group' in obj:
             groups.setdefault(obj['box_union_group'], []).append(obj)
@@ -295,7 +306,8 @@ def union_compound_boxes():
             face.use_smooth = False
 
 
-def merge_overlapping_tables(shapes):
+def merge_overlapping_tables(
+        shapes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Use the exact rectangular union of aligned touching table volumes.
 
     Boil's tables overlap over half a tabletop. Rendering both coplanar
@@ -323,10 +335,10 @@ def merge_overlapping_tables(shapes):
     return [s for s in shapes if s not in tables] + [combined]
 
 
-def consolidate_switch_surfaces():
+def consolidate_switch_surfaces() -> None:
     """Remove coincident surfaces across PartNet pieces without moving
     vertices."""
-    groups = {}
+    groups: Dict[str, List[Any]] = {}
     for obj in list(bpy.data.objects):
         if obj.type == 'MESH' and 'switch_color' in obj:
             groups.setdefault(obj['switch_color'], []).append(obj)
@@ -341,7 +353,8 @@ def consolidate_switch_surfaces():
         mesh.from_mesh(obj.data)
         bmesh.ops.remove_doubles(mesh, verts=list(mesh.verts), dist=1e-7)
         mesh.verts.index_update()
-        seen, duplicates = set(), []
+        seen: Set[Tuple[int, ...]] = set()
+        duplicates: List[Any] = []
         for face in mesh.faces:
             key = tuple(sorted(v.index for v in face.verts))
             if key in seen:
@@ -357,7 +370,10 @@ def consolidate_switch_surfaces():
         obj.data.update()
 
 
-def area_light(name, position, target, energy, size):
+def area_light(name: str, position: Tuple[float, float, float],
+               target: Tuple[float, float,
+                             float], energy: float, size: float) -> None:
+    """Add a disk area light at ``position`` aimed at ``target``."""
     data = bpy.data.lights.new(name, 'AREA')
     data.energy = energy
     data.shape = 'DISK'
@@ -369,7 +385,8 @@ def area_light(name, position, target, energy, size):
         '-Z', 'Y').to_euler()
 
 
-def main():
+def main() -> None:
+    """Render one exported scene and write its provenance sidecar."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('scene', type=Path)
     parser.add_argument('--output', type=Path, required=True)
@@ -449,10 +466,10 @@ def main():
         output_sha256=hashlib.sha256(args.output.read_bytes()).hexdigest(),
         visual_shapes=len(exported['shapes']),
         blender_mesh_objects=count,
-        geometry=
-        'Recorded world transforms; box edges receive at most 0.6 mm visual bevels',
-        appearance=
-        'Procedural materials, soft area lighting, AgX; duplicate surfaces removed',
+        geometry=('Recorded world transforms; box edges receive at most '
+                  '0.6 mm visual bevels'),
+        appearance=('Procedural materials, soft area lighting, AgX; '
+                    'duplicate surfaces removed'),
         physics_steps=0)
     args.output.with_suffix('.json').write_text(
         json.dumps(report, indent=2) + '\n')

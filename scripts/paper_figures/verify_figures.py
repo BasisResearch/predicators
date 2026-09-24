@@ -4,6 +4,7 @@ import json
 import os
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from typing import List
 
 # Optional figure-authoring dependency.
 import pymupdf  # type: ignore[import-not-found] # pylint: disable=import-error
@@ -13,6 +14,24 @@ PAPER = Path(
     os.environ.get("EMPIRIC_PAPER_ROOT",
                    str(ROOT.parents[2] / "sim-predicator-paper"))).resolve()
 OUTPUT = PAPER / "figures"
+SVG = "{http://www.w3.org/2000/svg}"
+
+
+def _outlined_boxes(svg: ET.ElementTree, width: float) -> List[pymupdf.Rect]:
+    """Return a figure's outlined rectangles in PDF points."""
+    left, top, view_width, _ = map(float,
+                                   svg.getroot().get("viewBox", "").split())
+    scale = width / view_width
+    boxes = []
+    for rect in svg.iter(f"{SVG}rect"):
+        if rect.get("stroke", "none") == "none":
+            continue
+        x, y = float(rect.get("x", 0)), float(rect.get("y", 0))
+        w, h = float(rect.get("width", 0)), float(rect.get("height", 0))
+        boxes.append(
+            pymupdf.Rect((x - left) * scale, (y - top) * scale,
+                         (x + w - left) * scale, (y + h - top) * scale))
+    return boxes
 
 
 def main() -> None:
@@ -24,14 +43,20 @@ def main() -> None:
             assert hashlib.sha256(
                 (base / name).read_bytes()).hexdigest() == digest, name
     for name, count in (("fig1_residual", 15), ("fig2_method", 1),
-                        ("fig3_trajectories", 14)):
+                        ("fig3_trajectories", 15), ("figA_trajectories", 15)):
         svg = ET.parse(OUTPUT / f"{name}.svg")
-        assert len(
-            svg.findall(".//{http://www.w3.org/2000/svg}image")) == count
+        assert len(svg.findall(f".//{SVG}image")) == count
         with pymupdf.open(OUTPUT / f"{name}.pdf") as doc:
+            boxes = _outlined_boxes(svg, doc[0].rect.width)
             for word in doc[0].get_text("words"):
                 assert doc[0].rect.contains(pymupdf.Rect(word[:4])), (name,
                                                                       word)
+                # Text sits wholly inside or outside each outlined box; the
+                # inset ignores the line spacing around the glyphs.
+                inner = pymupdf.Rect(word[:4]) + (0.5, 0.5, -0.5, -0.5)
+                for box in boxes:
+                    assert box.contains(inner) or not box.intersects(inner), (
+                        name, word[4], box)
     archive = json.loads((ROOT / "data/trajectories/figure3.json").read_text())
     robot = json.loads(
         (ROOT / "data/trajectories/real_fan_domino.json").read_text())
@@ -44,8 +69,8 @@ def main() -> None:
         source = ROOT / "figures/sources" / (frame["name"] + ".png")
         assert hashlib.sha256(
             source.read_bytes()).hexdigest() == frame["sha256"], frame["name"]
-    print("PASS: input/output hashes, image counts, text bounds, "
-          "and frame provenance")
+    print("PASS: input/output hashes, image counts, text bounds, text inside "
+          "boxes, and frame provenance")
 
 
 if __name__ == "__main__":
