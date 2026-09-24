@@ -12,7 +12,8 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
-# Optional figure-authoring dependency, separate from benchmark runtime.
+# Optional figure-authoring dependencies, separate from benchmark runtime.
+import cairocffi  # type: ignore[import-not-found] # pylint: disable=import-error
 import cairosvg  # type: ignore[import-not-found] # pylint: disable=import-error
 from PIL import Image, ImageOps
 
@@ -48,9 +49,10 @@ BRIDGE_FOCUS_CROP = (270, 280, 810, 860)
 # panel is wider and therefore uses its own crop.
 BRIDGE_PAIR_CROP = (150, 60, 830, 700)
 BRIDGE_SOLVED_CROP = (210, 220, 820, 560)
-# Figure 2's act panel frames the recorded dip with the robot and the build
-# site.
-BRIDGE_ACT_CROP = (170, 190, 690, 450)
+# Figure 2's act panel shows the robot lowering a block, glued on the end
+# that faces the row, toward the row's glued end (a 900 by 540 render). The
+# crop centres the two glued ends and trims the gripper body.
+BRIDGE_ACT_CROP = (60, 0, 810, 450)
 # An illustrative glue program in the paper's terms. Wet faces are observed,
 # so they select the glued joints; the hidden recurrent state x_res counts
 # each joint's cure progress while its faces meet; and a joint past the cure
@@ -109,6 +111,21 @@ def _python_tokens(line: str) -> List[Tuple[str, str]]:
         colored.append((token, color))
         previous = token
     return colored
+
+
+class _DatedPDFSurface(cairosvg.surface.PDFSurface):
+    """A PDF surface with a fixed creation date.
+
+    Cairo otherwise stamps the build time into each PDF, so rebuilding
+    an unchanged figure would write new bytes.
+    """
+
+    def _create_surface(self, width: float,
+                        height: float) -> Tuple[Any, float, float]:
+        surface, width, height = super()._create_surface(width, height)
+        surface.set_metadata(cairocffi.PDF_METADATA_CREATE_DATE,
+                             "2026-09-24T00:00:00Z")
+        return surface, width, height
 
 
 class Drawing:
@@ -376,7 +393,8 @@ class Drawing:
         """Write vector, PDF, and raster versions."""
         raw = ET.tostring(self.root, encoding="utf-8", xml_declaration=True)
         (OUTPUT / f"{name}.svg").write_bytes(raw)
-        cairosvg.svg2pdf(bytestring=raw, write_to=str(OUTPUT / f"{name}.pdf"))
+        _DatedPDFSurface.convert(bytestring=raw,
+                                 write_to=str(OUTPUT / f"{name}.pdf"))
         cairosvg.svg2png(bytestring=raw,
                          write_to=str(OUTPUT / f"{name}.png"),
                          scale=2)

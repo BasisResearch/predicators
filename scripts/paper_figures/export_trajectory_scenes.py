@@ -3,7 +3,6 @@
 import hashlib
 import json
 import pickle
-from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 from unittest.mock import patch
@@ -30,6 +29,24 @@ PAIR_CAMERA = dict(cameraTargetPosition=(0.71, 1.145, 0.52),
                    roll=0,
                    upAxisIndex=2)
 PAIR_FOV = 45
+# Figure 2's act panel, the training row's second frame, is seen from low
+# at the row's front corner: the glued end of the block being lowered faces
+# the camera, and span1's glued top stays thin. The panel is 5:3.
+ACT_FRAME = "trajectory_bridge_train_1"
+ACT_CAMERA = dict(cameraTargetPosition=(0.815, 1.15, 0.475),
+                  distance=0.36,
+                  yaw=-40,
+                  pitch=-9,
+                  roll=0,
+                  upAxisIndex=2)
+ACT_FOV = 40
+# Frames drawn from their own camera, with its field of view and image size;
+# the others use the environment's camera at 900 by 900.
+CLOSE_CAMERAS: Dict[str, Tuple[Dict[str, Any], float, Tuple[int, int]]] = {
+    "bridge_pair_predicted": (PAIR_CAMERA, PAIR_FOV, (900, 900)),
+    "bridge_pair_observed": (PAIR_CAMERA, PAIR_FOV, (900, 900)),
+    ACT_FRAME: (ACT_CAMERA, ACT_FOV, (900, 540)),
+}
 
 
 def _canonical_state(env: Any, state: State) -> State:
@@ -116,20 +133,21 @@ def _export_row(row: Dict[str, Any]) -> None:
             env._current_observation = state  # pylint: disable=protected-access
             client = env._physics_client_id  # pylint: disable=protected-access
             before = scene_signature(client)
-            attachments = (env.render_attachments() if hasattr(
-                env, "render_attachments") else nullcontext())
             with patch.object(p,
                               "stepSimulation",
                               side_effect=AssertionError(
                                   "Rendering must not step physics")):
-                with raised_flat_markers(client), attachments:
+                with raised_flat_markers(client):
                     view, projection, _, _ = env._get_camera_matrices()  # pylint: disable=protected-access
-                    if frame["name"].startswith("bridge_pair_"):
+                    width = height = 900
+                    if frame["name"] in CLOSE_CAMERAS:
+                        camera, fov, (width,
+                                      height) = CLOSE_CAMERAS[frame["name"]]
                         view = p.computeViewMatrixFromYawPitchRoll(
-                            **PAIR_CAMERA, physicsClientId=client)
+                            **camera, physicsClientId=client)
                         projection = p.computeProjectionMatrixFOV(
-                            fov=PAIR_FOV,
-                            aspect=1.0,
+                            fov=fov,
+                            aspect=width / height,
                             nearVal=0.1,
                             farVal=100.0,
                             physicsClientId=client)
@@ -142,8 +160,8 @@ def _export_row(row: Dict[str, Any]) -> None:
                         frame=frame["name"],
                         illustrative=frame.get("illustrative", False),
                         physics_steps_after_restore=0)
-                    scene = export_visual_scene(client, view, projection, 900,
-                                                900, metadata)
+                    scene = export_visual_scene(client, view, projection,
+                                                width, height, metadata)
             assert scene_signature(client) == before
             destination = output / f'{frame["name"]}.json'
             destination.write_text(json.dumps(scene, indent=2) + "\n")

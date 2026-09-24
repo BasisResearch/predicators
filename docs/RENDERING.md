@@ -103,7 +103,8 @@ Changing Blender versions or switching to Metal or CUDA rendering can produce sm
 
 The compositor draws Figure 2 as `fig2_method`, a six-step loop that follows the method section's notation.
 Its code panel is simplified from the program written in the recorded Bridge run (`sandbox/simulator.py`), including the replaced bond rule; its plots are schematic.
-Its only raster panel is the recorded mid-dip state `trajectory_bridge_train_1`.
+Its only raster panel is the recorded state `trajectory_bridge_train_1`: the robot lowers span2, glued on the end that faces the row, toward span1's glued end.
+The run's first bond rule tested face-centre proximity and welded blocks mid-descent, 28 mm above their seats; the recorded joint bonded only 25 steps after span2 was seated, which the code panel's revised line reflects.
 The earlier illustrated pipeline remains in the [Figma file](https://www.figma.com/design/PgS1btsW3SH28tvW52xjrk/EMPIRIC?node-id=133-2) but is no longer used by the paper.
 Figure 4 quantitative plots are outside this compositor.
 The same Figma file contains the editable [Figure 1 teaser](https://www.figma.com/design/PgS1btsW3SH28tvW52xjrk/EMPIRIC?node-id=117-62).
@@ -120,10 +121,11 @@ The earlier Figure 3 Bridge selection is recorded in `scripts/paper_figures/data
 
 | Row | Run under logs/agent_continual | Level | Within-level steps |
 |---|---|---|---|
-| Bridge training | bridge-mb_opus_span_transfer_r2/seed0/run_20260916_190710 | L01 | 0, 122, 1290, 1362 |
+| Bridge training | bridge-mb_opus_span_transfer_r2/seed0/run_20260916_190710 | L01 | 0, 1189, 1290, 1362 |
 | Bridge test | bridge-mb_opus_span_transfer_r2/seed0/run_20260916_190710 | L02 | 0, 563, 1652, 1702, 1940 |
 
-Steps 122 (mid-dip) and 1290 (mid-carry) fall inside a skill, so they have no GUI render and are archived by their recorded state index alone.
+Steps 1189 (mid-descent) and 1290 (mid-carry) fall inside a skill, so they have no GUI render and are archived by their recorded state index alone.
+Step 1189 is drawn from its own camera at 900 by 540 (`ACT_CAMERA` in `export_trajectory_scenes.py`).
 
 Do not reconstruct execution by resetting visible object poses alone.
 Preserve attachments, velocities, glue/contact history, and other hidden state.

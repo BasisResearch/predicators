@@ -48,9 +48,9 @@
         },
         {
           "name": "trajectory_bridge_train_1",
-          "label": "Dip a block end",
-          "level_step": 122,
-          "run_step": 122,
+          "label": "Lower a glued block",
+          "level_step": 1189,
+          "run_step": 1189,
           "event": null,
           "source": null,
           "sha256": null

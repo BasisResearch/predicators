@@ -11,15 +11,19 @@ ROOT = Path(__file__).resolve().parent
 LOGS = ROOT.parents[1] / "logs/agent_continual"
 RUN = "bridge-mb_opus_span_transfer_r2/seed0/run_20260916_190710"
 # Each row follows one level of the same run. Steps are within the level.
-# Steps 122 (mid-dip) and 1290 (mid-carry) fall inside a skill, so they have
-# no GUI render and are archived by their recorded state index alone.
+# Steps 1189 (mid-descent) and 1290 (mid-carry) fall inside a skill, so they
+# have no GUI render and are archived by their recorded state index alone.
+# At step 1189 the robot lowers span2, glued on the end that faces the row,
+# toward span1's glued end, 94 mm above its seat. The run's first bond rule
+# tested face-centre proximity and welded blocks mid-descent, 28 mm above
+# their seats; the recorded joint bonded 25 steps after span2 was seated.
 # Both levels share the camera, so one crop keeps the table in the same place
 # in both rows. It spans the tabletop and the gripper above it and drops most
 # of the table's front face.
 CROP = (250, 224, 820, 670)
 SELECTION = [
     ("bridge_train", "L01", "train",
-     ((0, "Initial scene"), (122, "Dip a block end"),
+     ((0, "Initial scene"), (1189, "Lower a glued block"),
       (1290, "Row lifts as one"), (1362, "Level solved")), CROP),
     ("bridge_test", "L02", "test",
      ((0, "New task"), (563, "Apply glue"), (1652, "Re-seat joint"),

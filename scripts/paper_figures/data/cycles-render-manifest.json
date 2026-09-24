@@ -193,10 +193,10 @@
       "body_poses_and_joints_unchanged": true
     },
     "figures/sources/trajectory_bridge_train_1_cycles.png": {
-      "renderer_sha256": "fc6a38f3474e313fdbb2c18c3fe74907d12636176d7981252240eadbf09ce3fb",
-      "scene_sha256": "11ede6430210d5c83a95ac029ca8e590076ecbad6a539256864b5709733e0551",
+      "renderer_sha256": "68dee1ec3769860bac598721ecb5a680671d6486ffe7510631b4c1f822cfb185",
+      "scene_sha256": "d7ab831f3b4459051d8de40e6d1804f99b1df6327c0f4948ac62c395e611f7b9",
       "samples": 48,
-      "sha256": "6eb1d6204c2f58831532f2cf5e57fa9beacd17ccf29531b44ecb22d39eeb58f7",
+      "sha256": "c637f1c0d029c76e6625d03bcec68fbb248dc0f1745d723880f3713dead2f7da",
       "domain": "Bridge",
       "frame": "trajectory_bridge_train_1",
       "scene": "data/cycles_scenes/trajectory_bridge_train_1.json",

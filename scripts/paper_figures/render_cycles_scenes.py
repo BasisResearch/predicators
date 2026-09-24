@@ -1,5 +1,6 @@
 """Render saved, non-EGL scene exports sequentially with Blender Cycles."""
 import argparse
+import fcntl
 import hashlib
 import json
 import os
@@ -7,13 +8,40 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any, Dict
 
 ROOT = Path(__file__).resolve().parent
+GENERATED_BY = ('scripts/paper_figures/render_cycles_scenes.py; '
+                'do not edit manually')
 
 
 def digest(path: Path) -> str:
     """Return the SHA-256 digest for a file."""
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def record(manifest: Path, key: str, entry: Dict[str, Any]) -> None:
+    """Write one render's entry into the manifest.
+
+    Render jobs may run at the same time, so each write re-reads the
+    manifest under a lock and changes only its own entry. Retired
+    renders leave the manifest with their files.
+    """
+    manifest.touch()
+    with manifest.open('r+') as handle:
+        fcntl.lockf(handle, fcntl.LOCK_EX)
+        text = handle.read()
+        report = json.loads(text) if text else {'files': {}}
+        report['generated_by'] = GENERATED_BY
+        report['files'] = {
+            name: value
+            for name, value in report['files'].items()
+            if (ROOT / name).exists()
+        }
+        report['files'][key] = entry
+        handle.seek(0)
+        handle.write(json.dumps(report, indent=2) + '\n')
+        handle.truncate()
 
 
 def main() -> None:
@@ -43,13 +71,6 @@ def main() -> None:
     manifest = ROOT / 'data/cycles-render-manifest.json'
     report = json.loads(manifest.read_text()) if manifest.exists() else {
         'files': {}
-    }
-    report['generated_by'] = ('scripts/paper_figures/render_cycles_scenes.py; '
-                              'do not edit manually')
-    # Retired renders leave the manifest with their files.
-    report['files'] = {
-        key: entry
-        for key, entry in report['files'].items() if (ROOT / key).exists()
     }
     renderer = ROOT / 'render_cycles_scene.py'
     jobs = []
@@ -124,16 +145,16 @@ def main() -> None:
                 stderr=subprocess.STDOUT,
                 check=True)
         scene_metadata = json.loads(source.read_text()).get('metadata', {})
-        report['files'][key] = dict(**stamp,
-                                    sha256=digest(output),
-                                    domain=domain,
-                                    frame=frame,
-                                    scene=str(source.relative_to(ROOT)),
-                                    scorecard_sha256=scene_metadata.get(
-                                        'scorecard_sha256'),
-                                    physics_steps_after_restore=0,
-                                    body_poses_and_joints_unchanged=True)
-        manifest.write_text(json.dumps(report, indent=2) + '\n')
+        record(
+            manifest, key,
+            dict(**stamp,
+                 sha256=digest(output),
+                 domain=domain,
+                 frame=frame,
+                 scene=str(source.relative_to(ROOT)),
+                 scorecard_sha256=scene_metadata.get('scorecard_sha256'),
+                 physics_steps_after_restore=0,
+                 body_poses_and_joints_unchanged=True))
         print(f'Rendered {domain} {frame}', flush=True)
     if temporary_logs is not None:
         temporary_logs.cleanup()
