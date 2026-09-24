@@ -29,7 +29,7 @@ ASSETS = {
     "fig1_fan.png": ("117:97", "fan_cycles_start.png", CROPS["fan"]),
     "fig1_bridge.png": ("117:100", "bridge_cycles_start.png", CROPS["bridge"]),
     "fig1_balloons.png":
-    ("117:103", "balloons_cycles_start.png", (240, 260, 1050, 790)),
+    ("117:103", "balloons_cycles_start.png", CROPS["balloons"]),
 }
 
 

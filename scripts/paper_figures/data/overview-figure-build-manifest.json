@@ -1,7 +1,7 @@
 {
   "generated_by": "scripts/paper_figures/build_figures.py --overview; do not edit manually",
   "inputs": {
-    "build_figures.py": "4c8c1275cd27384305561cbd6f2c79f3e1aa7a02a5a027e640747c4cb383fd11",
+    "build_figures.py": "ac13544e703e6df247a96a968e481463783c94d183fbe9bb03e8b0f8715fcab5",
     "data/gui-figure-manifest.json": "5710c818b5bca7090312245386cd9292695711ed08bcd7f39693ee67a3ffdaa9",
     "data/trajectories/figure3.json": "e8123b0b2570db85c5b11e6ca0727b580fa11a5957fbe40917b0cdb49dd550c4",
     "data/trajectories/real_fan_domino.json": "7e977062e1480f2bb407aa54918f5038290fd5d9ce3429e18e2d2165d175d20d",
@@ -35,13 +35,13 @@
     "figures/sources/trajectory_bridge_train_3_cycles.png": "af23f680e0df0efc24781e9cc33141279fca0357b9595a8b12fecdf9e1a9efae"
   },
   "outputs": {
-    "fig1_residual.pdf": "67b61a6fcd8881aab6131b90f4befba8878c605d0e1ae3bdc3bcc66106fafbb8",
-    "fig1_residual.png": "61d5fe443ed0479986fae9dfc139ddf89928954149bda1892fe911905599e047",
-    "fig1_residual.svg": "b187084bf410cc4e60cd4e261be2fe62482f0d3a0c1208ce86f0ce846d737983",
-    "fig2_method.pdf": "00f0fb5355d1d84608203335bff6517c17b8faec333636dbc0c5f852f6c95377",
+    "fig1_residual.pdf": "27c7ae99d76f90df66796d98d74d218abd41775493471c894070f8dd5ae9e80e",
+    "fig1_residual.png": "7221b6aa1894e84c94212f22fb892adf10cf029507a31e7742d6d2e8704ebdbe",
+    "fig1_residual.svg": "b2064d2e9b7ca6af011dae83acb2f4cd3b1d54e152476e46314510d131fdd21b",
+    "fig2_method.pdf": "d9d3baf0d32ba6b5484ba7bb25f3c69080ed346665960b6104602ad632a1cb4a",
     "fig2_method.png": "ef1110144f586adf08344a1ffa997a840573512ecd9bc2ac64177d525f929d7d",
     "fig2_method.svg": "b3dad6589b4f5fedcd2f1222590d8c9ccddfddd94f1a32ff44ff8aa5c4d17010",
-    "fig3_trajectories.pdf": "ba8d9764b87f4a65899fdb75ee0f14054239a7839f3d404d33bb3decea2cf35f",
+    "fig3_trajectories.pdf": "cac5f9eb54ee36f7cd953b326cdc11d9d4968fdf191182ac4cc347a0bf0e09b6",
     "fig3_trajectories.png": "3308db0e82905988f17e5ebe037c37eaac6cf31694f6725b9f956a37997be0d0",
     "fig3_trajectories.svg": "9b025712dcf45fc432c247fb2f102ae51c2f95afd12f2870d7f9aa04c3bf74c6"
   }

@@ -30,13 +30,15 @@ NS = "http://www.w3.org/2000/svg"
 USED_IMAGES = set()
 RENDERER = "gui"
 ET.register_namespace("", NS)
-# Crops retain task objects and their surroundings in 900-pixel renders.
+# Crops retain task objects and their surroundings in the Cycles renders,
+# 900 pixels square except Balloons at 1280 by 800. Fan frames the arena, and
+# Balloons keeps the air above the table, where lifted balloons float.
 CROPS = {
     "boil": (190, 185, 890, 830),
     "domino": (0, 145, 710, 850),
-    "fan": (0, 90, 860, 825),
+    "fan": (190, 185, 820, 723),
     "bridge": (220, 200, 880, 850),
-    "balloons": (280, 350, 890, 800),
+    "balloons": (320, 110, 960, 657),
 }
 # The original Bridge illustrations and trajectory panels used this tighter
 # crop. Keep it shared with prepare_figma_assets.py so the paper and Figma use
@@ -358,7 +360,7 @@ class Drawing:
                        y,
                        w,
                        h,
-                       crop=(240, 260, 1050, 790),
+                       crop=CROPS["balloons"],
                        gui_key=gui_key)
         else:
             self.photo(f"{domain.lower()}_{state}",
