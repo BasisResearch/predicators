@@ -1,9 +1,13 @@
 {
- "description": "One recorded EMPIRIC run per domain, from experiments to the solved test task. Frames with 'states' come from the agent's own model, replayed by render_model_rollout.py on the run's own code.",
+ "description": "One recorded EMPIRIC run per domain, from experiments to the solved test task. Frames with 'states' come from the agent's own model, replayed by render_model_rollout.py on the run's own code. The agent learns between frames 'learn_after' and 'learn_after' + 1: 'learned' lists its simulator program P and parameters θ, or θ alone when the program adds no mechanism.",
  "rows": [
   {
    "domain": "Domino",
    "run": "domino_high_friction_turn-mb_opus_gate_r1/seed0/run_20260917_082017",
+   "learn_after": 0,
+   "learned": [
+    "θ"
+   ],
    "frames": [
     {
      "level": "L01",
@@ -43,6 +47,11 @@
   {
    "domain": "Bridge",
    "run": "bridge-mb_opus_benchmark_r2/seed3/run_20260919_124955",
+   "learn_after": 1,
+   "learned": [
+    "P",
+    "θ"
+   ],
    "frames": [
     {
      "level": "L01",
@@ -91,6 +100,11 @@
    "flags": {
     "balloons_scene": "chute"
    },
+   "learn_after": 1,
+   "learned": [
+    "P",
+    "θ"
+   ],
    "frames": [
     {
      "level": "L01",
@@ -131,6 +145,11 @@
   {
    "domain": "Boil",
    "run": "boil-mb_opus_gate_preflight_two_jug_tight_r1/seed1/run_20260917_082805",
+   "learn_after": 1,
+   "learned": [
+    "P",
+    "θ"
+   ],
    "frames": [
     {
      "level": "L01",
@@ -171,6 +190,11 @@
   {
    "domain": "Fan",
    "run": "fan_ramp-mb_opus_ramp_skill_repair_r1/seed2/run_20260921_090827",
+   "learn_after": 0,
+   "learned": [
+    "P",
+    "θ"
+   ],
    "frames": [
     {
      "level": "L01",

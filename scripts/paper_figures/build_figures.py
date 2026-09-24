@@ -1,6 +1,7 @@
 """Compose paper figures from archived simulator renders, recorded runs, and
 verified results."""
 import base64
+import functools
 import hashlib
 import io
 import json
@@ -8,14 +9,16 @@ import math
 import os
 import random
 import re
+import subprocess
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Sequence, \
+    Tuple, Union
 
 # Optional figure-authoring dependencies, separate from benchmark runtime.
 import cairocffi  # type: ignore[import-not-found] # pylint: disable=import-error
 import cairosvg  # type: ignore[import-not-found] # pylint: disable=import-error
-from PIL import Image, ImageOps
+from PIL import Image, ImageFont, ImageOps
 
 ROOT = Path(__file__).resolve().parent
 PAPER = Path(
@@ -33,13 +36,14 @@ RENDERER = "gui"
 ET.register_namespace("", NS)
 # Crops retain task objects and their surroundings in the Cycles renders,
 # 900 pixels square except Balloons at 1280 by 800. Fan frames the arena, and
-# Balloons keeps the air above the table, where lifted balloons float.
+# Balloons keeps the air above the table, where lifted balloons float, up to
+# the burst cap over the chute.
 CROPS = {
     "boil": (190, 185, 890, 830),
     "domino": (0, 145, 710, 850),
     "fan": (190, 185, 820, 723),
     "bridge": (220, 200, 880, 850),
-    "balloons": (320, 110, 960, 657),
+    "balloons": (312, 70, 968, 631),
 }
 # The original Bridge illustrations and trajectory panels used this tighter
 # crop. Keep it shared with prepare_figma_assets.py so the paper and Figma use
@@ -187,11 +191,12 @@ class Drawing:
              parts: Sequence[Segment],
              size: float = 8.1,
              color: str = INK,
-             weight: str = "normal") -> None:
+             weight: str = "normal") -> ET.Element:
         """Place a left-aligned line with italic ("i") and code ("m") parts.
 
         CairoSVG misplaces anchored text that is split into spans, so
-        these lines always start at x.
+        these lines always start at x; _advance() measures them for
+        centering.
         """
         e = self.text(x, y, "", size, color, weight)
         e.text = None
@@ -203,6 +208,7 @@ class Drawing:
             elif style == "m":
                 span.set("font-family", "DejaVu Sans Mono")
             span.text = content
+        return e
 
     def code(self, x: float, y: float, line: str, size: float) -> None:
         """Place one line of Python with standard syntax colors.
@@ -837,12 +843,60 @@ STRIPE_FH, ROBOT_FH = 72, 64
 StripeFrame = Tuple[Path, Optional[Sequence[int]], str, str, bool]
 
 
-def _stripe(d: Drawing, y: float, title: str, frames: Sequence[StripeFrame],
-            fh: float) -> None:
+class Stripe(NamedTuple):
+    """One titled row of frames and the gap after which the agent learns."""
+    title: str
+    frames: List[StripeFrame]
+    height: float
+    learn_after: int
+    learned: Sequence[str]
+
+
+@functools.lru_cache(maxsize=None)
+def _face(weight: str) -> Any:
+    """The DejaVu Sans face that CairoSVG draws with, at 100 pixels."""
+    pattern = "DejaVu Sans:bold" if weight == "bold" else "DejaVu Sans"
+    path = subprocess.run(["fc-match", "--format=%{file}", pattern],
+                          check=True,
+                          capture_output=True,
+                          text=True).stdout
+    return ImageFont.truetype(path, 100)  # type: ignore[no-untyped-call]
+
+
+def _advance(parts: Sequence[Segment], size: float, weight: str) -> float:
+    """The width of a rich() line in DejaVu Sans.
+
+    Its oblique faces share the upright advances, so italic parts are
+    measured upright.
+    """
+    text = "".join(p if isinstance(p, str) else p[0] for p in parts)
+    return float(_face(weight).getlength(text)) * size / 100
+
+
+def _learning_bar(d: Drawing, x: float, y: float, h: float,
+                  learned: Sequence[str]) -> None:
+    """A teal bar in a frame gap, labelled with what the agent learns."""
+    d.rect(x, y, 9, h, fill=TEAL, stroke="none", radius=3)
+    parts: List[Segment] = ["learns "]
+    for k, symbol in enumerate(learned):
+        if k:
+            parts.append(", ")
+        parts.append((symbol, "i"))
+    size = 6.2
+    e = d.rich(-_advance(parts, size, "bold") / 2, 0, parts, size, "white",
+               "bold")
+    # Rotated to read upwards; the baseline sits right of the bar's center
+    # so the lowercase letters center across the bar.
+    e.set("transform",
+          f"translate({x + 4.5 + 0.36 * size:g} {y + h / 2:g}) rotate(-90)")
+
+
+def _stripe(d: Drawing, y: float, stripe: Stripe) -> None:
     """Draw one titled row of five captioned frames joined by arrows."""
-    e = d.text(0, 0, title, 9.6, TEAL, "bold", "middle")
+    fh = stripe.height
+    e = d.text(0, 0, stripe.title, 9.6, TEAL, "bold", "middle")
     e.set("transform", f"translate(12 {y + fh / 2}) rotate(-90)")
-    for i, (source, crop, first, second, model) in enumerate(frames):
+    for i, (source, crop, first, second, model) in enumerate(stripe.frames):
         x = 24 + i * 103
         if model:
             # A state from the agent's own model, not from the environment:
@@ -871,12 +925,13 @@ def _stripe(d: Drawing, y: float, title: str, frames: Sequence[StripeFrame],
             d.text(x + 16, y + 10.3, "model", 6.4, TEAL, "bold", "middle")
         d.text(x + 46, y + fh + 10, first, 7.3, anchor="middle")
         d.text(x + 46, y + fh + 19, second, 6.9, MUTED, anchor="middle")
-        if i < len(frames) - 1:
+        if i == stripe.learn_after:
+            _learning_bar(d, x + 93, y, fh, stripe.learned)
+        elif i < len(stripe.frames) - 1:
             d.arrow(x + 94, y + fh / 2, x + 101, y + fh / 2)
 
 
-def _domain_stripes(
-        domains: Sequence[str]) -> List[Tuple[str, List[StripeFrame]]]:
+def _domain_stripes(domains: Sequence[str]) -> List[Stripe]:
     """Cycles frames and captions of the selected domains' stripes."""
     spec_path = ROOT / "data/trajectories/stripes.json"
     USED_IMAGES.add(spec_path)
@@ -886,18 +941,24 @@ def _domain_stripes(
     }
     stripes = []
     for domain in domains:
-        key = domain.lower()
+        key, row = domain.lower(), rows[domain]
         frames: List[StripeFrame] = [
             (FIG / "sources" / f"trajectory_{key}_stripe_{k}_cycles.png",
              STRIPE_CROPS[key], frame["caption"], frame["detail"], "states"
-             in frame) for k, frame in enumerate(rows[domain]["frames"])
+             in frame) for k, frame in enumerate(row["frames"])
         ]
-        stripes.append((domain, frames))
+        stripes.append(
+            Stripe(domain, frames, STRIPE_FH, row["learn_after"],
+                   row["learned"]))
     return stripes
 
 
-def _robot_stripe() -> List[StripeFrame]:
-    """The real-robot run: two probes, then the test after the patch moved."""
+def _robot_stripe() -> Stripe:
+    """The real-robot run: two probes, then the test after the patch moved.
+
+    Between them the agent writes its wind program and fits the masses,
+    friction and wind parameters.
+    """
     robot_archive = ROOT / "data/trajectories/real_fan_domino.json"
     USED_IMAGES.add(robot_archive)
     robot = json.loads(robot_archive.read_text())
@@ -911,35 +972,32 @@ def _robot_stripe() -> List[StripeFrame]:
         f"{slides[3]['slide_cm']:.1f} cm; pred. "
         f"{predicted[0]:.1f}±{predicted[1]:.1f}",
     ]
-    return [(FIG / "sources" / f"{frame['name']}.png", None, frame["label"],
-             second, False) for frame, second in zip(robot["frames"], seconds)]
+    frames: List[StripeFrame] = [
+        (FIG / "sources" / f"{frame['name']}.png", None, frame["label"],
+         second, False) for frame, second in zip(robot["frames"], seconds)
+    ]
+    return Stripe("Real robot", frames, ROBOT_FH, 1, ("P", "θ"))
 
 
-def _stripes_figure(
-        name: str, stripes: Sequence[Tuple[str, List[StripeFrame],
-                                           float]]) -> None:
+def _stripes_figure(name: str, stripes: Sequence[Stripe]) -> None:
     """Stack stripes, each a frame row plus its two caption lines."""
-    d = Drawing(sum(fh + 30 for _, _, fh in stripes) - 6)
+    d = Drawing(sum(stripe.height + 30 for stripe in stripes) - 6)
     y = 0.0
-    for title, frames, fh in stripes:
-        _stripe(d, y, title, frames, fh)
-        y += fh + 30
+    for stripe in stripes:
+        _stripe(d, y, stripe)
+        y += stripe.height + 30
     d.save(name)
 
 
 def trajectories() -> None:
     """Figure 3: recorded runs in the main-text domains and on the robot."""
-    stripes = [(title, frames, STRIPE_FH)
-               for title, frames in _domain_stripes(MAIN_STRIPES)]
-    stripes.append(("Real robot", _robot_stripe(), ROBOT_FH))
-    _stripes_figure("fig3_trajectories", stripes)
+    _stripes_figure("fig3_trajectories",
+                    _domain_stripes(MAIN_STRIPES) + [_robot_stripe()])
 
 
 def appendix_trajectories() -> None:
     """Appendix figure: recorded runs in the remaining domains."""
-    _stripes_figure("figA_trajectories",
-                    [(title, frames, STRIPE_FH)
-                     for title, frames in _domain_stripes(APPENDIX_STRIPES)])
+    _stripes_figure("figA_trajectories", _domain_stripes(APPENDIX_STRIPES))
 
 
 def build_overview_figures() -> None:

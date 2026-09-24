@@ -89,7 +89,8 @@ Commit the scene JSON, rendered PNGs, PNG sidecars, and render manifest.
 Do not commit transient renderer logs or the temporary Figma assets.
 
 The Bridge selection behind Figure 2's act panel and Figure 1's lift illustration, with its steps, labels, source hashes, and display crops, is recorded in `scripts/paper_figures/data/trajectories/figure3.json`, which `import_figure3_trajectories.py` writes.
-The selected Domino and Fan runs and their environment settings are declared in `scripts/paper_figures/export_static_scenes.py`.
+The selected Domino, Fan and Balloons runs and their environment settings are declared in `scripts/paper_figures/export_static_scenes.py`; `--domains` re-exports a subset.
+Balloons draws its ceiling, the height at which balloons burst, as a red cap over the chute instead of the environment's translucent plate over the table, and draws the strings of tied balloons, which the environment otherwise draws only when it renders an image.
 Update those declarations before re-exporting when new data should replace an existing figure panel.
 
 The Bridge crop constants in `scripts/paper_figures/build_figures.py` reproduce the tighter framing used by the earlier figures.
@@ -178,6 +179,8 @@ This reads local logs and restores original images; it is not the command for in
 
 Figure 3 and the appendix figure show one recorded EMPIRIC run per domain as a stripe of five frames, from the run's experiments to the solved test task.
 `scripts/paper_figures/data/trajectories/stripes.json` records each stripe's run, frames (level, episode and level step, or a saved model state), captions, and display settings; `MAIN_STRIPES` and `APPENDIX_STRIPES` in `build_figures.py` choose which stripes go where.
+Each row's `learn_after` and `learned` place a teal bar in the gap after that frame, labelled with what the agent learns there: its program $P$ and parameters $\theta$, or $\theta$ alone when the program adds no mechanism (Domino).
+The real-robot stripe learns after its two probes, as `_robot_stripe()` in `build_figures.py` states.
 Level steps run on across a level's episodes, and a reset costs one step.
 
 Dashed frames show the agent's own model.
@@ -207,6 +210,7 @@ python scripts/paper_figures/verify_figures.py
 
 The exporter records each display adjustment in the scene metadata.
 Fan and Balloons states move into the current scene layouts that Figure 1 uses, so positions relative to the platforms and the chute are unchanged.
+Balloons shares Figure 1's red chute cap and balloon strings.
 Boil liquid is drawn no higher than the jug rim, because the environment lets water rise above the rim before it overflows, which reads as an upturned jug.
 The Bridge model frame draws the glue the model remembers as the environment's glue patches.
 

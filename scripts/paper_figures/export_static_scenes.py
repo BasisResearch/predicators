@@ -1,10 +1,20 @@
-"""Export current Domino and Fan paper scenes from successful runs."""
+"""Export Figure 1's Domino, Fan and Balloons scenes from successful runs.
+
+Display-only adjustments, which export_stripe_scenes.py shares and each
+scene's metadata records:
+
+- Fan and Balloons states move into the current scene layouts; motion
+  relative to the platforms or chute is unchanged.
+- Balloons draws its burst height as a red cap over the chute. The
+  environment pictures that height as a translucent plate over the whole
+  table, but balloons only rise with the box, inside the chute.
+"""
+import argparse
 import hashlib
 import json
 import pickle
-from contextlib import nullcontext
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
 from unittest.mock import patch
 
 import pybullet as p
@@ -15,12 +25,13 @@ from render_scene_support import export_visual_scene, raised_flat_markers, \
 from predicators import utils
 from predicators.envs import create_new_env
 from predicators.envs.pybullet_fan import PyBulletFanEnv
+from predicators.settings import CFG
 from predicators.structs import State
 
 ROOT = Path(__file__).resolve().parent
 LOGS = ROOT.parents[1] / "logs/agent_continual"
 
-ROWS = (
+ROWS: Tuple[Dict[str, Any], ...] = (
     dict(domain="Domino",
          env="pybullet_domino",
          run="domino_high_friction_turn-mb_opus_gate_r1/seed0/"
@@ -66,7 +77,17 @@ ROWS = (
                     fan_test_num_pos_y=3,
                     fan_train_task_generation="uniform",
                     fan_test_task_generation="uniform")),
+    dict(domain="Balloons",
+         env="pybullet_balloons",
+         run="balloons-mb_opus_compose_r2/seed0/run_20260917_082044",
+         level="L03",
+         resolution=(1280, 800),
+         flags=dict(balloons_scene="chute",
+                    balloons_require_jam_decoy=False,
+                    balloons_goal_dwell_steps=25)),
 )
+# The Balloons burst height, drawn as an opaque red cap.
+CHUTE_CAP_RGBA = (0.80, 0.16, 0.14, 1.0)
 
 
 def _migrate_fan_layout(env: PyBulletFanEnv, state: State,
@@ -92,6 +113,42 @@ def _migrate_fan_layout(env: PyBulletFanEnv, state: State,
     return state
 
 
+def _migrate_balloons_layout(env: Any, state: State) -> State:
+    """Move an archived Balloons state into the current chute layout.
+
+    Runs before the layout change kept the box column at y=1.20. The
+    box, the balloons tied to it and the target band move to the current
+    column; motion and outcome are unchanged.
+    """
+    objects = {obj.name: obj for obj in state}
+    box = objects["box"]
+    delta_y = env.box_xy[1] - state.get(box, "y")
+    state.set(box, "y", state.get(box, "y") + delta_y)
+    for obj in state.get_objects(env._balloon_type):  # pylint: disable=protected-access
+        if state.get(obj, "tied") > 0.5:
+            state.set(obj, "y", state.get(obj, "y") + delta_y)
+    band = objects["band"]
+    state.set(band, "x", env.box_xy[0] + env.band_offset_x)
+    state.set(band, "y", env.box_xy[1])
+    return state
+
+
+def _cap_chute(env: Any, scene: Dict[str, Any]) -> None:
+    """Redraw an exported Balloons ceiling as a red cap over the chute.
+
+    The cap keeps the plate's height and thickness, so its underside is
+    still the burst height, and spans the chute walls.
+    """
+    assert CFG.balloons_scene == "chute"
+    ceiling, = (shape for shape in scene["shapes"]
+                if shape["body"] == env._ceiling_id)  # pylint: disable=protected-access
+    half = (env.chute_half_gap + 2 * env.chute_wall_half_thickness,
+            env.chute_wall_half_depth, env.ceiling_half_extents[2])
+    ceiling.update(dimensions=[2 * h for h in half],
+                   position=[*env.box_xy, env.ceiling_z],
+                   rgba=list(CHUTE_CAP_RGBA))
+
+
 def _export_row(row: Dict[str, Any]) -> None:
     """Export the start and win scenes of one row's winning episode."""
     source = LOGS / row["run"] / row["level"] / "episodes.pkl"
@@ -100,14 +157,15 @@ def _export_row(row: Dict[str, Any]) -> None:
     scorecard_bytes = scorecard.read_bytes()
     episodes = pickle.loads(source_bytes)  # Trusted local experiment record.
     episode = next(ep for ep in episodes if ep["end"] == "win")
+    width, height = row.get("resolution", (900, 900))
     flags = dict(row["flags"],
                  env=row["env"],
                  seed=0,
                  num_train_tasks=1,
                  num_test_tasks=1,
                  partially_observable=True,
-                 pybullet_camera_width=900,
-                 pybullet_camera_height=900)
+                 pybullet_camera_width=width,
+                 pybullet_camera_height=height)
     utils.reset_config(flags)
     env: Any = create_new_env(row["env"], do_cache=False, use_gui=False)
     try:
@@ -117,19 +175,26 @@ def _export_row(row: Dict[str, Any]) -> None:
         for frame, recorded_state in (("start", episode["states"][0]),
                                       ("win", episode["states"][-1])):
             state = _canonical_state(env, recorded_state)
+            notes = []
             if row["domain"] == "Fan":
                 state = _migrate_fan_layout(env, state, current_initial)
+                notes.append("current ramp layout")
+            elif row["domain"] == "Balloons":
+                state = _migrate_balloons_layout(env, state)
+                notes += ["centered current chute layout", "chute cap"]
             env._set_state(state)  # pylint: disable=protected-access
             env._current_observation = state  # pylint: disable=protected-access
+            if row["domain"] == "Balloons":
+                # The environment draws the strings of tied balloons only
+                # when it renders an image.
+                env._sync_cable_visuals()  # pylint: disable=protected-access
             client = env._physics_client_id  # pylint: disable=protected-access
             before = scene_signature(client)
-            attachments = (env.render_attachments() if hasattr(
-                env, "render_attachments") else nullcontext())
             with patch.object(p,
                               "stepSimulation",
                               side_effect=AssertionError(
                                   "Rendering must not step physics")):
-                with raised_flat_markers(client), attachments:
+                with raised_flat_markers(client):
                     view, projection, _, _ = env._get_camera_matrices()  # pylint: disable=protected-access
                     metadata = dict(
                         domain=row["domain"],
@@ -139,10 +204,13 @@ def _export_row(row: Dict[str, Any]) -> None:
                             scorecard_bytes).hexdigest(),
                         level=row["level"],
                         frame=frame,
+                        display_notes=notes,
                         physics_steps_after_restore=0)
-                    scene = export_visual_scene(client, view, projection, 900,
-                                                900, metadata)
+                    scene = export_visual_scene(client, view, projection,
+                                                width, height, metadata)
             assert scene_signature(client) == before
+            if row["domain"] == "Balloons":
+                _cap_chute(env, scene)
             destination = output / f'{row["domain"].lower()}_{frame}.json'
             destination.write_text(json.dumps(scene, indent=2) + "\n")
             print(f'Exported {row["domain"]} {frame}', flush=True)
@@ -151,10 +219,16 @@ def _export_row(row: Dict[str, Any]) -> None:
 
 
 def main() -> None:
-    """Export the current Domino and ramp Fan scenes."""
+    """Export the start and win scenes of the selected domains."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--domains",
+                        nargs="+",
+                        default=[row["domain"] for row in ROWS])
+    args = parser.parse_args()
     with record_procedural_meshes():
         for row in ROWS:
-            _export_row(row)
+            if row["domain"] in args.domains:
+                _export_row(row)
 
 
 if __name__ == "__main__":

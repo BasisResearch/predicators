@@ -11,6 +11,8 @@ Display-only adjustments, recorded in each scene's metadata:
 
 - Fan and Balloons states move into the current scene layouts that
   Figure 1 uses; motion relative to the platforms or chute is unchanged.
+- Balloons draws its burst height as a red cap over the chute, as in
+  Figure 1 (export_static_scenes.py).
 - Boil liquid is drawn no higher than the jug rim. The environment lets
   water rise above the rim before it overflows, which reads as an
   upturned jug. Its spill puddle, which restoring a state omits, is
@@ -25,13 +27,13 @@ import pickle
 import re
 import shlex
 import sys
-from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from unittest.mock import patch
 
 import pybullet as p
-from export_static_scenes import _migrate_fan_layout
+from export_static_scenes import _cap_chute, _migrate_balloons_layout, \
+    _migrate_fan_layout
 from export_trajectory_scenes import _canonical_state
 from PIL import Image
 from render_scene_support import export_visual_scene, raised_flat_markers, \
@@ -81,27 +83,6 @@ def _model_state(frame: Dict[str, Any]) -> State:
     with (LOGS / frame["states"]).open("rb") as stream:
         states = pickle.load(stream)  # Trusted local replay output.
     return states[frame.get("index", -1)]
-
-
-def _migrate_balloons_layout(env: Any, state: State) -> State:
-    """Move an archived Balloons state into the current chute layout.
-
-    Runs before the layout change kept the box column at y=1.20. The
-    box, the balloons tied to it and the target band move to the current
-    column; motion and outcome are unchanged. Figure 1 used the same
-    move for its Balloons tiles.
-    """
-    objects = {obj.name: obj for obj in state}
-    box = objects["box"]
-    delta_y = env.box_xy[1] - state.get(box, "y")
-    state.set(box, "y", state.get(box, "y") + delta_y)
-    for obj in state.get_objects(env._balloon_type):  # pylint: disable=protected-access
-        if state.get(obj, "tied") > 0.5:
-            state.set(obj, "y", state.get(obj, "y") + delta_y)
-    band = objects["band"]
-    state.set(band, "x", env.box_xy[0] + env.band_offset_x)
-    state.set(band, "y", env.box_xy[1])
-    return state
 
 
 def _cap_liquid_at_rim(env: Any, state: State) -> State:
@@ -168,7 +149,7 @@ def _export_row(row: Dict[str, Any],
                 notes.append("current ramp layout")
             elif row["domain"] == "Balloons":
                 state = _migrate_balloons_layout(env, state)
-                notes.append("centered current chute layout")
+                notes += ["centered current chute layout", "chute cap"]
             elif row["domain"] == "Boil":
                 state = _cap_liquid_at_rim(env, state)
                 notes.append("liquid drawn no higher than the rim")
@@ -179,15 +160,17 @@ def _export_row(row: Dict[str, Any],
             env._current_observation = state  # pylint: disable=protected-access
             if row["domain"] == "Boil":
                 _restore_spill(env, state)
+            if row["domain"] == "Balloons":
+                # The environment draws the strings of tied balloons only
+                # when it renders an image.
+                env._sync_cable_visuals()  # pylint: disable=protected-access
             client = env._physics_client_id  # pylint: disable=protected-access
             before = scene_signature(client)
-            attachments = (env.render_attachments() if hasattr(
-                env, "render_attachments") else nullcontext())
             with patch.object(p,
                               "stepSimulation",
                               side_effect=AssertionError(
                                   "Rendering must not step physics")):
-                with raised_flat_markers(client), attachments:
+                with raised_flat_markers(client):
                     view, projection, _, _ = env._get_camera_matrices()  # pylint: disable=protected-access
                     source_file = (LOGS / frame["states"] if "states" in frame
                                    else run / frame["level"] / "episodes.pkl")
@@ -205,6 +188,8 @@ def _export_row(row: Dict[str, Any],
                     scene = export_visual_scene(client, view, projection,
                                                 width, height, metadata)
             assert scene_signature(client) == before
+            if row["domain"] == "Balloons":
+                _cap_chute(env, scene)
             stem = f"trajectory_{row['domain'].lower()}_stripe_{k}"
             if preview is not None:
                 # A quick engine image from the same camera, for framing.
