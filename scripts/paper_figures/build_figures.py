@@ -31,6 +31,7 @@ INK, MUTED = "#203744", "#5b6e79"
 # Figure 1 sets its captions and labels in black.
 BLACK = "#000000"
 TEAL, RUST, GREEN = "#087f8c", "#bd5929", "#397957"
+PURPLE = "#5e3c99"
 PANEL, EDGE = "#f7f9fa", "#d9e2e7"
 NS = "http://www.w3.org/2000/svg"
 USED_IMAGES = set()
@@ -626,7 +627,12 @@ def _posterior(d: Drawing, px: float, py: float, pw: float, ph: float) -> None:
     d.rich(px + 6, py + 6, [("q", "i"), "(", ("θ", "i"), ")"], 8.2, TEAL)
 
 
-def _estimate(d: Drawing, px: float, py: float, pw: float, ph: float) -> None:
+def _estimate(d: Drawing,
+              px: float,
+              py: float,
+              pw: float,
+              ph: float,
+              color: str = TEAL) -> None:
     """Draw the state belief for the running example as two stacked plots.
 
     A block's pose is read through sensor noise, so its draws sit close
@@ -665,7 +671,7 @@ def _estimate(d: Drawing, px: float, py: float, pw: float, ph: float) -> None:
           d="M" + " L".join(f"{px + 6 + step * k:.2f} {level:.2f}"
                             for k, level in enumerate(truth)),
           fill="none",
-          stroke=TEAL,
+          stroke=color,
           stroke_width=1.4)
     # The pose belief at step t: the rest-window mean with its shrunken
     # spread, and a few draws from it.
@@ -678,7 +684,7 @@ def _estimate(d: Drawing, px: float, py: float, pw: float, ph: float) -> None:
           d="M" + " L".join(f"{px + 6 + step * k:.2f} {level:.2f}"
                             for k, level in enumerate(cure)),
           fill="none",
-          stroke=TEAL,
+          stroke=color,
           stroke_width=1.4)
     # Each draw's t_cure sits at its own height at step t. The progress has
     # passed the lower ones, so those draws hold the joint bonded (green, as
@@ -693,14 +699,14 @@ def _estimate(d: Drawing, px: float, py: float, pw: float, ph: float) -> None:
               width=7,
               height=f"{lower - upper:.2f}",
               rx=3.5,
-              fill=TEAL,
+              fill=color,
               fill_opacity=0.16)
     for level in pose_draws:
         d.add("circle",
               cx=f"{end:.2f}",
               cy=f"{level:.2f}",
               r=1.6,
-              fill=TEAL,
+              fill=color,
               fill_opacity=0.8)
     for level in thresholds:
         d.add("circle",
@@ -713,8 +719,15 @@ def _estimate(d: Drawing, px: float, py: float, pw: float, ph: float) -> None:
     d.text(px + 6, low + 16, "no readings", 7.2, MUTED)
 
 
-def _rehearse(d: Drawing, x: float, y: float, w: float) -> None:
-    """Draw rollouts from joint draws of the belief."""
+def _rehearse(d: Drawing,
+              x: float,
+              y: float,
+              w: float,
+              state: str = TEAL) -> None:
+    """Draw rollouts from joint draws of the belief.
+
+    Each rollout starts from a state draw, in the state step's colour.
+    """
     sx0, sy0 = x + 16, y + 66
     gx = x + w - 40
     d.rect(gx, y + 42, 26, 40, fill="#e3f1e7", stroke=GREEN, radius=2)
@@ -737,8 +750,8 @@ def _rehearse(d: Drawing, x: float, y: float, w: float) -> None:
               cy=end,
               r=1.8,
               fill=GREEN if inside else RUST)
-        d.add("circle", cx=sx0, cy=begin, r=1.6, fill=TEAL, fill_opacity=0.85)
-    d.text(sx0, sy0 + 16, "xₜ⁽ⁱ⁾", 9, TEAL, "bold", "middle", italic=True)
+        d.add("circle", cx=sx0, cy=begin, r=1.6, fill=state, fill_opacity=0.85)
+    d.text(sx0, sy0 + 16, "xₜ⁽ⁱ⁾", 9, state, "bold", "middle", italic=True)
     d.rich(x + 8, y + 32,
            ["(1/", ("K", "i"), ") Σᵢ ",
             ("R", "i"), "(τ⁽ⁱ⁾) = 0.8"], 7.8, GREEN)
@@ -778,6 +791,13 @@ MONITOR_CAPTION: List[List[Segment]] = [[
     "The predicates ", ("Φ", "i"), " check each skill's"
 ], ["outcome; a failure stops the plan."]]
 
+# Each step's title takes its colour from this table. Acting and monitoring
+# meet the environment (rust), writing the program is purple, inference is
+# teal and planning green. Inside the panels rust and green keep their other
+# meanings, observations and failures versus passes, and the state belief's
+# draws take step 4's colour, also where they seed the rehearsal in step 5.
+METHOD_COLORS = {1: RUST, 2: PURPLE, 3: TEAL, 4: TEAL, 5: GREEN, 6: RUST}
+
 
 def _numbered(number: int, title: Sequence[Segment]) -> List[Segment]:
     return [f"{number}  ", *title]
@@ -792,11 +812,12 @@ def method() -> None:
     between them.
     """
     d = Drawing(GRID_HEIGHT)
-    _panel(d, 0, 0, 160, PH, _numbered(1, ["Act"]), RUST, ACT_CAPTION)
+    colors = METHOD_COLORS
+    _panel(d, 0, 0, 160, PH, _numbered(1, ["Act"]), colors[1], ACT_CAPTION)
     d.recorded("trajectory_bridge_train_1", 8, 22, 144, 86, BRIDGE_ACT_CROP)
     # Monitoring is numbered last, so readers meet the predicates in step 2
     # before seeing them checked.
-    _panel(d, 0, YB, 160, PH, _numbered(6, [MONITOR_TITLE]), RUST,
+    _panel(d, 0, YB, 160, PH, _numbered(6, [MONITOR_TITLE]), colors[6],
            MONITOR_CAPTION)
     d.text(8, YB + 38, "after Place(span3, …)", 7.2, MUTED, mono=True)
     for i, (mark, atom, color) in enumerate(CHECKS):
@@ -810,16 +831,20 @@ def method() -> None:
     d.text(64, gap + 2.7, "after each skill", 7.4, MUTED, anchor="end")
     d.arrow(90, YB - 3, 90, PH + 3, color=GREEN)
     d.text(96, gap + 2.7, "if checks pass", 7.4, GREEN)
-    _panel(d, 184, 0, 160, PH, _numbered(2, CODE_TITLE), TEAL, CODE_CAPTION)
+    _panel(d, 184, 0, 160, PH, _numbered(2, CODE_TITLE), colors[2],
+           CODE_CAPTION)
     _code(d, 191, 22, 146)
     # Parameters come before the state because each parameter draw sets the
     # hidden part of its state draw.
-    _panel(d, 368, 0, 160, PH, _numbered(3, THETA_TITLE), TEAL, THETA_CAPTION)
+    _panel(d, 368, 0, 160, PH, _numbered(3, THETA_TITLE), colors[3],
+           THETA_CAPTION)
     _posterior(d, 382, 30, 128, 66)
-    _panel(d, 368, YB, 160, PH, _numbered(4, STATE_TITLE), TEAL, STATE_CAPTION)
-    _estimate(d, 382, YB + 14, 128, 82)
-    _panel(d, 184, YB, 160, PH, _numbered(5, PLAN_TITLE), GREEN, PLAN_CAPTION)
-    _rehearse(d, 184, YB + 6, 160)
+    _panel(d, 368, YB, 160, PH, _numbered(4, STATE_TITLE), colors[4],
+           STATE_CAPTION)
+    _estimate(d, 382, YB + 14, 128, 82, colors[4])
+    _panel(d, 184, YB, 160, PH, _numbered(5, PLAN_TITLE), colors[5],
+           PLAN_CAPTION)
+    _rehearse(d, 184, YB + 6, 160, colors[4])
     mid = PH / 2
     d.arrow(163, mid, 181, mid)
     d.text(172, mid - 6, "D", 8.2, INK, anchor="middle", italic=True)
