@@ -41,14 +41,15 @@ def test_overlap_hides_rollout_time_behind_parent_work():
     try:
         t0 = time.monotonic()
         handles = [
-            reg.launch(lambda: time.sleep(0.5) or "ok") for _ in range(4)
+            reg.launch(lambda: time.sleep(2.0) or "ok") for _ in range(4)
         ]
-        time.sleep(0.5)  # the agent "thinking" between run_python calls
+        time.sleep(2.0)  # the agent "thinking" between run_python calls
         done, pending = reg.gather(handles, timeout=30)
         wall = time.monotonic() - t0
         assert not pending and all(h.ok for h in done)
-        # Sequential would be 4*0.5 + 0.5 = 2.5s; overlap target ~0.5s.
-        assert wall < 1.5, f"no overlap: wall={wall:.2f}s"
+        # Sequential would be 4*2 + 2 = 10s; overlap target ~2s. The margin
+        # absorbs forking a large parent under coverage on a busy runner.
+        assert wall < 6.0, f"no overlap: wall={wall:.2f}s"
     finally:
         reg.shutdown()
 

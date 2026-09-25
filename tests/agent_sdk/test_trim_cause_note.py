@@ -10,11 +10,20 @@ move it - and the advice must say so; only far-over segments earn the
 chaotic-recording advice.
 """
 
+import pytest
+
 from predicators import utils
 from predicators.agent_sdk.tools.synthesis import _TRIM_BORDERLINE_FACTOR, \
     _trim_cause_note
 
 _THRESHOLD = 0.1
+
+
+@pytest.fixture(autouse=True)
+def _default_config() -> None:
+    """The notes read CFG (declared noise, model repair); start every test from
+    defaults so a config left by an earlier test cannot add a note."""
+    utils.reset_config({})
 
 
 def test_borderline_segments_get_model_fidelity_advice() -> None:
