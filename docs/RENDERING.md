@@ -229,6 +229,20 @@ uv run --no-project --with imageio-ffmpeg --with pillow \
 
 The importer extracts five gust-camera frames from the left half of the side-by-side episode videos (`casc_explore.mp4` and `casc_test.mp4`), crops them identically, and writes their video hashes, frame indices, measured slides, the test plan's prediction, and the posterior summary to `scripts/paper_figures/data/trajectories/real_fan_domino.json`.
 These videos carry no overlays; the `epNN_gust_tracked.mp4` clips show the same camera at twice the resolution but draw the tracker's fitted boxes and angles, so the paper does not use them.
+
+The row's third frame is the agent's own simulator re-running its test arrangement.
+`render_robot_model_plan.py` rebuilds that check from the run's posterior, seed, and wind model with BabyRobotPredicator's `real_skills` code (commit `fb8379f`), stops unless it reproduces the recorded prediction, and exports the chosen moment as a Cycles scene seen from the gust camera:
+
+```bash
+~/.conda/envs/robocode/bin/python scripts/paper_figures/render_robot_model_plan.py \
+  --repo ~/BabyRobotPredicator --preview /tmp/robot-preview
+uv run --no-project --python 3.11 --with bpy==4.5.3 --with pycollada \
+  python scripts/paper_figures/render_cycles_scenes.py --domains Robot --samples 48 --threads 8
+```
+
+The fan and the button in that frame are the bench's digital twins from BabyRobotPredicator's `markerless_estimation/assets` (pull requests 111 and 112).
+`scripts/paper_figures/data/robot_twins` holds copies of their URDFs and meshes, and its `SOURCE.json` records the source commit and each file's hash.
+The exporter and `verify_figures.py` check the copies against those hashes.
 Keep this applicability case study distinct from the simulated baseline comparison.
 
 ## Removed legacy tooling

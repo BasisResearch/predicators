@@ -554,9 +554,9 @@
     },
     "figures/sources/real_fan_domino_model_tip_cycles.png": {
       "renderer_sha256": "68dee1ec3769860bac598721ecb5a680671d6486ffe7510631b4c1f822cfb185",
-      "scene_sha256": "904ea37ffc02b93a6ec2972174765ec4ab01c3af6b197427d8e0658e23a6711b",
+      "scene_sha256": "83443078f08a5583a638f2ee6c47d5a35833237d76cc7afc6291588a04818314",
       "samples": 48,
-      "sha256": "5462286b457c462eed7213089b5074b3db34abdb72bbf9c81f7a27e5d95a96d6",
+      "sha256": "26f4e008aa7a9b8ec6856d7a6f75eb30eec85f6dea229bdde83a3fea5e96b9f1",
       "domain": "Robot",
       "frame": "real_fan_domino_model_tip",
       "scene": "data/cycles_scenes/real_fan_domino_model_tip.json",

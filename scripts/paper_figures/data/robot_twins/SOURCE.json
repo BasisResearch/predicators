@@ -1,0 +1,47 @@
+{
+ "repository": "BasisResearch/BabyRobotPredicator",
+ "commit": "8c6e6a62ad9c0c44de231116f667ec52cf0cdcd5",
+ "branch": "codex/button-geometry",
+ "pulls": {
+  "111": "fan motor, propeller and supply aligned with the mount (merged)",
+  "112": "tapered button collar (open when copied)"
+ },
+ "files": {
+  "button_arcade60_proxy/button_arcade60_articulated.urdf": {
+   "source": "markerless_estimation/assets/button_arcade60_proxy/button_arcade60_articulated.urdf",
+   "sha256": "61654a389dbb1ce05f2dc5995535470cbd2ce337675b5fcad913197c5aa615e7"
+  },
+  "button_arcade60_proxy/button_arcade60_bezel.stl": {
+   "source": "markerless_estimation/assets/button_arcade60_proxy/button_arcade60_bezel.stl",
+   "sha256": "5236a389768f307dc5d791a4adba81e58e1de7e34d7a2666bab2c5b58a2760f2"
+  },
+  "button_arcade60_proxy/button_arcade60_holder.stl": {
+   "source": "markerless_estimation/assets/button_arcade60_proxy/button_arcade60_holder.stl",
+   "sha256": "f9831000fb71a22ee4c2e89ae788283e845d18e8d8795625082f5bfb6eaa69ee"
+  },
+  "button_arcade60_proxy/button_arcade60_plunger.stl": {
+   "source": "markerless_estimation/assets/button_arcade60_proxy/button_arcade60_plunger.stl",
+   "sha256": "48eb5481f1f67ffa28c7b705fa1cb7d5e513720bda07913cec15b76b277ba92c"
+  },
+  "fan_dcmotor_proxy/fan_dcmotor_articulated.urdf": {
+   "source": "markerless_estimation/assets/fan_dcmotor_proxy/fan_dcmotor_articulated.urdf",
+   "sha256": "2983fc849ad3c1a4a068367d5a5234c4e35f89f074677d4e456043e6ea1eb59a"
+  },
+  "fan_dcmotor_proxy/fan_dcmotor_motor.stl": {
+   "source": "markerless_estimation/assets/fan_dcmotor_proxy/fan_dcmotor_motor.stl",
+   "sha256": "c54553cc3d29fa2efcc26abac3a0e7602b5e736d37826de40017acdc2465d249"
+  },
+  "fan_dcmotor_proxy/fan_dcmotor_mount.stl": {
+   "source": "markerless_estimation/assets/fan_dcmotor_proxy/fan_dcmotor_mount.stl",
+   "sha256": "4bbf16a75c5979e3afe309c3e645c4944cfd82b88729cf6e2fbaef1f7d3d2258"
+  },
+  "fan_dcmotor_proxy/fan_dcmotor_propeller.stl": {
+   "source": "markerless_estimation/assets/fan_dcmotor_proxy/fan_dcmotor_propeller.stl",
+   "sha256": "4f2816f57a724733d0669daaa87c20d20328f4fbdc725627f4cb760c6eb30615"
+  },
+  "fan_dcmotor_proxy/fan_dcmotor_psu.stl": {
+   "source": "markerless_estimation/assets/fan_dcmotor_proxy/fan_dcmotor_psu.stl",
+   "sha256": "f22ff16283a2409a2cf38a22163c474082433538e0674e54a695623acc159c85"
+  }
+ }
+}

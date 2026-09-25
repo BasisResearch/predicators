@@ -81,7 +81,8 @@ def main() -> None:
     # simulator, reproduces the prediction the run recorded, and is the
     # render of that scene.
     scene = ROOT / "data/cycles_scenes/real_fan_domino_model_tip.json"
-    rerun = json.loads(scene.read_text())["metadata"]["reproduced"]
+    exported = json.loads(scene.read_text())
+    rerun = exported["metadata"]["reproduced"]
     assert [round(100 * v, 1) for v in rerun["slide_m"]
             ] == robot["test_plan"]["predicted_slide_cm"]
     assert round(rerun["p_success"], 2) == robot["test_plan"]["p_success"]
@@ -92,6 +93,20 @@ def main() -> None:
     assert render["sha256"] == hashlib.sha256(
         (ROOT / "figures/sources/real_fan_domino_model_tip_cycles.png"
          ).read_bytes()).hexdigest()
+    # Its fan and button are the digital twins that SOURCE.json records.
+    twins_dir = ROOT / "data/robot_twins"
+    twins = json.loads((twins_dir / "SOURCE.json").read_text())
+    assert exported["metadata"]["twins_commit"] == twins["commit"]
+    meshes = {
+        path.split("/robot_twins/", 1)[1]: sha256
+        for path, sha256 in exported["mesh_sha256"].items()
+        if "/robot_twins/" in path
+    }
+    assert meshes and all(twins["files"][name]["sha256"] == sha256
+                          for name, sha256 in meshes.items())
+    for name, source in twins["files"].items():
+        copy = (twins_dir / name).read_bytes()
+        assert hashlib.sha256(copy).hexdigest() == source["sha256"], name
     print("PASS: input/output hashes, image counts, text bounds, text inside "
           "boxes, no overlapping words, and frame provenance")
 

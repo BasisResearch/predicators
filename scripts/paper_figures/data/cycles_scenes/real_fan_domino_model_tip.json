@@ -3,6 +3,7 @@
  "metadata": {
   "repository": "BasisResearch/BabyRobotPredicator",
   "commit": "fb8379f578209467a2dad3c90d583f6f7e7ed1c8",
+  "twins_commit": "8c6e6a62ad9c0c44de231116f667ec52cf0cdcd5",
   "simulator_sha256": "37aab9402bd238df04aadc19cb029addfa5c80fd34ea086552a81a50b306045b",
   "planner_sha256": "9a3d5691c5530d4c02e7ee8c4522925f0ece0a99a02c3e6238b89c14ecb47466",
   "wind_model_sha256": "dee2da3e9d1826b7ab3a09264b18f96d1bf44344abb32004d1dd800e1eaec41c",
@@ -331,29 +332,119 @@
    "body": 8,
    "link": -1,
    "index": 0,
-   "name": "",
-   "kind": 4,
+   "name": "fan_dcmotor_articulated",
+   "kind": 5,
    "dimensions": [
-    0.03,
-    0.046,
-    0.0
+    0.001,
+    0.001,
+    0.001
    ],
-   "mesh": "",
+   "mesh": "/home/ycliang/predicators/scripts/paper_figures/data/robot_twins/fan_dcmotor_proxy/fan_dcmotor_psu.stl",
    "position": [
-    0.6917542815208435,
-    0.8851079344749451,
+    0.6534985899925232,
+    0.7590661644935608,
+    0.5372070670127869
+   ],
+   "quaternion_xyzw": [
+    0.0,
+    0.0,
+    -0.013089619576931,
+    0.9999143481254578
+   ],
+   "rgba": [
+    0.09000000357627869,
+    0.09000000357627869,
+    0.10000000149011612,
+    1.0
+   ]
+  },
+  {
+   "body": 8,
+   "link": 0,
+   "index": 1,
+   "name": "fan_dcmotor_articulated",
+   "kind": 5,
+   "dimensions": [
+    0.001,
+    0.001,
+    0.001
+   ],
+   "mesh": "/home/ycliang/predicators/scripts/paper_figures/data/robot_twins/fan_dcmotor_proxy/fan_dcmotor_mount.stl",
+   "position": [
+    0.6534985303878784,
+    0.7590661644935608,
+    0.5372070670127869
+   ],
+   "quaternion_xyzw": [
+    0.0,
+    0.0,
+    -0.013089619576931,
+    0.9999143481254578
+   ],
+   "rgba": [
+    0.30000001192092896,
+    0.30000001192092896,
+    0.3199999928474426,
+    1.0
+   ]
+  },
+  {
+   "body": 8,
+   "link": 1,
+   "index": 2,
+   "name": "fan_dcmotor_articulated",
+   "kind": 5,
+   "dimensions": [
+    0.001,
+    0.001,
+    0.001
+   ],
+   "mesh": "/home/ycliang/predicators/scripts/paper_figures/data/robot_twins/fan_dcmotor_proxy/fan_dcmotor_motor.stl",
+   "position": [
+    0.690314531326294,
+    0.8301267623901367,
     0.5318044424057007
    ],
    "quaternion_xyzw": [
-    -0.4934123456478119,
-    0.5065020322799683,
-    0.4934123456478119,
-    0.5065019726753235
+    -0.7070462107658386,
+    0.009255756624042988,
+    -0.009255756624042988,
+    0.7070462107658386
    ],
    "rgba": [
-    0.07000000029802322,
-    0.07000000029802322,
-    0.07999999821186066,
+    0.6000000238418579,
+    0.6000000238418579,
+    0.6200000047683716,
+    1.0
+   ]
+  },
+  {
+   "body": 8,
+   "link": 2,
+   "index": 3,
+   "name": "fan_dcmotor_articulated",
+   "kind": 5,
+   "dimensions": [
+    0.001,
+    0.001,
+    0.001
+   ],
+   "mesh": "/home/ycliang/predicators/scripts/paper_figures/data/robot_twins/fan_dcmotor_proxy/fan_dcmotor_propeller.stl",
+   "position": [
+    0.692146897315979,
+    0.9001028537750244,
+    0.5318044424057007
+   ],
+   "quaternion_xyzw": [
+    -0.7070462107658386,
+    0.009255756624042988,
+    -0.009255756624042988,
+    0.7070462107658386
+   ],
+   "rgba": [
+    0.9200000166893005,
+    0.9200000166893005,
+    0.9200000166893005,
     1.0
    ]
   },
@@ -361,304 +452,94 @@
    "body": 9,
    "link": -1,
    "index": 0,
-   "name": "",
-   "kind": 4,
+   "name": "button_arcade60_articulated",
+   "kind": 5,
    "dimensions": [
-    0.02,
-    0.012,
-    0.0
+    0.001,
+    0.001,
+    0.001
    ],
-   "mesh": "",
+   "mesh": "/home/ycliang/predicators/scripts/paper_figures/data/robot_twins/button_arcade60_proxy/button_arcade60_holder.stl",
    "position": [
-    0.6922777891159058,
-    0.9051010608673096,
-    0.5318044424057007
+    0.5445150136947632,
+    0.8822565078735352,
+    0.44999998807907104
    ],
    "quaternion_xyzw": [
-    -0.4934123456478119,
-    0.5065020322799683,
-    0.4934123456478119,
-    0.5065019726753235
+    0.0,
+    0.0,
+    0.6977904438972473,
+    0.7163019180297852
    ],
    "rgba": [
     0.3499999940395355,
     0.3499999940395355,
-    0.3700000047683716,
+    0.3499999940395355,
     1.0
+   ]
+  },
+  {
+   "body": 9,
+   "link": -1,
+   "index": 1,
+   "name": "button_arcade60_articulated",
+   "kind": 5,
+   "dimensions": [
+    0.001,
+    0.001,
+    0.001
+   ],
+   "mesh": "/home/ycliang/predicators/scripts/paper_figures/data/robot_twins/button_arcade60_proxy/button_arcade60_bezel.stl",
+   "position": [
+    0.5104432106018066,
+    0.9181606769561768,
+    0.5099999904632568
+   ],
+   "quaternion_xyzw": [
+    0.0,
+    0.0,
+    0.6977904438972473,
+    0.7163019180297852
+   ],
+   "rgba": [
+    0.05000000074505806,
+    0.05000000074505806,
+    0.05000000074505806,
+    1.0
+   ]
+  },
+  {
+   "body": 9,
+   "link": 0,
+   "index": 2,
+   "name": "button_arcade60_articulated",
+   "kind": 5,
+   "dimensions": [
+    0.001,
+    0.001,
+    0.001
+   ],
+   "mesh": "/home/ycliang/predicators/scripts/paper_figures/data/robot_twins/button_arcade60_proxy/button_arcade60_plunger.stl",
+   "position": [
+    0.5104432106018066,
+    0.9181606769561768,
+    0.5059999823570251
+   ],
+   "quaternion_xyzw": [
+    0.0,
+    0.0,
+    0.6977904438972473,
+    0.7163019180297852
+   ],
+   "rgba": [
+    0.20000000298023224,
+    0.3499999940395355,
+    0.8999999761581421,
+    0.8500000238418579
    ]
   },
   {
    "body": 10,
-   "link": -1,
-   "index": 0,
-   "name": "",
-   "kind": 3,
-   "dimensions": [
-    0.003,
-    0.022,
-    0.034
-   ],
-   "mesh": "",
-   "position": [
-    0.6922516226768494,
-    0.9041014313697815,
-    0.5578044652938843
-   ],
-   "quaternion_xyzw": [
-    0.0,
-    0.0,
-    0.8594064116477966,
-    0.5112930536270142
-   ],
-   "rgba": [
-    0.1599999964237213,
-    0.1599999964237213,
-    0.18000000715255737,
-    1.0
-   ]
-  },
-  {
-   "body": 11,
-   "link": -1,
-   "index": 0,
-   "name": "",
-   "kind": 3,
-   "dimensions": [
-    0.003,
-    0.022,
-    0.034
-   ],
-   "mesh": "",
-   "position": [
-    0.7169706225395203,
-    0.9034541249275208,
-    0.5398389101028442
-   ],
-   "quaternion_xyzw": [
-    0.5128402709960938,
-    0.2872043550014496,
-    0.6952744126319885,
-    0.41364479064941406
-   ],
-   "rgba": [
-    0.1599999964237213,
-    0.1599999964237213,
-    0.18000000715255737,
-    1.0
-   ]
-  },
-  {
-   "body": 12,
-   "link": -1,
-   "index": 0,
-   "name": "",
-   "kind": 3,
-   "dimensions": [
-    0.003,
-    0.022,
-    0.034
-   ],
-   "mesh": "",
-   "position": [
-    0.707528829574585,
-    0.9037013649940491,
-    0.5107700228691101
-   ],
-   "quaternion_xyzw": [
-    0.8297930359840393,
-    0.4647063910961151,
-    0.2655712068080902,
-    0.1579982489347458
-   ],
-   "rgba": [
-    0.1599999964237213,
-    0.1599999964237213,
-    0.18000000715255737,
-    1.0
-   ]
-  },
-  {
-   "body": 13,
-   "link": -1,
-   "index": 0,
-   "name": "",
-   "kind": 3,
-   "dimensions": [
-    0.003,
-    0.022,
-    0.034
-   ],
-   "mesh": "",
-   "position": [
-    0.6769744157791138,
-    0.9045014977455139,
-    0.5107700228691101
-   ],
-   "quaternion_xyzw": [
-    0.8297930359840393,
-    0.4647063910961151,
-    -0.2655712068080902,
-    -0.1579982489347458
-   ],
-   "rgba": [
-    0.1599999964237213,
-    0.1599999964237213,
-    0.18000000715255737,
-    1.0
-   ]
-  },
-  {
-   "body": 14,
-   "link": -1,
-   "index": 0,
-   "name": "",
-   "kind": 3,
-   "dimensions": [
-    0.003,
-    0.022,
-    0.034
-   ],
-   "mesh": "",
-   "position": [
-    0.6675326228141785,
-    0.9047487378120422,
-    0.5398389101028442
-   ],
-   "quaternion_xyzw": [
-    -0.5128402709960938,
-    -0.2872043550014496,
-    0.6952744126319885,
-    0.41364479064941406
-   ],
-   "rgba": [
-    0.1599999964237213,
-    0.1599999964237213,
-    0.18000000715255737,
-    1.0
-   ]
-  },
-  {
-   "body": 15,
-   "link": -1,
-   "index": 0,
-   "name": "",
-   "kind": 3,
-   "dimensions": [
-    0.024,
-    0.024,
-    0.03580445951763754
-   ],
-   "mesh": "",
-   "position": [
-    0.6916233897209167,
-    0.8801096677780151,
-    0.4679022431373596
-   ],
-   "quaternion_xyzw": [
-    0.0,
-    0.0,
-    0.6977904438972473,
-    0.7163019180297852
-   ],
-   "rgba": [
-    0.9200000166893005,
-    0.9200000166893005,
-    0.9200000166893005,
-    1.0
-   ]
-  },
-  {
-   "body": 16,
-   "link": -1,
-   "index": 0,
-   "name": "",
-   "kind": 3,
-   "dimensions": [
-    0.06,
-    0.06,
-    0.008
-   ],
-   "mesh": "",
-   "position": [
-    0.6916233897209167,
-    0.8801096677780151,
-    0.45399999618530273
-   ],
-   "quaternion_xyzw": [
-    0.0,
-    0.0,
-    0.6977904438972473,
-    0.7163019180297852
-   ],
-   "rgba": [
-    0.9200000166893005,
-    0.9200000166893005,
-    0.9200000166893005,
-    1.0
-   ]
-  },
-  {
-   "body": 17,
-   "link": -1,
-   "index": 0,
-   "name": "",
-   "kind": 3,
-   "dimensions": [
-    0.066,
-    0.066,
-    0.0601623967033751
-   ],
-   "mesh": "",
-   "position": [
-    0.5104432106018066,
-    0.9181606769561768,
-    0.4800812005996704
-   ],
-   "quaternion_xyzw": [
-    0.0,
-    0.0,
-    0.6977904438972473,
-    0.7163019180297852
-   ],
-   "rgba": [
-    0.07000000029802322,
-    0.07000000029802322,
-    0.07999999821186066,
-    1.0
-   ]
-  },
-  {
-   "body": 18,
-   "link": -1,
-   "index": 0,
-   "name": "",
-   "kind": 4,
-   "dimensions": [
-    0.012,
-    0.024,
-    0.0
-   ],
-   "mesh": "",
-   "position": [
-    0.5104432106018066,
-    0.9181606769561768,
-    0.5161623954772949
-   ],
-   "quaternion_xyzw": [
-    0.0,
-    0.0,
-    0.6977904438972473,
-    0.7163019180297852
-   ],
-   "rgba": [
-    0.11999999731779099,
-    0.36000001430511475,
-    0.8600000143051147,
-    1.0
-   ]
-  },
-  {
-   "body": 19,
    "link": -1,
    "index": 0,
    "name": "",
@@ -688,7 +569,7 @@
    ]
   },
   {
-   "body": 20,
+   "body": 11,
    "link": -1,
    "index": 0,
    "name": "panda",
@@ -718,7 +599,7 @@
    ]
   },
   {
-   "body": 20,
+   "body": 11,
    "link": 0,
    "index": 1,
    "name": "panda",
@@ -737,8 +618,8 @@
    "quaternion_xyzw": [
     0.0,
     0.0,
-    -0.15255868434906006,
-    0.9882944226264954
+    -0.15682655572891235,
+    0.9876261949539185
    ],
    "rgba": [
     1.0,
@@ -748,7 +629,7 @@
    ]
   },
   {
-   "body": 20,
+   "body": 11,
    "link": 1,
    "index": 2,
    "name": "panda",
@@ -760,15 +641,15 @@
    ],
    "mesh": "/home/ycliang/.conda/envs/robocode/lib/python3.11/site-packages/pybullet_data/franka_panda/meshes/visual/link2.obj",
    "position": [
-    0.11121897399425507,
+    0.11121895909309387,
     1.1262708902359009,
     0.8240000009536743
    ],
    "quaternion_xyzw": [
-    -0.6670931577682495,
-    0.23449231684207916,
-    0.022418007254600525,
-    0.7067513465881348
+    -0.6649262309074402,
+    0.24056866765022278,
+    0.022759651765227318,
+    0.7067403197288513
    ],
    "rgba": [
     1.0,
@@ -778,7 +659,7 @@
    ]
   },
   {
-   "body": 20,
+   "body": 11,
    "link": 2,
    "index": 3,
    "name": "panda",
@@ -790,15 +671,15 @@
    ],
    "mesh": "/home/ycliang/.conda/envs/robocode/lib/python3.11/site-packages/pybullet_data/franka_panda/meshes/visual/link3.obj",
    "position": [
-    0.22009500861167908,
-    1.0918368101119995,
-    1.1186461448669434
+    0.22247973084449768,
+    1.090022325515747,
+    1.1175354719161987
    ],
    "quaternion_xyzw": [
-    0.015796521678566933,
-    0.18313467502593994,
-    -0.21477022767066956,
-    0.9592111110687256
+    0.01780114322900772,
+    0.1876918226480484,
+    -0.21469339728355408,
+    0.9583118557929993
    ],
    "rgba": [
     1.0,
@@ -808,7 +689,7 @@
    ]
   },
   {
-   "body": 20,
+   "body": 11,
    "link": 3,
    "index": 4,
    "name": "panda",
@@ -820,15 +701,15 @@
    ],
    "mesh": "/home/ycliang/.conda/envs/robocode/lib/python3.11/site-packages/pybullet_data/franka_panda/meshes/visual/link4.obj",
    "position": [
-    0.28945034742355347,
-    1.058322548866272,
-    1.0891015529632568
+    0.29156169295310974,
+    1.0566259622573853,
+    1.0872267484664917
    ],
    "quaternion_xyzw": [
-    -0.22932086884975433,
-    -0.6505630612373352,
-    0.7208959460258484,
-    0.06699801981449127
+    -0.22725403308868408,
+    -0.6520111560821533,
+    0.7199824452400208,
+    0.06973113119602203
    ],
    "rgba": [
     1.0,
@@ -838,7 +719,7 @@
    ]
   },
   {
-   "body": 20,
+   "body": 11,
    "link": 4,
    "index": 5,
    "name": "panda",
@@ -850,15 +731,15 @@
    ],
    "mesh": "/home/ycliang/.conda/envs/robocode/lib/python3.11/site-packages/pybullet_data/franka_panda/meshes/visual/link5.obj",
    "position": [
-    0.4400154948234558,
-    0.9702270030975342,
-    0.7372044920921326
+    0.43997669219970703,
+    0.9701189994812012,
+    0.7340245842933655
    ],
    "quaternion_xyzw": [
-    0.3012358248233795,
-    0.9453091025352478,
-    -0.03853762894868851,
-    0.11900658905506134
+    0.30078810453414917,
+    0.9459438323974609,
+    -0.03731602430343628,
+    0.11543092131614685
    ],
    "rgba": [
     1.0,
@@ -868,7 +749,7 @@
    ]
   },
   {
-   "body": 20,
+   "body": 11,
    "link": 5,
    "index": 6,
    "name": "panda",
@@ -880,15 +761,15 @@
    ],
    "mesh": "/home/ycliang/.conda/envs/robocode/lib/python3.11/site-packages/pybullet_data/franka_panda/meshes/visual/link6.obj",
    "position": [
-    0.4400154948234558,
-    0.9702270030975342,
-    0.7372045516967773
+    0.43997669219970703,
+    0.9701189994812012,
+    0.7340246438980103
    ],
    "quaternion_xyzw": [
-    0.6734050512313843,
-    -0.21434715390205383,
-    -0.21513628959655762,
-    0.6740158200263977
+    0.6735417246818542,
+    -0.2139231413602829,
+    -0.21471618115901947,
+    0.6741479635238647
    ],
    "rgba": [
     1.0,
@@ -898,7 +779,7 @@
    ]
   },
   {
-   "body": 20,
+   "body": 11,
    "link": 6,
    "index": 7,
    "name": "panda",
@@ -910,15 +791,15 @@
    ],
    "mesh": "/home/ycliang/.conda/envs/robocode/lib/python3.11/site-packages/pybullet_data/franka_panda/meshes/collision/link7.obj",
    "position": [
-    0.5117833018302917,
-    0.9193018674850464,
-    0.7371340394020081
+    0.5118082165718079,
+    0.9192838072776794,
+    0.7339534163475037
    ],
    "quaternion_xyzw": [
     0.9999997615814209,
-    -0.00020493818738032132,
-    -0.0006627441034652293,
-    0.0002421453536953777
+    -0.00020321988267824054,
+    -0.000664298830088228,
+    0.0002388257416896522
    ],
    "rgba": [
     1.0,
@@ -928,7 +809,7 @@
    ]
   },
   {
-   "body": 20,
+   "body": 11,
    "link": 8,
    "index": 8,
    "name": "panda",
@@ -940,15 +821,15 @@
    ],
    "mesh": "/home/ycliang/.conda/envs/robocode/lib/python3.11/site-packages/pybullet_data/franka_panda/meshes/visual/hand.obj",
    "position": [
-    0.5116415023803711,
-    0.9192500710487366,
-    0.630134105682373
+    0.5116661190986633,
+    0.9192326664924622,
+    0.6269535422325134
    ],
    "quaternion_xyzw": [
-    0.9239577054977417,
-    0.3824940025806427,
-    -0.0007049607811495662,
-    -2.99080438708188e-05
+    0.9239570498466492,
+    0.38249558210372925,
+    -0.0007051266729831696,
+    -3.356992965564132e-05
    ],
    "rgba": [
     1.0,
@@ -958,7 +839,7 @@
    ]
   },
   {
-   "body": 20,
+   "body": 11,
    "link": 9,
    "index": 9,
    "name": "panda",
@@ -970,15 +851,15 @@
    ],
    "mesh": "/home/ycliang/.conda/envs/robocode/lib/python3.11/site-packages/pybullet_data/franka_panda/meshes/visual/finger.obj",
    "position": [
-    0.5115640759468079,
-    0.9192217588424683,
-    0.5717341899871826
+    0.511588454246521,
+    0.919204831123352,
+    0.568553626537323
    ],
    "quaternion_xyzw": [
-    0.9239577054977417,
-    0.3824940025806427,
-    -0.0007049607811495662,
-    -2.99080438708188e-05
+    0.9239570498466492,
+    0.38249558210372925,
+    -0.0007051266729831696,
+    -3.356992965564132e-05
    ],
    "rgba": [
     1.0,
@@ -988,7 +869,7 @@
    ]
   },
   {
-   "body": 20,
+   "body": 11,
    "link": 10,
    "index": 10,
    "name": "panda",
@@ -1000,15 +881,15 @@
    ],
    "mesh": "/home/ycliang/.conda/envs/robocode/lib/python3.11/site-packages/pybullet_data/franka_panda/meshes/visual/finger.obj",
    "position": [
-    0.5115640759468079,
-    0.9192217588424683,
-    0.5717341899871826
+    0.511588454246521,
+    0.919204831123352,
+    0.5685535669326782
    ],
    "quaternion_xyzw": [
-    -0.3824940025806427,
-    0.9239577054977417,
-    2.99080438708188e-05,
-    -0.0007049607811495662
+    -0.38249558210372925,
+    0.9239570498466492,
+    3.356992965564132e-05,
+    -0.0007051266729831696
    ],
    "rgba": [
     1.0,
@@ -1018,7 +899,7 @@
    ]
   },
   {
-   "body": 21,
+   "body": 12,
    "link": -1,
    "index": 0,
    "name": "",
@@ -1048,7 +929,7 @@
    ]
   },
   {
-   "body": 22,
+   "body": 13,
    "link": -1,
    "index": 0,
    "name": "",
@@ -1078,7 +959,7 @@
    ]
   },
   {
-   "body": 23,
+   "body": 14,
    "link": -1,
    "index": 0,
    "name": "",
@@ -1108,7 +989,7 @@
    ]
   },
   {
-   "body": 24,
+   "body": 15,
    "link": -1,
    "index": 0,
    "name": "",
@@ -1139,6 +1020,13 @@
   }
  ],
  "mesh_sha256": {
+  "/home/ycliang/predicators/scripts/paper_figures/data/robot_twins/fan_dcmotor_proxy/fan_dcmotor_psu.stl": "f22ff16283a2409a2cf38a22163c474082433538e0674e54a695623acc159c85",
+  "/home/ycliang/predicators/scripts/paper_figures/data/robot_twins/fan_dcmotor_proxy/fan_dcmotor_mount.stl": "4bbf16a75c5979e3afe309c3e645c4944cfd82b88729cf6e2fbaef1f7d3d2258",
+  "/home/ycliang/predicators/scripts/paper_figures/data/robot_twins/fan_dcmotor_proxy/fan_dcmotor_motor.stl": "c54553cc3d29fa2efcc26abac3a0e7602b5e736d37826de40017acdc2465d249",
+  "/home/ycliang/predicators/scripts/paper_figures/data/robot_twins/fan_dcmotor_proxy/fan_dcmotor_propeller.stl": "4f2816f57a724733d0669daaa87c20d20328f4fbdc725627f4cb760c6eb30615",
+  "/home/ycliang/predicators/scripts/paper_figures/data/robot_twins/button_arcade60_proxy/button_arcade60_holder.stl": "f9831000fb71a22ee4c2e89ae788283e845d18e8d8795625082f5bfb6eaa69ee",
+  "/home/ycliang/predicators/scripts/paper_figures/data/robot_twins/button_arcade60_proxy/button_arcade60_bezel.stl": "5236a389768f307dc5d791a4adba81e58e1de7e34d7a2666bab2c5b58a2760f2",
+  "/home/ycliang/predicators/scripts/paper_figures/data/robot_twins/button_arcade60_proxy/button_arcade60_plunger.stl": "48eb5481f1f67ffa28c7b705fa1cb7d5e513720bda07913cec15b76b277ba92c",
   "/home/ycliang/.conda/envs/robocode/lib/python3.11/site-packages/pybullet_data/franka_panda/meshes/collision/link0.obj": "d29233f03537b6ee92a6861d4139290960325c2bacf9a640ab7935a5539c653f",
   "/home/ycliang/.conda/envs/robocode/lib/python3.11/site-packages/pybullet_data/franka_panda/meshes/visual/link1.obj": "e0ec1bec9432a46f797e912cd8165798e62ebfd85c0807dce142bd6b9a768cd7",
   "/home/ycliang/.conda/envs/robocode/lib/python3.11/site-packages/pybullet_data/franka_panda/meshes/visual/link2.obj": "a1a41ada6d6cb8c51a8d0d19db9cadea101493842a52db75529e7ba0d4592904",

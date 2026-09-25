@@ -1,0 +1,71 @@
+<?xml version="1.0"?>
+<robot name="button_arcade60_articulated">
+  <link name="holder_link">
+    <inertial>
+      <origin xyz="0.035 0.035 0.030" rpy="0 0 0"/>
+      <mass value="0.12"/>
+      <inertia ixx="8.5e-05" ixy="0" ixz="0" iyy="8.5e-05" iyz="0" izz="9.8e-05"/>
+    </inertial>
+    <visual name="holder_visual">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="button_arcade60_holder.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="matte_grey">
+        <color rgba="0.35 0.35 0.35 1.0"/>
+      </material>
+    </visual>
+    <visual name="bezel_visual">
+      <origin xyz="0.035 0.035 0.060" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="button_arcade60_bezel.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="bezel_black">
+        <color rgba="0.05 0.05 0.05 1.0"/>
+      </material>
+    </visual>
+    <collision name="holder_collision">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="button_arcade60_holder.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+    <collision name="bezel_collision">
+      <origin xyz="0.035 0.035 0.060" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="button_arcade60_bezel.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="plunger_link">
+    <inertial>
+      <origin xyz="0 0 0.009" rpy="0 0 0"/>
+      <mass value="0.05"/>
+      <inertia ixx="1.4e-05" ixy="0" ixz="0" iyy="1.4e-05" iyz="0" izz="2.3e-05"/>
+    </inertial>
+    <visual name="plunger_visual">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="button_arcade60_plunger.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="led_blue">
+        <color rgba="0.20 0.35 0.90 0.85"/>
+      </material>
+    </visual>
+    <collision name="plunger_collision">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="button_arcade60_plunger.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="button_press" type="prismatic">
+    <parent link="holder_link"/>
+    <child link="plunger_link"/>
+    <origin xyz="0.035 0.035 0.060" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-0.004" upper="0.0" effort="10.0" velocity="0.1"/>
+  </joint>
+</robot>

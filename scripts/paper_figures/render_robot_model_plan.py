@@ -12,9 +12,11 @@ unless it reproduces the recorded prediction.
 It then re-runs one of those draws, the successful one whose slide is
 closest to the mean, with both dominoes' poses recorded, and writes the
 bench at chosen moments of that rollout as scene JSONs for
-render_cycles_scene.py: the mat, the patch, the fan as the wind's source and
-the two dominoes, seen from the gust camera. The engine models nothing else,
-so nothing else is drawn. Beside each scene it writes a quick PyBullet
+render_cycles_scene.py, seen from the gust camera: the mat, the patch and
+the two dominoes the engine models, and the fan, the button and the arm
+pressing it, drawn where they stand. The fan and the button are the bench's
+digital twins, which data/robot_twins copies from BabyRobotPredicator with
+their commit and hashes. Beside each scene it writes a quick PyBullet
 preview blended with the recorded test frame, to check the camera.
 
 It imports the robot repository's code unchanged, so it runs with that
@@ -49,8 +51,14 @@ RUN = ROOT.parents[1] / "logs/real_robot/fan_domino_drive"
 # default, which fan_agent.sh does not override).
 PLAN_DRAWS = 24
 TRAJ_HZ = 30
-# The fan's housing radius, and the button cap's height (m).
-FAN_RADIUS, CAP_HEIGHT = 0.046, 0.012
+# The bench's fan and button as digital twins, copied from BabyRobotPredicator
+# with the commit and file hashes in SOURCE.json.
+TWINS = ROOT / "data/robot_twins"
+FAN_TWIN = TWINS / "fan_dcmotor_proxy/fan_dcmotor_articulated.urdf"
+BUTTON_TWIN = TWINS / "button_arcade60_proxy/button_arcade60_articulated.urdf"
+# The button's travel, and its plunger's face above the plunger's joint
+# frame (m), from button_arcade60_proxy.scad.
+PRESS_DEPTH, PLUNGER_FACE = 0.004, 0.013
 # The Panda's fingertip link in pybullet_data's model, and a rest pose that
 # keeps the elbow up.
 PANDA_TIP = 11
@@ -69,8 +77,7 @@ TOP_PIXELS = {"grey": (274.0, 375.0), "green": (391.0, 399.0)}
 RENDER_ANCHOR = np.array([0.7, 1.2, 0.45])
 # Colours read from the gust camera's frames.
 MAT, PATCH, TAPE = (.93, .93, .92, 1), (1, .36, .56, 1), (.86, .12, .12, 1)
-FAN, HUB, BLADE = (.07, .07, .08, 1), (.35, .35, .37, 1), (.16, .16, .18, 1)
-CLAMP, CAP, EDGE = (.92, .92, .92, 1), (.12, .36, .86, 1), (.20, .30, .78, 1)
+MOUNT, EDGE = (.07, .07, .08, 1), (.20, .30, .78, 1)
 FACES = {"green": (.24, .64, .27, 1), "grey": (.62, .64, .67, 1)}
 
 
@@ -204,28 +211,6 @@ def box(client: int, name: str, half: Vector, position: Vector,
     del body, name
 
 
-def cylinder(client: int, radius: float, length: float, position: Vector,
-             quaternion: Sequence[float], rgba: Sequence[float],
-             offset: np.ndarray) -> None:
-    """Add one visual-only cylinder, its axis along its local z."""
-    shape = p.createVisualShape(p.GEOM_CYLINDER,
-                                radius=radius,
-                                length=length,
-                                rgbaColor=list(rgba),
-                                physicsClientId=client)
-    p.createMultiBody(0,
-                      -1,
-                      shape,
-                      basePosition=list(np.asarray(position) + offset),
-                      baseOrientation=list(quaternion),
-                      physicsClientId=client)
-
-
-def turn(first: Sequence[float], then: Sequence[float]) -> Sequence[float]:
-    """The rotation ``first`` followed by ``then``, as quaternions."""
-    return p.multiplyTransforms([0, 0, 0], then, [0, 0, 0], first)[1]
-
-
 def _patch(client: int, geo: Dict[str, Any], bench: Bench) -> None:
     """The patch, square to the fan as it lies on the bench, with its tape.
 
@@ -245,55 +230,76 @@ def _patch(client: int, geo: Dict[str, Any], bench: Bench) -> None:
             bench.render_offset)
 
 
+def joint_index(body: int, name: str, client: int) -> int:
+    """The index of a body's joint, by name."""
+    return next(
+        j for j in range(p.getNumJoints(body, physicsClientId=client))
+        if p.getJointInfo(body, j, physicsClientId=client)[1].decode() == name)
+
+
+def joint_origin(urdf: Path, joint: str) -> np.ndarray:
+    """Where a twin's joint sits in its base frame, from a scratch load."""
+    client = p.connect(p.DIRECT)
+    try:
+        body = p.loadURDF(str(urdf), useFixedBase=True, physicsClientId=client)
+        return np.array(
+            p.getLinkState(body,
+                           joint_index(body, joint, client),
+                           physicsClientId=client)[4])
+    finally:
+        p.disconnect(client)
+
+
 def _fan(client: int, bench: Bench, height: float) -> None:
-    """A round fan facing down the blow axis, on a white clamp."""
-    offset = bench.render_offset
-    # Cylinders run along their local z; the fan's axis is the lane's x.
-    facing = turn(p.getQuaternionFromEuler([0, math.pi / 2, 0]),
-                  p.getQuaternionFromEuler([0, 0, bench.yaw]))
-    cylinder(client, FAN_RADIUS, 0.03, bench.point((-0.015, 0, height)),
-             facing, FAN, offset)
-    cylinder(client, 0.012, 0.02, bench.point((0.005, 0, height)), facing, HUB,
-             offset)
-    for k in range(5):
-        spin = p.getQuaternionFromEuler([2 * math.pi * k / 5, 0, 0])
-        # Each blade pitched about its own radial axis, then set around the
-        # hub, in the lane's frame.
-        blade = turn(p.getQuaternionFromEuler([0, 0, math.radians(30)]), spin)
-        radial = np.array(p.getMatrixFromQuaternion(spin)).reshape(
-            3, 3) @ [0.004, 0, 0.026]
-        position, orientation = bench.pose(
-            (radial[0], radial[1], height + radial[2]), blade)
-        box(client, "blade", (0.0015, 0.011, 0.017), position, orientation,
-            BLADE, offset)
-    along = p.getQuaternionFromEuler([0, 0, bench.yaw])
-    post = height - FAN_RADIUS
-    box(client, "clamp", (0.012, 0.012, post / 2),
-        bench.point((-0.02, 0, post / 2)), along, CLAMP, offset)
-    box(client, "clamp foot", (0.03, 0.03, 0.004),
-        bench.point((-0.02, 0, 0.004)), along, CLAMP, offset)
+    """The fan's twin, its propeller hub at the fan's measured centre, blowing
+    down the lane.
+
+    The twin stands on its bench supply, which holds the hub 13 cm up.
+    The bench's fan sits lower, so the supply's foot passes under the
+    mat, out of sight.
+    """
+    # The twin blows along its y, the lane's x.
+    along = p.getQuaternionFromEuler([0, 0, -math.pi / 2])
+    hub = np.array(p.getMatrixFromQuaternion(along)).reshape(
+        3, 3) @ joint_origin(FAN_TWIN, "fan_spin")
+    position, orientation = bench.pose((-hub[0], -hub[1], height - hub[2]),
+                                       along)
+    p.loadURDF(str(FAN_TWIN),
+               basePosition=list(position + bench.render_offset),
+               baseOrientation=list(orientation),
+               useFixedBase=True,
+               physicsClientId=client)
 
 
-def _button(client: int, scene: Dict[str, Any], bench: Bench) -> None:
-    """The push button: a black housing with a blue cap on top.
+def _button(client: int, scene: Dict[str, Any], bench: Bench) -> np.ndarray:
+    """The button's twin, held down as during the gust; returns the centre of
+    its pressed face.
 
-    It stands square to the fan, as on the bench; the agent's box fit
+    It stands at the button's measured centre, square to the fan as on
+    the bench, with its cable notch toward the fan; the agent's box fit
     turns it, as it does the patch.
     """
-    button = scene["objects"]["button"]
-    top = button["center_base_m"][2] + button["dims_m"][2] / 2
     yaw = p.getQuaternionFromEuler([0, 0, bench.yaw])
-    housing = top - CAP_HEIGHT - bench.table_z
-    box(client, "button housing", (0.033, 0.033, housing / 2),
-        [*button["center_base_m"][:2], bench.table_z + housing / 2], yaw, FAN,
-        bench.render_offset)
-    cylinder(client, 0.024, CAP_HEIGHT,
-             [*button["center_base_m"][:2], top - CAP_HEIGHT / 2], yaw, CAP,
-             bench.render_offset)
+    plunger = joint_origin(BUTTON_TWIN, "button_press")
+    centre = np.asarray(scene["objects"]["button"]["center_base_m"][:2])
+    turned = np.array(p.getMatrixFromQuaternion(yaw)).reshape(3, 3) @ plunger
+    base = np.array([*(centre - turned[:2]), bench.table_z])
+    button = p.loadURDF(str(BUTTON_TWIN),
+                        basePosition=list(base + bench.render_offset),
+                        baseOrientation=list(yaw),
+                        useFixedBase=True,
+                        physicsClientId=client)
+    p.resetJointState(button,
+                      joint_index(button, "button_press", client),
+                      -PRESS_DEPTH,
+                      physicsClientId=client)
+    return np.array(
+        [*centre, bench.table_z + plunger[2] - PRESS_DEPTH + PLUNGER_FACE])
 
 
-def _panda(client: int, scene: Dict[str, Any], bench: Bench) -> None:
-    """The Panda on its mount, its fingertips on the button as during the gust.
+def _panda(client: int, press: np.ndarray, bench: Bench) -> None:
+    """The Panda on its mount, its fingertips at ``press`` on the button, as
+    during the gust.
 
     The robot's base frame is the fixtures' frame, so the arm stands at
     its origin. Only its pose is posed here; the wind simulator has no
@@ -301,17 +307,13 @@ def _panda(client: int, scene: Dict[str, Any], bench: Bench) -> None:
     """
     offset = bench.render_offset
     box(client, "mount", (0.15, 0.15, -bench.table_z / 2),
-        [0, 0, bench.table_z / 2], [0, 0, 0, 1], FAN, offset)
+        [0, 0, bench.table_z / 2], [0, 0, 0, 1], MOUNT, offset)
     robot = p.loadURDF(str(
         Path(pybullet_data.getDataPath()) / "franka_panda/panda.urdf"),
                        basePosition=list(offset),
                        useFixedBase=True,
                        physicsClientId=client)
-    button = scene["objects"]["button"]
-    press = np.array([
-        *button["center_base_m"][:2],
-        button["center_base_m"][2] + button["dims_m"][2] / 2
-    ]) + offset
+    press = press + offset
     down = p.getQuaternionFromEuler([math.pi, 0, math.pi / 4])
     movable = [
         j for j in range(p.getNumJoints(robot, physicsClientId=client))
@@ -363,8 +365,7 @@ def build_scene(client: int, scene: Dict[str, Any], geo: Dict[str, Any],
     box(client, "mat", (2.0, 2.0, 0.005), centre, along, MAT, offset)
     _patch(client, geo, bench)
     _fan(client, bench, geo["fan_height_m"])
-    _button(client, scene, bench)
-    _panda(client, scene, bench)
+    _panda(client, _button(client, scene, bench), bench)
     thickness, width, length = dims
     for name, (position, quaternion) in blocks.items():
         box(client, f"{name} edges", (thickness / 2, width / 2, length / 2),
@@ -471,9 +472,13 @@ def main() -> None:
         check=True,
         capture_output=True,
         text=True).stdout.strip()
+    twins = json.loads((TWINS / "SOURCE.json").read_text())
+    for name, source in twins["files"].items():
+        assert digest(TWINS / name) == source["sha256"], name
     provenance = dict(
         repository="BasisResearch/BabyRobotPredicator",
         commit=commit,
+        twins_commit=twins["commit"],
         simulator_sha256=digest(repo / "real_skills/wind_sim.py"),
         planner_sha256=digest(repo / "real_skills/fan_plan.py"),
         wind_model_sha256=digest(RUN / "models/current.py"),
