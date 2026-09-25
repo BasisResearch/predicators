@@ -243,6 +243,9 @@ class TestPhase:
 
     def test_move_to_pose_phase(self):
         """Test move to pose phase."""
+        # The motion-planning default is read from CFG, which an earlier
+        # test may have left set.
+        utils.reset_config({"seed": 123})
 
         def dummy_target(_state, _objects, _params, _cfg):
             return None, None, "open"

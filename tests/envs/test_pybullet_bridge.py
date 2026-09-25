@@ -14,6 +14,7 @@ import pybullet as p
 import pytest
 
 from predicators import utils
+from predicators.envs import _MOST_RECENT_ENV_INSTANCE
 from predicators.structs import Action, EnvironmentTask, GroundAtom
 
 
@@ -170,7 +171,7 @@ def test_drive_by_graze_never_wets(env_and_task):
     assert env._get_state().get(leg0, "glue_end_b") > 0.5
 
 
-def test_place_settles_to_contact():
+def test_place_settles_to_contact(monkeypatch):
     """Place must release at first contact instead of free-falling.
 
     With a release_z several mm above resting height, the settle phase
@@ -197,6 +198,11 @@ def test_place_settles_to_contact():
     from predicators.ground_truth_models import \
         get_gt_options  # pylint: disable=import-outside-toplevel
     env = PyBulletBridgeEnv(use_gui=False)
+    # get_gt_options builds the skills from the cached env's types: cache
+    # this env so they match its block type, not one an earlier test left.
+    # monkeypatch restores the cache at teardown, so no later test gets
+    # this env after its disconnect below.
+    monkeypatch.setitem(_MOST_RECENT_ENV_INSTANCE, env.get_name(), env)
     try:
         task = env._generate_train_tasks()[0]
         env._set_state(task.init)
@@ -540,7 +546,7 @@ def test_wet_joint_survives_a_release_impulse(env_and_task):
         float(env._block_index[span2.name])
 
 
-def test_degenerate_top_edge_grasp_fails_honestly():
+def test_degenerate_top_edge_grasp_fails_honestly(monkeypatch):
     """A pick that never wraps the block must fail, not report success.
 
     Regression for seed0 run_20260819_053515: PickBlock(leg0)[0.01] on a
@@ -573,6 +579,11 @@ def test_degenerate_top_edge_grasp_fails_honestly():
     from predicators.ground_truth_models import \
         get_gt_options  # pylint: disable=import-outside-toplevel
     env = PyBulletBridgeEnv(use_gui=False)
+    # get_gt_options builds the skills from the cached env's types: cache
+    # this env so they match its block type, not one an earlier test left.
+    # monkeypatch restores the cache at teardown, so no later test gets
+    # this env after its disconnect below.
+    monkeypatch.setitem(_MOST_RECENT_ENV_INSTANCE, env.get_name(), env)
     try:
         env.reset("test", 0)
         state = env._get_state()
