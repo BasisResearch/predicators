@@ -1,7 +1,7 @@
 {
   "generated_by": "scripts/paper_figures/build_figures.py --overview; do not edit manually",
   "inputs": {
-    "build_figures.py": "95644907cd67d2e052790d38d0e6cda7929bea5b602ec4b99a6b790227de13c5",
+    "build_figures.py": "992b74a86fd8e3c55f8e3cbaaf0e827058c96c422defbdc187d3ba6295710d56",
     "data/gui-figure-manifest.json": "5710c818b5bca7090312245386cd9292695711ed08bcd7f39693ee67a3ffdaa9",
     "data/trajectories/real_fan_domino.json": "ae1cad680139d033f3ad5855e9f0a76c9e8ca88d0840cfcefbacf9ea48d35e69",
     "data/trajectories/stripes.json": "d6450cb4ce725c60cf6c3761a9fe2547ba6c4817c8657be660dd7022be0d3775",
@@ -58,11 +58,11 @@
     "fig2_method.pdf": "c53eb04fd1190dd87d36f0c98919038cc57f87a8bc67d5a795b33382ff8aef3a",
     "fig2_method.png": "0b72e517e503deddc537e2d663eb208587f64a3030970fdeaf9373dba7eaf496",
     "fig2_method.svg": "6012e47cf1e156026011133a89865221a4cbf1025eea8a159e0d8e8316bbbadf",
-    "fig3_trajectories.pdf": "e4a1d8fe04f5578297fc495a7a1b292ae8d218a9cc2bc787cf24358361c36623",
-    "fig3_trajectories.png": "65236eecf9064085bfe82ba3fbac3f7a339cb224a7f11541dc86f9f969db08ab",
-    "fig3_trajectories.svg": "d16cf1c9d82aebc2bc4b4bd529dd4570a7e56bf74ec60e697b19d36628ea556b",
-    "figA_trajectories.pdf": "f89a9a8d1bf54747b1c0bb6155f684a969750654b7cea9086cc836f7adac9466",
-    "figA_trajectories.png": "6fb9c9dd88f38e86549bd7563d25f94a771b20402d4ff29cb2d32716679e3abb",
-    "figA_trajectories.svg": "2c8ad6691d22cfd4f664adb00727c402767fd3a791f8b571b28d620639ef366a"
+    "fig3_trajectories.pdf": "f4ec117121c52e7ac0b0f6c342be32ef0d76a89bd79d3131253d1255f99f6202",
+    "fig3_trajectories.png": "8fb20a4aa46f2c1413e5a6cb3db75fa4b5557dff584ebd49acca8d827d7eb053",
+    "fig3_trajectories.svg": "6dca9f51279af44ce3934495e9e12c8c2eb79d1c0d17cae01c0d2607cb7c2eac",
+    "figA_trajectories.pdf": "065d872b395e252100a1cb824565dba05ff2b801460f59fd3f13d93e0e6705c9",
+    "figA_trajectories.png": "72a174b5b809dfa7d41f044844b447993a193b99ee2191aef3a1bea4ca452867",
+    "figA_trajectories.svg": "f6a5a1a15dcbde8cae141179453815bff6cb4b6b2f620897432a5340f03745c6"
   }
 }

@@ -845,12 +845,16 @@ STRIPE_CROPS = {
     "boil": (240, 240, 830, 700),
     "fan": (150, 170, 800, 678),
 }
-# Frames are 88 wide and the learning bar takes a slot of its own, so every
+# Each stripe's title runs up the left edge with its baseline at
+# STRIPE_TITLE_X, and the first frame starts just past it at STRIPE_LEFT.
+# The title's line box, which is taller than its letters, stays on the page.
+# Frames are 89.8 wide and the learning bar takes a slot of its own, so every
 # gap, between two frames or beside the bar, is 11 wide and holds an arrow.
 # Simulated frames share one height and the robot's photos keep their own
 # aspect, both that of their crops.
-STRIPE_FW, STRIPE_GAP, BAR_W = 88, 11, 9
-STRIPE_FH, ROBOT_FH = 69, 61
+STRIPE_TITLE_X, STRIPE_LEFT = 9, 15
+STRIPE_FW, STRIPE_GAP, BAR_W = 89.8, 11, 9
+STRIPE_FH, ROBOT_FH = 70.2, 62.3
 StripeFrame = Tuple[Path, Optional[Sequence[int]], str, str, bool]
 
 
@@ -907,8 +911,9 @@ def _stripe(d: Drawing, y: float, stripe: Stripe) -> None:
     """Draw one titled row of five captioned frames joined by arrows."""
     fh, fw = stripe.height, STRIPE_FW
     e = d.text(0, 0, stripe.title, 9.6, TEAL, "bold", "middle")
-    e.set("transform", f"translate(12 {y + fh / 2}) rotate(-90)")
-    x = 24
+    e.set("transform",
+          f"translate({STRIPE_TITLE_X} {y + fh / 2:g}) rotate(-90)")
+    x: float = STRIPE_LEFT
     for i, (source, crop, first, second, model) in enumerate(stripe.frames):
         if model:
             # A state from the agent's own model, not from the environment:
@@ -949,7 +954,7 @@ def _stripe(d: Drawing, y: float, stripe: Stripe) -> None:
             x += BAR_W
             d.arrow(x + 2, y + fh / 2, x + STRIPE_GAP - 2, y + fh / 2)
             x += STRIPE_GAP
-    assert x == 528, x
+    assert abs(x - 528) < 1e-6, x
 
 
 def _domain_stripes(domains: Sequence[str]) -> List[Stripe]:
