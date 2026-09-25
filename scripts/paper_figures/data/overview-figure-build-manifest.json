@@ -1,7 +1,7 @@
 {
   "generated_by": "scripts/paper_figures/build_figures.py --overview; do not edit manually",
   "inputs": {
-    "build_figures.py": "946b204e133e0d02c04078c325660c9cb6f46d8996ef3b06633e8289960a09ea",
+    "build_figures.py": "0d07f609fba2c9aff49a404312ef08d5d5e1ea3c4f583916ea5ce1394e021a6b",
     "data/gui-figure-manifest.json": "5710c818b5bca7090312245386cd9292695711ed08bcd7f39693ee67a3ffdaa9",
     "data/trajectories/real_fan_domino.json": "ae1cad680139d033f3ad5855e9f0a76c9e8ca88d0840cfcefbacf9ea48d35e69",
     "data/trajectories/stripes.json": "d6450cb4ce725c60cf6c3761a9fe2547ba6c4817c8657be660dd7022be0d3775",
@@ -52,9 +52,9 @@
     "figures/sources/trajectory_fan_stripe_4_cycles.png": "8a03a372eb33a9b43681f0d61f638f582bd0e016c68cf4f4e834b88c59c7d103"
   },
   "outputs": {
-    "fig1_residual.pdf": "78cb4e00ef9d06ec380e210a22227488f35c86d3fcc459df359b8cc3d0540216",
-    "fig1_residual.png": "708e869e7d248eb100c3f9781d165600fdd59316d83cd65ba6dfc137316b012c",
-    "fig1_residual.svg": "279e80e6c7fa260675bb94c419f9c81912f4e853f927cdb7653b6b6229a91245",
+    "fig1_residual.pdf": "c0a177ca7e3a64ebb470ae393a154779e3098c49be0001bdec1b347b9da6ba56",
+    "fig1_residual.png": "a16d83448b58416111897c433b151738e3ac9b390c3b56fd0ae45c1cdb6a8220",
+    "fig1_residual.svg": "9cb1ca6bb0c577a1f860a964bc029e34ee818ec254cd8a6bbfafe9a7cc473e9e",
     "fig2_method.pdf": "1b3c086d98d623892190a53aba7496af2e393efb0cfe5e2ad26596053118ea5e",
     "fig2_method.png": "7aea7d0783bd0cc4401165c0f9463749fa399765465558a84373b1ca0fdbcbd5",
     "fig2_method.svg": "bcab8242ff66c0d6e68db9021a0fa6ee837dbcdb28281bf94d4dcc5a2f9c8075",

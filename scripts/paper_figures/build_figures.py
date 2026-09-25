@@ -417,8 +417,10 @@ def teaser() -> None:
     w = (520 - left - 4 * gap - divider_gap) / 6
     h = w * 82 / 96
     d = Drawing(round(top + 2 * h + 35))
+    # The titles share Figure 2's step colours: observing is rust, writing
+    # the program purple, and planning green.
     for x, title, color in [(0, "Observe missing physics", RUST),
-                            (184, "Program a simulator", TEAL),
+                            (184, "Program a simulator", PURPLE),
                             (368, "Plan and solve", GREEN)]:
         d.rect(x, 1, 160, 127, fill=PANEL, stroke=EDGE)
         d.text(x + 8, 19, title, 10.4, color, "bold")
