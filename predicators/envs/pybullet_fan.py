@@ -977,9 +977,10 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
                         transfer: bool) -> Dict[Object, Dict[str, float]]:
         """Visible support geometry, sampled without agent-outcome filtering.
 
-        Calibration has a full tray. Transfer starts in a three-sided bay
-        feeding an exposed L-shaped deck with no stop at the turn or target.
-        The same force, contact physics and goal tolerance apply in both.
+        Calibration has a full tray. Transfer starts in a three-sided
+        bay feeding an exposed L-shaped deck with no stop at the turn or
+        target. The same force, contact physics and goal tolerance apply
+        in both.
         """
         if CFG.fan_use_kinematic:
             raise ValueError("Exposed transfer requires dynamic ball physics")
