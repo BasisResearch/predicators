@@ -4,6 +4,10 @@
 
 [Vector PDF](figures/paper-results-opus.pdf)
 
+The paper view also writes [an SVG](figures/paper-results-opus.svg) with editable text, the source of the figure's copy in the paper's Figma file.
+Its fonts are spelled out as separate properties, because Figma's SVG import ignores the CSS `font` shorthand that matplotlib writes.
+The PDF and SVG carry no creation date, so redrawing an unchanged figure writes the same bytes.
+
 The figure includes Oracle dynamics, EMPIRIC, Direct agent, Direct + scene, Standalone sim., No harness fitting, and No explicit uncert.
 Direct + scene denotes the direct agent provided with scene assets.
 Paper columns are ordered Domino, Bridge, Balloons, Boil, Fan.

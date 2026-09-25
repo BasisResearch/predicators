@@ -17,8 +17,10 @@ writes <stem>.png, <stem>.pdf and <stem>-summary.json (per-seed records
 with the run directory each one read, plus the per-arm summary).
 """
 import glob
+import io
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, NamedTuple, Optional
@@ -262,6 +264,20 @@ SCREEN_FONTS = Fonts(tick=10, label=11, title=12, legend=10)
 # printed sizes match the text of Figures 1 to 3: 5.5 pt ticks, 6 pt labels
 # and legend, 7.2 pt domain titles.
 PAPER_FONTS = Fonts(*(size * 15.0 / 5.5 for size in (5.5, 6.0, 7.2, 6.0)))
+
+
+def _longhand_fonts(svg: str) -> str:
+    """Spell out the CSS font shorthand in matplotlib's SVG text, which Figma's
+    SVG import ignores, as separate weight, size and family."""
+
+    def expand(match: "re.Match[str]") -> str:
+        weight, size, family = match.groups()
+        parts = [f"font-family: {family}", f"font-size: {size}"]
+        if weight:
+            parts.append(f"font-weight: {weight}")
+        return "; ".join(parts)
+
+    return re.sub(r"font: (?:(\d+) )?([\d.]+px) ('[^']+')", expand, svg)
 
 
 def colour(arm: str, i: int) -> str:
@@ -508,7 +524,11 @@ def render(rows: List[Row],
     plt.rcParams.update({
         "font.family": "DejaVu Sans",
         "font.size": 9,
-        "pdf.fonttype": 42
+        "pdf.fonttype": 42,
+        # The paper view's SVG, the source of the Figma copy, keeps its text
+        # editable and its ids fixed.
+        "svg.fonttype": "none",
+        "svg.hashsalt": "paper-results",
     })
     fonts = PAPER_FONTS if paper else SCREEN_FONTS
     arms = PAPER_ARMS if paper else ARMS
@@ -693,11 +713,21 @@ def render(rows: List[Row],
             fig.transFigure.inverted())
         top = box.y0 - leg.labelspacing * fonts.legend / (72 *
                                                           fig.get_figheight())
-    for ext in ("png", "pdf"):
-        fig.savefig(f"{output}.{ext}",
+    # Without creation dates, re-exporting an unchanged figure writes the
+    # same bytes.
+    undated = {"pdf": {"CreationDate": None}, "svg": {"Date": None}}
+    for ext in ("png", "pdf", "svg") if paper else ("png", "pdf"):
+        target: Any = io.StringIO() if ext == "svg" else f"{output}.{ext}"
+        fig.savefig(target,
+                    format=ext,
                     dpi=180,
                     bbox_inches=None,
-                    pad_inches=0 if paper else .06)
+                    pad_inches=0 if paper else .06,
+                    metadata=undated.get(ext))
+        if ext == "svg":
+            Path(f"{output}.svg").write_text(_longhand_fonts(
+                target.getvalue()),
+                                             encoding="utf-8")
     plt.close(fig)
     with open(f"{output}-summary.json", "w", encoding="utf-8") as f:
         json.dump(dict(records=rows, summary=summary), f, indent=2)
