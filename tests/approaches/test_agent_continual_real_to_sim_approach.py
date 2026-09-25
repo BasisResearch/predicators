@@ -122,7 +122,11 @@ def _dispose_test_physics_clients(monkeypatch: Any) -> Iterator[None]:
 def _arm_flags() -> Dict[str, Any]:
     cfg = next(c for c in generate_run_configs(CONFIG, False)
                if c.env == "pybullet_boil")
-    flags = {k: v for k, v in cfg.flags.items() if k != "log"}
+    # The launcher pins machine-specific output paths; tests keep their own.
+    flags = {
+        k: v
+        for k, v in cfg.flags.items() if k not in ("log", "continual_runs_dir")
+    }
     flags.update(approach=cfg.approach,
                  env=cfg.env,
                  continual_render=False,
@@ -137,7 +141,12 @@ def _make(tmp_path: Any, from_assets: bool = False) -> Any:
         cfg = next(c for c in generate_run_configs(
             "predicatorv3/continual_from_assets_pilot_r1.yaml", False)
                    if c.env == "pybullet_bridge")
-        flags = {k: v for k, v in cfg.flags.items() if k != "log"}
+        # The launcher pins machine-specific output paths; tests keep their own.
+        flags = {
+            k: v
+            for k, v in cfg.flags.items()
+            if k not in ("log", "continual_runs_dir")
+        }
         name = "agent_continual_from_assets"
         flags.update(approach=name,
                      env="pybullet_boil",
