@@ -636,11 +636,12 @@ def render(rows: List[Row],
                 ax.set_xlim(left=-.05, right=max(1, ax.get_xlim()[1]))
                 ax.xaxis.set_major_locator(MaxNLocator(3, integer=True))
                 ax.set_xlabel("Resets (all runs)", fontsize=fonts.label)
-    # The paper's printed text is larger relative to the canvas, so it fits
-    # four agents per legend row and needs wider margins.
-    legend_columns = 4 if paper else 6
-    fig.subplots_adjust(left=.07 if paper else .06,
-                        right=.985 if paper else .99,
+    # The paper's printed text is larger relative to the canvas, so it needs
+    # wider margins and two legend rows.
+    # In the paper the plots, with their labels, are centred on the canvas,
+    # like the legend above them.
+    fig.subplots_adjust(left=.0605 if paper else .06,
+                        right=.9755 if paper else .99,
                         top=.78 if paper else .89,
                         bottom=.13 if paper else .05,
                         wspace=.23,
@@ -657,32 +658,41 @@ def render(rows: List[Row],
                            lw=8.0 if paper else 5.0))
             legend_labels.append(labels[i])
             legend_arms.append(arm)
-    legend_anchor = (.07, .995, .915, 0.) if paper else (.5, .985)
-    # Matplotlib fills columns first; keep the visual reading order by row.
-    indices = [
-        i for col in range(legend_columns)
-        for i in range(col, len(arms), legend_columns)
-    ]
-    handles = [handles[i] for i in indices]
-    legend_labels = [legend_labels[i] for i in indices]
-    legend_arms = [legend_arms[i] for i in indices]
-    leg = fig.legend(handles,
-                     legend_labels,
-                     loc="upper left" if paper else "upper center",
-                     ncol=legend_columns,
-                     mode="expand" if paper else None,
-                     borderaxespad=0 if paper else .5,
-                     columnspacing=0.9 if paper else 2.0,
-                     handlelength=2.2 if paper else 2.0,
-                     handletextpad=0.65 if paper else 0.8,
-                     fontsize=fonts.legend,
-                     frameon=False,
-                     bbox_to_anchor=legend_anchor)
-    for text, arm in zip(leg.get_texts(), legend_arms):
-        if arm in ("MB", "MB_r2"):
-            text.set_fontweight("bold")
-        if arm in GREYED:
-            text.set_color("#9aa3a8")
+    if paper:
+        # One centred legend per row, four agents over three, so the shorter
+        # second row sits under the middle of the first.
+        legend_rows = [list(range(4)), list(range(4, len(arms)))]
+    else:
+        # One legend; matplotlib fills its columns first, so this order reads
+        # by row.
+        legend_rows = [[
+            i for col in range(6) for i in range(col, len(arms), 6)
+        ]]
+    top = .99 if paper else .985
+    for entries in legend_rows:
+        leg = fig.legend([handles[i] for i in entries],
+                         [legend_labels[i] for i in entries],
+                         loc="upper center",
+                         ncol=len(entries) if paper else 6,
+                         borderpad=0 if paper else .4,
+                         borderaxespad=0 if paper else .5,
+                         columnspacing=2.0,
+                         handlelength=2.2 if paper else 2.0,
+                         handletextpad=0.65 if paper else 0.8,
+                         fontsize=fonts.legend,
+                         frameon=False,
+                         bbox_to_anchor=(.5, top))
+        for text, i in zip(leg.get_texts(), entries):
+            if legend_arms[i] in ("MB", "MB_r2"):
+                text.set_fontweight("bold")
+            if legend_arms[i] in GREYED:
+                text.set_color("#9aa3a8")
+        # The next row starts one line space below this one, as within a
+        # legend.
+        box = leg.get_window_extent(fig.canvas.get_renderer()).transformed(
+            fig.transFigure.inverted())
+        top = box.y0 - leg.labelspacing * fonts.legend / (72 *
+                                                          fig.get_figheight())
     for ext in ("png", "pdf"):
         fig.savefig(f"{output}.{ext}",
                     dpi=180,
@@ -720,6 +730,10 @@ def main() -> None:
            out,
            paper=paper,
            curve_style=curve_style)
+    if archive is not None:
+        with open(f"{out}-summary.json", encoding="utf-8") as f:
+            assert json.load(f)["records"] == found, (
+                "the redraw changed the archived records")
     print("saved", out + ".png")
 
 

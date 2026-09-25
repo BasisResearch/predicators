@@ -8,7 +8,7 @@ The figure includes Oracle dynamics, EMPIRIC, Direct agent, Direct + scene, Stan
 Direct + scene denotes the direct agent provided with scene assets.
 Paper columns are ordered Domino, Bridge, Balloons, Boil, Fan.
 Agent names appear only in the full-width top legend, above the domain titles, with thick color samples matching the bars and curves.
-The legend reads by rows, four agents per row, because at the paper's text size seven names do not fit on one row.
+The legend has two centered rows, four agents over three, because at the paper's text size seven names do not fit on one row.
 For seeds 0-2, Oracle dynamics uses r2 in Domino and Bridge and the original benchmark cohort in Boil, Balloons, and Fan.
 The five-seed selection additionally includes repaired Oracle seeds 3-4 in every domain, and EMPIRIC r2 seeds 3-4 alongside the original EMPIRIC cohort.
 The other five approaches likewise include the additional seeds 3-4 as they finish.
