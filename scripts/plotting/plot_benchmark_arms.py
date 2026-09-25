@@ -23,7 +23,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, NamedTuple, Optional
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 import matplotlib
 
@@ -516,6 +516,25 @@ def _solve_curves(ax: Any,
         ax.set_ylabel("Runs solved (%)", fontsize=fonts.label)
 
 
+def _solve_columns(ax: Any, count: int, groups: List[Tuple[str, int, int]],
+                   fonts: Fonts) -> None:
+    """Style the paper's solve-rate columns on the solve curves' scale, so a
+    column's height matches where its curve ends."""
+    ax.set_xlim(-.6, count - .4)
+    for group_index, (_, start, end) in enumerate(groups):
+        if group_index % 2 == 0:
+            ax.axvspan(start - .5, end - .5, color="#f2f4f5", zorder=0)
+    ax.axhline(0, color="#aebec5", lw=.8, zorder=1)
+    ax.set_xticks([])
+    ax.set_ylim(-4, 104)
+    ax.set_yticks([0, 50, 100])
+    ax.spines[["top", "right", "bottom"]].set_visible(False)
+    ax.spines["left"].set_color("#aebec5")
+    ax.tick_params(length=0, pad=4, labelsize=fonts.tick)
+    ax.set_axisbelow(True)
+    ax.grid(axis="y", color="#dce4e7", lw=.6)
+
+
 def render(rows: List[Row],
            output: str,
            paper: bool = False,
@@ -588,22 +607,41 @@ def render(rows: List[Row],
                          values=vals))
                 if vals:
                     assert avg is not None
-                    ax.barh(i,
-                            avg,
-                            height=.56,
-                            zorder=2,
-                            color=colour(arm, ARMS.index(arm)))
-                    jitter = (np.linspace(-.15, .15, len(vals))
-                              if len(vals) > 1 else [0])
-                    ax.scatter(
-                        vals,
-                        i + np.asarray(jitter),
-                        s=12,
-                        facecolors="white",
-                        edgecolors=MUTED[arm] if arm in GREYED else "#263c46",
-                        linewidths=.6,
-                        zorder=3,
-                        clip_on=False)
+                    if paper and field == "solve":
+                        # The paper stands the solve rates up as columns, so
+                        # they share the solve curves' vertical axis. Each
+                        # seed solves or fails, so it shows no seed dots.
+                        ax.bar(i,
+                               avg,
+                               width=.56,
+                               zorder=2,
+                               color=colour(arm, ARMS.index(arm)))
+                        if avg == 0:
+                            # A zero column would vanish; a stub on the
+                            # baseline shows that the agent solved no run.
+                            ax.hlines(0,
+                                      i - .28,
+                                      i + .28,
+                                      color=colour(arm, ARMS.index(arm)),
+                                      lw=2.4,
+                                      zorder=3)
+                    else:
+                        ax.barh(i,
+                                avg,
+                                height=.56,
+                                zorder=2,
+                                color=colour(arm, ARMS.index(arm)))
+                        jitter = (np.linspace(-.15, .15, len(vals))
+                                  if len(vals) > 1 else [0])
+                        ax.scatter(vals,
+                                   i + np.asarray(jitter),
+                                   s=12,
+                                   facecolors="white",
+                                   edgecolors=MUTED[arm]
+                                   if arm in GREYED else "#263c46",
+                                   linewidths=.6,
+                                   zorder=3,
+                                   clip_on=False)
                 if field == "steps":
                     ax.text(.98,
                             i,
@@ -616,6 +654,16 @@ def render(rows: List[Row],
                             bbox=dict(facecolor="white",
                                       edgecolor="none",
                                       pad=.6))
+            if paper and field == "solve":
+                _solve_columns(ax, len(arms), groups, fonts)
+                ax.set_title(DISPLAY_TITLE[domain],
+                             fontsize=fonts.title,
+                             fontweight="bold",
+                             color="#203744",
+                             pad=6)
+                if col == 0:
+                    ax.set_ylabel("Runs solved (%)", fontsize=fonts.label)
+                continue
             ax.set_ylim(len(arms) - .4, -.7)
             for group_index, (_, start, end) in enumerate(groups):
                 if group_index % 2 == 0:
@@ -665,7 +713,7 @@ def render(rows: List[Row],
                         top=.78 if paper else .89,
                         bottom=.13 if paper else .05,
                         wspace=.23,
-                        hspace=.62 if paper else .45)
+                        hspace=.3 if paper else .45)
     handles = []
     legend_labels = []
     legend_arms = []
