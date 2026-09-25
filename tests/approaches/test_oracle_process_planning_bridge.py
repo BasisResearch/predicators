@@ -60,6 +60,18 @@ def _oracle_bridge_config(n_spans: int = 3, pool: int = 0) -> dict:
         3,
         "wait_option_max_steps":
         120,
+        # Press 3 N into the support before release (post-release drift
+        # 4.5 -> 0.2 mm).
+        "skill_place_settle_preload_force":
+        3.0,
+        # The unweighted skeleton search is slow.
+        "process_planning_heuristic_weight":
+        10.0,
+        # Kinematic pin of welded assemblies while held: an unpinned
+        # carried row drifts ~9-12 deg off its planned path and can sweep
+        # a standing leg over on the way to the leg tops.
+        "pybullet_pin_held_weld_assemblies":
+        True,
         # --- common flags relevant to bilevel refinement ---
         # Match common.yaml's planning budget. The role-free Bridged
         # goal searches over bindings and exceeds the generic 10 s default.
@@ -107,9 +119,8 @@ def _oracle_bridge_config(n_spans: int = 3, pool: int = 0) -> dict:
         False,
         "wait_option_terminate_on_atom_change":
         True,
-        # --- span count: the three-span task keeps the original flags;
-        # the four-span task runs with the four-span repairs (a rigid
-        # grasp, the lift-first transit, the withdrawal gate), the
+        # --- span count: a four-span pool adds the four-span repairs (a
+        # rigid grasp, the lift-first transit, the withdrawal gate), the
         # runtime of that cohort ---
         # ``pool`` > n_spans models the transfer run: the body pool holds
         # the larger test row while this task uses n_spans of it.
@@ -118,14 +129,9 @@ def _oracle_bridge_config(n_spans: int = 3, pool: int = 0) -> dict:
         "bridge_test_span_blocks":
         max(n_spans, pool),
         **({
-            "pybullet_pin_held_weld_assemblies": True,
             "pybullet_grasp_max_force": 10000.0,
             "bridge_lift_before_transit": True,
             "bridge_goal_robot_clearance": 0.01,
-            # The cohort's bridge entry (envs/all.yaml): a weighted
-            # skeleton search and the sag-discharge preload on release.
-            "process_planning_heuristic_weight": 10.0,
-            "skill_place_settle_preload_force": 3.0,
         } if max(n_spans, pool) == 4 else {}),
     }
 
