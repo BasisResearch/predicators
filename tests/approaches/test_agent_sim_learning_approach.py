@@ -32,6 +32,8 @@ from predicators.envs.pybullet_fan import PyBulletFanEnv
 from predicators.ground_truth_models import get_gt_options
 from predicators.ground_truth_models.boil.gt_simulator import PARAM_SPECS, \
     RESIDUAL_RULES
+from predicators.ground_truth_models.boil.processes import \
+    _place_on_burner_sampler, _place_under_faucet_sampler
 from predicators.option_model import _OracleOptionModel
 from predicators.planning import run_backtracking_refinement
 from predicators.settings import CFG
@@ -208,50 +210,37 @@ def _parse_sketch_from_file(
 
 
 def _informed_place_params(pre_state, sketch, step_idx, rng, n):
-    """Sample Place params biased toward the contextual target."""
+    """Sample Place params around the oracle's target for the next step.
+
+    Place puts the held jug's centre at (x, y), and the oracle samplers
+    aim it at the faucet outlet or the burner's centre. Sampling close
+    to that target keeps the jug well inside the fill and heating radii,
+    so neither a small landing error nor a nudge from the switch press
+    moves it out before the Wait.
+    """
     step = sketch[step_idx]
     low = step.option.params_space.low
     high = step.option.params_space.high
     eps = 1e-4
 
     next_step = sketch[step_idx + 1] if step_idx + 1 < n else None
-
-    if next_step and "Faucet" in next_step.option.name:
-        for obj in pre_state:
-            if obj.type.name == "faucet":
-                fx = pre_state.get(obj, "x")
-                fy = pre_state.get(obj, "y")
-                frot = pre_state.get(obj, "rot")
-                # The jug has a physics offset after drop, so target
-                # slightly past the faucet output to compensate.
-                out_x = fx + 0.15 * np.cos(frot)
-                out_y = fy - 0.15 * np.sin(frot)
-                # Target near faucet output x but lower y (IK-reachable).
-                x = np.clip(out_x + rng.normal(0, 0.02), low[0] + eps,
-                            high[0] - eps)
-                y = np.clip(out_y - 0.05 + rng.normal(0, 0.03), low[1] + eps,
-                            high[1] - eps)
-                z = np.clip(low[2] + 0.02 + abs(rng.normal(0, 0.01)),
-                            low[2] + eps, high[2] - eps)
-                # Negative yaw helps place jug closer to faucet output.
-                yaw = np.clip(rng.normal(-0.3, 0.5), low[3] + eps,
-                              high[3] - eps)
-                return np.array([x, y, z, yaw], dtype=np.float32)
-
-    if next_step and "Burner" in next_step.option.name:
-        for obj in pre_state:
-            if obj.type.name == "burner":
-                bx = pre_state.get(obj, "x")
-                by = pre_state.get(obj, "y")
-                x = np.clip(bx + rng.normal(0, 0.05), low[0] + eps,
-                            high[0] - eps)
-                y = np.clip(by + rng.normal(0, 0.05), low[1] + eps,
-                            high[1] - eps)
-                # Bias z toward low end for reliable IK.
-                z = np.clip(low[2] + 0.02 + abs(rng.normal(0, 0.01)),
-                            low[2] + eps, high[2] - eps)
-                yaw = rng.uniform(low[3] + eps, high[3] - eps)
-                return np.array([x, y, z, yaw], dtype=np.float32)
+    objects = {obj.type.name: obj for obj in pre_state}
+    for keyword, oracle_sampler in (("Faucet", _place_under_faucet_sampler),
+                                    ("Burner", _place_on_burner_sampler)):
+        if next_step and keyword in next_step.option.name:
+            target = oracle_sampler(
+                pre_state, set(), rng,
+                [objects["robot"], objects["jug"], objects[keyword.lower()]])
+            x = np.clip(target[0] + rng.normal(0, 0.01), low[0] + eps,
+                        high[0] - eps)
+            y = np.clip(target[1] + rng.normal(0, 0.01), low[1] + eps,
+                        high[1] - eps)
+            # Bias z toward low end for reliable IK.
+            z = np.clip(low[2] + 0.02 + abs(rng.normal(0, 0.01)), low[2] + eps,
+                        high[2] - eps)
+            yaw = np.clip(target[3] + rng.normal(0, 0.1), low[3] + eps,
+                          high[3] - eps)
+            return np.array([x, y, z, yaw], dtype=np.float32)
 
     return rng.uniform(low + eps, high - eps).astype(np.float32)
 
@@ -271,9 +260,12 @@ def _refine(task,
     """
     rng = np.random.default_rng(seed)
     n = len(sketch)
+    # A step whose sample is fixed (no parameters, or Wait below) gets one
+    # try: another try replays the same rollout, so its failure must
+    # backtrack to an earlier step.
     max_tries = [
-        max_samples if step.option.params_space.shape[0] > 0 else 1
-        for step in sketch
+        1 if step.option.params_space.shape[0] == 0
+        or step.option.name == "Wait" else max_samples for step in sketch
     ]
 
     def sample_fn(idx, state, rng_):
