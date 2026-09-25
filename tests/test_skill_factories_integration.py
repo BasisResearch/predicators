@@ -956,7 +956,6 @@ def test_switch_lookup_by_name_not_caller_instance_boil(boil_env):
         assert option.terminal(result)
     finally:
         fresh.dispose()
-        _MOST_RECENT_ENV_INSTANCE[env.get_name()] = env
 
     # A state without the switch fails the skill, not the lookup.
     no_switch = utils.PyBulletState(

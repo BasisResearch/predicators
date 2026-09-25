@@ -34,8 +34,7 @@ SEEDS = {0, 1, 2}
 @pytest.fixture(autouse=True)
 def _dispose_test_physics_clients(monkeypatch: Any) -> Iterator[None]:
     """Release worlds created by a case, including evicted skill simulators."""
-    # pylint: disable=import-outside-toplevel,protected-access
-    from predicators import envs
+    # pylint: disable=import-outside-toplevel
     from predicators.ground_truth_models.skill_factories.base import \
         clear_shared_simulator_cache
     owned: Set[int] = set()
@@ -52,9 +51,6 @@ def _dispose_test_physics_clients(monkeypatch: Any) -> Iterator[None]:
         yield
     finally:
         clear_shared_simulator_cache()
-        for name, env in list(envs._MOST_RECENT_ENV_INSTANCE.items()):
-            if getattr(env, "_physics_client_id", None) in owned:
-                del envs._MOST_RECENT_ENV_INSTANCE[name]
         for client in owned:
             if p.isConnected(client):
                 p.disconnect(client)

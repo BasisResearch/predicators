@@ -94,7 +94,6 @@ RESIDUAL_ENV = BoilScene
 def _dispose_test_physics_clients(monkeypatch: Any) -> Iterator[None]:
     """Release every world a case opened."""
     # pylint: disable=import-outside-toplevel
-    from predicators import envs
     from predicators.ground_truth_models.skill_factories.base import \
         clear_shared_simulator_cache
     owned: Set[int] = set()
@@ -111,9 +110,6 @@ def _dispose_test_physics_clients(monkeypatch: Any) -> Iterator[None]:
         yield
     finally:
         clear_shared_simulator_cache()
-        for name, env in list(envs._MOST_RECENT_ENV_INSTANCE.items()):
-            if getattr(env, "_physics_client_id", None) in owned:
-                del envs._MOST_RECENT_ENV_INSTANCE[name]
         for client in owned:
             if p.isConnected(client):
                 p.disconnect(client)
