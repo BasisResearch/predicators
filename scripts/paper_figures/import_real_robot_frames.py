@@ -30,9 +30,9 @@ DRIVE = ("https://drive.google.com/drive/folders/"
 # the agent does; build_figures.py adds what follows.
 SELECTION = [
     ("casc_explore.mp4", 1655, 1, "Blow at green"),
-    ("casc_explore.mp4", 4313, 2, "Blow at grey"),
-    ("casc_test.mp4", 2505, 3, "Stand grey upwind"),
-    ("casc_test.mp4", 2595, 3, "Blow at grey"),
+    ("casc_explore.mp4", 4313, 2, "Blow at gray"),
+    ("casc_test.mp4", 2505, 3, "Stand gray upwind"),
+    ("casc_test.mp4", 2595, 3, "Blow at gray"),
     ("casc_test.mp4", 2800, 3, "Goal reached"),
 ]
 # Keeps the gripper at the button, the fan, both blocks, and both patch

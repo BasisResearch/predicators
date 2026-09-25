@@ -87,7 +87,7 @@ L 232.265676 85.536
      </g>
     </g>
     <g id="text_4">
-     <text style="font-family: 'DejaVu Sans'; font-size: 16.363636px; text-anchor: middle" x="148.802838" y="216.94501" transform="rotate(-0 148.802838 216.94501)">Successful runs (%)</text>
+     <text style="font-family: 'DejaVu Sans'; font-size: 16.363636px; text-anchor: middle" x="148.802838" y="216.94501" transform="rotate(-0 148.802838 216.94501)">Runs solved (%)</text>
     </g>
    </g>
    <g id="matplotlib.axis_2">
@@ -314,7 +314,7 @@ L 437.584257 85.536
      </g>
     </g>
     <g id="text_9">
-     <text style="font-family: 'DejaVu Sans'; font-size: 16.363636px; text-anchor: middle" x="354.121419" y="216.94501" transform="rotate(-0 354.121419 216.94501)">Successful runs (%)</text>
+     <text style="font-family: 'DejaVu Sans'; font-size: 16.363636px; text-anchor: middle" x="354.121419" y="216.94501" transform="rotate(-0 354.121419 216.94501)">Runs solved (%)</text>
     </g>
    </g>
    <g id="matplotlib.axis_4">
@@ -528,7 +528,7 @@ L 642.902838 85.536
      </g>
     </g>
     <g id="text_14">
-     <text style="font-family: 'DejaVu Sans'; font-size: 16.363636px; text-anchor: middle" x="559.44" y="216.94501" transform="rotate(-0 559.44 216.94501)">Successful runs (%)</text>
+     <text style="font-family: 'DejaVu Sans'; font-size: 16.363636px; text-anchor: middle" x="559.44" y="216.94501" transform="rotate(-0 559.44 216.94501)">Runs solved (%)</text>
     </g>
    </g>
    <g id="matplotlib.axis_6">
@@ -742,7 +742,7 @@ L 848.221419 85.536
      </g>
     </g>
     <g id="text_19">
-     <text style="font-family: 'DejaVu Sans'; font-size: 16.363636px; text-anchor: middle" x="764.758581" y="216.94501" transform="rotate(-0 764.758581 216.94501)">Successful runs (%)</text>
+     <text style="font-family: 'DejaVu Sans'; font-size: 16.363636px; text-anchor: middle" x="764.758581" y="216.94501" transform="rotate(-0 764.758581 216.94501)">Runs solved (%)</text>
     </g>
    </g>
    <g id="matplotlib.axis_8">
@@ -956,7 +956,7 @@ L 1053.54 85.536
      </g>
     </g>
     <g id="text_24">
-     <text style="font-family: 'DejaVu Sans'; font-size: 16.363636px; text-anchor: middle" x="970.077162" y="216.94501" transform="rotate(-0 970.077162 216.94501)">Successful runs (%)</text>
+     <text style="font-family: 'DejaVu Sans'; font-size: 16.363636px; text-anchor: middle" x="970.077162" y="216.94501" transform="rotate(-0 970.077162 216.94501)">Runs solved (%)</text>
     </g>
    </g>
    <g id="matplotlib.axis_10">
@@ -2645,31 +2645,31 @@ L 768.475994 10.594534
   </g>
   <g id="legend_2">
    <g id="line2d_200">
-    <path d="M 223.736932 35.336352 
-L 241.736932 35.336352 
-L 259.736932 35.336352 
+    <path d="M 205.814915 35.336352 
+L 223.814915 35.336352 
+L 241.814915 35.336352 
 " style="fill: none; stroke: #7467a6; stroke-width: 8; stroke-linecap: square"/>
    </g>
    <g id="text_54">
-    <text style="font-family: 'DejaVu Sans'; font-size: 16.363636px; text-anchor: start" x="270.373295" y="41.063625" transform="rotate(-0 270.373295 41.063625)">Standalone sim.</text>
+    <text style="font-family: 'DejaVu Sans'; font-size: 16.363636px; text-anchor: start" x="252.451278" y="41.063625" transform="rotate(-0 252.451278 41.063625)">Standalone sim.</text>
    </g>
    <g id="line2d_201">
-    <path d="M 435.126989 35.336352 
-L 453.126989 35.336352 
-L 471.126989 35.336352 
+    <path d="M 417.204972 35.336352 
+L 435.204972 35.336352 
+L 453.204972 35.336352 
 " style="fill: none; stroke: #b19658; stroke-width: 8; stroke-linecap: square"/>
    </g>
    <g id="text_55">
-    <text style="font-family: 'DejaVu Sans'; font-size: 16.363636px; text-anchor: start" x="481.763352" y="41.063625" transform="rotate(-0 481.763352 41.063625)">No harness fitting</text>
+    <text style="font-family: 'DejaVu Sans'; font-size: 16.363636px; text-anchor: start" x="463.841335" y="41.063625" transform="rotate(-0 463.841335 41.063625)">No harness fitting</text>
    </g>
    <g id="line2d_202">
-    <path d="M 659.914773 35.336352 
-L 677.914773 35.336352 
-L 695.914773 35.336352 
+    <path d="M 641.992756 35.336352 
+L 659.992756 35.336352 
+L 677.992756 35.336352 
 " style="fill: none; stroke: #397957; stroke-width: 8; stroke-linecap: square"/>
    </g>
    <g id="text_56">
-    <text style="font-family: 'DejaVu Sans'; font-size: 16.363636px; text-anchor: start" x="706.551136" y="41.063625" transform="rotate(-0 706.551136 41.063625)">No explicit uncert.</text>
+    <text style="font-family: 'DejaVu Sans'; font-size: 16.363636px; text-anchor: start" x="688.629119" y="41.063625" transform="rotate(-0 688.629119 41.063625)">No explicit uncertainty</text>
    </g>
   </g>
  </g>

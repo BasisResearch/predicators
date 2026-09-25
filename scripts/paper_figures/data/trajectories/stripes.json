@@ -26,14 +26,14 @@
      "states": "figure_model_rollouts/domino_seed0/cand_a/rollout_states.pkl",
      "index": -1,
      "caption": "Place two blues",
-     "detail": "turns 90° in 12/12 runs"
+     "detail": "turns 90° in 12/12 rollouts"
     },
     {
      "level": "L02",
      "episode": 0,
      "step": 156,
      "caption": "Place two blues",
-     "detail": "blue 2 re-fit to blue 1"
+     "detail": "blue 2 aimed at blue 1"
     },
     {
      "level": "L02",
@@ -65,7 +65,7 @@
      "episode": 0,
      "step": 779,
      "caption": "Lift one block",
-     "detail": "glued neighbour rises"
+     "detail": "glued neighbor rises"
     },
     {
      "states": "figure_model_rollouts/bridge_seed3/out/rollout_states.pkl",
@@ -111,7 +111,7 @@
      "episode": 0,
      "step": 90,
      "caption": "Free all three",
-     "detail": "top one pops at 1.2 m"
+     "detail": "one bursts at the ceiling"
     },
     {
      "level": "L01",
@@ -163,12 +163,12 @@
      "episode": 0,
      "step": 270,
      "caption": "Set jug on puddle",
-     "detail": "fills 0.014 per step"
+     "detail": "fills at a measured rate"
     },
     {
      "states": "figure_model_rollouts/boil_seed1/out/rollout_states.pkl",
      "index": -1,
-     "caption": "Overlap two jugs",
+     "caption": "Boil one, fill one",
      "detail": "both boil, no spill"
     },
     {
@@ -232,7 +232,7 @@
      "step": "last",
      "split": "test",
      "caption": "Goal reached",
-     "detail": "6 mm from the model"
+     "detail": "6 mm from prediction"
     }
    ]
   }

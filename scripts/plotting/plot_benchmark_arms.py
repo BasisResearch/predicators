@@ -49,7 +49,7 @@ ARMS = [
 LABELS = [
     "Oracle dynamics", "EMPIRIC", "Direct agent",
     "Direct agent + scene assets", "Standalone sim.", "No harness fitting",
-    "No explicit uncert.", "EMPIRIC + scene pkg.", "Scene only",
+    "No explicit uncertainty", "EMPIRIC + scene pkg.", "Scene only",
     "Zero-shot model", "Agentic real-to-sim", "EMPIRIC from assets"
 ]
 COLORS = [
@@ -640,7 +640,7 @@ def render(rows: List[Row],
                              fontweight="bold",
                              color="#203744",
                              pad=6 if paper else 12)
-                ax.set_xlabel("Successful runs (%)", fontsize=fonts.label)
+                ax.set_xlabel("Runs solved (%)", fontsize=fonts.label)
             elif field == "steps":
                 maximum = max(
                     (r["steps"] for r in rows

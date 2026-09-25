@@ -441,7 +441,7 @@ def teaser() -> None:
     # The same editor colors as Figure 2's listing.
     for i, line in enumerate(GLUE_CODE):
         d.code(192, 48 + 9.6 * i, line, 7.4)
-    d.text(192, 120, "Fit the program to observations.", 8.5, BLACK)
+    d.text(192, 120, "Infer its parameters from data.", 8.5, BLACK)
     d.photo("bridge_exec_04_done",
             376,
             28,
@@ -458,8 +458,8 @@ def teaser() -> None:
     d.arrow(163, 66, 181, 66)
     d.arrow(347, 66, 365, 66)
     mechanisms = [
-        "Contact & friction", "Glue & bonds", "Lift & damping",
-        "Filling & heat", "Wind-driven motion"
+        "Contact & friction", "Glue & bonds", "Lift & bursts",
+        "Filling & heat", "Airflow & drag"
     ]
     source_order = ["Boil", "Domino", "Fan", "Bridge", "Balloons"]
     d.rect(0, top - 8, 528, 2 * h + 42, fill=PANEL, stroke=EDGE)
@@ -530,7 +530,7 @@ def _panel(d: Drawing,
 
 # The glue program and its revision of the first contact test.
 METHOD_CODE = GLUE_CODE[:3] + [
-    "-     if centres_close(j):", "+     if faces_meet(j):"
+    "-     if centers_close(j):", "+     if faces_meet(j):"
 ] + GLUE_CODE[4:]
 # Predicates the agent writes with the program; the monitor checks them.
 PREDICATE_CODE = ["def Attached(a, b): ...", "def SeatedOn(s, l): ..."]
@@ -780,19 +780,20 @@ ACT_CAPTION: List[List[Segment]] = [["The agent executes a plan or an"],
 CODE_CAPTION: List[List[Segment]] = [["The agent writes the glue physics"],
                                      ["and predicates for skill outcomes."]]
 THETA_CAPTION: List[List[Segment]] = [[
-    "The data ", ("D", "i"), " give a belief ", ("q", "i"), "(", ("θ", "i"),
-    ") over"
+    "The agent infers a belief ", ("q", "i"), "(", ("θ", "i"), ") over"
 ], ["the cure time; the dots are draws."]]
 STATE_CAPTION: List[List[Segment]] = [
     ["Noisy readings pin down the pose;"],
     ["the joint's cure progress is hidden."],
-    ["Short cure times bond it (green)."],
+    ["It bonds (green) if curing is quick."],
 ]
 PLAN_CAPTION: List[List[Segment]] = [["Rehearse plans under the draws;"],
                                      ["run the likeliest, or experiment."]]
-MONITOR_CAPTION: List[List[Segment]] = [[
-    "The predicates ", ("Φ", "i"), " check each skill's"
-], ["outcome; a failure stops the plan."]]
+MONITOR_CAPTION: List[List[Segment]] = [
+    ["The agent checks each skill with"],
+    ["predicates in ", ("Φ", "i"), "; a failed check"],
+    ["stops the plan."],
+]
 
 # Each step's title takes its colour from this table. Acting and monitoring
 # meet the environment (rust), writing the program is purple, inference is
@@ -826,7 +827,7 @@ def method() -> None:
     for i, (mark, atom, color) in enumerate(CHECKS):
         d.text(10, YB + 52 + 11.5 * i, mark, 8.6, color, "bold")
         d.text(22, YB + 52 + 11.5 * i, atom, 7.2, INK, mono=True)
-    d.text(22, YB + 87, "→ stop: refit, replan, or revise", 7.2, RUST)
+    d.text(10, YB + 87, "→ stop: update belief, replan, or revise", 7.2, RUST)
     # The monitor runs after each skill, and the plan continues only when
     # every check passes; a failure stops it inside the monitor panel.
     gap = (PH + YB) / 2
@@ -1032,18 +1033,18 @@ def _robot_stripe() -> Stripe:
     # frame's caption states.
     assert [round(100 * v, 1) for v in reproduced["slide_m"]] == predicted
     seconds = [
-        f"stays upright, {slides[1]['slide_cm']:.1f} cm",
+        "stays upright",
         f"falls flat, slides {slides[2]['slide_cm']:.1f} cm",
         "",
-        "grey knocks green",
-        f"slid {slides[3]['slide_cm']:.1f} cm, as predicted",
+        "gray knocks green",
+        f"{slides[3]['slide_cm']:.1f} cm, as predicted",
     ]
     frames: List[StripeFrame] = [
         (FIG / "sources" / f"{frame['name']}.png", None, frame["label"],
          second, False) for frame, second in zip(robot["frames"], seconds)
     ]
     frames[2] = (FIG / "sources/real_fan_domino_model_tip_cycles.png",
-                 robot["crop"], "Stand grey upwind",
+                 robot["crop"], "Stand gray upwind",
                  f"green slides {predicted[0]:.1f}±{predicted[1]:.1f} cm",
                  True)
     return Stripe("Real robot", frames, ROBOT_FH, 1, ("P", "θ"))

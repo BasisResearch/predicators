@@ -1,11 +1,11 @@
 {
   "generated_by": "scripts/paper_figures/build_figures.py --overview; do not edit manually",
   "inputs": {
-    "build_figures.py": "06c79899ef7ddf5c1e48dabb89c0684a0a79ebec4e78cc581bc23b3f6409ddc8",
+    "build_figures.py": "81cbbfdcc4473b768be561913ef228422970a135ab1e04da9dc01f4564f2d7cb",
     "data/cycles_scenes/real_fan_domino_model_tip.json": "904ea37ffc02b93a6ec2972174765ec4ab01c3af6b197427d8e0658e23a6711b",
     "data/gui-figure-manifest.json": "5710c818b5bca7090312245386cd9292695711ed08bcd7f39693ee67a3ffdaa9",
-    "data/trajectories/real_fan_domino.json": "65e9e734840b72c899071e82a72e182886ec0819bf1288f25031d12e87b1f790",
-    "data/trajectories/stripes.json": "c9577677997a4d60a121b11ba39482321b57ff965affc718834b4089ff4f8e12",
+    "data/trajectories/real_fan_domino.json": "2774e95bfc5c15d09cebe14cb50c573d63350293be4ff491a2cf7aa6a032381c",
+    "data/trajectories/stripes.json": "668af19a85f9c19cdf800b9800b3e263864c61c6835e6fc3f40bd7a82eec0fea",
     "figures/sources/balloons_cycles_start.png": "3c07371df5c7a198be32e1d59c3faae28319cc6d35232fe629884c0b35858f24",
     "figures/sources/balloons_cycles_win.png": "bfbef2eb5704c86b797a09f11d598bdf54684c4eb4a3e33e563a9b36b4d12f6a",
     "figures/sources/boil_cycles_start.png": "b9ade6f6dd11e5c53c9b01a50b6aab0bb8a44aa5e99926c5bf11302d56f3a116",
@@ -53,17 +53,17 @@
     "figures/sources/trajectory_fan_stripe_4_cycles.png": "8a03a372eb33a9b43681f0d61f638f582bd0e016c68cf4f4e834b88c59c7d103"
   },
   "outputs": {
-    "fig1_residual.pdf": "6ec8311d1ff0067ceea76f160f20935c0a7da2829e7005a5433a14bc5d4b6845",
-    "fig1_residual.png": "1f6d4ab7b4c33795207805d7371ed21c9c6ac88a0db83adab46127502e4c265a",
-    "fig1_residual.svg": "f59d9e8469e3b5a13e32a160bef5bb55c42825d72c7d1cf21165849bf01a371b",
-    "fig2_method.pdf": "1b3c086d98d623892190a53aba7496af2e393efb0cfe5e2ad26596053118ea5e",
-    "fig2_method.png": "7aea7d0783bd0cc4401165c0f9463749fa399765465558a84373b1ca0fdbcbd5",
-    "fig2_method.svg": "bcab8242ff66c0d6e68db9021a0fa6ee837dbcdb28281bf94d4dcc5a2f9c8075",
-    "fig3_trajectories.pdf": "d7789ab9b869c71d05005695fc929368a4b56cdfffa11073231bd07b14db9acd",
-    "fig3_trajectories.png": "63f451cc8fd31867e27c603c52d70389cf4e804ca774928d6f10d82e91b86396",
-    "fig3_trajectories.svg": "f49dfc13006992577f4bb24082bd8da1a1c58fa5afb04a355b9482bb7f0e54f1",
-    "figA_trajectories.pdf": "4066f210ab8dbe0590716b21c7b29283f8988dbd6fd4f7fdab8b7a47578af642",
-    "figA_trajectories.png": "08cd08e997e38210448b4494f885c2e481bca39d33de00b8fc2559d5995e32ee",
-    "figA_trajectories.svg": "2283e302a77faa414e3fcd47e9140ea25317e5054097d8a788560c9bd2c202ed"
+    "fig1_residual.pdf": "4f6693e9314f21387545b3109d7562f0c0b7e8f87c4e27ffb72ebb5bb305f458",
+    "fig1_residual.png": "96f3c7eba1e48e754aeb8ee757c34f5af3b59b1b47227ba758fb80e1da7b8577",
+    "fig1_residual.svg": "d53f03a1bcfe29346cb7e1dca6fa8eefb6d3d5712daad1938882465811d66745",
+    "fig2_method.pdf": "340a6e26a5e2a90ae9629168cabaf9842c26c95d11664911af06052f5bd9399a",
+    "fig2_method.png": "daa751811edee436af5cd3e0ce02d70db8ca364cd2f6dfa4c91531226c9ec91e",
+    "fig2_method.svg": "01551211722ef9dbbd8863c3e2a43c35a6a41911ae564491765c7be9ce0302c6",
+    "fig3_trajectories.pdf": "ca49797957b3e4e4fd6c69a18148c70d5a9d0874dd22d5f0c234ad5bc820f8bf",
+    "fig3_trajectories.png": "db7dbae380d93d0f265998a6491aaa2a6a7c7e26fb2f5dc7785ad2bcdc4f9328",
+    "fig3_trajectories.svg": "8d15653094b1ab9bd1e0ecd96bf4e033fb7b4e174056b10fc44eb2778a50b314",
+    "figA_trajectories.pdf": "3c874b5d14b0922df2c0d20670774ccf3c3227bfda0bf5583f7cb1143aa00c8c",
+    "figA_trajectories.png": "b2e3857dd7dba65bef64d049a72eb58b3580d9bea550722d6b2775b2c1a5ccde",
+    "figA_trajectories.svg": "9acc0dcfd225dc38e5b96e8d4b8ce5e2bd791644ea292ed32f0397f940d91f3d"
   }
 }
