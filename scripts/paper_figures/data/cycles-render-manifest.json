@@ -551,6 +551,18 @@
       "scorecard_sha256": null,
       "physics_steps_after_restore": 0,
       "body_poses_and_joints_unchanged": true
+    },
+    "figures/sources/real_fan_domino_model_tip_cycles.png": {
+      "renderer_sha256": "68dee1ec3769860bac598721ecb5a680671d6486ffe7510631b4c1f822cfb185",
+      "scene_sha256": "904ea37ffc02b93a6ec2972174765ec4ab01c3af6b197427d8e0658e23a6711b",
+      "samples": 48,
+      "sha256": "5462286b457c462eed7213089b5074b3db34abdb72bbf9c81f7a27e5d95a96d6",
+      "domain": "Robot",
+      "frame": "real_fan_domino_model_tip",
+      "scene": "data/cycles_scenes/real_fan_domino_model_tip.json",
+      "scorecard_sha256": null,
+      "physics_steps_after_restore": 0,
+      "body_poses_and_joints_unchanged": true
     }
   },
   "generated_by": "scripts/paper_figures/render_cycles_scenes.py; do not edit manually"

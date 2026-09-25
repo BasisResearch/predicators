@@ -81,7 +81,7 @@
   "frames": [
     {
       "name": "real_fan_domino_0",
-      "label": "Probe: blow at green",
+      "label": "Blow at green",
       "episode": 1,
       "video": "casc_explore.mp4",
       "video_sha256": "cc6207d1617ec9f18ed50cbb31722c2292b60f615335c995d55a151b657690dc",
@@ -91,7 +91,7 @@
     },
     {
       "name": "real_fan_domino_1",
-      "label": "Probe: blow at grey",
+      "label": "Blow at grey",
       "episode": 2,
       "video": "casc_explore.mp4",
       "video_sha256": "cc6207d1617ec9f18ed50cbb31722c2292b60f615335c995d55a151b657690dc",
@@ -101,7 +101,7 @@
     },
     {
       "name": "real_fan_domino_2",
-      "label": "Test: stand grey upwind",
+      "label": "Stand grey upwind",
       "episode": 3,
       "video": "casc_test.mp4",
       "video_sha256": "0b78b088d25e1697259b66f64ca2a918386eaf860f37b398a7810b1a8b650435",
@@ -111,7 +111,7 @@
     },
     {
       "name": "real_fan_domino_3",
-      "label": "Test: blow at grey",
+      "label": "Blow at grey",
       "episode": 3,
       "video": "casc_test.mp4",
       "video_sha256": "0b78b088d25e1697259b66f64ca2a918386eaf860f37b398a7810b1a8b650435",
@@ -121,7 +121,7 @@
     },
     {
       "name": "real_fan_domino_4",
-      "label": "Test: measure the slide",
+      "label": "Goal reached",
       "episode": 3,
       "video": "casc_test.mp4",
       "video_sha256": "0b78b088d25e1697259b66f64ca2a918386eaf860f37b398a7810b1a8b650435",

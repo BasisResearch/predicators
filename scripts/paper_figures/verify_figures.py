@@ -76,6 +76,21 @@ def main() -> None:
         source = ROOT / "figures/sources" / (frame["name"] + ".png")
         assert hashlib.sha256(
             source.read_bytes()).hexdigest() == frame["sha256"], frame["name"]
+    # The robot's model frame re-runs its test arrangement in the agent's own
+    # simulator, reproduces the prediction the run recorded, and is the
+    # render of that scene.
+    scene = ROOT / "data/cycles_scenes/real_fan_domino_model_tip.json"
+    rerun = json.loads(scene.read_text())["metadata"]["reproduced"]
+    assert [round(100 * v, 1) for v in rerun["slide_m"]
+            ] == robot["test_plan"]["predicted_slide_cm"]
+    assert round(rerun["p_success"], 2) == robot["test_plan"]["p_success"]
+    render = json.loads((ROOT / "data/cycles-render-manifest.json").read_text(
+    ))["files"]["figures/sources/real_fan_domino_model_tip_cycles.png"]
+    assert render["scene_sha256"] == hashlib.sha256(
+        scene.read_bytes()).hexdigest()
+    assert render["sha256"] == hashlib.sha256(
+        (ROOT / "figures/sources/real_fan_domino_model_tip_cycles.png"
+         ).read_bytes()).hexdigest()
     print("PASS: input/output hashes, image counts, text bounds, text inside "
           "boxes, no overlapping words, and frame provenance")
 

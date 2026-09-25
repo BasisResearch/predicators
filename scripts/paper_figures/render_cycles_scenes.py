@@ -76,6 +76,8 @@ def main() -> None:
     jobs = []
     selected_domains = {domain.lower() for domain in args.domains}
     for domain in args.domains:
+        if domain.lower() == 'robot':
+            continue
         for frame in ('start', 'win'):
             source = ROOT / f'data/cycles_scenes/{domain.lower()}_{frame}.json'
             output = ROOT / ('figures/sources/'
@@ -95,6 +97,13 @@ def main() -> None:
                 source = ROOT / f'data/cycles_scenes/{name}.json'
                 output = ROOT / f'figures/sources/{name}_cycles.png'
                 jobs.append(('Bridge', name, source, output))
+        if 'robot' in selected_domains:
+            # The robot's model frame, from render_robot_model_plan.py.
+            for source in sorted(
+                (ROOT /
+                 'data/cycles_scenes').glob('real_fan_domino_model_*.json')):
+                output = ROOT / f'figures/sources/{source.stem}_cycles.png'
+                jobs.append(('Robot', source.stem, source, output))
     if args.scenes:
         selected_scenes = set(args.scenes)
         jobs = [job for job in jobs if job[2].stem in selected_scenes]

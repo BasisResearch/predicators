@@ -13,33 +13,33 @@
      "level": "L01",
      "episode": 0,
      "step": 173,
-     "caption": "Train: push green",
+     "caption": "Push green",
      "detail": "row topples"
     },
     {
      "states": "figure_model_rollouts/domino_seed0/side_hit/rollout_states.pkl",
      "index": -1,
-     "caption": "Model: hit one side-on",
+     "caption": "Hit one side-on",
      "detail": "falls with the blow"
     },
     {
      "states": "figure_model_rollouts/domino_seed0/cand_a/rollout_states.pkl",
      "index": -1,
-     "caption": "Plan: place two blues",
+     "caption": "Place two blues",
      "detail": "turns 90° in 12/12 runs"
     },
     {
      "level": "L02",
      "episode": 0,
      "step": 156,
-     "caption": "Test: place two blues",
+     "caption": "Place two blues",
      "detail": "blue 2 re-fit to blue 1"
     },
     {
      "level": "L02",
      "episode": 0,
      "step": "last",
-     "caption": "Test: push green",
+     "caption": "Goal reached",
      "detail": "chain turns 90°"
     }
    ]
@@ -57,36 +57,36 @@
      "level": "L01",
      "episode": 0,
      "step": 173,
-     "caption": "Probe: dab an end",
+     "caption": "Dab an end",
      "detail": "end face turns yellow"
     },
     {
      "level": "L01",
      "episode": 0,
      "step": 779,
-     "caption": "Probe: lift one block",
+     "caption": "Lift one block",
      "detail": "glued neighbour rises"
     },
     {
      "states": "figure_model_rollouts/bridge_seed3/out/rollout_states.pkl",
      "index": -1,
      "show_memory_glue": true,
-     "caption": "Plan: dab six ends",
+     "caption": "Dab six ends",
      "detail": "all six glued"
     },
     {
      "level": "L02",
      "episode": 0,
      "step": 321,
-     "caption": "Test: dab six ends",
-     "detail": "all six glued"
+     "caption": "Dab six ends",
+     "detail": "all six glued, as predicted"
     },
     {
      "level": "L02",
      "episode": 0,
      "step": "last",
-     "caption": "Test: re-seat higher",
-     "detail": "clears the 15 mm sag"
+     "caption": "Goal reached",
+     "detail": "span on both supports"
     }
    ]
   },
@@ -110,35 +110,35 @@
      "level": "L01",
      "episode": 0,
      "step": 90,
-     "caption": "Probe: free all three",
-     "detail": "top one pops at 1.18 m"
+     "caption": "Free all three",
+     "detail": "top one pops at 1.2 m"
     },
     {
      "level": "L01",
      "episode": 1,
      "step": 193,
-     "caption": "Probe: free green alone",
-     "detail": "box hovers at 0.57 m"
+     "caption": "Free green alone",
+     "detail": "box hovers at 0.6 m"
     },
     {
      "states": "figure_model_rollouts/balloons_seed3/out/rollout_states.pkl",
      "index": -1,
-     "caption": "Plan: free gold, then blue",
-     "detail": "0.886 m, no burst"
+     "caption": "Free gold, then blue",
+     "detail": "0.9 m, no burst"
     },
     {
      "level": "L03",
      "episode": 0,
      "step": 117,
-     "caption": "Test: free gold",
-     "detail": "0.76 m, as predicted"
+     "caption": "Free gold",
+     "detail": "0.8 m, as predicted"
     },
     {
      "level": "L03",
      "episode": 0,
      "step": "last",
-     "caption": "Test: free blue",
-     "detail": "0.880 m, in the band"
+     "caption": "Goal reached",
+     "detail": "0.9 m, in the band"
     }
    ]
   },
@@ -155,34 +155,34 @@
      "level": "L01",
      "episode": 0,
      "step": 106,
-     "caption": "Probe: turn on the tap",
+     "caption": "Turn on the tap",
      "detail": "water misses the jug"
     },
     {
      "level": "L01",
      "episode": 0,
      "step": 270,
-     "caption": "Probe: set jug on puddle",
+     "caption": "Set jug on puddle",
      "detail": "fills 0.014 per step"
     },
     {
      "states": "figure_model_rollouts/boil_seed1/out/rollout_states.pkl",
      "index": -1,
-     "caption": "Plan: overlap two jugs",
+     "caption": "Overlap two jugs",
      "detail": "both boil, no spill"
     },
     {
      "level": "L02",
      "episode": 0,
      "step": 334,
-     "caption": "Test: boil one, fill one",
+     "caption": "Boil one, fill one",
      "detail": "first already boiling"
     },
     {
      "level": "L02",
      "episode": 0,
      "step": "last",
-     "caption": "Test: swap the jugs",
+     "caption": "Goal reached",
      "detail": "both boiled, no spill"
     }
    ]
@@ -201,21 +201,21 @@
      "episode": 0,
      "step": 138,
      "split": "train",
-     "caption": "Probe: fan on, then off",
+     "caption": "Fan on, then off",
      "detail": "ball rolls 0.9 m"
     },
     {
      "states": "figure_model_rollouts/fan_seed2/l1_lip/rollout_states.pkl",
      "index": -1,
      "split": "train",
-     "caption": "Model: replay the burst",
+     "caption": "Replay the burst",
      "detail": "stalls on a false lip"
     },
     {
      "states": "figure_model_rollouts/fan_seed2/l2_plan/rollout_states.pkl",
      "index": -1,
      "split": "test",
-     "caption": "Plan: push, brake, blow",
+     "caption": "Push, brake, blow",
      "detail": "reaches the pad"
     },
     {
@@ -223,7 +223,7 @@
      "episode": 0,
      "step": 183,
      "split": "test",
-     "caption": "Test: push, then brake",
+     "caption": "Push, then brake",
      "detail": "1.23 m; model 1.21 m"
     },
     {
@@ -231,7 +231,7 @@
      "episode": 0,
      "step": "last",
      "split": "test",
-     "caption": "Test: blow onto the pad",
+     "caption": "Goal reached",
      "detail": "6 mm from the model"
     }
    ]

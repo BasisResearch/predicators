@@ -1,10 +1,11 @@
 {
   "generated_by": "scripts/paper_figures/build_figures.py --overview; do not edit manually",
   "inputs": {
-    "build_figures.py": "d44e2577e02069472bcb57815450d638b03fff111b40599fc28e23d96d74b43a",
+    "build_figures.py": "06c79899ef7ddf5c1e48dabb89c0684a0a79ebec4e78cc581bc23b3f6409ddc8",
+    "data/cycles_scenes/real_fan_domino_model_tip.json": "904ea37ffc02b93a6ec2972174765ec4ab01c3af6b197427d8e0658e23a6711b",
     "data/gui-figure-manifest.json": "5710c818b5bca7090312245386cd9292695711ed08bcd7f39693ee67a3ffdaa9",
-    "data/trajectories/real_fan_domino.json": "ae1cad680139d033f3ad5855e9f0a76c9e8ca88d0840cfcefbacf9ea48d35e69",
-    "data/trajectories/stripes.json": "d6450cb4ce725c60cf6c3761a9fe2547ba6c4817c8657be660dd7022be0d3775",
+    "data/trajectories/real_fan_domino.json": "65e9e734840b72c899071e82a72e182886ec0819bf1288f25031d12e87b1f790",
+    "data/trajectories/stripes.json": "c9577677997a4d60a121b11ba39482321b57ff965affc718834b4089ff4f8e12",
     "figures/sources/balloons_cycles_start.png": "3c07371df5c7a198be32e1d59c3faae28319cc6d35232fe629884c0b35858f24",
     "figures/sources/balloons_cycles_win.png": "bfbef2eb5704c86b797a09f11d598bdf54684c4eb4a3e33e563a9b36b4d12f6a",
     "figures/sources/boil_cycles_start.png": "b9ade6f6dd11e5c53c9b01a50b6aab0bb8a44aa5e99926c5bf11302d56f3a116",
@@ -19,9 +20,9 @@
     "figures/sources/fan_cycles_win.png": "ed17500aa637a7fa557df2a21ee3c217b596fa143bda34845004d5065fb6e73f",
     "figures/sources/real_fan_domino_0.png": "36543713caaaf8af3a036913f8f88eb9d9e7e5e474239261919a9d33ea57f5d0",
     "figures/sources/real_fan_domino_1.png": "4d435f3ce3cc21e93ff913f7e5964609904616e26f2a2bbc040b453f97a870df",
-    "figures/sources/real_fan_domino_2.png": "787fef066386d5fae80f3389e211fb2b5e67d1bacfb643f2059ac2344c03613c",
     "figures/sources/real_fan_domino_3.png": "353d920d946d43986a5322fbcbe7dfb7ecfe347ff7b293fa7d1d5ceafe49b661",
     "figures/sources/real_fan_domino_4.png": "034659bbb5655702e87a4b23c3a675936ee08608ec01a2fe055c80c0e5e0841a",
+    "figures/sources/real_fan_domino_model_tip_cycles.png": "5462286b457c462eed7213089b5074b3db34abdb72bbf9c81f7a27e5d95a96d6",
     "figures/sources/real_fan_domino_start.png": "80c0938c21bca3d3017977f7e0430156f4488205ef128aa669194b27ac9511cf",
     "figures/sources/real_fan_domino_win.png": "1eb9f6c4609efce27486ca680f332d90598d8c20c5db457233fc6776750ecca9",
     "figures/sources/trajectory_balloons_stripe_0_cycles.png": "2ed597cf33efcbbff9fb92d87deb2774863b1623c05029ff198dafc655ec8359",
@@ -58,11 +59,11 @@
     "fig2_method.pdf": "1b3c086d98d623892190a53aba7496af2e393efb0cfe5e2ad26596053118ea5e",
     "fig2_method.png": "7aea7d0783bd0cc4401165c0f9463749fa399765465558a84373b1ca0fdbcbd5",
     "fig2_method.svg": "bcab8242ff66c0d6e68db9021a0fa6ee837dbcdb28281bf94d4dcc5a2f9c8075",
-    "fig3_trajectories.pdf": "561f959f2bcfe9cb769a00844e92182605454befce3d658b4ee22df880146ac5",
-    "fig3_trajectories.png": "fbb18389862c80c15e77b2d949f07bd7c2e3e7ee8c69d2deb6c4df3e2d94e8df",
-    "fig3_trajectories.svg": "b73fa685d9580a0e7e6834c987f440caa7957179757db18e5ac1e5fc009d5bf9",
-    "figA_trajectories.pdf": "8079055ac6da4e622b29b5f822845bc91edba410a003eb1962108659b2d2739f",
-    "figA_trajectories.png": "36be0e103940e9f4cc7ab6bb1dad8354570734528bbd1a824fbc9a9017135fc4",
-    "figA_trajectories.svg": "69eb52f183a90e47032fa62ad174c74d331d3f099ec7017f5da5d52b6710089d"
+    "fig3_trajectories.pdf": "d7789ab9b869c71d05005695fc929368a4b56cdfffa11073231bd07b14db9acd",
+    "fig3_trajectories.png": "63f451cc8fd31867e27c603c52d70389cf4e804ca774928d6f10d82e91b86396",
+    "fig3_trajectories.svg": "f49dfc13006992577f4bb24082bd8da1a1c58fa5afb04a355b9482bb7f0e54f1",
+    "figA_trajectories.pdf": "4066f210ab8dbe0590716b21c7b29283f8988dbd6fd4f7fdab8b7a47578af642",
+    "figA_trajectories.png": "08cd08e997e38210448b4494f885c2e481bca39d33de00b8fc2559d5995e32ee",
+    "figA_trajectories.svg": "2283e302a77faa414e3fcd47e9140ea25317e5054097d8a788560c9bd2c202ed"
   }
 }

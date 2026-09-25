@@ -944,9 +944,10 @@ def _stripe(d: Drawing, y: float, stripe: Stripe) -> None:
     x: float = STRIPE_LEFT
     for i, (source, crop, first, second, model) in enumerate(stripe.frames):
         if model:
-            # A state from the agent's own model, not from the environment:
-            # the image sits inside the frame box and the dashed border
-            # runs along the box, with a clear margin between them.
+            # A state from the agent's own model, not from the environment,
+            # framed in Figure 2's planning green: the image sits inside the
+            # frame box and the dashed border runs along the box, with a
+            # clear margin between them.
             d.image(source, x + 2.2, y + 2.2, fw - 4.4, fh - 4.4, crop)
         else:
             d.image(source, x, y, fw, fh, crop)
@@ -956,7 +957,7 @@ def _stripe(d: Drawing, y: float, stripe: Stripe) -> None:
                    fw - 1,
                    fh - 1,
                    fill="none",
-                   stroke=TEAL,
+                   stroke=GREEN,
                    radius=2,
                    dash="2.5 1.5",
                    width=1)
@@ -967,7 +968,7 @@ def _stripe(d: Drawing, y: float, stripe: Stripe) -> None:
                    fill="white",
                    stroke="none",
                    radius=1.5)
-            d.text(x + 16, y + 10.3, "model", 6.4, TEAL, "bold", "middle")
+            d.text(x + 16, y + 10.3, "model", 6.4, GREEN, "bold", "middle")
         # The action, then what follows: observed, or predicted in the model.
         d.text(x + fw / 2, y + fh + 10, first, 7.3, anchor="middle")
         d.text(x + fw / 2, y + fh + 19, second, 6.9, MUTED, anchor="middle")
@@ -1008,10 +1009,14 @@ def _domain_stripes(domains: Sequence[str]) -> List[Stripe]:
 
 
 def _robot_stripe() -> Stripe:
-    """The real-robot run: two probes, then the test after the patch moved.
+    """The real-robot run: two probes, the test arrangement in the agent's own
+    simulator, then the test after the patch moved.
 
-    Between them the agent writes its wind program and fits the masses,
-    friction and wind parameters.
+    Between the probes and the test the agent writes its wind program
+    and fits the masses, friction and wind parameters. The third frame
+    is its simulator re-running the test arrangement
+    (render_robot_model_plan.py); it replaces the archived photo of the
+    grey domino standing upwind.
     """
     robot_archive = ROOT / "data/trajectories/real_fan_domino.json"
     USED_IMAGES.add(robot_archive)
@@ -1020,18 +1025,27 @@ def _robot_stripe() -> Stripe:
     predicted = robot["test_plan"]["predicted_slide_cm"]
     # Green stayed upright and grey fell flat, as the captions say.
     assert slides[1]["fall_deg"] < 10 and slides[2]["fall_deg"] > 80
+    model_scene = ROOT / "data/cycles_scenes/real_fan_domino_model_tip.json"
+    USED_IMAGES.add(model_scene)
+    reproduced = json.loads(model_scene.read_text())["metadata"]["reproduced"]
+    # The re-run reproduces the prediction the run recorded, which the model
+    # frame's caption states.
+    assert [round(100 * v, 1) for v in reproduced["slide_m"]] == predicted
     seconds = [
         f"stays upright, {slides[1]['slide_cm']:.1f} cm",
         f"falls flat, slides {slides[2]['slide_cm']:.1f} cm",
-        "patch moved to 0.51 m",
+        "",
         "grey knocks green",
-        f"{slides[3]['slide_cm']:.1f} cm; pred. "
-        f"{predicted[0]:.1f}±{predicted[1]:.1f}",
+        f"slid {slides[3]['slide_cm']:.1f} cm, as predicted",
     ]
     frames: List[StripeFrame] = [
         (FIG / "sources" / f"{frame['name']}.png", None, frame["label"],
          second, False) for frame, second in zip(robot["frames"], seconds)
     ]
+    frames[2] = (FIG / "sources/real_fan_domino_model_tip_cycles.png",
+                 robot["crop"], "Stand grey upwind",
+                 f"green slides {predicted[0]:.1f}±{predicted[1]:.1f} cm",
+                 True)
     return Stripe("Real robot", frames, ROBOT_FH, 1, ("P", "θ"))
 
 

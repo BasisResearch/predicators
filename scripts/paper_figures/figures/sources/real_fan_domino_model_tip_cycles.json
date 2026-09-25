@@ -1,0 +1,15 @@
+{
+  "generated_by": "scripts/render_cycles_scene.py; do not edit manually",
+  "blender_version": "4.5.3 LTS",
+  "engine": "CYCLES",
+  "device": "CPU",
+  "samples": 48,
+  "scene_source": "data/cycles_scenes/real_fan_domino_model_tip.json",
+  "scene_sha256": "904ea37ffc02b93a6ec2972174765ec4ab01c3af6b197427d8e0658e23a6711b",
+  "output_sha256": "5462286b457c462eed7213089b5074b3db34abdb72bbf9c81f7a27e5d95a96d6",
+  "visual_shapes": 35,
+  "blender_mesh_objects": 61,
+  "geometry": "Recorded world transforms; box edges receive at most 0.6 mm visual bevels",
+  "appearance": "Procedural materials, soft area lighting, AgX; duplicate surfaces removed",
+  "physics_steps": 0
+}

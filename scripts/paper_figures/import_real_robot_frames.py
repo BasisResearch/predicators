@@ -29,11 +29,11 @@ DRIVE = ("https://drive.google.com/drive/folders/"
 # matching the clips against the overlay-free videos. Each label names what
 # the agent does; build_figures.py adds what follows.
 SELECTION = [
-    ("casc_explore.mp4", 1655, 1, "Probe: blow at green"),
-    ("casc_explore.mp4", 4313, 2, "Probe: blow at grey"),
-    ("casc_test.mp4", 2505, 3, "Test: stand grey upwind"),
-    ("casc_test.mp4", 2595, 3, "Test: blow at grey"),
-    ("casc_test.mp4", 2800, 3, "Test: measure the slide"),
+    ("casc_explore.mp4", 1655, 1, "Blow at green"),
+    ("casc_explore.mp4", 4313, 2, "Blow at grey"),
+    ("casc_test.mp4", 2505, 3, "Stand grey upwind"),
+    ("casc_test.mp4", 2595, 3, "Blow at grey"),
+    ("casc_test.mp4", 2800, 3, "Goal reached"),
 ]
 # Keeps the gripper at the button, the fan, both blocks, and both patch
 # placements in every frame.
