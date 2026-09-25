@@ -113,6 +113,10 @@ def _check_golden(name: str, text: str) -> None:
                                  fromfile=f"{name}.md (golden)",
                                  tofile=f"{name} (rendered)",
                                  lineterm=""))
+        if not diff:
+            # A line diff cannot show an editor's added final newline.
+            diff = ("(no line differs: the texts differ only in line "
+                    "endings or a trailing newline)")
         pytest.fail(f"prompt {name} drifted from its golden; review the diff "
                     f"and rerun with UPDATE_PROMPT_GOLDENS=1 to accept:\n"
                     f"{diff}")
