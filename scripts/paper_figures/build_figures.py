@@ -837,9 +837,12 @@ STRIPE_CROPS = {
     "boil": (240, 240, 830, 700),
     "fan": (150, 170, 800, 678),
 }
-# Frames are 92 wide on a 103 pitch; simulated frames share one height and
-# the robot's photos keep their own aspect.
-STRIPE_FH, ROBOT_FH = 72, 64
+# Frames are 88 wide and the learning bar takes a slot of its own, so every
+# gap, between two frames or beside the bar, is 11 wide and holds an arrow.
+# Simulated frames share one height and the robot's photos keep their own
+# aspect, both that of their crops.
+STRIPE_FW, STRIPE_GAP, BAR_W = 88, 11, 9
+STRIPE_FH, ROBOT_FH = 69, 61
 StripeFrame = Tuple[Path, Optional[Sequence[int]], str, str, bool]
 
 
@@ -875,8 +878,9 @@ def _advance(parts: Sequence[Segment], size: float, weight: str) -> float:
 
 def _learning_bar(d: Drawing, x: float, y: float, h: float,
                   learned: Sequence[str]) -> None:
-    """A teal bar in a frame gap, labelled with what the agent learns."""
-    d.rect(x, y, 9, h, fill=TEAL, stroke="none", radius=3)
+    """A teal bar between two frame gaps, labelled with what the agent
+    learns."""
+    d.rect(x, y, BAR_W, h, fill=TEAL, stroke="none", radius=3)
     parts: List[Segment] = ["learns "]
     for k, symbol in enumerate(learned):
         if k:
@@ -887,28 +891,28 @@ def _learning_bar(d: Drawing, x: float, y: float, h: float,
                "bold")
     # Rotated to read upwards; the baseline sits right of the bar's center
     # so the lowercase letters center across the bar.
-    e.set("transform",
-          f"translate({x + 4.5 + 0.36 * size:g} {y + h / 2:g}) rotate(-90)")
+    baseline = x + BAR_W / 2 + 0.36 * size
+    e.set("transform", f"translate({baseline:g} {y + h / 2:g}) rotate(-90)")
 
 
 def _stripe(d: Drawing, y: float, stripe: Stripe) -> None:
     """Draw one titled row of five captioned frames joined by arrows."""
-    fh = stripe.height
+    fh, fw = stripe.height, STRIPE_FW
     e = d.text(0, 0, stripe.title, 9.6, TEAL, "bold", "middle")
     e.set("transform", f"translate(12 {y + fh / 2}) rotate(-90)")
+    x = 24
     for i, (source, crop, first, second, model) in enumerate(stripe.frames):
-        x = 24 + i * 103
         if model:
             # A state from the agent's own model, not from the environment:
             # the image sits inside the frame box and the dashed border
             # runs along the box, with a clear margin between them.
-            d.image(source, x + 2.2, y + 2.2, 87.6, fh - 4.4, crop)
+            d.image(source, x + 2.2, y + 2.2, fw - 4.4, fh - 4.4, crop)
         else:
-            d.image(source, x, y, 92, fh, crop)
+            d.image(source, x, y, fw, fh, crop)
         if model:
             d.rect(x + 0.5,
                    y + 0.5,
-                   91,
+                   fw - 1,
                    fh - 1,
                    fill="none",
                    stroke=TEAL,
@@ -923,12 +927,21 @@ def _stripe(d: Drawing, y: float, stripe: Stripe) -> None:
                    stroke="none",
                    radius=1.5)
             d.text(x + 16, y + 10.3, "model", 6.4, TEAL, "bold", "middle")
-        d.text(x + 46, y + fh + 10, first, 7.3, anchor="middle")
-        d.text(x + 46, y + fh + 19, second, 6.9, MUTED, anchor="middle")
+        # The action, then what follows: observed, or predicted in the model.
+        d.text(x + fw / 2, y + fh + 10, first, 7.3, anchor="middle")
+        d.text(x + fw / 2, y + fh + 19, second, 6.9, MUTED, anchor="middle")
+        x += fw
+        if i == len(stripe.frames) - 1:
+            break
+        # Each gap holds an arrow; the learning bar sits between two gaps.
+        d.arrow(x + 2, y + fh / 2, x + STRIPE_GAP - 2, y + fh / 2)
+        x += STRIPE_GAP
         if i == stripe.learn_after:
-            _learning_bar(d, x + 93, y, fh, stripe.learned)
-        elif i < len(stripe.frames) - 1:
-            d.arrow(x + 94, y + fh / 2, x + 101, y + fh / 2)
+            _learning_bar(d, x, y, fh, stripe.learned)
+            x += BAR_W
+            d.arrow(x + 2, y + fh / 2, x + STRIPE_GAP - 2, y + fh / 2)
+            x += STRIPE_GAP
+    assert x == 528, x
 
 
 def _domain_stripes(domains: Sequence[str]) -> List[Stripe]:
@@ -964,11 +977,13 @@ def _robot_stripe() -> Stripe:
     robot = json.loads(robot_archive.read_text())
     slides = {m["episode"]: m for m in robot["measured"]}
     predicted = robot["test_plan"]["predicted_slide_cm"]
+    # Green stayed upright and grey fell flat, as the captions say.
+    assert slides[1]["fall_deg"] < 10 and slides[2]["fall_deg"] > 80
     seconds = [
-        f"slides {slides[1]['slide_cm']:.1f} cm",
-        f"slides {slides[2]['slide_cm']:.1f} cm, flat",
+        f"stays upright, {slides[1]['slide_cm']:.1f} cm",
+        f"falls flat, slides {slides[2]['slide_cm']:.1f} cm",
         "patch moved to 0.51 m",
-        "one gust",
+        "grey knocks green",
         f"{slides[3]['slide_cm']:.1f} cm; pred. "
         f"{predicted[0]:.1f}±{predicted[1]:.1f}",
     ]

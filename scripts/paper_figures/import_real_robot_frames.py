@@ -26,13 +26,14 @@ DRIVE = ("https://drive.google.com/drive/folders/"
          "1bcFFkaMb1ZKa0p1sK5KuMdQQ92xojnBO")
 # Two exploration probes, then the test after the patch was moved. These are
 # the moments of tracked-clip frames 106, 104, 45, 63, and 104, found by
-# matching the clips against the overlay-free videos.
+# matching the clips against the overlay-free videos. Each label names what
+# the agent does; build_figures.py adds what follows.
 SELECTION = [
-    ("casc_explore.mp4", 1655, 1, "Probe: green stays"),
-    ("casc_explore.mp4", 4313, 2, "Probe: grey slides"),
-    ("casc_test.mp4", 2505, 3, "Test: grey upwind"),
-    ("casc_test.mp4", 2595, 3, "Grey knocks green"),
-    ("casc_test.mp4", 2800, 3, "Green in patch"),
+    ("casc_explore.mp4", 1655, 1, "Probe: blow at green"),
+    ("casc_explore.mp4", 4313, 2, "Probe: blow at grey"),
+    ("casc_test.mp4", 2505, 3, "Test: stand grey upwind"),
+    ("casc_test.mp4", 2595, 3, "Test: blow at grey"),
+    ("casc_test.mp4", 2800, 3, "Test: measure the slide"),
 ]
 # Keeps the gripper at the button, the fan, both blocks, and both patch
 # placements in every frame.

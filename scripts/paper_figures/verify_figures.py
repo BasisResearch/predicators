@@ -1,5 +1,6 @@
 """Verify migrated figure inputs, outputs, and execution-frame provenance."""
 import hashlib
+import itertools
 import json
 import os
 import xml.etree.ElementTree as ET
@@ -48,7 +49,8 @@ def main() -> None:
         assert len(svg.findall(f".//{SVG}image")) == count
         with pymupdf.open(OUTPUT / f"{name}.pdf") as doc:
             boxes = _outlined_boxes(svg, doc[0].rect.width)
-            for word in doc[0].get_text("words"):
+            words = doc[0].get_text("words")
+            for word in words:
                 assert doc[0].rect.contains(pymupdf.Rect(word[:4])), (name,
                                                                       word)
                 # Text sits wholly inside or outside each outlined box; the
@@ -57,6 +59,11 @@ def main() -> None:
                 for box in boxes:
                     assert box.contains(inner) or not box.intersects(inner), (
                         name, word[4], box)
+            # No two words overlap, so neighbouring captions stay apart.
+            glyphs = [(pymupdf.Rect(w[:4]) + (0.5, 0.5, -0.5, -0.5), w[4])
+                      for w in words]
+            for (a, text_a), (b, text_b) in itertools.combinations(glyphs, 2):
+                assert not a.intersects(b), (name, text_a, text_b)
     archive = json.loads((ROOT / "data/trajectories/figure3.json").read_text())
     robot = json.loads(
         (ROOT / "data/trajectories/real_fan_domino.json").read_text())
@@ -70,7 +77,7 @@ def main() -> None:
         assert hashlib.sha256(
             source.read_bytes()).hexdigest() == frame["sha256"], frame["name"]
     print("PASS: input/output hashes, image counts, text bounds, text inside "
-          "boxes, and frame provenance")
+          "boxes, no overlapping words, and frame provenance")
 
 
 if __name__ == "__main__":

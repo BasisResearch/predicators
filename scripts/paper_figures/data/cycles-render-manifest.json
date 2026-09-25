@@ -290,9 +290,9 @@
     },
     "figures/sources/trajectory_balloons_stripe_3_cycles.png": {
       "renderer_sha256": "68dee1ec3769860bac598721ecb5a680671d6486ffe7510631b4c1f822cfb185",
-      "scene_sha256": "36dd1a02ae54b4563caca25afdb1f44f1cd0a5ab2edc7a553508436b418eb18e",
+      "scene_sha256": "6fea04b04bac2fb64969858fdf0d97998835bd4d250a0cc1df2f61b45cf748dd",
       "samples": 48,
-      "sha256": "207ef84b8ec0b60ac7064e6eb10a0524d13fa6d2d746b00631717f2e3e9df936",
+      "sha256": "1b9be9b4f4a6c340bcbaaf60535c01d0a1d43e3a91daa467868c973bff953cdc",
       "domain": "Balloons",
       "frame": "trajectory_balloons_stripe_3",
       "scene": "data/cycles_scenes/trajectory_balloons_stripe_3.json",

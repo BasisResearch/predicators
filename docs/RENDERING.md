@@ -179,7 +179,9 @@ This reads local logs and restores original images; it is not the command for in
 
 Figure 3 and the appendix figure show one recorded EMPIRIC run per domain as a stripe of five frames, from the run's experiments to the solved test task.
 `scripts/paper_figures/data/trajectories/stripes.json` records each stripe's run, frames (level, episode and level step, or a saved model state), captions, and display settings; `MAIN_STRIPES` and `APPENDIX_STRIPES` in `build_figures.py` choose which stripes go where.
-Each row's `learn_after` and `learned` place a teal bar in the gap after that frame, labelled with what the agent learns there: its program $P$ and parameters $\theta$, or $\theta$ alone when the program adds no mechanism (Domino).
+Each frame's caption names what the agent does, and the line below it what follows: the observed outcome, or in a dashed model frame the model's prediction.
+Each row's `learn_after` and `learned` place a teal bar after that frame, labelled with what the agent learns there: its program $P$ and parameters $\theta$, or $\theta$ alone when the program adds no mechanism (Domino).
+The bar takes a slot of its own, so every gap, between two frames or beside the bar, has the same width (`STRIPE_GAP` in `build_figures.py`) and holds an arrow.
 The real-robot stripe learns after its two probes, as `_robot_stripe()` in `build_figures.py` states.
 Level steps run on across a level's episodes, and a reset costs one step.
 

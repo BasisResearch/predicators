@@ -1,5 +1,5 @@
 {
- "description": "One recorded EMPIRIC run per domain, from experiments to the solved test task. Frames with 'states' come from the agent's own model, replayed by render_model_rollout.py on the run's own code. The agent learns between frames 'learn_after' and 'learn_after' + 1: 'learned' lists its simulator program P and parameters θ, or θ alone when the program adds no mechanism.",
+ "description": "One recorded EMPIRIC run per domain, from experiments to the solved test task. Each frame's caption names what the agent does and its detail what follows, as observed or, in model frames, as the model predicts. Frames with 'states' come from the agent's own model, replayed by render_model_rollout.py on the run's own code. The agent learns between frames 'learn_after' and 'learn_after' + 1: 'learned' lists its simulator program P and parameters θ, or θ alone when the program adds no mechanism.",
  "rows": [
   {
    "domain": "Domino",
@@ -13,33 +13,33 @@
      "level": "L01",
      "episode": 0,
      "step": 173,
-     "caption": "Train: row topples",
-     "detail": "friction 0.50, not 0.10"
+     "caption": "Train: push green",
+     "detail": "row topples"
     },
     {
      "states": "figure_model_rollouts/domino_seed0/side_hit/rollout_states.pkl",
      "index": -1,
-     "caption": "Model: side-on hit",
+     "caption": "Model: hit one side-on",
      "detail": "falls with the blow"
     },
     {
      "states": "figure_model_rollouts/domino_seed0/cand_a/rollout_states.pkl",
      "index": -1,
-     "caption": "Plan: two blues",
-     "detail": "12/12 jittered runs"
+     "caption": "Plan: place two blues",
+     "detail": "turns 90° in 12/12 runs"
     },
     {
      "level": "L02",
      "episode": 0,
      "step": 156,
-     "caption": "Test: build, re-plan",
-     "detail": "blue 2 fit to blue 1"
+     "caption": "Test: place two blues",
+     "detail": "blue 2 re-fit to blue 1"
     },
     {
      "level": "L02",
      "episode": 0,
      "step": "last",
-     "caption": "Solved",
+     "caption": "Test: push green",
      "detail": "chain turns 90°"
     }
    ]
@@ -64,29 +64,29 @@
      "level": "L01",
      "episode": 0,
      "step": 779,
-     "caption": "Probe: lift one",
+     "caption": "Probe: lift one block",
      "detail": "glued neighbour rises"
     },
     {
      "states": "figure_model_rollouts/bridge_seed3/out/rollout_states.pkl",
      "index": -1,
      "show_memory_glue": true,
-     "caption": "Plan: six dabs",
-     "detail": "model: all six glued"
+     "caption": "Plan: dab six ends",
+     "detail": "all six glued"
     },
     {
      "level": "L02",
      "episode": 0,
      "step": 321,
-     "caption": "Test: six dabs",
+     "caption": "Test: dab six ends",
      "detail": "all six glued"
     },
     {
      "level": "L02",
      "episode": 0,
      "step": "last",
-     "caption": "Solved",
-     "detail": "release raised after sag"
+     "caption": "Test: re-seat higher",
+     "detail": "clears the 15 mm sag"
     }
    ]
   },
@@ -110,34 +110,34 @@
      "level": "L01",
      "episode": 0,
      "step": 90,
-     "caption": "Probe: three",
+     "caption": "Probe: free all three",
      "detail": "top one pops at 1.18 m"
     },
     {
      "level": "L01",
      "episode": 1,
      "step": 193,
-     "caption": "Probe: one green",
-     "detail": "lift fades with height"
+     "caption": "Probe: free green alone",
+     "detail": "box hovers at 0.57 m"
     },
     {
      "states": "figure_model_rollouts/balloons_seed3/out/rollout_states.pkl",
      "index": -1,
-     "caption": "Plan: gold, then blue",
+     "caption": "Plan: free gold, then blue",
      "detail": "0.886 m, no burst"
     },
     {
      "level": "L03",
      "episode": 0,
-     "step": 144,
-     "caption": "Test: blue joins",
-     "detail": "gold alone as predicted"
+     "step": 117,
+     "caption": "Test: free gold",
+     "detail": "0.76 m, as predicted"
     },
     {
      "level": "L03",
      "episode": 0,
      "step": "last",
-     "caption": "Solved",
+     "caption": "Test: free blue",
      "detail": "0.880 m, in the band"
     }
    ]
@@ -155,34 +155,34 @@
      "level": "L01",
      "episode": 0,
      "step": 106,
-     "caption": "Probe: tap misses jug",
-     "detail": "water spills in front"
+     "caption": "Probe: turn on the tap",
+     "detail": "water misses the jug"
     },
     {
      "level": "L01",
      "episode": 0,
      "step": 270,
-     "caption": "Probe: jug on puddle",
+     "caption": "Probe: set jug on puddle",
      "detail": "fills 0.014 per step"
     },
     {
      "states": "figure_model_rollouts/boil_seed1/out/rollout_states.pkl",
      "index": -1,
      "caption": "Plan: overlap two jugs",
-     "detail": "model: both boil, no spill"
+     "detail": "both boil, no spill"
     },
     {
      "level": "L02",
      "episode": 0,
      "step": 334,
      "caption": "Test: boil one, fill one",
-     "detail": "no idle waiting"
+     "detail": "first already boiling"
     },
     {
      "level": "L02",
      "episode": 0,
      "step": "last",
-     "caption": "Solved",
+     "caption": "Test: swap the jugs",
      "detail": "both boiled, no spill"
     }
    ]
@@ -201,29 +201,29 @@
      "episode": 0,
      "step": 138,
      "split": "train",
-     "caption": "Probe: fan burst",
+     "caption": "Probe: fan on, then off",
      "detail": "ball rolls 0.9 m"
     },
     {
      "states": "figure_model_rollouts/fan_seed2/l1_lip/rollout_states.pkl",
      "index": -1,
      "split": "train",
-     "caption": "Model: stuck at a lip",
-     "detail": "lip from noise, fixed"
+     "caption": "Model: replay the burst",
+     "detail": "stalls on a false lip"
     },
     {
      "states": "figure_model_rollouts/fan_seed2/l2_plan/rollout_states.pkl",
      "index": -1,
      "split": "test",
-     "caption": "Plan: push, then brake",
-     "detail": "model: reaches the pad"
+     "caption": "Plan: push, brake, blow",
+     "detail": "reaches the pad"
     },
     {
      "level": "L02",
      "episode": 0,
      "step": 183,
      "split": "test",
-     "caption": "Test: fan brakes",
+     "caption": "Test: push, then brake",
      "detail": "1.23 m; model 1.21 m"
     },
     {
@@ -231,7 +231,7 @@
      "episode": 0,
      "step": "last",
      "split": "test",
-     "caption": "Solved",
+     "caption": "Test: blow onto the pad",
      "detail": "6 mm from the model"
     }
    ]
