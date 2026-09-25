@@ -15,6 +15,7 @@ PAPER = Path(
     os.environ.get("EMPIRIC_PAPER_ROOT",
                    str(ROOT.parents[2] / "sim-predicator-paper"))).resolve()
 OUTPUT = PAPER / "figures"
+SVG_OUTPUT = ROOT / "figures" / "svg"
 SVG = "{http://www.w3.org/2000/svg}"
 
 
@@ -39,13 +40,13 @@ def main() -> None:
     """Check render provenance and PDF bounds against the saved manifest."""
     manifest = json.loads(
         (ROOT / "data/overview-figure-build-manifest.json").read_text())
-    for group, base in (("inputs", ROOT), ("outputs", OUTPUT)):
+    for group, base in (("inputs", ROOT), ("outputs", OUTPUT), ("svgs", ROOT)):
         for name, digest in manifest[group].items():
             assert hashlib.sha256(
                 (base / name).read_bytes()).hexdigest() == digest, name
     for name, count in (("fig1_residual", 15), ("fig2_method", 1),
                         ("fig3_trajectories", 15), ("figA_trajectories", 15)):
-        svg = ET.parse(OUTPUT / f"{name}.svg")
+        svg = ET.parse(SVG_OUTPUT / f"{name}.svg")
         assert len(svg.findall(f".//{SVG}image")) == count
         with pymupdf.open(OUTPUT / f"{name}.pdf") as doc:
             boxes = _outlined_boxes(svg, doc[0].rect.width)

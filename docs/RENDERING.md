@@ -25,7 +25,7 @@ python scripts/paper_figures/verify_figures.py
 ```
 
 Figure 1 uses `fig1_residual`, Figure 2 uses `fig2_method`, Figure 3 uses `fig3_trajectories`, and the appendix trajectory figure uses `figA_trajectories`.
-PDF, SVG, and PNG outputs are generated.
+The build writes each PDF into the paper's `figures/` folder and its editable SVG, which `verify_figures.py` checks and the Figma file imports, into `scripts/paper_figures/figures/svg/`.
 The generated manifest records input and output hashes.
 Do not edit generated images or manifests manually.
 Compile the paper from its own checkout with `latexmk -pdf main.tex`.

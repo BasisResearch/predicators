@@ -26,6 +26,9 @@ PAPER = Path(
                    str(ROOT.parents[2] / "sim-predicator-paper"))).resolve()
 FIG = ROOT / "figures"
 OUTPUT = PAPER / "figures"
+# The paper needs only the PDFs; the editable SVGs, which verify_figures.py
+# checks and the Figma file imports, stay here.
+SVG_OUTPUT = FIG / "svg"
 DOMAINS = ["Domino", "Bridge", "Balloons", "Boil", "Fan"]
 INK, MUTED = "#203744", "#5b6e79"
 # Figure 1's captions and labels, and the domain names in Figures 1 and 3,
@@ -400,14 +403,11 @@ class Drawing:
                        gui_key=gui_key)
 
     def save(self, name: str) -> None:
-        """Write vector, PDF, and raster versions."""
+        """Write the paper's PDF and the editable SVG."""
         raw = ET.tostring(self.root, encoding="utf-8", xml_declaration=True)
-        (OUTPUT / f"{name}.svg").write_bytes(raw)
+        (SVG_OUTPUT / f"{name}.svg").write_bytes(raw)
         _DatedPDFSurface.convert(bytestring=raw,
                                  write_to=str(OUTPUT / f"{name}.pdf"))
-        cairosvg.svg2png(bytestring=raw,
-                         write_to=str(OUTPUT / f"{name}.png"),
-                         scale=2)
 
 
 def teaser() -> None:
@@ -1075,6 +1075,7 @@ def build_overview_figures() -> None:
     """Rebuild Figures 1 to 3 and the appendix trajectories from archived
     sources."""
     OUTPUT.mkdir(parents=True, exist_ok=True)
+    SVG_OUTPUT.mkdir(parents=True, exist_ok=True)
     USED_IMAGES.clear()
     teaser()
     method()
@@ -1083,11 +1084,8 @@ def build_overview_figures() -> None:
     inputs = USED_IMAGES | {
         Path(__file__), ROOT / "data/gui-figure-manifest.json"
     }
-    outputs = [
-        OUTPUT / f"{name}.{ext}"
-        for name in ("fig1_residual", "fig2_method", "fig3_trajectories",
-                     "figA_trajectories") for ext in ("pdf", "svg", "png")
-    ]
+    names = ("fig1_residual", "fig2_method", "fig3_trajectories",
+             "figA_trajectories")
 
     def hashes(paths: Iterable[Path], base: Path) -> Dict[str, str]:
         return {
@@ -1105,7 +1103,9 @@ def build_overview_figures() -> None:
                 "inputs":
                 hashes(inputs, ROOT),
                 "outputs":
-                hashes(outputs, OUTPUT)
+                hashes((OUTPUT / f"{name}.pdf" for name in names), OUTPUT),
+                "svgs":
+                hashes((SVG_OUTPUT / f"{name}.svg" for name in names), ROOT)
             },
             indent=2) + "\n")
 
