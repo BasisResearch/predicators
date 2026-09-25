@@ -26,7 +26,7 @@
      "states": "figure_model_rollouts/domino_seed0/cand_a/rollout_states.pkl",
      "index": -1,
      "caption": "Place two blues",
-     "detail": "turns 90° in 12/12 rollouts"
+     "detail": "turns 90° in every rollout"
     },
     {
      "level": "L02",
