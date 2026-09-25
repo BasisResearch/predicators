@@ -28,7 +28,8 @@ FIG = ROOT / "figures"
 OUTPUT = PAPER / "figures"
 DOMAINS = ["Domino", "Bridge", "Balloons", "Boil", "Fan"]
 INK, MUTED = "#203744", "#5b6e79"
-# Figure 1 sets its captions and labels in black.
+# Figure 1's captions and labels, and the domain names in Figures 1 and 3,
+# are black; the colours are kept for the method's roles.
 BLACK = "#000000"
 TEAL, RUST, GREEN = "#087f8c", "#bd5929", "#397957"
 PURPLE = "#5e3c99"
@@ -473,7 +474,7 @@ def teaser() -> None:
                top + 2 * h + 14,
                domain,
                10.2,
-               TEAL,
+               BLACK,
                "bold",
                anchor="middle")
         d.text(col + w / 2,
@@ -917,9 +918,9 @@ def _advance(parts: Sequence[Segment], size: float, weight: str) -> float:
 
 def _learning_bar(d: Drawing, x: float, y: float, h: float,
                   learned: Sequence[str]) -> None:
-    """A teal bar between two frame gaps, labelled with what the agent
-    learns."""
-    d.rect(x, y, BAR_W, h, fill=TEAL, stroke="none", radius=3)
+    """A purple bar between two frame gaps, labelled with what the agent
+    learns: the program's colour in Figures 1 and 2."""
+    d.rect(x, y, BAR_W, h, fill=PURPLE, stroke="none", radius=3)
     parts: List[Segment] = ["learns "]
     for k, symbol in enumerate(learned):
         if k:
@@ -937,7 +938,7 @@ def _learning_bar(d: Drawing, x: float, y: float, h: float,
 def _stripe(d: Drawing, y: float, stripe: Stripe) -> None:
     """Draw one titled row of five captioned frames joined by arrows."""
     fh, fw = stripe.height, STRIPE_FW
-    e = d.text(0, 0, stripe.title, 9.6, TEAL, "bold", "middle")
+    e = d.text(0, 0, stripe.title, 9.6, BLACK, "bold", "middle")
     e.set("transform",
           f"translate({STRIPE_TITLE_X} {y + fh / 2:g}) rotate(-90)")
     x: float = STRIPE_LEFT
