@@ -61,7 +61,9 @@ def test_a_second_env_never_touches_another_envs_heat() -> None:
         view = ObservationNoise.from_cfg().perturb(state,
                                                    np.random.default_rng(0))
         assert view.privileged is None
-        assert any(o is jug for o in view), "the view shares the Objects"
+        # The view rebuilds each object with its public type, but heat is
+        # keyed by name, so it still names the live env's jug.
+        assert any(o.name == jug.name for o in view)
         other.simulate(view, zero)
         assert _heat(live, jug) == 0.95
         other.simulate(sanitize_state(state), zero)

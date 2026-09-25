@@ -9,7 +9,8 @@ import pytest
 from predicators import utils
 from predicators.agent_sdk.belief_probe import BeliefProbe
 from predicators.agent_sdk.tools import ToolContext
-from predicators.code_sim_learning.base_simulator import base_simulator_class
+from predicators.code_sim_learning.base_simulator import \
+    base_simulator_class, oracle_base_simulator_class
 from predicators.code_sim_learning.continual_oracle import oracle_source
 from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.code_sim_learning.scene_base import scene_base_class
@@ -114,8 +115,13 @@ def test_subclass_trials_have_real_evaluator_verdicts(
                                do_cache=False,
                                use_gui=False)
     namespace: Dict[str, Any] = {
-        "BaseSimulator": base_simulator_class("pybullet_domino"),
-        "ParamSpec": ParamSpec,
+        # Oracle artifacts load on the privileged base; learned and scene
+        # models get only the visible core.
+        "BaseSimulator":
+        (oracle_base_simulator_class("pybullet_domino")
+         if kind == "oracle" else base_simulator_class("pybullet_domino")),
+        "ParamSpec":
+        ParamSpec,
     }
     source = oracle_source() if kind == "oracle" else '''
 class LearnedDynamics(BaseSimulator):
@@ -167,17 +173,15 @@ RESIDUAL_ENV = LearnedDynamics
         # Every certificate actually ran the fingertips-only probe.
         assert all("fingertips-only" in t["note"] for t in result.trials)
         before = candidate._get_state().copy()
-        if kind != "scene":
+        if kind == "oracle":
             ok, detail = candidate.run_counterfactual_cascade_probe(
                 task.init, [start], task.goal, (0.04, 0.05))
             assert ok, detail
             assert before.allclose(candidate._get_state())
         if kind == "learned":
-            candidate.apply_physical_param_overrides({"friction": 0.6})
-            clone = candidate._get_cascade_probe_env()
-            assert clone.agent_param("friction") == 0.6
-            assert clone._domino_component.physical_param_override[
-                "lateral_friction"] == 0.6
+            # The visible core carries no privileged certificate helpers.
+            assert not hasattr(candidate, "run_counterfactual_cascade_probe")
+            assert not hasattr(candidate, "_get_cascade_probe_env")
         if kind == "scene":
             candidate.apply_physical_param_overrides({"friction": 0.6})
             clients = []
