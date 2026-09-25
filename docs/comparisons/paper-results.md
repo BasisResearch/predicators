@@ -7,7 +7,8 @@
 The figure includes Oracle dynamics, EMPIRIC, Direct agent, Direct + scene, Standalone sim., No harness fitting, and No explicit uncert.
 Direct + scene denotes the direct agent provided with scene assets.
 Paper columns are ordered Domino, Bridge, Balloons, Boil, Fan.
-Agent names appear only in the centered, full-width single-row top legend, above the domain titles, with thick color samples matching the bars and curves.
+Agent names appear only in the full-width top legend, above the domain titles, with thick color samples matching the bars and curves.
+The legend reads by rows, four agents per row, because at the paper's text size seven names do not fit on one row.
 For seeds 0-2, Oracle dynamics uses r2 in Domino and Bridge and the original benchmark cohort in Boil, Balloons, and Fan.
 The five-seed selection additionally includes repaired Oracle seeds 3-4 in every domain, and EMPIRIC r2 seeds 3-4 alongside the original EMPIRIC cohort.
 The other five approaches likewise include the additional seeds 3-4 as they finish.
@@ -24,10 +25,17 @@ Alternating backgrounds distinguish Oracle, comparison methods, and EMPIRIC abla
 The generated `figures/paper-results-opus-summary.json` records the source directory and original arm of each included run.
 Historical cohorts remain separate in the full benchmark figure.
 This paper figure is a separately generated snapshot, not automatically synchronized to Overleaf.
-The snapshot includes the finished seeds available at regeneration time, with larger 12-point agent names in the top legend.
+The snapshot includes the finished seeds available at regeneration time.
+The paper prints the 15 in wide figure at the 5.5 in text width, so its text sizes are set in printed points to match Figures 1 to 3: 5.5 pt ticks, 6 pt axis labels and legend, and 7.2 pt domain titles (`PAPER_FONTS` in the script).
 
 Regenerate on a compute node from the repository root:
 
 ```bash
 PYTHONPATH=. MPLBACKEND=Agg OPENBLAS_NUM_THREADS=1 /home/ycliang/.conda/envs/pred/bin/python scripts/plotting/plot_benchmark_arms.py docs/comparisons/figures/paper-results-opus --paper
+```
+
+To restyle the figure without changing its runs, redraw the archived selection instead of scanning the logs; this needs no compute node:
+
+```bash
+PYTHONPATH=. MPLBACKEND=Agg OPENBLAS_NUM_THREADS=1 /home/ycliang/.conda/envs/pred/bin/python scripts/plotting/plot_benchmark_arms.py docs/comparisons/figures/paper-results-opus --paper --records=docs/comparisons/figures/paper-results-opus-summary.json
 ```

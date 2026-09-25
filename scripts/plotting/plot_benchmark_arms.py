@@ -10,7 +10,9 @@ Arms with no finished run in a domain draw nothing there.
 
 Usage: python scripts/plotting/plot_benchmark_arms.py <output stem>
 Add --paper after the output stem for the seven-arm, two-row paper view,
-using repaired Oracle r2 cohorts in Domino and Bridge only.
+using repaired Oracle r2 cohorts in Domino and Bridge only. Add
+--records=<summary.json> to redraw an archived selection, such as the
+paper's, instead of scanning the logs.
 writes <stem>.png, <stem>.pdf and <stem>-summary.json (per-seed records
 with the run directory each one read, plus the per-arm summary).
 """
@@ -19,7 +21,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, NamedTuple, Optional
 
 import matplotlib
 
@@ -247,6 +249,21 @@ MUTED = {
 Row = Dict[str, Any]
 
 
+class Fonts(NamedTuple):
+    """Text sizes, in points on the figure canvas."""
+    tick: float
+    label: float
+    title: float
+    legend: float
+
+
+SCREEN_FONTS = Fonts(tick=10, label=11, title=12, legend=10)
+# The paper prints its 15 in wide canvas at the 5.5 in text width. These
+# printed sizes match the text of Figures 1 to 3: 5.5 pt ticks, 6 pt labels
+# and legend, 7.2 pt domain titles.
+PAPER_FONTS = Fonts(*(size * 15.0 / 5.5 for size in (5.5, 6.0, 7.2, 6.0)))
+
+
 def colour(arm: str, i: int) -> str:
     """The arm's bar and line colour."""
     return MUTED[arm] if arm in GREYED else COLORS[i]
@@ -336,7 +353,8 @@ def _solve_curves(ax: Any,
                   domain: str,
                   col: int,
                   arms: Optional[List[str]] = None,
-                  curve_style: str = "default") -> None:
+                  curve_style: str = "default",
+                  fonts: Fonts = SCREEN_FONTS) -> None:
     """Fraction of finished runs that solved the domain within each step
     budget: a step up at every solved run's total steps, flat after the
     last one, so the plateau height is the solve rate."""
@@ -403,11 +421,11 @@ def _solve_curves(ax: Any,
                           if x >= 1000 else f"{x:g}"))
         ax.spines[["top", "right", "left"]].set_visible(False)
         ax.spines["bottom"].set_color("#aebec5")
-        ax.tick_params(length=0, pad=4, labelsize=10)
+        ax.tick_params(length=0, pad=4, labelsize=fonts.tick)
         ax.grid(axis="x", color="#dce4e7", lw=.6)
-        ax.set_xlabel("Successful-run steps", fontsize=11)
+        ax.set_xlabel("Successful-run steps", fontsize=fonts.label)
         if col == 0:
-            ax.set_ylabel("Successful seeds", fontsize=11)
+            ax.set_ylabel("Successful seeds", fontsize=fonts.label)
         return
     # Paint in reverse legend order so the primary methods remain visible
     # where curves overlap. EMPIRIC is painted after the
@@ -475,11 +493,11 @@ def _solve_curves(ax: Any,
         FuncFormatter(lambda x, _: f"{x/1000:g}k" if x >= 1000 else f"{x:g}"))
     ax.spines[["top", "right"]].set_visible(False)
     ax.spines[["bottom", "left"]].set_color("#aebec5")
-    ax.tick_params(length=0, pad=4, labelsize=10)
+    ax.tick_params(length=0, pad=4, labelsize=fonts.tick)
     ax.grid(color="#dce4e7", lw=.6)
-    ax.set_xlabel("Step budget", fontsize=11)
+    ax.set_xlabel("Step budget", fontsize=fonts.label)
     if col == 0:
-        ax.set_ylabel("Runs solved (%)", fontsize=11)
+        ax.set_ylabel("Runs solved (%)", fontsize=fonts.label)
 
 
 def render(rows: List[Row],
@@ -492,6 +510,7 @@ def render(rows: List[Row],
         "font.size": 9,
         "pdf.fonttype": 42
     })
+    fonts = PAPER_FONTS if paper else SCREEN_FONTS
     arms = PAPER_ARMS if paper else ARMS
     labels = [LABELS[ARMS.index(a)] for a in arms]
     if paper:
@@ -524,7 +543,7 @@ def render(rows: List[Row],
                         fontsize=9,
                         zorder=5)
             if field == "steps":
-                _solve_curves(ax, rows, domain, col, arms, curve_style)
+                _solve_curves(ax, rows, domain, col, arms, curve_style, fonts)
                 if not any(r["domain"] == domain for r in rows):
                     ax.set_xticks([])
                 continue
@@ -581,7 +600,7 @@ def render(rows: List[Row],
             for group_index, (_, start, end) in enumerate(groups):
                 if group_index % 2 == 0:
                     ax.axhspan(start - .5, end - .5, color="#f2f4f5", zorder=0)
-            ax.set_yticks(range(len(arms)), labels, fontsize=10)
+            ax.set_yticks(range(len(arms)), labels, fontsize=fonts.tick)
             ax.tick_params(axis="y", labelleft=False)
             for tick, arm in zip(ax.get_yticklabels(), arms):
                 if arm in ("MB", "MB_r2"):
@@ -590,18 +609,18 @@ def render(rows: List[Row],
                     tick.set_color("#9aa3a8")
             ax.spines[["top", "right", "left"]].set_visible(False)
             ax.spines["bottom"].set_color("#aebec5")
-            ax.tick_params(length=0, pad=4, labelsize=10)
+            ax.tick_params(length=0, pad=4, labelsize=fonts.tick)
             ax.set_axisbelow(True)
             ax.grid(axis="x", color="#dce4e7", lw=.6)
             if field == "solve":
                 ax.set_xlim((0, 100) if paper else (-3, 108))
                 ax.set_xticks([0, 50, 100])
                 ax.set_title(DISPLAY_TITLE[domain],
-                             fontsize=12,
+                             fontsize=fonts.title,
                              fontweight="bold",
                              color="#203744",
                              pad=6 if paper else 12)
-                ax.set_xlabel("Successful runs (%)", fontsize=11)
+                ax.set_xlabel("Successful runs (%)", fontsize=fonts.label)
             elif field == "steps":
                 maximum = max(
                     (r["steps"] for r in rows
@@ -612,17 +631,20 @@ def render(rows: List[Row],
                 ax.xaxis.set_major_formatter(
                     FuncFormatter(lambda x, _: f"{x/1000:g}k"
                                   if x >= 1000 else f"{x:g}"))
-                ax.set_xlabel("Successful-run steps", fontsize=11)
+                ax.set_xlabel("Successful-run steps", fontsize=fonts.label)
             else:
                 ax.set_xlim(left=-.05, right=max(1, ax.get_xlim()[1]))
                 ax.xaxis.set_major_locator(MaxNLocator(3, integer=True))
-                ax.set_xlabel("Resets (all runs)", fontsize=11)
-    fig.subplots_adjust(left=.06,
-                        right=.99,
-                        top=.87 if paper else .89,
-                        bottom=.11 if paper else .05,
+                ax.set_xlabel("Resets (all runs)", fontsize=fonts.label)
+    # The paper's printed text is larger relative to the canvas, so it fits
+    # four agents per legend row and needs wider margins.
+    legend_columns = 4 if paper else 6
+    fig.subplots_adjust(left=.07 if paper else .06,
+                        right=.985 if paper else .99,
+                        top=.78 if paper else .89,
+                        bottom=.13 if paper else .05,
                         wspace=.23,
-                        hspace=.45)
+                        hspace=.62 if paper else .45)
     handles = []
     legend_labels = []
     legend_arms = []
@@ -635,25 +657,25 @@ def render(rows: List[Row],
                            lw=8.0 if paper else 5.0))
             legend_labels.append(labels[i])
             legend_arms.append(arm)
-    legend_anchor = (.03, .985, .94, 0.) if paper else (.5, .985)
-    if not paper:
-        # Matplotlib fills columns first; keep the visual reading order by row.
-        indices = [
-            i for col in range(6) for i in (col, col + 6) if i < len(arms)
-        ]
-        handles = [handles[i] for i in indices]
-        legend_labels = [legend_labels[i] for i in indices]
-        legend_arms = [legend_arms[i] for i in indices]
+    legend_anchor = (.07, .995, .915, 0.) if paper else (.5, .985)
+    # Matplotlib fills columns first; keep the visual reading order by row.
+    indices = [
+        i for col in range(legend_columns)
+        for i in range(col, len(arms), legend_columns)
+    ]
+    handles = [handles[i] for i in indices]
+    legend_labels = [legend_labels[i] for i in indices]
+    legend_arms = [legend_arms[i] for i in indices]
     leg = fig.legend(handles,
                      legend_labels,
                      loc="upper left" if paper else "upper center",
-                     ncol=len(arms) if paper else 6,
+                     ncol=legend_columns,
                      mode="expand" if paper else None,
                      borderaxespad=0 if paper else .5,
                      columnspacing=0.9 if paper else 2.0,
                      handlelength=2.2 if paper else 2.0,
                      handletextpad=0.65 if paper else 0.8,
-                     fontsize=12 if paper else 10,
+                     fontsize=fonts.legend,
                      frameon=False,
                      bbox_to_anchor=legend_anchor)
     for text, arm in zip(leg.get_texts(), legend_arms):
@@ -673,7 +695,14 @@ def render(rows: List[Row],
 
 def main() -> None:
     """Print every finished seed and draw the figure."""
-    found = records()
+    archive = next((arg.removeprefix("--records=")
+                    for arg in sys.argv[2:] if arg.startswith("--records=")),
+                   None)
+    if archive is None:
+        found = records()
+    else:
+        with open(archive, encoding="utf-8") as f:
+            found = json.load(f)["records"]
     for row in found:
         print(row["domain"], row["arm"], f"s{row['seed']}",
               f"{row['won']}/{row['levels']}", row["steps"], "steps",
@@ -686,7 +715,8 @@ def main() -> None:
         "markers")
     if curve_style not in {"default", "offset", "dashes", "markers", "strips"}:
         raise ValueError(f"Unknown curve style: {curve_style}")
-    render(paper_records(found) if paper else found,
+    # An archived selection is drawn as recorded.
+    render(paper_records(found) if paper and archive is None else found,
            out,
            paper=paper,
            curve_style=curve_style)
