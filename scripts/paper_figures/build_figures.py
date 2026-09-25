@@ -28,6 +28,8 @@ FIG = ROOT / "figures"
 OUTPUT = PAPER / "figures"
 DOMAINS = ["Domino", "Bridge", "Balloons", "Boil", "Fan"]
 INK, MUTED = "#203744", "#5b6e79"
+# Figure 1 sets its captions and labels in black.
+BLACK = "#000000"
 TEAL, RUST, GREEN = "#087f8c", "#bd5929", "#397957"
 PANEL, EDGE = "#f7f9fa", "#d9e2e7"
 NS = "http://www.w3.org/2000/svg"
@@ -425,12 +427,17 @@ def teaser() -> None:
     d.recorded("bridge_pair_observed", 84, 28, 68, 64, BRIDGE_PAIR_CROP)
     d.text(42, 106, "Predicted", 9.5, RUST, anchor="middle")
     d.text(118, 106, "Observed", 9.5, GREEN, anchor="middle")
-    d.text(80, 120, "The base simulator lacks glue.", 8.5, anchor="middle")
-    d.text(192, 34, "Illustrative simulator extension", 8.1, MUTED)
+    d.text(80,
+           120,
+           "The base simulator lacks glue.",
+           8.5,
+           BLACK,
+           anchor="middle")
+    d.text(192, 34, "Illustrative simulator extension", 8.1, BLACK)
     # The same editor colors as Figure 2's listing.
     for i, line in enumerate(GLUE_CODE):
         d.code(192, 48 + 9.6 * i, line, 7.4)
-    d.text(192, 120, "Fit the program to observations.", 8.5)
+    d.text(192, 120, "Fit the program to observations.", 8.5, BLACK)
     d.photo("bridge_exec_04_done",
             376,
             28,
@@ -442,6 +449,7 @@ def teaser() -> None:
            120,
            "Rehearse, then complete the bridge.",
            8.5,
+           BLACK,
            anchor="middle")
     d.arrow(163, 66, 181, 66)
     d.arrow(347, 66, 365, 66)
@@ -453,7 +461,7 @@ def teaser() -> None:
     d.rect(0, top - 8, 528, 2 * h + 42, fill=PANEL, stroke=EDGE)
     for center, label in [(top + h / 2, "Initial"),
                           (top + 1.5 * h + 1, "Final")]:
-        d.text(0, 0, label, 9.6, MUTED, anchor="middle")
+        d.text(0, 0, label, 9.6, BLACK, anchor="middle")
         d.root[-1].set("transform", f"translate(12 {center}) rotate(-90)")
 
     # Each column is named above its mechanism.
@@ -469,7 +477,7 @@ def teaser() -> None:
                top + 2 * h + 25,
                mechanism,
                8,
-               MUTED,
+               BLACK,
                anchor="middle")
 
     for i, (domain, mechanism) in enumerate(zip(DOMAINS, mechanisms)):
