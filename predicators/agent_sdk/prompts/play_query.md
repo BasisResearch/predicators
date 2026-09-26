@@ -104,9 +104,37 @@ Choose the next action from this state and carry it out with the tools, followin
 This arm has no belief model.
 Recorded episodes so far: __N_EPISODES__ (__N_STEPS__ steps), in `./data/trajectories.pkl`.
 
+<!-- section: no_world_model -->
+No world model yet: write `./world_model.py` in `run_python` and check it with `sim.score()` against the recorded skill transitions before you act on a test level.
+Recorded episodes so far: __N_EPISODES__ (__N_STEPS__ steps), in `./data/trajectories.pkl`.
+
+<!-- section: world_model_status -->
+Current file: `world_model.py` __WORLD_MODEL_VERSION__; `sim.run` and `sim.refine` predict with it.
+Recorded episodes so far: __N_EPISODES__ (__N_STEPS__ steps), in `./data/trajectories.pkl`.
+
 <!-- section: no_model -->
 No model yet: `sim` runs the real skill controllers on the visible base physics with hidden mechanisms disabled, so reach, grasp and collision checks already work.
 Build `./simulator.py` (and `./predicates.py` if useful) in `run_python` and call `sim.fit()` before you act on a test level.
+Recorded episodes so far: __N_EPISODES__ (__N_STEPS__ steps).
+
+<!-- section: no_model_declared -->
+No model yet: `sim` runs the real skill controllers on the visible base physics with hidden mechanisms disabled, so reach, grasp and collision checks already work.
+Build `./simulator.py` (and `./predicates.py` if useful) in `run_python` and set its declared values from the recordings before you act on a test level; the harness fits nothing.
+Recorded episodes so far: __N_EPISODES__ (__N_STEPS__ steps).
+
+<!-- section: no_model_scene -->
+No model yet: `sim` has no world until `./simulator.py` loads.
+Build the scene in `./simulator.py` from `reference/scene/scene_manifest.json` and `reference/assets/` (and `./predicates.py` if useful) in `run_python`, check that `sim.reset(current=True)` reconstructs the observation, and set declared values from the recordings before you act on a test level; the harness fits nothing.
+Recorded episodes so far: __N_EPISODES__ (__N_STEPS__ steps).
+
+<!-- section: no_model_zero_shot -->
+No model yet: `sim` runs the real skill controllers on the visible base physics with hidden mechanisms disabled, so reach, grasp and collision checks already work.
+Write `./simulator.py` (and `./predicates.py` if useful) in `run_python` before your first real action or reset; the dynamics are sealed at that point and no call fits them.
+Recorded episodes so far: __N_EPISODES__ (__N_STEPS__ steps).
+
+<!-- section: model_supplied -->
+Model: the supplied simulator, fixed for the run and not exposed as source; `predicates.py` __PREDICATES_VERSION__.
+Calibration: __FIT_STATUS__.
 Recorded episodes so far: __N_EPISODES__ (__N_STEPS__ steps).
 
 <!-- section: model_status -->

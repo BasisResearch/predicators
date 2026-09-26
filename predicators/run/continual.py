@@ -354,6 +354,31 @@ class ProtocolSession:
         """The run's level list."""
         return self._run.levels
 
+    def observed_tasks(self) -> List[Task]:
+        """Reached tasks initialized from recorded public observations.
+
+        Do not expose ``LevelSpec.task.init`` to agents: it is the
+        evaluator's clean state, not a sample from the declared
+        observation channel. Reuse episode zero's cached draw, including
+        after a reset or resume.
+        """
+        tasks = []
+        for k, spec in enumerate(self.levels[:self.level_index + 1]):
+            episodes = (self.level_episodes() if k == self.level_index else
+                        self.previous_level_episodes(k))
+            if not episodes or not episodes[0]["states"]:
+                raise RuntimeError(f"No initial observation for level {k}")
+            initial = episodes[0]["states"][0].copy()
+            tasks.append(replace(spec.task, init=initial))
+        return tasks
+
+    def execution_step_budget(self) -> int:
+        """Remaining primitive actions before the next real execution cap."""
+        ledger = self._run.ledger()
+        episode = ledger.episode_steps_remaining
+        return (ledger.steps_remaining if episode is None else min(
+            ledger.steps_remaining, episode))
+
     @property
     def level_index(self) -> int:
         """The index of the level in progress."""
@@ -811,6 +836,16 @@ class ContinualRun:
         # execution; neither belongs to this invocation, which runs on
         # the true state.
         fresh = option.parent.ground(list(option.objects), option.params)
+        # Wait targets are declarative plan inputs, not controller caches.
+        # Dropping them makes a counted Wait run to its cap even when the
+        # same annotated rehearsal would stop on the target condition.
+        if fresh.name == "Wait":
+            for key, atoms in (("wait_target_atoms", expected),
+                               ("wait_target_neg_atoms", expected_absent
+                                or set())):
+                targets = option.memory.get(key, atoms)
+                if targets:
+                    fresh.memory[key] = set(targets)
         self._in_invocation = True
         try:
             outcome = runner.run_option(fresh)

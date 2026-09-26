@@ -2,7 +2,7 @@
 
 import logging
 from functools import lru_cache
-from typing import Callable, ClassVar, Dict, List, Sequence, Set, Tuple
+from typing import Callable, ClassVar, Dict, List, Sequence, Set, Tuple, Union
 
 import numpy as np
 from gym.spaces import Box
@@ -171,10 +171,11 @@ class PyBulletBalanceGroundTruthOptionFactory(GroundTruthOptionFactory):
                     pybullet_robot=pybullet_robot,
                     option_types=option_types,
                     params_space=params_space),
-                # Move down to place.
+                # Move down to just above the plate's current (tilted)
+                # height, the same release clearance Stack uses.
                 cls._create_blocks_move_to_above_table_option(
                     name="MoveEndEffectorToPutOnPlate",
-                    z=cls.env_cls.z_ub - 0.2,
+                    z=cls._put_on_plate_z,
                     finger_status="closed",
                     pybullet_robot=pybullet_robot,
                     option_types=option_types,
@@ -268,21 +269,33 @@ class PyBulletBalanceGroundTruthOptionFactory(GroundTruthOptionFactory):
             validate=CFG.pybullet_ik_validate)
 
     @classmethod
+    def _put_on_plate_z(cls, state: State, plate: Object) -> float:
+        """End-effector height that holds a block just above a plate."""
+        # pylint: disable=protected-access
+        plate_top = state.get(plate, "z") + cls.env_cls._plate_height
+        block_size = CFG.balance_block_size
+        return plate_top + block_size * 0.5 + block_size * 0.3
+
+    @classmethod
     def _create_blocks_move_to_above_table_option(
-            cls, name: str, z: float, finger_status: str,
+            cls, name: str, z: Union[float,
+                                     Callable[[State, Object],
+                                              float]], finger_status: str,
             pybullet_robot: SingleArmPyBulletRobot, option_types: List[Type],
             params_space: Box) -> ParameterizedOption:
         """Creates a ParameterizedOption for moving to a pose above that of the
         table.
 
-        The z position of the target pose must be provided.
+        The z position of the target pose must be provided, either fixed
+        or as a function of the state and the option's second object.
         """
         home_orn = PyBulletBalanceEnv.get_robot_ee_home_orn()
 
         def _get_current_and_target_pose_and_finger_status(
                 state: State, objects: Sequence[Object],
                 params: Array) -> Tuple[Pose, Pose, str]:
-            robot, _ = objects
+            robot, target = objects
+            target_z = z(state, target) if callable(z) else z
             current_position = (state.get(robot, "x"), state.get(robot, "y"),
                                 state.get(robot, "z"))
             current_pose = Pose(current_position, home_orn)
@@ -293,7 +306,7 @@ class PyBulletBalanceGroundTruthOptionFactory(GroundTruthOptionFactory):
                 (PyBulletBalanceEnv.x_ub - PyBulletBalanceEnv.x_lb) * x_norm,
                 PyBulletBalanceEnv.y_lb +
                 (PyBulletBalanceEnv.y_ub - PyBulletBalanceEnv.y_lb) * y_norm,
-                z)
+                target_z)
             target_pose = Pose(target_position, home_orn)
             return current_pose, target_pose, finger_status
 

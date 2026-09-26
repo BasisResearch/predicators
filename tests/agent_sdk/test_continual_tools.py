@@ -19,6 +19,8 @@ from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES, \
     PRIMITIVE_TOOL_NAMES, PlayState, build_continual_tools, context_status, \
     format_observation, parse_plan_lines, play_tool_names
 from predicators.approaches import create_approach
+from predicators.approaches.agent_model_free_approach import \
+    AgentModelFreeApproach
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
 from predicators.run.continual import ContinualRun, ProtocolSession, RunEnded
@@ -95,6 +97,84 @@ def _oracle_plan_text(approach: Any, task: Any) -> str:
         params = ", ".join(f"{float(p):.6f}" for p in opt.params)
         lines.append(f"{opt.name}({objs})[{params}]")
     return "\n".join(lines)
+
+
+@pytest.mark.parametrize("detail", [
+    "GOAL: welded span1 within -0.0061 m of body 6 (table)",
+    "GOAL: robot within -0.0354 m of switch_0",
+    "GOAL: held object within -0.0033 m of domino_4",
+    "Waypoint_1 penetrates faucet by 0.0082 m",
+])
+@pytest.mark.parametrize("via_plan", [False, True])
+def test_controller_diagnostics_are_private(tmp_path: Any, monkeypatch: Any,
+                                            detail: str,
+                                            via_plan: bool) -> None:
+    """Recorded leaks must not reach live skill tools or invocation records."""
+    env, approach, ctx = _setup(tmp_path)
+    driver = _Driver()
+
+    def bad_policy(_state: Any) -> Any:
+        raise utils.OptionExecutionFailure(detail)
+
+    def body(session: ProtocolSession) -> None:
+        plan = _oracle_plan_text(approach, session.observe().level.task)
+        monkeypatch.setattr(utils, "option_plan_to_policy",
+                            lambda *args, **kwargs: bad_policy)
+        tools = build_continual_tools(ctx,
+                                      session,
+                                      PlayState(),
+                                      save_render=lambda tag: None)
+        if via_plan:
+            out = _call(tools, "skills_execute_plan", plan=plan, note="audit")
+        else:
+            out = _call(tools,
+                        "skills_invoke",
+                        skill=plan.splitlines()[0],
+                        note="audit")
+        assert "failed after 0 steps" in out
+        assert "requested motion could not be completed" in out
+        entry = next(e for e in session.index_entries()
+                     if e.get("event") == "invoke")
+        assert entry["reason"] not in ("", detail)
+        assert "welded" not in out and "within" not in out
+        assert not re.search(r"0\.0061|0\.0354|0\.0033|0\.0082", out)
+        assert entry["reason"] in out
+
+    driver.body = body
+    ContinualRun(env, approach, driver).run()
+
+
+@pytest.mark.parametrize("env_name", [
+    "pybullet_bridge", "pybullet_boil", "pybullet_fan", "pybullet_domino",
+    "pybullet_balloons"
+])
+def test_shared_controller_references_are_public_api(env_name: str) -> None:
+    """The MF parent supplies API documentation instead of engine source."""
+    utils.reset_config({"env": env_name})
+    approach = object.__new__(AgentModelFreeApproach)
+    references = approach._get_sandbox_reference_files()  # pylint: disable=protected-access
+    assert references == {
+        "skills.md": "predicators/agent_sdk/prompts/public_skills.md"
+    }
+
+
+def test_skill_policy_failure_is_private(tmp_path: Any) -> None:
+    """Policy execution uses the same public failure boundary as skills."""
+    env, approach, _ = _setup(tmp_path)
+    driver = _Driver()
+
+    def bad_policy(_state: Any) -> Any:
+        raise utils.OptionExecutionFailure(
+            "GOAL: welded span1 within -0.0061 m of body 6 (table)")
+
+    def body(session: ProtocolSession) -> None:
+        outcome = session.run_policy(bad_policy, "audit")
+        assert outcome.status == "failed" and outcome.steps == 0
+        assert "requested motion could not be completed" in outcome.reason
+        assert "welded" not in outcome.reason and "0.0061" not in outcome.reason
+
+    driver.body = body
+    ContinualRun(env, approach, driver).run()
 
 
 def test_tools_play_a_level_to_a_win(tmp_path: Any) -> None:
@@ -720,6 +800,29 @@ def test_skill_preflight_refuses_without_charging_unless_forced(
         out = _call(tools, "skills_execute_plan", plan=line)
         assert "Nothing was charged" not in out
         ctx.skill_preflight = None
+
+    driver.body = body
+    ContinualRun(env, approach, driver).run()
+
+
+@pytest.mark.parametrize("preflight", [False, True])
+def test_skill_tools_mention_the_preflight_only_when_it_is_on(
+        tmp_path: Any, preflight: bool) -> None:
+    """The skill tools describe a rehearsal and offer ``force`` only when the
+    skill preflight is on; otherwise no arm rehearses a request first."""
+    env, approach, ctx = _setup(tmp_path, continual_skill_preflight=preflight)
+    driver = _Driver()
+
+    def body(session: ProtocolSession) -> None:
+        tools = {
+            t.name: t
+            for t in build_continual_tools(
+                ctx, session, PlayState(), save_render=lambda tag: None)
+        }
+        for name in ("skills_invoke", "skills_execute_plan"):
+            tool = tools[name]
+            assert ("first rehearses" in tool.description) is preflight
+            assert ("force" in tool.input_schema["properties"]) is preflight
 
     driver.body = body
     ContinualRun(env, approach, driver).run()

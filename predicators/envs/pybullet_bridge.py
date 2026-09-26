@@ -59,9 +59,25 @@ Example command (oracle demo via bilevel process planning)::
         --approach oracle_process_planning --seed 0 \
         --num_train_tasks 0 --num_test_tasks 5 \
         --sesame_check_expected_atoms False
+
+The observable simulation core (scene geometry, block / bottle / site /
+glue-patch body construction, state read/write) lives in
+:mod:`predicators.envs.pybullet_bridge_base`, which may be surfaced to
+learning agents as reference source. This module holds everything an
+agent must LEARN or must not see:
+
+* the glue residual dynamics (``_domain_specific_step``: wetting,
+  curing, wet-joint tacks, latching and the weld lifecycle) and every
+  constant of those laws - the learning target of the sim-learning
+  experiments;
+* task generation (the train/test distribution and staging layout);
+* predicates, goal semantics and the settle certificate (their
+  thresholds are what predicate invention rediscovers).
 """
 
 import itertools
+import json
+import logging
 from typing import Any, ClassVar, Dict, FrozenSet, List, Optional, Sequence, \
     Set, Tuple
 
@@ -69,108 +85,28 @@ import numpy as np
 import pybullet as p
 
 from predicators import utils
-from predicators.envs.pybullet_env import PyBulletEnv
-from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
-from predicators.pybullet_helpers.objects import create_object, \
-    create_pybullet_block, update_object
-from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
+from predicators.envs.pybullet_bridge_base import ATTACH_SLOTS, GLUE_FACES, \
+    PyBulletBridgeBaseEnv
 from predicators.settings import CFG
 from predicators.structs import Action, DerivedPredicate, EnvironmentTask, \
-    GroundAtom, Object, Observation, Predicate, State, Type
-
-# Faces that can be wetted with glue (block-local frame).
-GLUE_FACES = ("top", "end_a", "end_b")
-# Attachment slots: a cured joint occupies one slot on each block.
-# ``bottom`` exists because a stack/seat joint welds a wet ``top`` to
-# the underside of the partner.
-ATTACH_SLOTS = ("top", "bottom", "end_a", "end_b")
+    GroundAtom, Object, Observation, Predicate, State
 
 
-class PyBulletBridgeEnv(PyBulletEnv):
+class PyBulletBridgeEnv(PyBulletBridgeBaseEnv):
     """Build an n-shaped bridge by gluing blocks; cured joints physically weld
     blocks into rigid assemblies.
 
-    Two block schemas, one logical type: the fully-observable
-    ``_block_type`` carries the ``cure_*`` counters and ``attached_*``
-    slots as observable features, while ``_block_type_po`` drops both
-    (they ride ``state.privileged`` instead). Both keep them as
-    ``sim_features`` so the ``block.cure_top`` (etc.) Python attributes
-    -- the internal source of truth -- always drive the dynamics.
-    ``__init__`` swaps the type when ``CFG.partially_observable`` is
-    set.
+    Subclass of the observable sim core (see
+    :mod:`predicators.envs.pybullet_bridge_base`); this class adds the
+    hidden glue dynamics, task generation, and predicates.
     """
 
     # -------------------------------------------------------------------------
-    # Table / workspace config (mirrors pybullet_bond)
+    # Task layout
     # -------------------------------------------------------------------------
-    table_height: ClassVar[float] = 0.4
-    table_pos: ClassVar[Pose3D] = (0.75, 1.35, table_height / 2)
-    table_orn: ClassVar[Quaternion] = p.getQuaternionFromEuler(
-        [0.0, 0.0, np.pi / 2.0])
-
-    x_lb: ClassVar[float] = 0.4
-    x_ub: ClassVar[float] = 1.1
-    y_lb: ClassVar[float] = 1.1
-    y_ub: ClassVar[float] = 1.6
-    z_lb: ClassVar[float] = table_height
-    z_ub: ClassVar[float] = 0.75 + table_height / 2
-    x_mid: ClassVar[float] = (x_lb + x_ub) / 2
-    y_mid: ClassVar[float] = (y_lb + y_ub) / 2
-
-    # -------------------------------------------------------------------------
-    # Robot config
-    # -------------------------------------------------------------------------
-    robot_init_x: ClassVar[float] = (x_lb + x_ub) * 0.5
-    robot_init_y: ClassVar[float] = (y_lb + y_ub) * 0.5
-    robot_init_z: ClassVar[float] = z_ub - 0.1
-    robot_base_pos: ClassVar[Pose3D] = (0.75, 0.65, 0.0)
-    robot_base_orn: ClassVar[Quaternion] = p.getQuaternionFromEuler(
-        [0.0, 0.0, np.pi / 2])
-    robot_init_tilt: ClassVar[float] = np.pi / 2
-    robot_init_wrist: ClassVar[float] = -np.pi / 2
-
-    # -------------------------------------------------------------------------
-    # Camera
-    # -------------------------------------------------------------------------
-    _camera_distance: ClassVar[float] = 1.3
-    _camera_yaw: ClassVar[float] = 60
-    _camera_pitch: ClassVar[float] = -38
-    _camera_target: ClassVar[Tuple[float, float, float]] = (0.75, 1.25, 0.42)
-
-    # -------------------------------------------------------------------------
-    # Geometry
-    # -------------------------------------------------------------------------
-    # ONE block shape (a 10x5x5 box, long axis = local x); legs and
-    # spans are the SAME block at different orientations. A leg is the
-    # box stood on end: pitch = -pi/2 (local +x up, so its world-top
-    # face is its local ``end_b`` face). Orientation features are
-    # (pitch, yaw); raw Euler read-backs at pitch = +-pi/2 hit the
-    # gimbal singularity, so the env canonicalizes block orientations
-    # from the quaternion (see _canonical_block_orientation).
-    block_half_extents: ClassVar[Tuple[float, float,
-                                       float]] = (0.05, 0.025, 0.025)
-    # World-frame half extents by orientation family (conveniences
-    # derived from block_half_extents; samplers and GT models size
-    # standing/lying geometry with these).
-    leg_half_extents: ClassVar[Tuple[float, float,
-                                     float]] = (0.025, 0.025, 0.05)
-    span_half_extents: ClassVar[Tuple[float, float,
-                                      float]] = (0.05, 0.025, 0.025)
-    # Single source of truth for the block roster: __init__'s Object
-    # lists and initialize_pybullet's body creation both read these.
-    n_legs: ClassVar[int] = 2
+    # Default span count of a task (the live counts come from
+    # CFG.bridge_train_span_blocks / CFG.bridge_test_span_blocks).
     n_spans: ClassVar[int] = 3
-    # Blocks carry a full free-SO(3) orientation as (roll, pitch, yaw);
-    # register the triple so reconstruction diffs compare it as one
-    # rotation (geodesic angle) instead of axis-by-axis, which is
-    # spuriously large at the gimbal pole (standing blocks).
-    _ORIENTATION_EULER_TRIPLES: ClassVar[Tuple[Tuple[str, str, str], ...]] = \
-        PyBulletEnv._ORIENTATION_EULER_TRIPLES + (("roll", "pitch", "yaw"), )
-    block_mass: ClassVar[float] = 0.1
-    bottle_half_extents: ClassVar[Tuple[float, float,
-                                        float]] = (0.012, 0.012, 0.03)
-    site_half_extents: ClassVar[Tuple[float, float,
-                                      float]] = (0.045, 0.045, 0.0001)
     # Sites (where the legs stand) sit mid-table so the finished
     # bridge stands centered, with staging split around it: a
     # two-row front band and a back row, none overlapping the bridge
@@ -302,10 +238,6 @@ class PyBulletBridgeEnv(PyBulletEnv):
     strip_x_slack: ClassVar[float] = 0.02
 
     # Colors
-    # Fixed muted slate for the site pads (reads as a "marked spot" on
-    # the pale wood table without shouting).
-    site_color: ClassVar[Tuple[float, float, float,
-                               float]] = (0.42, 0.47, 0.53, 1.0)
     # Block colors are drawn per task from role families chosen to sit
     # well together on the wood table: legs from cool blues/teals,
     # spans from warm terracotta/amber. Within a task the draws are
@@ -322,111 +254,8 @@ class PyBulletBridgeEnv(PyBulletEnv):
         (0.72, 0.35, 0.38),  # rosewood
         (0.85, 0.53, 0.42),  # clay
     )
-    bottle_color: ClassVar[Tuple[float, float, float,
-                                 float]] = (0.9, 0.9, 0.98, 1.0)  # off-white
-    glue_wet_color: ClassVar[Tuple[float, float, float,
-                                   float]] = (0.95, 0.85, 0.25, 0.9)  # yellow
-
-    # -------------------------------------------------------------------------
-    # Types
-    # -------------------------------------------------------------------------
-    _robot_type = Type("robot",
-                       ["x", "y", "z", "fingers", "roll", "tilt", "wrist"],
-                       angular_features=["roll", "tilt", "wrist"])
-    # `glue_*` (wet-glue flags) are observable in both modes.
-    # `attached_*` (partner block index, -1 if none) and `cure_*` (the
-    # per-joint dwell counters) are observable in FO mode but dropped
-    # from the PO type -- there they ride ``state.privileged`` and the
-    # agent must postulate attachment as a latent relation from
-    # co-motion. All stay Python attributes (the internal source of
-    # truth) so they always drive the dynamics.
-    # Pose is the FULL 6D (x, y, z, roll, pitch, yaw): orientation =
-    # Rz(yaw) @ Ry(pitch) @ Rx(roll), so pitch = elevation of the
-    # block's long axis (0 = lying flat, -pi/2 = standing with local +x
-    # up, the leg pose), yaw = azimuth, roll = spin about the long
-    # axis. Any physical orientation is representable -- nothing is
-    # silently erased at state syncs. Features are CANONICALIZED from
-    # the quaternion on read (see _canonical_block_orientation): within
-    # ~1 deg of the gimbal pole the roll/yaw split is numerically
-    # degenerate, so roll folds to 0 there; reconstruction checks
-    # compare the triple as a geodesic rotation (gimbal-safe), not
-    # axis-by-axis.
-    # half_x/y/z are the block's BODY-FRAME half extents (constant;
-    # local x is the long axis). Observable geometry: an agent needs
-    # them to compute face centers, dab points, and touch spacings
-    # without probing the physics for block dimensions.
-    _block_features_common = [
-        "x", "y", "z", "roll", "pitch", "yaw", "half_x", "half_y", "half_z",
-        "is_held", "glue_top", "glue_end_a", "glue_end_b"
-    ]
-    # attached_* (partner block index, -1 = none) are observable ONLY
-    # in FO mode: no real perception system emits "attached to block
-    # 3" -- attachment is inferred from co-motion. In PO mode they ride
-    # the privileged channel (like cure_*), and a world-model learner
-    # must postulate attachment as a LATENT relation whose only
-    # observable footprint is kinematic.
-    _block_features_attached = [
-        "attached_top", "attached_bottom", "attached_end_a", "attached_end_b"
-    ]
-    _block_features_tail = ["r", "g", "b"]
-    _block_sim_features = [
-        "id", "glue_top", "glue_end_a", "glue_end_b", "cure_top", "cure_end_a",
-        "cure_end_b", "attached_top", "attached_bottom", "attached_end_a",
-        "attached_end_b"
-    ]
-    _block_type = Type("block",
-                       _block_features_common +
-                       ["cure_top", "cure_end_a", "cure_end_b"] +
-                       _block_features_attached + _block_features_tail,
-                       sim_features=_block_sim_features,
-                       angular_features=["roll", "pitch", "yaw"])
-    _block_type_po = Type("block",
-                          _block_features_common + _block_features_tail,
-                          sim_features=_block_sim_features,
-                          angular_features=["roll", "pitch", "yaw"])
-    _bottle_type = Type("bottle", ["x", "y", "z", "rot", "is_held"],
-                        sim_features=["id"],
-                        angular_features=["rot"])
-    _site_type = Type("site", ["x", "y", "z"], sim_features=["id"])
-
-    @classmethod
-    def _span_pool_size(cls) -> int:
-        """Allocate bodies for either split without changing live class
-        state."""
-        counts = (CFG.bridge_train_span_blocks, CFG.bridge_test_span_blocks)
-        if any(not isinstance(n, int) or n < 3 or n > 4 for n in counts):
-            raise ValueError(
-                "Bridge supports three or four span blocks per task")
-        return max(counts)
 
     def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
-        # In partial-observability mode, swap the block type to the
-        # variant without `cure_*` *before* any blocks/predicates are
-        # built, so the reduced schema propagates everywhere.
-        if CFG.partially_observable:
-            self._block_type = self._block_type_po
-
-        # Robot
-        self._robot = Object("robot", self._robot_type)
-
-        # Blocks: n_legs + n_spans of the ONE shape, fixed names.
-        self._legs = [
-            Object(f"leg{i}", self._block_type) for i in range(self.n_legs)
-        ]
-        self._spans = [
-            Object(f"span{i}", self._block_type)
-            for i in range(self._span_pool_size())
-        ]
-        self._blocks: List[Object] = self._legs + self._spans
-        self._block_index: Dict[str, int] = {
-            blk.name: i
-            for i, blk in enumerate(self._blocks)
-        }
-
-        # Glue bottle and the two leg sites.
-        self._bottle = Object("bottle", self._bottle_type)
-        self._sites = [Object(f"site{i}", self._site_type) for i in range(2)]
-
         # Live weld constraints: frozenset({body_id_a, body_id_b}) ->
         # PyBullet constraint id. Must exist before super().__init__
         # (reset paths may call _set_domain_specific_state).
@@ -438,8 +267,6 @@ class PyBulletBridgeEnv(PyBulletEnv):
         # Live wet-glue tacks (see _sync_wet_joint_tacks):
         # frozenset({body_id_a, body_id_b}) -> constraint id.
         self._tack_constraints: Dict[FrozenSet[int], int] = {}
-        # Glue-patch visual bodies: block name -> face -> body id.
-        self._glue_patch_ids: Dict[str, Dict[str, int]] = {}
 
         super().__init__(use_gui, **kwargs)
 
@@ -519,6 +346,20 @@ class PyBulletBridgeEnv(PyBulletEnv):
             "EndsFree", [self._block_type],
             self._EndsFree_holds_from_atoms,
             auxiliary_predicates={self._NextToEnd, self._Attached})
+        # RowComplete(first, last) = a cured Attached path from first to
+        # last runs through exactly the task's span count of lying
+        # blocks. DERIVED from Lying / Standing / Attached atoms,
+        # and required of the outer spans by PickRow / SeatSpan: Bridged
+        # needs every span in the row, so a seat operator over fewer
+        # spans than the task has would add a fictional Bridged (the
+        # planner seated a welded three-span chain in a four-span task
+        # and then had to dismantle the seated row to add the fourth).
+        # Role-free like Bridged: a toppled leg lies but is not welded,
+        # so it neither joins nor blocks the row.
+        self._RowComplete = DerivedPredicate(
+            "RowComplete", [self._block_type, self._block_type],
+            self._RowComplete_holds_from_atoms,
+            auxiliary_predicates={self._Lying, self._Standing, self._Attached})
 
     @classmethod
     def get_name(cls) -> str:
@@ -531,7 +372,7 @@ class PyBulletBridgeEnv(PyBulletEnv):
             self._GlueEndB, self._NextToEnd, self._SeatedOn, self._AtSite,
             self._Bridged, self._SiteFree, self._Attached, self._Standing,
             self._Lying, self._Loose, self._Resting, self._TopFree,
-            self._EndsFree
+            self._EndsFree, self._RowComplete
         }
 
     @property
@@ -550,6 +391,63 @@ class PyBulletBridgeEnv(PyBulletEnv):
     # (~3.4 cm of drop), so this carries ample margin.
     _GOAL_SETTLE_SUBSTEPS: ClassVar[int] = 60
 
+    def episode_terminated(self, observations: Sequence[Observation]) -> bool:
+        """Let the robot withdraw before certifying a candidate bridge.
+
+        The goal atoms hold at the release step itself, while the open
+        fingers still straddle the row; with
+        ``bridge_goal_robot_clearance`` set, the certificate waits until
+        every robot link is clear of every block, so the settle below
+        judges the structure and not a gripper leaning on it.
+        """
+        if not super().episode_terminated(observations):
+            return False
+        clearance = CFG.bridge_goal_robot_clearance
+        if clearance <= 0:
+            return True
+        return not any(
+            p.getClosestPoints(self._pybullet_robot.robot_id,
+                               block.id,
+                               clearance,
+                               physicsClientId=self._physics_client_id)
+            for block in self._task_blocks() if block.id is not None)
+
+    def _task_blocks(self) -> List[Object]:
+        """The blocks of the CURRENT task: the body pool holds the larger of
+        the train and test span counts, so a three-span task in a transfer run
+        has a pooled fourth span that is in no state (reading it raised
+        KeyError from the certificate on the step that completed the
+        bridge)."""
+        state = self._get_state()
+        return [blk for blk in self._blocks if blk in state.data]
+
+    def _certificate_snapshot(self) -> Dict[str, Any]:
+        """Private diagnostics for the certificate log, never part of the
+        agent's observation."""
+        state = self._get_state()
+        return {
+            "poses": {
+                obj.name: {
+                    f: float(state.get(obj, f))
+                    for f in ("x", "y", "z", "roll", "pitch", "yaw")
+                }
+                for obj in self._blocks if obj in state.data
+            },
+            "velocities":
+            self._body_velocity_records(),
+            "joints":
+            self._pybullet_robot.get_joints(),
+            "welds": [
+                p.getConstraintInfo(cid,
+                                    physicsClientId=self._physics_client_id)
+                for cid in self._weld_constraints.values()
+            ],
+            "contacts":
+            p.getContactPoints(physicsClientId=self._physics_client_id),
+            "atoms":
+            sorted(map(str, utils.abstract(state, self.predicates))),
+        }
+
     def check_episode_trajectory(
             self, observations: Sequence[Observation],
             actions: Sequence[Action]) -> Tuple[bool, str]:
@@ -565,165 +463,46 @@ class PyBulletBridgeEnv(PyBulletEnv):
         the NextToEnd window within one action's worth of substeps.
         Raw ``stepSimulation`` on purpose - no robot actuation, no wet
         tack, no cure progression - so the structure must stand by its
-        cured joints alone. Runs once at episode end, so mutating the
-        sim is safe (the env is reset before its next use).
+        cured joints alone. The one piece of ordinary dynamics kept is
+        the anti-creep weld re-anchoring (``_relax_resting_welds``, once
+        per action's worth of substeps): it never props up an unwelded
+        span, but without it the resting welds skate exactly as they do
+        in idle play, which the certificate must not punish. Runs once
+        at episode end, so mutating the sim is safe (the env is reset
+        before its next use); the settled scene is what the runner
+        records, and the certificate logs its before/after diagnostics.
         """
         ok, reason = super().check_episode_trajectory(observations, actions)
         if not ok:
             return ok, reason
-        for _ in range(self._GOAL_SETTLE_SUBSTEPS):
+        before = self._certificate_snapshot()
+        for substep in range(self._GOAL_SETTLE_SUBSTEPS):
             p.stepSimulation(physicsClientId=self._physics_client_id)
+            if (substep + 1) % CFG.pybullet_sim_steps_per_action == 0:
+                self._relax_resting_welds()
         settled = self._get_state()
         goal = self._current_task.goal_description
         assert isinstance(goal, set)
         missing = [a for a in goal if not a.holds(settled)]
+        after = self._certificate_snapshot()
+        logging.info(
+            "[bridge certificate] %s",
+            json.dumps({
+                "before": before,
+                "after": after,
+                "substeps": self._GOAL_SETTLE_SUBSTEPS,
+                "accepted": not missing,
+            }))
         if missing:
+            lost = sorted(set(before["atoms"]) - set(after["atoms"]))
             return False, ("goal geometry did not survive settling "
-                           f"(collapsed: {sorted(map(str, missing))}); an "
-                           "unwelded row cannot stand")
+                           f"(missing: {sorted(map(str, missing))}; "
+                           f"lost relations: {lost})")
         return True, ""
-
-    @property
-    def types(self) -> Set[Type]:
-        return {
-            self._robot_type, self._block_type, self._bottle_type,
-            self._site_type
-        }
-
-    # -------------------------------------------------------------------------
-    # PyBullet Initialization
-    # -------------------------------------------------------------------------
-    @classmethod
-    def initialize_pybullet(
-            cls, using_gui: bool
-    ) -> Tuple[int, SingleArmPyBulletRobot, Dict[str, Any]]:
-        physics_client_id, pybullet_robot, bodies = super(
-        ).initialize_pybullet(using_gui)
-
-        # Table
-        table_id = create_object(asset_path="urdf/table.urdf",
-                                 position=cls.table_pos,
-                                 orientation=cls.table_orn,
-                                 scale=1.0,
-                                 use_fixed_base=True,
-                                 physics_client_id=physics_client_id)
-        bodies["table_id"] = table_id
-
-        # Blocks: legs (standing shape) + spans (lying shape). The
-        # counts MUST match the Object lists in __init__ -- the bodies
-        # are zipped with the objects positionally. Every block is the
-        # SAME box; legs are just blocks stood on end (orientation).
-        block_ids = []
-        for _ in range(cls.n_legs + cls._span_pool_size()):
-            block_id = create_pybullet_block(
-                color=(0.5, 0.5, 0.9, 1.0),
-                half_extents=cls.block_half_extents,
-                mass=cls.block_mass,
-                friction=1.0,
-                physics_client_id=physics_client_id)
-            # Damp post-landing slide/twist (see pybullet_bond).
-            p.changeDynamics(block_id,
-                             -1,
-                             spinningFriction=0.1,
-                             rollingFriction=0.01,
-                             physicsClientId=physics_client_id)
-            block_ids.append(block_id)
-        bodies["block_ids"] = block_ids
-
-        # Glue bottle (slim box, top-graspable).
-        bottle_id = create_pybullet_block(color=cls.bottle_color,
-                                          half_extents=cls.bottle_half_extents,
-                                          mass=0.05,
-                                          friction=1.0,
-                                          physics_client_id=physics_client_id)
-        bodies["bottle_id"] = bottle_id
-
-        # Two site pads (thin fixed plates marking the leg positions).
-        site_ids = []
-        for _ in range(2):
-            site_id = create_pybullet_block(
-                color=cls.site_color,
-                half_extents=cls.site_half_extents,
-                mass=0,
-                friction=0.5,
-                physics_client_id=physics_client_id)
-            site_ids.append(site_id)
-        bodies["site_ids"] = site_ids
-
-        # Wet-glue visual patches: one per block face, collision-free
-        # (baseCollisionShapeIndex=-1), parked out of view when dry.
-        # PyBullet can't tint one face of a single-shape body, so these
-        # carry the "this face is wet" rendering.
-        patch_ids: List[List[int]] = []
-        oov_x, oov_y = cls._out_of_view_xy
-        hx, hy, hz = cls.block_half_extents
-        for i in range(cls.n_legs + cls._span_pool_size()):
-            per_face = []
-            for face in GLUE_FACES:
-                if face == "top":
-                    patch_half = (hx - 0.001, hy - 0.001, 0.0015)
-                else:
-                    patch_half = (0.0015, hy - 0.001, hz - 0.001)
-                vis_id = p.createVisualShape(p.GEOM_BOX,
-                                             halfExtents=patch_half,
-                                             rgbaColor=cls.glue_wet_color,
-                                             physicsClientId=physics_client_id)
-                patch_id = p.createMultiBody(baseMass=0,
-                                             baseCollisionShapeIndex=-1,
-                                             baseVisualShapeIndex=vis_id,
-                                             basePosition=(oov_x, oov_y,
-                                                           -1.0 - 0.1 * i),
-                                             physicsClientId=physics_client_id)
-                per_face.append(patch_id)
-            patch_ids.append(per_face)
-        bodies["glue_patch_ids"] = patch_ids
-
-        return physics_client_id, pybullet_robot, bodies
-
-    def _store_pybullet_bodies(self, pybullet_bodies: Dict[str, Any]) -> None:
-        self._table_ids = [pybullet_bodies["table_id"]]
-        self._robot.id = self._pybullet_robot.robot_id
-        for i, blk in enumerate(self._blocks):
-            blk.id = pybullet_bodies["block_ids"][i]
-        self._bottle.id = pybullet_bodies["bottle_id"]
-        for i, site in enumerate(self._sites):
-            site.id = pybullet_bodies["site_ids"][i]
-        self._glue_patch_ids = {
-            blk.name:
-            dict(zip(GLUE_FACES, pybullet_bodies["glue_patch_ids"][i]))
-            for i, blk in enumerate(self._blocks)
-        }
 
     # -------------------------------------------------------------------------
     # Small helpers
     # -------------------------------------------------------------------------
-    def _own_block(self, blk: Object) -> Object:
-        """This env's canonical instance of ``blk``, matched by name.
-
-        Glue/cure/attached live in ``Object.sim_data``, which is stored
-        on the INSTANCE. States routinely cross env instances (option-
-        model resets, refinement rollouts, fresh test envs) carrying the
-        source env's Object instances, so reading or writing sim_data
-        through a state-derived block would silently share hidden glue
-        state between envs. Every sim_data access therefore resolves to
-        the env-owned instance first.
-        """
-        idx = self._block_index.get(blk.name)
-        return self._blocks[idx] if idx is not None else blk
-
-    def _attr(self, blk: Object, name: str, default: float) -> float:
-        """Read a sim-feature attribute off this env's own instance.
-
-        The None default is explicit because 0.0 is a meaningful value
-        for attached_* (block index 0).
-        """
-        val = getattr(self._own_block(blk), name)
-        return float(val) if val is not None else default
-
-    def _set_attr(self, blk: Object, name: str, value: float) -> None:
-        """Write a sim-feature attribute onto this env's own instance."""
-        setattr(self._own_block(blk), name, value)
-
     @classmethod
     def _is_leg_shaped(cls, blk: Object) -> bool:
         """Task-generation ROLE by name (which blocks start standing).
@@ -746,44 +525,6 @@ class PyBulletBridgeEnv(PyBulletEnv):
         return cls.leg_half_extents if cls._stands(state, blk) \
             else cls.span_half_extents
 
-    @staticmethod
-    def _block_rotation(state: State, blk: Object) -> np.ndarray:
-        """World-from-local rotation matrix from the (roll, pitch, yaw)
-        pose."""
-        quat = p.getQuaternionFromEuler([
-            state.get(blk, "roll"),
-            state.get(blk, "pitch"),
-            state.get(blk, "yaw")
-        ])
-        return np.array(p.getMatrixFromQuaternion(quat)).reshape(3, 3)
-
-    # Within this angular distance of the gimbal pole (|pitch| = pi/2)
-    # the roll/yaw Euler split is numerically degenerate; canonical
-    # reads fold roll into yaw there so a resting standing block's
-    # features stay stable across snapshots.
-    _GIMBAL_FOLD_BAND: ClassVar[float] = 0.02
-
-    @classmethod
-    def _canonical_block_orientation(
-            cls, orn: Sequence[float]) -> Tuple[float, float, float]:
-        """(roll, pitch, yaw) from a quaternion -- the FULL orientation.
-
-        Away from the gimbal pole this is PyBullet's exact Euler
-        extraction. Within ~1 deg of the pole the roll/yaw split is
-        degenerate (only their combination is meaningful), so roll is
-        folded to 0 and its contribution transferred into yaw -- the
-        represented orientation changes by at most the pole distance.
-        """
-        roll, pitch, yaw = p.getEulerFromQuaternion(list(orn))
-        if abs(abs(pitch) - np.pi / 2) < cls._GIMBAL_FOLD_BAND:
-            # At the pole R = Rz(yaw -+ roll) @ Ry(+-pi/2); fold roll.
-            if pitch < 0:  # pitch -> -pi/2
-                yaw = float((yaw + roll + np.pi) % (2 * np.pi) - np.pi)
-            else:  # pitch -> +pi/2
-                yaw = float((yaw - roll + np.pi) % (2 * np.pi) - np.pi)
-            roll = 0.0
-        return float(roll), float(pitch), float(yaw)
-
     @classmethod
     def _ideal_block_orientation(
             cls, orn: Sequence[float]) -> Tuple[float, float, float, float]:
@@ -794,40 +535,6 @@ class PyBulletBridgeEnv(PyBulletEnv):
         roll = round(roll / half_pi) * half_pi
         pitch = round(pitch / half_pi) * half_pi
         return p.getQuaternionFromEuler([roll, pitch, yaw])
-
-    @staticmethod
-    def _attached_value(state: State, blk: Object, slot: str) -> float:
-        """``attached_<slot>`` from the state, falling back to the privileged
-        channel when the feature is hidden (PO mode).
-
-        Env-side classifiers (goal checking, Loose/Attached gates) are
-        ground truth and may read privileged state; the agent never sees
-        it.
-        """
-        feat = f"attached_{slot}"
-        if feat in blk.type.feature_names:
-            return state.get(blk, feat)
-        priv = state.privileged or {}
-        return float(priv.get(blk.name, {}).get(feat, -1.0))
-
-    # Face definitions in the BLOCK-LOCAL frame: normal axis index and
-    # sign. ``top`` is the wide local +z face; ``end_a``/``end_b`` the
-    # square local -x/+x faces. A standing leg (local +x up) therefore
-    # presents its ``end_b`` face as its world-top.
-    _FACE_AXES: ClassVar[Dict[str, Tuple[int, float]]] = {
-        "top": (2, 1.0),
-        "end_a": (0, -1.0),
-        "end_b": (0, 1.0),
-    }
-
-    @classmethod
-    def _face_world_dir(cls, state: State, blk: Object,
-                        face: str) -> Tuple[float, float, float]:
-        """Outward unit normal of a face in world frame."""
-        axis, sign = cls._FACE_AXES[face]
-        rmat = cls._block_rotation(state, blk)
-        n = sign * rmat[:, axis]
-        return (float(n[0]), float(n[1]), float(n[2]))
 
     @classmethod
     def _face_dab_point(cls, state: State, blk: Object,
@@ -865,125 +572,8 @@ class PyBulletBridgeEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     # State Management
     # -------------------------------------------------------------------------
-    def _get_object_ids_for_held_check(self) -> List[int]:
-        ids = [blk.id for blk in self._blocks if blk.id is not None]
-        if self._bottle.id is not None:
-            ids.append(self._bottle.id)
-        return ids
-
-    def _get_domain_specific_feature(self, obj: Object, feature: str) -> float:
-        if obj.type in (self._block_type, self._block_type_po):
-            if feature.startswith("glue_") or feature.startswith("cure_"):
-                return self._attr(obj, feature, 0.0)
-            if feature.startswith("attached_"):
-                return self._attr(obj, feature, -1.0)
-            if feature == "half_x":
-                return self.block_half_extents[0]
-            if feature == "half_y":
-                return self.block_half_extents[1]
-            if feature == "half_z":
-                return self.block_half_extents[2]
-        raise ValueError(f"Unknown feature {feature} for object {obj}.")
-
-    def _is_block(self, obj: Object) -> bool:
-        return obj.type in (self._block_type, self._block_type_po)
-
-    def _object_pose_matches_state(self,
-                                   obj: Object,
-                                   state: State,
-                                   atol: float = 1e-3) -> bool:
-        # Blocks: compare the orientation GEODESICALLY (the angle
-        # between the state's rotation and the live one), never
-        # axis-by-axis -- near the gimbal pole the roll/yaw split of
-        # the same physical orientation can differ arbitrarily between
-        # two valid Euler decompositions.
-        if not self._is_block(obj):
-            return super()._object_pose_matches_state(obj, state, atol)
-        if obj.id is None:
-            return True
-        (px, py, pz), orn = p.getBasePositionAndOrientation(
-            obj.id, physicsClientId=self._physics_client_id)
-        for feat, live in (("x", px), ("y", py), ("z", pz)):
-            if not np.isclose(state.get(obj, feat), live, atol=atol):
-                return False
-        state_orn = p.getQuaternionFromEuler([
-            state.get(obj, "roll"),
-            state.get(obj, "pitch"),
-            state.get(obj, "yaw")
-        ])
-        diff = p.getDifferenceQuaternion(list(orn), list(state_orn))
-        angle = 2.0 * float(np.arccos(np.clip(abs(diff[3]), -1.0, 1.0)))
-        return bool(angle < 10 * atol)
-
-    def _get_state(self, _render_obs: bool = False) -> State:
-        """PyBullet -> State, plus the privileged (hidden) block.
-
-        In partially-observable mode neither the ``cure_*`` counters
-        nor the ``attached_*`` slots are observable features, so
-        snapshot each block's true internal values into
-        ``state.privileged`` -- the env-only channel the agent never
-        sees -- so backtracking restores each search node's own hidden
-        state (and the weld sync can rebuild constraints from it).
-        """
-        state = super()._get_state(_render_obs)
-        # Canonical (pitch, yaw) for every block: the base class reads
-        # raw Euler angles, which are degenerate for standing blocks
-        # (pitch = +-pi/2), so recompute both from the quaternion.
-        for blk in state.get_objects(self._block_type):
-            if blk.id is None:
-                continue
-            orn = p.getBasePositionAndOrientation(
-                blk.id, physicsClientId=self._physics_client_id)[1]
-            roll, pitch, yaw = self._canonical_block_orientation(orn)
-            state.set(blk, "roll", roll)
-            state.set(blk, "pitch", pitch)
-            state.set(blk, "yaw", yaw)
-        if CFG.partially_observable:
-            state.privileged = {
-                blk.name: self._hidden_block_features(blk)
-                for blk in state.get_objects(self._block_type)
-            }
-        return state
-
-    def _hidden_block_features(self, blk: Object) -> Dict[str, float]:
-        """One block's true ``cure_*``/``attached_*`` values, for the
-        ``state.privileged`` snapshot in partially-observable mode."""
-        feats = {
-            f"cure_{face}": self._attr(blk, f"cure_{face}", 0.0)
-            for face in GLUE_FACES
-        }
-        feats.update({
-            f"attached_{slot}": self._attr(blk, f"attached_{slot}", -1.0)
-            for slot in ATTACH_SLOTS
-        })
-        return feats
-
     def _set_domain_specific_state(self, state: State) -> None:
-        # Restore each block's internal glue / cure / attachment state.
-        blocks = state.get_objects(self._block_type)
-        for blk in blocks:
-            for face in GLUE_FACES:
-                self._set_attr(blk, f"glue_{face}",
-                               state.get(blk, f"glue_{face}"))
-                if f"cure_{face}" in blk.type.feature_names:
-                    self._set_attr(blk, f"cure_{face}",
-                                   state.get(blk, f"cure_{face}"))
-                else:
-                    priv = state.privileged or {}
-                    self._set_attr(
-                        blk, f"cure_{face}",
-                        float(priv.get(blk.name, {}).get(f"cure_{face}", 0.0)))
-            for slot in ATTACH_SLOTS:
-                self._set_attr(blk, f"attached_{slot}",
-                               self._attached_value(state, blk, slot))
-            # Colors are task-assigned features; the base env never
-            # writes them to PyBullet, so apply them here.
-            if blk.id is not None:
-                update_object(blk.id,
-                              color=(state.get(blk, "r"), state.get(blk, "g"),
-                                     state.get(blk, "b"), 1.0),
-                              physics_client_id=self._physics_client_id)
-
+        super()._set_domain_specific_state(state)
         # Sync physical weld constraints to the restored attachment
         # features. Handles planner backtracking to pre-cure nodes and
         # cross-episode residuals (a fresh task has all attached = -1,
@@ -996,18 +586,6 @@ class PyBulletBridgeEnv(PyBulletEnv):
         # its option models) keeps the sync.
         if not self._skip_domain_specific_dynamics:
             self._sync_welds_to_state(state)
-
-        # Wet-glue patch visuals.
-        self._update_glue_patches(state)
-
-        # Move irrelevant blocks out of view.
-        oov_x, oov_y = self._out_of_view_xy
-        in_state = set(blocks)
-        for i, blk in enumerate(self._blocks):
-            if blk not in in_state and blk.id is not None:
-                update_object(blk.id,
-                              position=(oov_x + 0.3 * i, oov_y, 0.0),
-                              physics_client_id=self._physics_client_id)
 
     # -------------------------------------------------------------------------
     # Weld constraint lifecycle
@@ -1529,44 +1107,6 @@ class PyBulletBridgeEnv(PyBulletEnv):
         self._create_weld(blk.id, mate.id, ideal_dz=ideal_dz)
         return True
 
-    def _update_glue_patches(self, state: State) -> None:
-        """Show a yellow patch on each wet face; park all other patches out of
-        view.
-
-        Patches are visual-only bodies.
-        """
-        oov_x, oov_y = self._out_of_view_xy
-        in_state = set(state.get_objects(self._block_type))
-        for i, blk in enumerate(self._blocks):
-            for j, face in enumerate(GLUE_FACES):
-                patch_id = self._glue_patch_ids[blk.name][face]
-                wet = blk in in_state and \
-                    self._attr(blk, f"glue_{face}", 0.0) > 0.5
-                if not wet:
-                    update_object(patch_id,
-                                  position=(oov_x + 0.3 * i, oov_y + 0.3 * j,
-                                            -1.0),
-                                  physics_client_id=self._physics_client_id)
-                    continue
-                x = state.get(blk, "x")
-                y = state.get(blk, "y")
-                z = state.get(blk, "z")
-                axis, _ = self._FACE_AXES[face]
-                dx_dir, dy_dir, dz_dir = self._face_world_dir(state, blk, face)
-                offset = self.block_half_extents[axis] + 0.0015
-                pos = (x + dx_dir * offset, y + dy_dir * offset,
-                       z + dz_dir * offset)
-                # The patch shares the block's full orientation (its
-                # slab geometry is defined in the block-local frame).
-                update_object(patch_id,
-                              position=pos,
-                              orientation=p.getQuaternionFromEuler([
-                                  state.get(blk, "roll"),
-                                  state.get(blk, "pitch"),
-                                  state.get(blk, "yaw")
-                              ]),
-                              physics_client_id=self._physics_client_id)
-
     # -------------------------------------------------------------------------
     # Predicates
     # -------------------------------------------------------------------------
@@ -1753,6 +1293,54 @@ class PyBulletBridgeEnv(PyBulletEnv):
                 neighbors.add(other)
         return neighbors.issubset(welded)
 
+    def _RowComplete_holds_from_atoms(self, atoms: Set[GroundAtom],
+                                      objects: Sequence[Object]) -> bool:
+        """Some simple Attached path from ``first`` to ``last`` runs through
+        exactly the task's span count of lying blocks (derived: evaluated over
+        Lying / Standing / Attached atoms).
+
+        The span count is the block count less the legs, read off the
+        atoms (every block is Lying or Standing), so a toppled leg that
+        happens to lie loose neither joins the row nor blocks it. Stated
+        as an existence so it is MONOTONE in the atoms: the planner's
+        delete-relaxed reachability evaluates it on a superset where
+        every pair is Attached, and a definition that also forbade extra
+        edges read false there and made every Bridged goal unreachable.
+        """
+        first, last = objects
+        if first == last:
+            return False
+        lying: Set[Object] = set()
+        blocks: Set[Object] = set()
+        for atom in atoms:
+            if atom.predicate == self._Lying:
+                lying.add(atom.objects[0])
+                blocks.add(atom.objects[0])
+            elif atom.predicate == self._Standing:
+                blocks.add(atom.objects[0])
+        n_spans = len(blocks) - self.n_legs
+        if first not in lying or last not in lying or n_spans < 2:
+            return False
+        adjacency: Dict[Object, Set[Object]] = {blk: set() for blk in lying}
+        for atom in atoms:
+            if atom.predicate != self._Attached:
+                continue
+            blk_a, blk_b = atom.objects
+            if blk_a != blk_b and blk_a in lying and blk_b in lying:
+                adjacency[blk_a].add(blk_b)
+                adjacency[blk_b].add(blk_a)
+
+        def _path_exists(cur: Object, visited: Set[Object]) -> bool:
+            if len(visited) == n_spans:
+                return cur == last
+            if cur == last:
+                return False
+            return any(
+                _path_exists(nxt, visited | {nxt}) for nxt in adjacency[cur]
+                if nxt not in visited)
+
+        return _path_exists(first, {first})
+
     def _Loose_holds(self, state: State, objects: Sequence[Object]) -> bool:
         """The block has no cured attachments (it can be individually picked
         and re-placed without dragging an assembly along)."""
@@ -1918,6 +1506,10 @@ class PyBulletBridgeEnv(PyBulletEnv):
                 f"sites: stand a leg on each site pad, join the {n_spans} "
                 "span blocks end-to-end into one rigid span, and seat "
                 "it resting across the two leg tops.")
+            if CFG.bridge_goal_robot_clearance > 0:
+                goal_nl += (" Finish with the robot at least "
+                            f"{CFG.bridge_goal_robot_clearance:g} m away "
+                            "from every block.")
 
             tasks.append(
                 EnvironmentTask(init_state, goal_atoms, goal_nl=goal_nl))

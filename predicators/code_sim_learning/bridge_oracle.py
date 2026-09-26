@@ -10,6 +10,8 @@ from __future__ import annotations
 import copy
 from typing import Any, ClassVar, Dict, FrozenSet, List, Optional, Set
 
+import pybullet as p
+
 from predicators.envs.pybullet_bridge import ATTACH_SLOTS, GLUE_FACES, \
     PyBulletBridgeEnv
 from predicators.structs import Action, Object, State
@@ -59,7 +61,38 @@ class BridgeOracle(PyBulletBridgeEnv):
         # dictionaries. No engine, hidden live state, or task generator.
         observer = object.__new__(_BridgeObserver)
         observer.initialize(observation, model_state["blocks"])
+        contacts = model_state.setdefault("wet_contacts", {})
+        # Geometry is noisy, but fully wet glue disappearing is an observed
+        # latch event in these dynamics. Remember candidate partners seen
+        # during the wet interval instead of demanding 25 uninterrupted
+        # noisy contact classifications. Ambiguous partner histories are
+        # deliberately left unresolved, never resolved by nearest distance.
+        for block in observer._blocks:
+            block_contacts = contacts.setdefault(block.name, {})
+            for face in GLUE_FACES:
+                was_wet = observer._attr(block, f"glue_{face}", 0.) > .5
+                if not was_wet:
+                    block_contacts.pop(face, None)
+                    continue
+                mate = observer._find_mate(observer._observed, block, face)
+                seen = block_contacts.setdefault(face, [])
+                if mate is not None and mate.name not in seen:
+                    seen.append(mate.name)
         _native_step(observer)
+        for block in observer._blocks:
+            previous = model_state["blocks"].get(block.name, {})
+            for face in GLUE_FACES:
+                consumed = (previous.get(f"glue_{face}", 0.) > .5 >=
+                            observation.get(block, f"glue_{face}"))
+                seen = contacts[block.name].get(face, [])
+                if (consumed and len(seen) == 1 and
+                        observer._attr(block, f"attached_{face}", -1.) < 0):
+                    mate = next(
+                        (b for b in observer._blocks if b.name == seen[0]),
+                        None)
+                    if mate is not None:
+                        observer._latch_joint(observer._observed, block, face,
+                                              mate)
         records = observer._memory_snapshot(observer._observed)
         # Glue is observed. In particular, use its previous value to infer
         # the transition whose outcome consumed it at the latch threshold.
@@ -68,6 +101,9 @@ class BridgeOracle(PyBulletBridgeEnv):
                 records[block.name][f"glue_{face}"] = observation.get(
                     block, f"glue_{face}")
         model_state["blocks"] = records
+        # Observation replay has topology and poses, not engine constraint
+        # frames. Never carry frames from a different predicted trajectory.
+        model_state.pop("weld_frames", None)
 
     def _set_state(self, state: State) -> None:
         private = copy.deepcopy(state)
@@ -91,7 +127,7 @@ class BridgeOracle(PyBulletBridgeEnv):
         super()._set_domain_specific_state(private)
         # The supplied base disables hidden weld semantics. This oracle
         # explicitly restores them, including temporary wet-joint tacks.
-        self._sync_welds_to_state(private)
+        self._restore_model_welds(private)
         curing: Set[FrozenSet[int]] = set()
         for block in private.get_objects(self._block_type):
             for face in GLUE_FACES:
@@ -105,9 +141,79 @@ class BridgeOracle(PyBulletBridgeEnv):
                         curing.add(frozenset({block.id, mate.id}))
         self._sync_wet_joint_tacks(curing)
 
+    def _restore_model_welds(self, state: State) -> None:
+        """Restore joints without treating a carried beam as newly glued.
+
+        Native weld creation snaps a NEW joint to its resting geometry.
+        Doing that on reset changes tilted assemblies before prediction.
+        Preserve model-owned frames when available; observation-only
+        starts reconstruct relative frames from observed poses without
+        teleporting.
+        """
+        for key in list(self._tack_constraints):
+            self._drop_tack(key)
+        for key in list(self._weld_constraints):
+            self._remove_weld(key)
+        frames = {
+            frozenset((f["parent"], f["child"])): f
+            for f in self.model_state.get("weld_frames", [])
+        }
+        names = {b.id: b.name for b in self._blocks}
+        ids = {b.name: b.id for b in self._blocks}
+        client = self._physics_client_id
+        for key, (body_a, body_b,
+                  dz) in self._desired_weld_pairs(state).items():
+            saved = frames.get(frozenset((names[body_a], names[body_b])))
+            if saved is not None:
+                body_a, body_b = ids[saved["parent"]], ids[saved["child"]]
+                parent_pos, parent_orn = saved["parent_frame"]
+                child_pos, child_orn = saved["child_frame"]
+            else:
+                pos_a, orn_a = p.getBasePositionAndOrientation(
+                    body_a, physicsClientId=client)
+                pos_b, orn_b = p.getBasePositionAndOrientation(
+                    body_b, physicsClientId=client)
+                inv_pos, inv_orn = p.invertTransform(pos_a, orn_a)
+                parent_pos, parent_orn = p.multiplyTransforms(
+                    inv_pos, inv_orn, pos_b, orn_b)
+                child_pos, child_orn = (0., 0., 0.), (0., 0., 0., 1.)
+            cid = p.createConstraint(body_a,
+                                     -1,
+                                     body_b,
+                                     -1,
+                                     p.JOINT_FIXED, (0., 0., 0.),
+                                     parent_pos,
+                                     child_pos,
+                                     parent_orn,
+                                     child_orn,
+                                     physicsClientId=client)
+            p.changeConstraint(cid,
+                               maxForce=self.weld_max_force,
+                               physicsClientId=client)
+            p.setCollisionFilterPair(body_a,
+                                     body_b,
+                                     -1,
+                                     -1,
+                                     0,
+                                     physicsClientId=client)
+            self._weld_constraints[key] = cid
+            self._weld_meta[key] = (body_a, body_b, dz)
+
     def _domain_specific_step(self) -> None:
         _native_step(self)
         self.model_state["blocks"] = self._memory_snapshot(self._get_state())
+        names = {b.id: b.name for b in self._blocks}
+        frames = []
+        for cid in self._weld_constraints.values():
+            info = p.getConstraintInfo(cid,
+                                       physicsClientId=self._physics_client_id)
+            frames.append({
+                "parent": names[info[0]],
+                "child": names[info[2]],
+                "parent_frame": (info[6], info[8]),
+                "child_frame": (info[7], info[9])
+            })
+        self.model_state["weld_frames"] = frames
 
 
 class _BridgeObserver(BridgeOracle):

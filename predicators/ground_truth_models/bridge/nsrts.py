@@ -10,10 +10,10 @@ environment is solved/demoed by ``oracle_process_planning`` (like
 from typing import Dict, Set
 
 from predicators.ground_truth_models import GroundTruthNSRTFactory
-from predicators.ground_truth_models.bridge.processes import \
+from predicators.ground_truth_models.bridge.processes import _ROW_LENGTHS, \
     _glue_end_b_sampler, _pick_sampler, _place_block_on_table_sampler, \
     _place_bottle_sampler, _place_leg_at_site_sampler, \
-    _place_next_to_sampler, _seat_span_sampler
+    _place_next_to_sampler, _seat_span_sampler, row_grasp_index
 from predicators.structs import NSRT, LiftedAtom, ParameterizedOption, \
     Predicate, Type, Variable
 from predicators.utils import null_sampler
@@ -52,6 +52,7 @@ class PyBulletBridgeGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         Resting = predicates["Resting"]
         TopFree = predicates["TopFree"]
         EndsFree = predicates["EndsFree"]
+        RowComplete = predicates["RowComplete"]
 
         PickBlock = options["PickBlock"]
         PickBottle = options["PickBottle"]
@@ -77,29 +78,30 @@ class PyBulletBridgeGroundTruthNSRTFactory(GroundTruthNSRTFactory):
                     LiftedAtom(Resting, [blk]),
                 }, set(), PickBlock, [robot, blk], _pick_sampler))
 
-        # PickRow (grasp the MIDDLE span of the FULLY welded row; see
-        # processes.py -- a partially cured row must never be lifted,
-        # and an end grasp cantilevers the row into the far leg).
-        robot = Variable("?robot", robot_type)
-        span_a = Variable("?spanA", block_type)
-        mid = Variable("?spanMid", block_type)
-        span_b = Variable("?spanB", block_type)
-        nsrts.add(
-            NSRT(
-                "PickRow", [robot, span_a, mid, span_b], {
-                    LiftedAtom(HandEmpty, [robot]),
-                    LiftedAtom(TopFree, [mid]),
-                    LiftedAtom(Attached, [span_a, mid]),
-                    LiftedAtom(Attached, [mid, span_b]),
-                    LiftedAtom(Lying, [span_a]),
-                    LiftedAtom(Lying, [mid]),
-                    LiftedAtom(Lying, [span_b]),
-                }, {LiftedAtom(Holding, [robot, mid])}, {
-                    LiftedAtom(HandEmpty, [robot]),
-                    LiftedAtom(Resting, [span_a]),
-                    LiftedAtom(Resting, [mid]),
-                    LiftedAtom(Resting, [span_b]),
-                }, set(), PickBlock, [robot, mid], _pick_sampler))
+        # PickRow{n} (grasp the COMPLETE welded row near its centre; see
+        # processes.py -- a partially cured row must never be lifted, an
+        # end grasp cantilevers the row into the far leg, and RowComplete
+        # keeps a shorter chain from posing as the row).
+        for n_row in _ROW_LENGTHS:
+            robot = Variable("?robot", robot_type)
+            spans = [Variable(f"?span{i}", block_type) for i in range(n_row)]
+            held = spans[row_grasp_index(n_row)]
+            chain = {
+                LiftedAtom(Attached, [left, right])
+                for left, right in zip(spans, spans[1:])
+            }
+            lying = {LiftedAtom(Lying, [span]) for span in spans}
+            nsrts.add(
+                NSRT(
+                    f"PickRow{n_row}", [robot] + spans, {
+                        LiftedAtom(HandEmpty, [robot]),
+                        LiftedAtom(TopFree, [held]),
+                        LiftedAtom(RowComplete, [spans[0], spans[-1]]),
+                    } | chain | lying, {LiftedAtom(Holding, [robot, held])},
+                    {LiftedAtom(HandEmpty, [robot])}
+                    | {LiftedAtom(Resting, [span])
+                       for span in spans}, set(), PickBlock, [robot, held],
+                    _pick_sampler))
 
         # PickSpanFromRow (dismantle an uncured butt joint; deletes the
         # named adjacency to stay frame-correct).
@@ -202,53 +204,52 @@ class PyBulletBridgeGroundTruthNSRTFactory(GroundTruthNSRTFactory):
                 }, {LiftedAtom(GlueEndB, [blk])}, set(), set(), MoveTo,
                 [robot], _glue_end_b_sampler))
 
-        # SeatSpan3 (see processes.py for the condition rationale --
-        # this mirrors the endogenous process exactly).
-        robot = Variable("?robot", robot_type)
-        span_a = Variable("?spanA", block_type)
-        mid = Variable("?spanMid", block_type)
-        span_b = Variable("?spanB", block_type)
-        leg_l = Variable("?legL", block_type)
-        leg_r = Variable("?legR", block_type)
-        site_l = Variable("?siteL", site_type)
-        site_r = Variable("?siteR", site_type)
-        nsrts.add(
-            NSRT(
-                "SeatSpan3",
-                [robot, span_a, mid, span_b, leg_l, leg_r, site_l, site_r],
-                {
-                    LiftedAtom(Holding, [robot, mid]),
-                    LiftedAtom(Lying, [span_a]),
-                    LiftedAtom(Lying, [mid]),
-                    LiftedAtom(Lying, [span_b]),
-                    LiftedAtom(Attached, [span_a, mid]),
-                    LiftedAtom(Attached, [mid, span_b]),
-                    LiftedAtom(Standing, [leg_l]),
-                    LiftedAtom(Standing, [leg_r]),
-                    LiftedAtom(AtSite, [leg_l, site_l]),
-                    LiftedAtom(AtSite, [leg_r, site_r]),
-                },
-                {
-                    LiftedAtom(HandEmpty, [robot]),
-                    LiftedAtom(SeatedOn, [span_a, leg_l]),
-                    LiftedAtom(SeatedOn, [span_b, leg_r]),
-                    # The goal atom: the welded row seated across the
-                    # two legs standing at the sites (its adjacency
-                    # atoms persist from the row build).
-                    LiftedAtom(Bridged, [site_l, site_r]),
-                    LiftedAtom(Resting, [span_a]),
-                    LiftedAtom(Resting, [mid]),
-                    LiftedAtom(Resting, [span_b]),
-                },
-                {
-                    LiftedAtom(Holding, [robot, mid]),
-                    LiftedAtom(TopFree, [leg_l]),
-                    LiftedAtom(TopFree, [leg_r]),
-                },
-                set(),
-                Place,
-                [robot],
-                _seat_span_sampler))
+        # SeatSpan{n} (see processes.py for the condition rationale --
+        # this mirrors the endogenous processes exactly).
+        for n_row in _ROW_LENGTHS:
+            robot = Variable("?robot", robot_type)
+            spans = [Variable(f"?span{i}", block_type) for i in range(n_row)]
+            held = spans[row_grasp_index(n_row)]
+            leg_l = Variable("?legL", block_type)
+            leg_r = Variable("?legR", block_type)
+            site_l = Variable("?siteL", site_type)
+            site_r = Variable("?siteR", site_type)
+            chain = {
+                LiftedAtom(Attached, [left, right])
+                for left, right in zip(spans, spans[1:])
+            }
+            lying = {LiftedAtom(Lying, [span]) for span in spans}
+            nsrts.add(
+                NSRT(
+                    f"SeatSpan{n_row}",
+                    [robot] + spans + [leg_l, leg_r, site_l, site_r],
+                    {
+                        LiftedAtom(Holding, [robot, held]),
+                        LiftedAtom(RowComplete, [spans[0], spans[-1]]),
+                        LiftedAtom(Standing, [leg_l]),
+                        LiftedAtom(Standing, [leg_r]),
+                        LiftedAtom(AtSite, [leg_l, site_l]),
+                        LiftedAtom(AtSite, [leg_r, site_r]),
+                    } | chain | lying,
+                    {
+                        LiftedAtom(HandEmpty, [robot]),
+                        LiftedAtom(SeatedOn, [spans[0], leg_l]),
+                        LiftedAtom(SeatedOn, [spans[-1], leg_r]),
+                        # The goal atom: the welded row seated across
+                        # the two legs standing at the sites (its
+                        # adjacency atoms persist from the row build).
+                        LiftedAtom(Bridged, [site_l, site_r]),
+                    } | {LiftedAtom(Resting, [span])
+                         for span in spans},
+                    {
+                        LiftedAtom(Holding, [robot, held]),
+                        LiftedAtom(TopFree, [leg_l]),
+                        LiftedAtom(TopFree, [leg_r]),
+                    },
+                    set(),
+                    Place,
+                    [robot],
+                    _seat_span_sampler))
 
         # Wait
         robot = Variable("?robot", robot_type)

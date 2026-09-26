@@ -309,6 +309,14 @@ class PyBulletFanBaseEnv(PyBulletEnv):
                           ["x", "y", "z", "rot", "x_len", "y_len", "z_len"],
                           sim_features=["id", "x_len", "y_len", "z_len"],
                           angular_features=["rot"])
+    _platform_type = Type("platform",
+                          ["x", "y", "z", "rot", "x_len", "y_len", "z_len"],
+                          sim_features=["id", "x_len", "y_len", "z_len"],
+                          angular_features=["rot"])
+    _ramp_type = Type(
+        "ramp", ["x", "y", "z", "rot", "x_len", "y_len", "z_len", "rise"],
+        sim_features=["id", "x_len", "y_len", "z_len", "rise"],
+        angular_features=["rot"])
     # ``radius`` completes the contact geometry: with it and the blocker
     # extents above, the ball's stop distance is pure geometry over
     # observable features instead of a fitted constant.
@@ -364,6 +372,13 @@ class PyBulletFanBaseEnv(PyBulletEnv):
             Object(f"boundary_{side}", self._boundary_type)
             for side in self._boundary_sides
         ]
+        self._platforms = (
+            [Object(f"platform_{i}", self._platform_type)
+             for i in range(3)] if CFG.fan_exposed_transfer else [])
+        if CFG.fan_ramp_transfer:
+            if not CFG.fan_inertial_transfer:
+                raise ValueError("Ramp transfer requires inertial transfer")
+            self._platforms.append(Object("ramp_0", self._ramp_type))
 
         # Ball
         self._ball = Object("ball", self._ball_type)
@@ -378,11 +393,16 @@ class PyBulletFanBaseEnv(PyBulletEnv):
         # Physical-only types (agent runs grid-free). The grid helper types
         # (loc / side) are provided by PyBulletFanGroundTruthTypeFactory and
         # injected only for the oracle / process-planning approaches.
-        return {
+        types = {
             self._robot_type, self._fan_type, self._switch_type,
             self._wall_type, self._boundary_type, self._ball_type,
             self._target_type
         }
+        if CFG.fan_exposed_transfer:
+            types.add(self._platform_type)
+        if CFG.fan_ramp_transfer:
+            types.add(self._ramp_type)
+        return types
 
     # -------------------------------------------------------------------------
     # PyBullet Initialization
@@ -415,6 +435,22 @@ class PyBulletFanBaseEnv(PyBulletEnv):
             physics_client_id=physics_client_id,
         )
         bodies["table_id2"] = table_id2
+        if CFG.fan_exposed_transfer:
+            # The observed platforms, not an invisible full table, support
+            # the ball. Keep a separate workbench under the robot switches.
+            for table in (table_id, table_id2):
+                p.resetBasePositionAndOrientation(
+                    table, (0.0, -10.0, 0.0),
+                    cls.table_orn,
+                    physicsClientId=physics_client_id)
+            bodies["switch_bench"] = create_pybullet_block(
+                color=(0.55, 0.40, 0.25, 1.0),
+                half_extents=(0.5, 0.11, cls.table_height / 2),
+                mass=0.0,
+                friction=0.5,
+                position=(0.75, 1.06, cls.table_height / 2),
+                orientation=(0, 0, 0, 1),
+                physics_client_id=physics_client_id)
 
         # ---------------------------------------------------------------------
         # Create fans in four groups: left, right, back, front
@@ -500,23 +536,36 @@ class PyBulletFanBaseEnv(PyBulletEnv):
         # ---------------------------------------------------------------------
         # Create the ball
         # ---------------------------------------------------------------------
+        if CFG.fan_inertial_transfer and not CFG.fan_exposed_transfer:
+            raise ValueError("Inertial transfer requires exposed transfer")
         ball_id = create_pybullet_sphere(
             color=cls.ball_color,
             radius=cls.ball_radius,
             mass=cls.ball_mass,
-            friction=cls.ball_friction,
+            friction=0.5 if CFG.fan_exposed_transfer else cls.ball_friction,
             # Match lateral with spinning so the ball resists rotating around
             # the contact normal — necessary for it to "stick" where the fan
             # parks it instead of pinwheeling.
-            spinning_friction=cls.ball_friction,
+            spinning_friction=(0.01 if CFG.fan_exposed_transfer else
+                               cls.ball_friction),
             position=(0.75, 1.35, cls.table_height + cls.ball_height_offset),
             orientation=p.getQuaternionFromEuler([0, 0, 0]),
             physics_client_id=physics_client_id)
         p.changeDynamics(ball_id,
                          -1,
-                         linearDamping=cls.ball_linear_damping,
-                         angularDamping=cls.ball_angular_damping,
+                         linearDamping=(1.0 if CFG.fan_exposed_transfer else
+                                        cls.ball_linear_damping),
+                         angularDamping=(0.1 if CFG.fan_exposed_transfer else
+                                         cls.ball_angular_damping),
                          physicsClientId=physics_client_id)
+        if CFG.fan_inertial_transfer:
+            # Keep contact traction, but retain momentum between fan pulses.
+            # Shared by the real environment and reconstructed simulator base.
+            p.changeDynamics(ball_id,
+                             -1,
+                             linearDamping=0.08,
+                             angularDamping=0.008,
+                             physicsClientId=physics_client_id)
         bodies["ball_id"] = ball_id
 
         # ---------------------------------------------------------------------
@@ -658,13 +707,14 @@ class PyBulletFanBaseEnv(PyBulletEnv):
         test task, 2026-09-03). Only the env-owned instance tracks this
         env's bodies.
         """
-        for env_obj in self._boundaries:
+        for env_obj in self._boundaries + self._platforms:
             if env_obj.name == obj.name:
                 return env_obj
         return obj
 
     def _get_object_state_dict(self, obj: Object) -> Dict[str, float]:
-        if obj.type == self._boundary_type:
+        if obj.type in (self._boundary_type, self._platform_type,
+                        self._ramp_type):
             obj = self._boundary_named(obj)
         return super()._get_object_state_dict(obj)
 
@@ -678,7 +728,8 @@ class PyBulletFanBaseEnv(PyBulletEnv):
         reset - so teleporting them here would dereference an id
         belonging to a body the previous rebuild already removed.
         """
-        if obj.type == self._boundary_type:
+        if obj.type in (self._boundary_type, self._platform_type,
+                        self._ramp_type):
             return
         super()._reset_single_object(obj, state)
 
@@ -690,7 +741,7 @@ class PyBulletFanBaseEnv(PyBulletEnv):
         # pylint: disable=attribute-defined-outside-init
         self._boundary_wall_ids = []
         self._boundary_wall_spec = None
-        for boundary_obj in self._boundaries:
+        for boundary_obj in self._boundaries + self._platforms:
             boundary_obj.id = None
 
     @staticmethod
@@ -729,42 +780,102 @@ class PyBulletFanBaseEnv(PyBulletEnv):
         rollout, and a box collision shape cannot be resized in place - the
         rebuild removes bodies, discarding any contact they were part of.
         """
-        present = [b for b in self._boundaries if b in state]
+        present = [b for b in self._boundaries + self._platforms if b in state]
         if not present:
             # A state with no boundary objects describes an open arena.
             self._remove_boundary_walls()
             return
 
         spec = tuple(
-            tuple(
+            (float((self._boundaries + self._platforms).index(b)), ) + tuple(
                 float(state.get(b, f))
-                for f in ("x", "y", "z", "rot", "x_len", "y_len", "z_len"))
-            for b in present)
+                for f in ("x", "y", "z", "rot", "x_len", "y_len", "z_len")) +
+            (float(state.get(b, "rise")) if b.type == self._ramp_type else 0.0,
+             ) for b in present)
         if self._boundary_wall_ids and spec == self._boundary_wall_spec:
             return
         self._remove_boundary_walls()
 
         wall_ids = []
-        for boundary_obj, (bx, by, bz, brot, x_len, y_len,
-                           z_len) in zip(present, spec):
+        for boundary_obj, (_, bx, by, bz, brot, x_len, y_len, z_len,
+                           rise) in zip(present, spec):
             dims = self._body_dims_from_aabb(x_len, y_len, z_len, brot)
-            wall_id = create_pybullet_block(
-                color=self.boundary_wall_color,
-                half_extents=(dims[0] / 2, dims[1] / 2, dims[2] / 2),
-                mass=self.wall_mass,
-                friction=self.wall_friction,
-                position=(bx, by, bz),
-                orientation=p.getQuaternionFromEuler([0.0, 0.0, brot]),
-                physics_client_id=self._physics_client_id)
+            is_platform = boundary_obj.type in (self._platform_type,
+                                                self._ramp_type)
+            if boundary_obj.type == self._ramp_type:
+                wall_id = self._create_ramp_body(bx, by, bz, brot, dims, rise)
+                boundary_obj.rise = rise
+            else:
+                wall_id = create_pybullet_block(
+                    color=((0.55, 0.40, 0.25,
+                            1.0) if is_platform else self.boundary_wall_color),
+                    half_extents=(dims[0] / 2, dims[1] / 2, dims[2] / 2),
+                    mass=self.wall_mass,
+                    friction=0.5 if is_platform else self.wall_friction,
+                    position=(bx, by, bz),
+                    orientation=p.getQuaternionFromEuler([0.0, 0.0, brot]),
+                    physics_client_id=self._physics_client_id)
             boundary_obj.id = wall_id
             boundary_obj.x_len = x_len
             boundary_obj.y_len = y_len
             boundary_obj.z_len = z_len
+            if is_platform:
+                p.changeDynamics(
+                    wall_id,
+                    -1,
+                    rollingFriction=(0.0001
+                                     if CFG.fan_inertial_transfer else 0.001),
+                    physicsClientId=self._physics_client_id)
             wall_ids.append(wall_id)
 
         # pylint: disable=attribute-defined-outside-init
         self._boundary_wall_ids = wall_ids
         self._boundary_wall_spec = spec
+
+    def _create_ramp_body(self, x: float, y: float, z: float, yaw: float,
+                          dims: Tuple[float, float,
+                                      float], rise: float) -> int:
+        """Convex wedge with a top descending toward local +x.
+
+        Published dimensions bound the whole wedge, including its rise.
+        The high top edge is at z + height/2; the low edge is rise
+        lower.
+        """
+        length, width, height = dims
+        if not 0 < rise < height:
+            raise ValueError("Ramp rise must be positive and below its height")
+        vertices = [[
+            sx * length / 2, sy * width / 2,
+            (-height / 2 if bottom else height / 2 - (rise if sx > 0 else 0))
+        ] for bottom in (True, False) for sx in (-1, 1) for sy in (-1, 1)]
+        faces = [
+            0, 3, 2, 0, 1, 3, 4, 7, 5, 4, 6, 7, 0, 5, 1, 0, 4, 5, 2, 7, 6, 2,
+            3, 7, 0, 6, 4, 0, 2, 6, 1, 7, 3, 1, 5, 7
+        ]
+        collision = p.createCollisionShape(
+            p.GEOM_MESH,
+            vertices=vertices,
+            indices=faces,
+            flags=p.GEOM_FORCE_CONCAVE_TRIMESH,
+            physicsClientId=self._physics_client_id)
+        visual = p.createVisualShape(p.GEOM_MESH,
+                                     vertices=vertices,
+                                     indices=faces,
+                                     rgbaColor=(0.7, 0.5, 0.25, 1),
+                                     physicsClientId=self._physics_client_id)
+        body = p.createMultiBody(baseMass=0,
+                                 baseCollisionShapeIndex=collision,
+                                 baseVisualShapeIndex=visual,
+                                 basePosition=(x, y, z),
+                                 baseOrientation=p.getQuaternionFromEuler(
+                                     [0, 0, yaw]),
+                                 physicsClientId=self._physics_client_id)
+        p.changeDynamics(body,
+                         -1,
+                         lateralFriction=0.5,
+                         collisionMargin=0.0,
+                         physicsClientId=self._physics_client_id)
+        return body
 
     def _position_fans_on_sides(self) -> None:
         """Position all PyBullet fan bodies correctly on their respective
@@ -802,7 +913,8 @@ class PyBulletFanBaseEnv(PyBulletEnv):
 
             elif side_idx == 1:  # right
                 for i, fan_id in enumerate(fan_ids):
-                    px = self.right_fan_x
+                    px = self.right_fan_x + (0.4
+                                             if CFG.fan_ramp_transfer else 0)
                     py = right_coords[i] if i < len(
                         right_coords) else right_coords[-1]
                     pz = self.table_height + self.fan_z_len / 2
@@ -851,8 +963,9 @@ class PyBulletFanBaseEnv(PyBulletEnv):
             dims = self._aabb_from_body_dims(self.wall_x_len, self.wall_y_len,
                                              self.obstacle_wall_height, rot)
             return dims[("x_len", "y_len", "z_len").index(feature)]
-        if obj.type == self._boundary_type and feature in ("x_len", "y_len",
-                                                           "z_len"):
+        if obj.type in (self._boundary_type, self._platform_type,
+                        self._ramp_type) and feature in ("x_len", "y_len",
+                                                         "z_len", "rise"):
             # Cached by _reposition_boundary_walls when it built the body,
             # on the env-owned instance (see _boundary_named).
             cached = getattr(self._boundary_named(obj), feature)

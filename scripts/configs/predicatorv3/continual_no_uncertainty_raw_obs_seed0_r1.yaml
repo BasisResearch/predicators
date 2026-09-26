@@ -1,0 +1,23 @@
+# Updated no-explicit-uncertainty ablation: one seed across the five benchmark
+# domains. This round fits and plans from raw noisy observations, with state
+# smoothing and uncertainty-aware decisions disabled.
+includes:
+  - continual_common.yaml
+  - envs/continual.yaml
+  - approaches/continual.yaml
+START_SEED: 0
+NUM_SEEDS: 1
+ENVS:
+  balloons:
+    SKIP: false
+  bridge:
+    SKIP: false
+  boil:
+    SKIP: false
+  fan:
+    SKIP: false
+  domino_high_friction_turn:
+    SKIP: false
+APPROACHES:
+  no_uncertainty_raw_obs_opus_r1:
+    EXTENDS: no_uncertainty_opus

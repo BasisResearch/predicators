@@ -302,7 +302,7 @@ ENVS:
       agent_plan_validation_necessity: True
   icerink:
     NAME: "pybullet_icerink"
-    # Parked by default; protocol_continual.yaml un-skips it.
+    # Parked by default; a launcher built on continual_common.yaml un-skips it.
     SKIP: True
     FLAGS:
       max_initial_demos: 0

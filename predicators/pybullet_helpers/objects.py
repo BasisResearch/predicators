@@ -1,16 +1,63 @@
 """predicatorsbullet_helpers.objects module."""
-from typing import List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pybullet as p
 
 from predicators import utils
-from predicators.pybullet_helpers import retry_pybullet_call
+from predicators.pybullet_helpers import retry_pybullet_call, world_gap
 from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
 from predicators.utils import _Geom2D
 
 # import numpy as np
 default_orn: Quaternion = (0.0, 0.0, 0.0, 1.0)
+
+# The asset each body was loaded from, keyed by (physics client, body id):
+# the asset path relative to the env assets directory and the global
+# scaling create_object applied. The scene manifest of the real-to-sim arm
+# reads it, so an agent building its own scene gets the same files.
+LOADED_ASSETS: Dict[Tuple[int, int], Tuple[str, float]] = {}
+# The asset build each record was made in. PyBullet reuses the client and
+# body ids of a disconnected world, so a record is trusted only when the
+# world that owns its client made it (see begin_asset_build).
+_ASSET_BUILD: Dict[Tuple[int, int], int] = {}
+_CURRENT_BUILD = 0
+
+
+def begin_asset_build() -> int:
+    """Start recording the assets of a new world; return its build id."""
+    global _CURRENT_BUILD  # pylint: disable=global-statement
+    _CURRENT_BUILD += 1
+    return _CURRENT_BUILD
+
+
+def drop_stale_assets(physics_client_id: int, build: int) -> None:
+    """Forget every record on ``physics_client_id`` older than ``build``, left
+    by a disconnected world that used the same client id."""
+    for key in [k for k in LOADED_ASSETS if k[0] == physics_client_id]:
+        if _ASSET_BUILD.get(key, 0) < build:
+            LOADED_ASSETS.pop(key, None)
+            _ASSET_BUILD.pop(key, None)
+
+
+def forget_client_assets(physics_client_id: int) -> None:
+    """Forget every record of a world that is disconnecting."""
+    for key in [k for k in LOADED_ASSETS if k[0] == physics_client_id]:
+        LOADED_ASSETS.pop(key, None)
+        _ASSET_BUILD.pop(key, None)
+
+
+def forget_body_asset(physics_client_id: int, obj_id: int) -> None:
+    """Forget the record of a body id that now holds a primitive body."""
+    LOADED_ASSETS.pop((physics_client_id, obj_id), None)
+    _ASSET_BUILD.pop((physics_client_id, obj_id), None)
+
+
+def loaded_asset(physics_client_id: int,
+                 obj_id: int) -> Optional[Tuple[str, float]]:
+    """The ``(asset path, scale)`` a body was created from by
+    :func:`create_object`, or None for bodies built from primitive shapes."""
+    return LOADED_ASSETS.get((physics_client_id, obj_id))
 
 
 def create_object(asset_path: str,
@@ -22,10 +69,16 @@ def create_object(asset_path: str,
                   use_fixed_base: bool = False,
                   physics_client_id: int = 0) -> int:
     """Create a pot object in the environment."""
+    # The asset record keeps the nominal scale: it is what the scene
+    # manifest describes, whatever size the live world built.
+    built_scale = scale * world_gap.size_scale(physics_client_id,
+                                               movable=not use_fixed_base)
     obj_id = p.loadURDF(utils.get_env_asset_path(asset_path),
                         useFixedBase=use_fixed_base,
-                        globalScaling=scale,
+                        globalScaling=built_scale,
                         physicsClientId=physics_client_id)
+    LOADED_ASSETS[(physics_client_id, obj_id)] = (asset_path, float(scale))
+    _ASSET_BUILD[(physics_client_id, obj_id)] = _CURRENT_BUILD
     p.resetBasePositionAndOrientation(obj_id,
                                       position,
                                       orientation,
@@ -222,6 +275,9 @@ def create_pybullet_block(
     behavior and caused boxes to freeze in unstable poses (balanced on
     an edge or corner) on contact.
     """
+    size = world_gap.size_scale(physics_client_id, movable=mass > 0.0)
+    half_extents = (half_extents[0] * size, half_extents[1] * size,
+                    half_extents[2] * size)
     collision_id = p.createCollisionShape(p.GEOM_BOX,
                                           halfExtents=half_extents,
                                           physicsClientId=physics_client_id)
@@ -283,6 +339,7 @@ def create_pybullet_block(
                          rollingFriction=rolling_friction,
                          physicsClientId=physics_client_id)
 
+    forget_body_asset(physics_client_id, block_id)
     return block_id
 
 
@@ -304,6 +361,7 @@ def create_pybullet_sphere(
     (PyBullet's own defaults); set them explicitly only when you want a
     sphere to resist spinning or rolling on contact.
     """
+    radius *= world_gap.size_scale(physics_client_id, movable=mass > 0.0)
     collision_id = p.createCollisionShape(p.GEOM_SPHERE,
                                           radius=radius,
                                           physicsClientId=physics_client_id)
@@ -323,4 +381,5 @@ def create_pybullet_sphere(
                      spinningFriction=spinning_friction,
                      rollingFriction=rolling_friction,
                      physicsClientId=physics_client_id)
+    forget_body_asset(physics_client_id, sphere_id)
     return sphere_id

@@ -23,7 +23,53 @@ from predicators.code_sim_learning.commands import ApplyForce
 from predicators.envs.pybullet_fan_base import PyBulletFanBaseEnv
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
-    Predicate, State, Type
+    Predicate, State, StepOption, TaskEvaluator, Type
+
+
+class FanTransferEvaluator(TaskEvaluator):
+    """Require settled arrival; a ball falling off the deck ends the level."""
+
+    dwell_steps = 20
+    settle_displacement = 0.006
+
+    @staticmethod
+    def _fallen(state: State) -> bool:
+        ball = next(o for o in state if o.type.name == "ball")
+        return state.get(ball, "z") < 0.30
+
+    def terminated(self, state: State) -> bool:
+        return self._fallen(state) or super().terminated(state)
+
+    def terminated_trajectory(self, states: Sequence[State]) -> bool:
+        if not states:
+            return False
+        if self._fallen(states[-1]):
+            return True
+        window = states[-self.dwell_steps - 1:]
+        if len(window) != self.dwell_steps + 1 or not all(
+                all(a.holds(s) for a in self.goal) for s in window):
+            return False
+        ball = next(o for o in window[0] if o.type.name == "ball")
+        positions = np.array([[s.get(ball, f) for f in ("x", "y", "z")]
+                              for s in window])
+        return bool(
+            np.linalg.norm(positions - positions[-1], axis=1).max() <=
+            self.settle_displacement)
+
+    def _certify(self,
+                 states: Sequence[State],
+                 step_options: Optional[Sequence[StepOption]],
+                 sim_env: Optional[Any] = None) -> Tuple[bool, str]:
+        del step_options, sim_env
+        if any(self._fallen(s) for s in states):
+            return False, "The ball fell off the platform."
+        return True, ""
+
+    def objective_description(self) -> str:
+        return ("Keep the ball on the visible platforms. Falling off loses "
+                "the level. Win by leaving all fans off with the ball within "
+                "4 cm of the target on both axes for 20 consecutive steps, "
+                "moving at most 6 mm over that settling window.")
 
 
 class PyBulletFanEnv(PyBulletFanBaseEnv):
@@ -47,6 +93,7 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
     # brings its terminal speed to the constant ~0.00224 m/action
     # free-field rate the domain is tuned around.
     wind_force_magnitude: ClassVar[float] = 0.06
+    exposed_wind_force_magnitude: ClassVar[float] = 0.002
     joint_motor_force: ClassVar[float] = 20.0  # Motor control force
 
     # -------------------------------------------------------------------------
@@ -85,6 +132,21 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
     # -------------------------------------------------------------------------
     # Environment initialization
     # -------------------------------------------------------------------------
+    def _get_camera_matrices(self) -> Tuple[Any, Any, int, int]:
+        view, projection, width, height = super()._get_camera_matrices()
+        # Pan right from the same camera position, preserving zoom and roll.
+        if CFG.fan_ramp_transfer:
+            pose = np.linalg.inv(np.asarray(view).reshape(4, 4, order="F"))
+            eye = pose[:3, 3]
+            angle = np.deg2rad(15)
+            direction = (-pose[:3, 2] * np.cos(angle) +
+                         pose[:3, 0] * np.sin(angle))
+            view = p.computeViewMatrix(cameraEyePosition=eye,
+                                       cameraTargetPosition=eye + direction,
+                                       cameraUpVector=pose[:3, 1],
+                                       physicsClientId=self._physics_client_id)
+        return view, projection, width, height
+
     def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
         # Side helper objects (left/right/down/up), injected only for
         # the oracle. Created before the base __init__ because
@@ -487,7 +549,13 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
             local_dir = np.array([1.0, 0.0, 0.0])  # +X is "forward"
         rmat = np.array(p.getMatrixFromQuaternion(orn_fan)).reshape((3, 3))
         world_dir = rmat.dot(local_dir)
-        force_vec = self.wind_force_magnitude * world_dir
+        magnitude = (self.exposed_wind_force_magnitude if
+                     CFG.fan_exposed_transfer else self.wind_force_magnitude)
+        if CFG.fan_inertial_transfer:
+            # Slower acceleration leaves time for physical switch actuation;
+            # low drag still makes velocity and braking consequential.
+            magnitude *= 0.2
+        force_vec = magnitude * world_dir
         return ApplyForce(
             self._ball.name,
             (float(force_vec[0]), float(force_vec[1]), float(force_vec[2])))
@@ -546,7 +614,8 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
             num_pos_y=CFG.fan_train_num_pos_y,
             possible_num_walls_per_task=CFG.fan_train_num_walls_per_task,
             rng=self._train_rng,
-            task_generation=CFG.fan_train_task_generation)
+            task_generation=("exposed_calibration" if CFG.fan_exposed_transfer
+                             else CFG.fan_train_task_generation))
 
     def _generate_test_tasks(self) -> List[EnvironmentTask]:
         return self._make_tasks(
@@ -555,7 +624,8 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
             num_pos_y=CFG.fan_test_num_pos_y,
             possible_num_walls_per_task=CFG.fan_test_num_walls_per_task,
             rng=self._test_rng,
-            task_generation=CFG.fan_test_task_generation)
+            task_generation=("exposed_transfer" if CFG.fan_exposed_transfer
+                             else CFG.fan_test_task_generation))
 
     def _make_tasks(  # pylint: disable=redefined-outer-name
             self,
@@ -565,7 +635,8 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
             possible_num_walls_per_task: List[int],
             rng: np.random.Generator,
             task_generation: str = "uniform") -> List[EnvironmentTask]:
-        if task_generation not in ("uniform", "maze"):
+        if task_generation not in ("uniform", "maze", "exposed_calibration",
+                                   "exposed_transfer"):
             raise ValueError(
                 f"Unknown fan task generation {task_generation!r}; "
                 "expected 'uniform' or 'maze'")
@@ -798,7 +869,8 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
                                   self.fan_y_ub) / 2  # center of left fans
                             rot = 0.0
                         else:  # right (side_idx == 1)
-                            px = self.right_fan_x
+                            px = self.right_fan_x + (
+                                0.4 if CFG.fan_ramp_transfer else 0)
                             py = (self.fan_y_lb +
                                   self.fan_y_ub) / 2  # center of right fans
                             rot = np.pi
@@ -879,6 +951,9 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
                     f"{max_attempts} attempts")
             print(f"Found a valid task after {attempt} attempts")
 
+            if CFG.fan_exposed_transfer:
+                init_dict = self._exposed_layout(
+                    init_dict, rng, task_generation == "exposed_transfer")
             init_state = utils.create_state_from_dict(init_dict)
 
             # Grid-free goal: the ball must reach the physical target. Since
@@ -896,9 +971,116 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
                 goal_atoms.add(GroundAtom(self._FanOff, [fan_obj]))
             goal_nl = (f"Blow the ball to the target at position "
                        f"(x={tx:.2f}, y={ty:.2f}); all fans must be off.")
+            evaluator = None
+            if CFG.fan_exposed_transfer:
+                evaluator = FanTransferEvaluator(goal_atoms)
+                goal_nl += " " + evaluator.objective_description()
             tasks.append(
-                EnvironmentTask(init_state, goal_atoms, goal_nl=goal_nl))
+                EnvironmentTask(init_state,
+                                goal_atoms,
+                                goal_nl=goal_nl,
+                                evaluator=evaluator))
         return self._add_pybullet_state_to_tasks(tasks)
+
+    def _exposed_layout(self, initial: Dict[Object, Dict[str, float]],
+                        rng: np.random.Generator,
+                        transfer: bool) -> Dict[Object, Dict[str, float]]:
+        """Visible support geometry, sampled without agent-outcome filtering.
+
+        Calibration has a full tray. Transfer starts in a three-sided
+        bay feeding an exposed L-shaped deck with no stop at the turn or
+        target. The same force, contact physics and goal tolerance apply
+        in both.
+        """
+        if CFG.fan_use_kinematic:
+            raise ValueError("Exposed transfer requires dynamic ball physics")
+        initial = {
+            o: v
+            for o, v in initial.items()
+            if o.type not in (self._wall_type, self._boundary_type)
+        }
+
+        def slab(x: float, y: float, width: float, length: float,
+                 height: float, z: float) -> Dict[str, float]:
+            return dict(x=x,
+                        y=y,
+                        z=z,
+                        rot=0.0,
+                        x_len=width,
+                        y_len=length,
+                        z_len=height)
+
+        if transfer:
+            turn_x = float(rng.uniform(0.93, 0.99))
+            start_y = float(rng.uniform(1.49, 1.55))
+            target_y = float(rng.uniform(1.84, 1.90))
+            decks = [(0.51, start_y, 0.32, 0.36),
+                     ((0.67 + turn_x + 0.12) / 2, start_y,
+                      turn_x + 0.12 - 0.67, 0.24),
+                     (turn_x, (start_y + 0.12 + 2.02) / 2, 0.24,
+                      2.02 - start_y - 0.12)]
+            bounds = [(0.35, start_y, 0.002, 0.36),
+                      (0.51, start_y - 0.18, 0.32, 0.002),
+                      (0.51, start_y + 0.18, 0.32, 0.002)]
+            ball_xy = (float(rng.uniform(0.49, 0.53)), start_y)
+            target_xy = (turn_x, target_y)
+        else:
+            decks = [(0.75, 1.65, 0.80, 0.70)]
+            bounds = [(0.35, 1.65, 0.002, 0.70), (1.15, 1.65, 0.002, 0.70),
+                      (0.75, 1.30, 0.80, 0.002), (0.75, 2.00, 0.80, 0.002)]
+            ball_xy = (0.51, float(rng.uniform(1.48, 1.55)))
+            target_xy = (float(rng.uniform(0.87, 0.96)), 1.79)
+        for obj, (x, y, width, length) in zip(self._platforms, decks):
+            initial[obj] = slab(x, y, width, length, self.table_height,
+                                self.table_height / 2)
+        for obj, (x, y, width, length) in zip(self._boundaries, bounds):
+            initial[obj] = slab(
+                x, y, width, length, self.boundary_wall_height,
+                self.table_height + self.boundary_wall_height / 2)
+        initial[self._ball].update(x=ball_xy[0], y=ball_xy[1])
+        initial[self._target].update(x=target_xy[0], y=target_xy[1])
+        if CFG.fan_ramp_transfer:
+            # A shallow, visible grade converts elevation to momentum before
+            # the exposed turn. Calibration has the same grade and a wide,
+            # fenced landing, not a different hidden physical mechanism.
+            rise = 0.004
+            start_y = ball_xy[1]
+            turn_x = target_xy[0] + 0.26
+            if transfer:
+                initial[self._platforms[0]] = slab(
+                    0.51, start_y, 0.32, 0.36, self.table_height + rise,
+                    (self.table_height + rise) / 2)
+                initial[self._platforms[1]] = slab(
+                    (1.07 + turn_x + 0.16) / 2, start_y, turn_x + 0.16 - 1.07,
+                    0.28, self.table_height, self.table_height / 2)
+                initial[self._platforms[2]] = slab(turn_x,
+                                                   (start_y + 0.14 + 2.02) / 2,
+                                                   0.28, 2.02 - start_y - 0.14,
+                                                   self.table_height,
+                                                   self.table_height / 2)
+                ramp_width = 0.28
+            else:
+                initial[self._platforms[0]] = slab(
+                    0.51, 1.65, 0.32, 0.70, self.table_height + rise,
+                    (self.table_height + rise) / 2)
+                initial[self._platforms[1]] = slab(1.26, 1.65, 0.38, 0.70,
+                                                   self.table_height,
+                                                   self.table_height / 2)
+                initial[self._boundaries[1]] = slab(
+                    1.45, 1.65, 0.002, 0.70, self.boundary_wall_height,
+                    self.table_height + self.boundary_wall_height / 2)
+                for i, y in ((2, 1.30), (3, 2.00)):
+                    initial[self._boundaries[i]] = slab(
+                        0.90, y, 1.10, 0.002, self.boundary_wall_height,
+                        self.table_height + self.boundary_wall_height / 2)
+                ramp_width = 0.70
+            initial[self._platforms[-1]] = dict(slab(
+                0.87, start_y if transfer else 1.65, 0.40, ramp_width,
+                self.table_height + rise, (self.table_height + rise) / 2),
+                                                rise=rise)
+            initial[self._ball]["z"] += rise
+            initial[self._target]["x"] = turn_x
+        return initial
 
     def _get_strategic_wall_position(  # pylint: disable=redefined-outer-name
             self, ball_pos: Tuple[float, float],

@@ -10,7 +10,9 @@ import numpy as np
 from predicators.agent_sdk.play_prompts import render_tool_list
 from predicators.agent_sdk.prompt_templates import render
 from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES
-from predicators.agent_sdk.tools.program_synthesis import CandidateLoader
+from predicators.agent_sdk.tools.program_synthesis import \
+    STANDALONE_PROBE_DISABLED, STANDALONE_RUN_PYTHON_DESCRIPTION, \
+    CandidateLoader
 from predicators.approaches.agent_program_world_model_approach import \
     AgentProgramWorldModelApproach
 from predicators.approaches.agent_sim_learning_approach import \
@@ -53,6 +55,15 @@ class AgentContinualProgramWorldModelApproach(ContinualPlayMixin,
     def _learning_cycle_index(self) -> int:
         return self._rounds_played
 
+    def _program_tool_overrides(self) -> Dict[str, Any]:
+        return {"run_python_description": STANDALONE_RUN_PYTHON_DESCRIPTION}
+
+    def _program_probe_disabled(self) -> FrozenSet[str]:
+        # Close to WorldCoder: score the program on the data and roll a
+        # plan through it once; plan search, repeated trials, predicate
+        # scoring and engine renders of predicted states are withheld.
+        return STANDALONE_PROBE_DISABLED
+
     def _get_sandbox_reference_files(self) -> Dict[str, str]:
         return {
             key: value
@@ -90,6 +101,20 @@ class AgentContinualProgramWorldModelApproach(ContinualPlayMixin,
 
     def _get_agent_system_prompt(self) -> str:
         return self._play_system_prompt()
+
+    def _model_status(self, session: ProtocolSession) -> str:
+        n_eps, n_steps = self._episode_counts(session)
+        if self._program is None:
+            return render("play_query",
+                          "no_world_model",
+                          n_episodes=str(n_eps),
+                          n_steps=str(n_steps))
+        return render("play_query",
+                      "world_model_status",
+                      world_model_version=self._current_simulator_version
+                      or "unversioned",
+                      n_episodes=str(n_eps),
+                      n_steps=str(n_steps))
 
     def _round_extra_tools(self, session: ProtocolSession) -> List[Any]:
         self._refresh_arm_data(session)

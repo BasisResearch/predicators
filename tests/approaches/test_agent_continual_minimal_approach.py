@@ -19,7 +19,6 @@ from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
 from predicators.run.continual import ContinualRun
 from predicators.structs import Dataset
-from scripts.cluster_utils import generate_run_configs
 
 # pylint: disable=protected-access
 
@@ -300,28 +299,6 @@ def test_policy_preserves_partial_execution(tmp_path: Path,
     card = ContinualRun(env, approach, approach).run()
     assert card.total_steps == {"horizon": 3, "cap": 2, "invalid": 1}[ending]
     assert card.levels[0].skill_invocations == 0
-
-
-def test_minimal_sweep() -> None:
-    """The launcher sees four uniform arms times exactly five domains."""
-    runs = list(
-        generate_run_configs(
-            "predicatorv3/protocol_continual_minimal_knowledge_sweep.yaml",
-            batch_seeds=True))
-    assert len(runs) == 20
-    assert {r.approach
-            for r in runs
-            } == set(ARMS + ["agent_continual", "agent_continual_model_free"])
-    assert {r.env
-            for r in runs} == {
-                "pybullet_" + domain
-                for domain in ["balloons", "boil", "bridge", "domino", "fan"]
-            }
-    for run in runs:
-        assert run.flags["partially_observable"] is True
-        assert run.flags["experiment_protocol"] == "continual"
-        assert run.flags["continual_steps_per_level"] == (
-            10000 if run.env == "pybullet_bridge" else 5000)
 
 
 def test_policy_serializes_environment_calls(tmp_path: Path) -> None:

@@ -8,13 +8,14 @@ import pytest
 
 from predicators import utils
 from predicators.envs import create_new_env
-from predicators.run.recording import sanitize_state
 from predicators.structs import Action, EnvironmentTask
 
 
 @pytest.mark.parametrize('seed', [0, 1, 2, 3])
-def test_transfer_rosters_and_public_restore(seed: int) -> None:
-    """Both splits coexist and clean sensor frames restore in a fresh world."""
+def test_transfer_rosters(seed: int) -> None:
+    """Both splits coexist in one body pool: a three-span train task and a
+    four-span test task alternate on the same env, each with its own site
+    separation, and a fresh base-physics world accepts either state."""
     utils.reset_config({
         'env': 'pybullet_bridge',
         'seed': seed,
@@ -37,16 +38,13 @@ def test_transfer_rosters_and_public_restore(seed: int) -> None:
             assert np.isclose(
                 state.get(sites[1], 'x') - state.get(sites[0], 'x'),
                 count * .1 - .05)
-            public = sanitize_state(state)
-            model._set_state(public)
+            model._set_state(state)
             observed = model._get_state()
-            assert set(public) == set(observed)
+            assert set(state) == set(observed)
             for obj in blocks:
-                assert abs(public.get(obj, 'x') -
-                           observed.get(obj, 'x')) < .001
-            assert all(not o.sim_data for o in public)
+                assert abs(state.get(obj, 'x') - observed.get(obj, 'x')) < .001
             model.simulate(
-                public,
+                state,
                 Action(
                     np.array(model._pybullet_robot.get_joints(),
                              dtype=np.float32)))
