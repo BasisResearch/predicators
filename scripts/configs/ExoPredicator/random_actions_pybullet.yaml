@@ -1,6 +1,6 @@
 # Random actions agent on all PyBullet environments - generates test videos.
 # Usage:
-#   PYTHONPATH=. python scripts/local/launch_simp.py -c mara2/random_actions_pybullet.yaml
+#   PYTHONPATH=. python scripts/local/launch_simp.py -c ExoPredicator/random_actions_pybullet.yaml
 ---
 APPROACHES:
   random_actions_pybullet:

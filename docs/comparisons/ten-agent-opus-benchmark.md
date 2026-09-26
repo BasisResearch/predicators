@@ -46,20 +46,20 @@ python ../../../scripts/plotting/plot_benchmark_arms.py benchmark-arms-opus
 
 ## Settings and cohort selection
 
-The five settings are the menu defaults in [envs/continual.yaml](../../scripts/configs/predicatorv3/envs/continual.yaml): Boil two-jug test, Domino high-friction turn, Fan ramp test, Bridge four-span test row and Balloons composition test levels.
+The five settings are the menu defaults in [envs/continual.yaml](https://github.com/BasisResearch/predicators/blob/iclr-empiric-submission/scripts/configs/predicatorv3/envs/continual.yaml): Boil two-jug test, Domino high-friction turn, Fan ramp test, Bridge four-span test row and Balloons composition test levels.
 EMPIRIC and the direct agent ran before the benchmark rounds under their own round keys; the four-span EMPIRIC runs are the preflight-off ones (r2 seed 0, r3 seeds 1-2).
 The other arms ran as `<arm>_opus_benchmark_<round>` from frozen worktrees:
 
-- Oracle dynamics, zero-shot and no harness fitting: [continual_five_ablations_benchmark_r1.yaml](../../scripts/configs/predicatorv3/continual_five_ablations_benchmark_r1.yaml) at `2982f5876` (/home/ycliang/predicators-five-arms-frozen-20260918).
-- Standalone simulator and no explicit uncertainty: round r2 from [continual_standalone_no_uncertainty_r2.yaml](../../scripts/configs/predicatorv3/continual_standalone_no_uncertainty_r2.yaml) at `0ddc8f7f4` (/home/ycliang/predicators-standalone-nounc-frozen-20260918), after the September 18 revision of both surfaces.
-- Scene only: [continual_scene_only_benchmark_r1.yaml](../../scripts/configs/predicatorv3/continual_scene_only_benchmark_r1.yaml).
-- Agentic real-to-sim: [continual_real_to_sim_benchmark_r1.yaml](../../scripts/configs/predicatorv3/continual_real_to_sim_benchmark_r1.yaml) at `5ea35c91c` (/home/ycliang/predicators-real-to-sim-frozen-20260918).
+- Oracle dynamics, zero-shot and no harness fitting: [continual_five_ablations_benchmark_r1.yaml](https://github.com/BasisResearch/predicators/blob/iclr-empiric-submission/scripts/configs/predicatorv3/continual_five_ablations_benchmark_r1.yaml) at `2982f5876` (/home/ycliang/predicators-five-arms-frozen-20260918).
+- Standalone simulator and no explicit uncertainty: round r2 from [continual_standalone_no_uncertainty_r2.yaml](https://github.com/BasisResearch/predicators/blob/iclr-empiric-submission/scripts/configs/predicatorv3/continual_standalone_no_uncertainty_r2.yaml) at `0ddc8f7f4` (/home/ycliang/predicators-standalone-nounc-frozen-20260918), after the September 18 revision of both surfaces.
+- Scene only: [continual_scene_only_benchmark_r1.yaml](https://github.com/BasisResearch/predicators/blob/iclr-empiric-submission/scripts/configs/predicatorv3/continual_scene_only_benchmark_r1.yaml).
+- Agentic real-to-sim: [continual_real_to_sim_benchmark_r1.yaml](https://github.com/BasisResearch/predicators/blob/iclr-empiric-submission/scripts/configs/predicatorv3/continual_real_to_sim_benchmark_r1.yaml) at `5ea35c91c` (/home/ycliang/predicators-real-to-sim-frozen-20260918).
   Its prompt asks the agent to write its own `simulator.py` scene from the engine, the manifest and the assets and to model the mechanisms, the same workflow as EMPIRIC.
-- EMPIRIC + scene package: [continual_empiric_scene_package_benchmark_r1.yaml](../../scripts/configs/predicatorv3/continual_empiric_scene_package_benchmark_r1.yaml).
+- EMPIRIC + scene package: [continual_empiric_scene_package_benchmark_r1.yaml](https://github.com/BasisResearch/predicators/blob/iclr-empiric-submission/scripts/configs/predicatorv3/continual_empiric_scene_package_benchmark_r1.yaml).
   Fan and Balloons ran as r1 at `d575a8447` (/home/ycliang/predicators-empiric-pkg-frozen-20260918).
   Boil, Bridge and Domino ran as r2 at `8051333e5` (/home/ycliang/predicators-empiric-pkg-split-frozen-20260919), after their environment files were split so the observable sim core can be shared without the hidden mechanisms; their r1 runs were cancelled and are excluded.
   To resume the paused seeds, relaunch the same launcher and round key from the same worktree so auto-resume picks up the scorecard and checkpoint.
-- Direct agent + scene assets: [continual_direct_scene_files_benchmark_r1.yaml](../../scripts/configs/predicatorv3/continual_direct_scene_files_benchmark_r1.yaml) at `f6f609636` (/home/ycliang/predicators-direct-scene-files-frozen-20260919).
+- Direct agent + scene assets: [continual_direct_scene_files_benchmark_r1.yaml](https://github.com/BasisResearch/predicators/blob/iclr-empiric-submission/scripts/configs/predicatorv3/continual_direct_scene_files_benchmark_r1.yaml) at `f6f609636` (/home/ycliang/predicators-direct-scene-files-frozen-20260919).
   It is the direct agent plus the real-to-sim arm's engine wrapper, scene manifest and URDF and mesh files as read-only references; its prompt only asks it to solve the levels, with no simulator, model files, fitting or model gate.
   The rendered prompt is in [the prompt review](../prompt-review/2026-09-19-direct-scene-files/direct_agent_scene_files.md).
 
@@ -80,7 +80,7 @@ This is not a matched preflight ablation.
 The archived Fan transfer experiment is a separate pilot with two seeds each for EMPIRIC and the direct agent.
 The other agents have not been launched on this variant; their empty rows are missing results, not failures.
 Only finished seeds enter the bars and curves; pending runs are listed below and do not count as zero successes.
-See the [illustrated task description](../amps/fan-exposed-transfer.md) and [launch configuration](../../scripts/configs/predicatorv3/continual_fan_transfer_pilot_r1.yaml).
+See the [illustrated task description](../amps/fan-exposed-transfer.md) and [launch configuration](https://github.com/BasisResearch/predicators/blob/iclr-empiric-submission/scripts/configs/predicatorv3/continual_fan_transfer_pilot_r1.yaml).
 This superseded pilot is omitted from the figure; its tables and logs remain archived below.
 It is also excluded from the paper figure and its data selection.
 

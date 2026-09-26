@@ -6,9 +6,11 @@ Flags come from the config menus, so the rendered tasks are the ones the
 experiments use:
 
 - the five benchmark domains take their entry in
-  scripts/configs/predicatorv3/envs/continual.yaml,
-- the other recent domains take their entry in envs/all.yaml,
-- the older domains take their entry in random_actions_pybullet.yaml.
+  scripts/configs/empiric/envs.yaml,
+- the older domains take their entry in
+  scripts/configs/ExoPredicator/random_actions_pybullet.yaml,
+- the rest (busyboard, crane, icerink, launcher, magnets) render with their
+  defaults; no experiment changed their task distributions.
 
 Observation noise flags are irrelevant here (states are rendered, not
 observed). Run on a compute node, one env per call:
@@ -27,32 +29,30 @@ from PIL import Image, ImageDraw, ImageFont
 from predicators import utils
 from predicators.envs import create_new_env
 
-_CONFIG_DIR = "scripts/configs/predicatorv3"
+_CONFIG_DIR = "scripts/configs"
 
-# env name -> (menu file, menu key)
+# env name -> (menu file, menu key) for the benchmark domains.
 _MENUS: Dict[str, Tuple[str, str]] = {
-    "pybullet_balloons": ("envs/continual.yaml", "balloons"),
-    "pybullet_bridge": ("envs/continual.yaml", "bridge"),
-    "pybullet_boil": ("envs/continual.yaml", "boil"),
-    "pybullet_fan": ("envs/continual.yaml", "fan"),
-    "pybullet_domino": ("envs/continual.yaml", "domino_high_friction_turn"),
-    "pybullet_busyboard": ("envs/all.yaml", "busyboard"),
-    "pybullet_crane": ("envs/all.yaml", "crane"),
-    "pybullet_icerink": ("envs/all.yaml", "icerink"),
-    "pybullet_launcher": ("envs/all.yaml", "launcher"),
-    "pybullet_magnets": ("envs/all.yaml", "magnets"),
+    "pybullet_balloons": ("empiric/envs.yaml", "balloons"),
+    "pybullet_bridge": ("empiric/envs.yaml", "bridge"),
+    "pybullet_boil": ("empiric/envs.yaml", "boil"),
+    "pybullet_fan": ("empiric/envs.yaml", "fan"),
+    "pybullet_domino": ("empiric/envs.yaml", "domino_high_friction_turn"),
 }
-_LEGACY_MENU = "random_actions_pybullet.yaml"
+_LEGACY_MENU = "ExoPredicator/random_actions_pybullet.yaml"
 
 
 def _menu_flags(env_name: str) -> Dict[str, Any]:
-    """Return the FLAGS of the menu entry that defines this env's tasks."""
+    """Return the FLAGS of the menu entry that defines this env's tasks, or
+    none for an env that no menu lists."""
     menu_file, key = _MENUS.get(env_name, (_LEGACY_MENU, ""))
     with open(os.path.join(_CONFIG_DIR, menu_file), encoding="utf-8") as f:
         config = yaml.safe_load(f)
     envs = config["ENVS"]
     if not key:
-        key = next(k for k, v in envs.items() if v["NAME"] == env_name)
+        key = next((k for k, v in envs.items() if v["NAME"] == env_name), "")
+        if not key:
+            return {}
     flags = dict(envs[key].get("FLAGS", {}))
     return {k: v for k, v in flags.items() if not k.startswith("continual_")}
 

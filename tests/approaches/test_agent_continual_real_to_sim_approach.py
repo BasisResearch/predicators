@@ -20,7 +20,27 @@ from tests.approaches.test_agent_continual_approach import _call, _config, \
 
 # pylint: disable=protected-access
 
-CONFIG = "predicatorv3/continual_real_to_sim_benchmark_r1.yaml"
+# The agentic real-to-sim arm (no domain twin: the generic PyBulletEnv, a
+# domain-agnostic SceneBase, the scene manifest and the asset files; the
+# harness fits nothing and runs no uncertainty machinery) and the EMPIRIC
+# from-assets arm it derives from. Neither is a benchmark arm; each is the
+# benchmark's EMPIRIC run with these flags.
+REAL_TO_SIM_FLAGS = {
+    "agent_sim_learn_declared_params_only": True,
+    "continual_uncertainty_decisions": False,
+    "agent_sim_learn_param_uncertainty": False,
+    "agent_plan_validation_rule_param_margin": False,
+    "agent_plan_validation_physics_margin": False,
+    "agent_explorer_info_seeking": False,
+    "agent_explorer_info_seeking_adaptive": False,
+    "agent_explorer_info_seeking_noise_aware": False,
+    "code_sim_learning_interval_belief": False,
+    "code_sim_learning_carry_posterior": False,
+}
+FROM_ASSETS_FLAGS = {
+    "agent_sim_learn_declared_params_only": False,
+    "continual_uncertainty_decisions": True,
+}
 # The agent's simulator for the Boil training scene, written the way the
 # prompt describes: a SceneBase subclass whose initialize_pybullet loads
 # every body of the manifest under its observed name.
@@ -115,16 +135,23 @@ def _dispose_test_physics_clients(monkeypatch: Any) -> Iterator[None]:
                 p.disconnect(client)
 
 
-def _arm_flags() -> Dict[str, Any]:
-    cfg = next(c for c in generate_run_configs(CONFIG, False)
-               if c.env == "pybullet_boil")
-    # The launcher pins machine-specific output paths; tests keep their own.
-    flags = {
+def _benchmark_flags(env_name: str) -> Dict[str, Any]:
+    """The benchmark EMPIRIC run's flags on ``env_name``, without the machine-
+    specific output paths (tests keep their own)."""
+    cfg = next(c for c in generate_run_configs(
+        "empiric/benchmark.yaml", False, approaches=["mb_opus"])
+               if c.env == env_name)
+    return {
         k: v
         for k, v in cfg.flags.items() if k not in ("log", "continual_runs_dir")
     }
-    flags.update(approach=cfg.approach,
-                 env=cfg.env,
+
+
+def _arm_flags() -> Dict[str, Any]:
+    flags = _benchmark_flags("pybullet_boil")
+    flags.update(REAL_TO_SIM_FLAGS,
+                 approach="agent_continual_real_to_sim",
+                 env="pybullet_boil",
                  continual_render=False,
                  continual_make_video=False)
     return flags
@@ -134,17 +161,10 @@ def _make(tmp_path: Any, from_assets: bool = False) -> Any:
     flags = _arm_flags()
     name = "agent_continual_real_to_sim"
     if from_assets:
-        cfg = next(c for c in generate_run_configs(
-            "predicatorv3/continual_from_assets_pilot_r1.yaml", False)
-                   if c.env == "pybullet_bridge")
-        # The launcher pins machine-specific output paths; tests keep their own.
-        flags = {
-            k: v
-            for k, v in cfg.flags.items()
-            if k not in ("log", "continual_runs_dir")
-        }
         name = "agent_continual_from_assets"
-        flags.update(approach=name,
+        flags = _benchmark_flags("pybullet_bridge")
+        flags.update(FROM_ASSETS_FLAGS,
+                     approach=name,
                      env="pybullet_boil",
                      continual_render=False,
                      continual_make_video=False)
@@ -156,17 +176,6 @@ def _make(tmp_path: Any, from_assets: bool = False) -> Any:
                                [t.task for t in env.get_train_tasks()])
     assert approach.get_name() == name
     return env, approach
-
-
-def test_config_is_the_benchmark_arm() -> None:
-    """Five settings, three seeds, no fitting and no uncertainty flags."""
-    runs = list(generate_run_configs(CONFIG, False))
-    assert len(runs) == 15
-    for run in runs:
-        assert run.approach == "agent_continual_real_to_sim"
-        assert run.flags["agent_sim_learn_declared_params_only"] is True
-        assert run.flags["continual_uncertainty_decisions"] is False
-        assert run.flags["continual_require_model_on_test"] is True
 
 
 def test_arm_refuses_uncertainty_machinery(tmp_path: Any) -> None:
@@ -346,30 +355,3 @@ def test_agent_builds_the_scene_and_rehearses_in_it(tmp_path: Any,
         fit = approach._last_fit_result
         assert fit is not None and fit.names == ["heat_rate"]
         assert fit.samples[0, 0] == pytest.approx(0.01)
-
-
-def test_from_assets_pilot_retains_empiric_capabilities() -> None:
-    """Two seeds per domain, fitting and EMPIRIC's joint belief, no
-    preflight."""
-    runs = list(
-        generate_run_configs(
-            "predicatorv3/continual_from_assets_pilot_r1.yaml", False))
-    assert len(runs) == 10
-    assert {r.env
-            for r in runs} == {
-                "pybullet_fan", "pybullet_bridge", "pybullet_domino",
-                "pybullet_balloons", "pybullet_boil"
-            }
-    for run in runs:
-        assert run.approach == "agent_continual_from_assets"
-        assert run.flags["agent_sim_learn_declared_params_only"] is False
-        assert run.flags["continual_uncertainty_decisions"] is True
-        assert run.flags["code_sim_learning_interval_belief"] is True
-        # The joint belief, with the prior at its declared centre.
-        assert run.flags["belief_joint_draws"] == 16
-        assert run.flags["code_sim_learning_carry_posterior"] is False
-        assert run.flags["continual_skill_preflight"] is False
-        if run.env == "pybullet_fan":
-            assert run.flags["fan_ramp_transfer"] is True
-            assert run.flags["fan_ramp_rise"] == 0.003
-            assert run.flags["fan_ramp_landing_extension"] == 0.10

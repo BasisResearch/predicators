@@ -69,8 +69,9 @@ def _domino_code_digest() -> str:
 # Default L-shape leg-sampling bands (entry_leg, exit_leg) for turn tasks
 # when no explicit differentiating band is configured - the natural-corner
 # region shared by the plain and heavy turn variants. Explicit differentiating
-# bands come from CFG.domino_min_block_turn_* (probe with
-# scripts/domino_debug/probe_min_block_bands.py when the friction pair moves).
+# bands come from CFG.domino_min_block_turn_* (re-probe them when the friction
+# pair moves, with scripts/domino_debug/probe_min_block_bands.py from tag
+# iclr-empiric-submission).
 _DEFAULT_TURN_ENTRY_BAND = (0.26, 0.34)
 _DEFAULT_TURN_EXIT_BAND = (0.18, 0.26)
 # Heavy turn variant: legs from the 2026-07-25 canonical-anchor design
@@ -557,11 +558,12 @@ def _make_turn_task(env: "PyBulletDominoComposedEnv",
     # finite (entry, exit) cells - the data for any future retuning.
     direction = _planning_mismatch_direction()
     if CFG.domino_min_block_turn_entry_lo is not None:
-        # Explicitly configured bands - probe with
-        # scripts/domino_debug/probe_min_block_bands.py when the
-        # friction pair changes (the differentiating cells move with the
-        # frictions). The shipping under_reach arm's bands live in
-        # scripts/configs/predicatorv3/envs/all.yaml.
+        # Explicitly configured bands - re-probe them when the friction
+        # pair changes (the differentiating cells move with the
+        # frictions), with scripts/domino_debug/probe_min_block_bands.py
+        # from tag iclr-empiric-submission. The benchmark's bands live in
+        # the domino_high_friction_turn entry of
+        # scripts/configs/empiric/envs.yaml.
         assert CFG.domino_min_block_turn_entry_hi is not None
         assert CFG.domino_min_block_turn_exit_lo is not None
         assert CFG.domino_min_block_turn_exit_hi is not None
@@ -580,9 +582,11 @@ def _make_turn_task(env: "PyBulletDominoComposedEnv",
         # which LLM planner arms cannot discover (retune 2026-07-12).
         raise ValueError(
             "under_reach turn tasks require explicit "
-            "domino_min_block_turn_{entry,exit}_{lo,hi} flags (probe with "
-            "scripts/domino_debug/probe_min_block_bands.py; see the "
-            "domino_high_friction block in envs/all.yaml).")
+            "domino_min_block_turn_{entry,exit}_{lo,hi} flags (see the "
+            "domino_high_friction_turn entry of "
+            "scripts/configs/empiric/envs.yaml; probe new bands with "
+            "scripts/domino_debug/probe_min_block_bands.py from tag "
+            "iclr-empiric-submission).")
     else:
         entry_leg = round(float(rng.uniform(*_DEFAULT_TURN_ENTRY_BAND)), 2)
         exit_leg = round(float(rng.uniform(*_DEFAULT_TURN_EXIT_BAND)), 2)

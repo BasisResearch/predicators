@@ -106,7 +106,7 @@ Scripts and logs: `~/claude_sbatch/principled_belief_20260925/interpenetration_c
 
 ## Implementation status (2026-09-25)
 
-Built on the `principled-belief` branch, behind `belief_joint_draws` (settings default 0; `continual_common.yaml` sets 16, and the No uncertainty arm keeps 0).
+Built on the `principled-belief` branch, behind `belief_joint_draws` (settings default 0; `scripts/configs/empiric/common.yaml` sets 16, and the No uncertainty arm keeps 0).
 
 - Parameter factor: `ParameterBelief` with line posteriors, discrete parameters as categorical lines (`DiscretePosterior`), fresh draws (`ParameterBelief.sample`), and `prior_parameter_belief` before a fit; the fit tool reports the belief in place of the identifiability section.
 - State factor: `change_point_belief` and `feature_ranges` in `observation_belief.py`; `ContinualRun.belief()` uses it when the joint belief is on, for every arm with a state estimate.

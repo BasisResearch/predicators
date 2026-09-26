@@ -1,4 +1,5 @@
 """Continual comparison contracts exercised through real play tools."""
+import dataclasses
 import os
 import re
 import shlex
@@ -20,15 +21,31 @@ from predicators.run.continual import ContinualRun
 from predicators.run.level_players import create_level_player
 from predicators.settings import CFG
 from predicators.structs import Dataset
-from scripts.cluster_utils import config_to_cmd_flags, generate_run_configs
+from scripts.cluster_utils import SingleSeedRunConfig, config_to_cmd_flags, \
+    generate_run_configs
 from tests.approaches.test_agent_continual_approach import _call, _config, \
     _result
 
-# The benchmark sweep: eight arms on the five benchmark settings, three
-# seeds each (Sept 18, 2026).
-CONFIG = "predicatorv3/continual_eight_agent_noisy_sweep.yaml"
-ARM_COUNT = 8
-SEEDS = {0, 1, 2}
+# The benchmark: seven arms (six approach classes; the scene-package arm
+# shares the model-free class) on the five settings, five seeds each.
+CONFIG = "empiric/benchmark.yaml"
+ARM_COUNT = 7
+CLASS_COUNT = 6
+SEEDS = set(range(5))
+# Comparison arms outside the benchmark. Their menu entries set only the
+# model, like the standalone arm's, so they reuse its run config.
+UNBENCHMARKED = ("agent_continual_scene_only", "agent_continual_zero_shot")
+
+
+def _arm_config(domain: str, approach: str) -> SingleSeedRunConfig:
+    """The benchmark run config of ``approach`` on ``domain``."""
+    if approach in UNBENCHMARKED:
+        base = _arm_config(domain, "agent_continual_program_world_model")
+        return dataclasses.replace(base, approach=approach)
+    cfg = next(c for c in generate_run_configs(CONFIG, False)
+               if c.env == f"pybullet_{domain}" and c.approach == approach)
+    assert isinstance(cfg, SingleSeedRunConfig)
+    return cfg
 
 
 @pytest.fixture(autouse=True)
@@ -58,10 +75,10 @@ def _dispose_test_physics_clients(monkeypatch: Any) -> Iterator[None]:
 
 
 def test_comparison_config_matches_existing_domains(monkeypatch: Any) -> None:
-    """Eight arms share each domain's settings and run paired seeds."""
+    """The seven arms share each domain's settings and run paired seeds."""
     new = list(generate_run_configs(CONFIG, False))
     approaches = {c.approach for c in new}
-    assert len(approaches) == ARM_COUNT
+    assert len(approaches) == CLASS_COUNT
     assert len(new) == ARM_COUNT * 5 * len(SEEDS)
     seeds: Dict[Tuple[str, str], Set[int]] = {}
     for cfg in new:
@@ -123,8 +140,7 @@ def test_no_uncertainty_rejects_smoothing(flag: str) -> None:
 def test_ablation_play_tools(tmp_path: Any, monkeypatch: Any, arm: str,
                              domain: str) -> None:
     """No-uncertainty uses raw observations; tools enforce arm restrictions."""
-    cfg = next(c for c in generate_run_configs(CONFIG, False)
-               if c.env == f"pybullet_{domain}" and c.approach.endswith(arm))
+    cfg = _arm_config(domain, f"agent_continual_{arm}")
     _config(
         tmp_path, **{
             **{k: v
@@ -286,8 +302,7 @@ def _sandbox_listing(ctx: Any) -> str:
 def _configure_domain_comparison(tmp_path: Any, domain: str,
                                  approach: str) -> str:
     """Use the benchmark's real domain settings with local test outputs."""
-    cfg = next(c for c in generate_run_configs(CONFIG, False)
-               if c.env == f"pybullet_{domain}" and c.approach == approach)
+    cfg = _arm_config(domain, approach)
     _config(
         tmp_path, **{
             **{k: v

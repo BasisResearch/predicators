@@ -10,7 +10,7 @@ Usage:
 Options:
     --skip-run      Skip running the experiments (just convert existing MP4s)
     --config, -c    Config file to use
-                    (default: mara2/random_actions_pybullet.yaml)
+                    (default: ExoPredicator/random_actions_pybullet.yaml)
     --video-dir     Directory where MP4s are written (default: videos)
     --output-dir    Directory for output GIFs
                     (default: docs/envs/assets/random_action_gifs)
@@ -114,7 +114,7 @@ def main() -> None:
     parser.add_argument(
         "-c",
         "--config",
-        default="mara2/random_actions_pybullet.yaml",
+        default="ExoPredicator/random_actions_pybullet.yaml",
         help="Config YAML file (relative to scripts/configs/).",
     )
     parser.add_argument(

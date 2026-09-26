@@ -1,7 +1,7 @@
 """End-to-end test: oracle_process_planning solves a boil task.
 
-Mirrors the config from ``predicatorv3/oracle.yaml`` +
-``predicatorv3/envs/all.yaml`` + ``predicatorv3/common.yaml`` so that a
+Mirrors the retired phased config (``predicatorv3/oracle.yaml`` +
+``envs/all.yaml`` + ``common.yaml`` at tag iclr-empiric-submission) so that a
 regression in either the approach (process planning + bilevel
 refinement) or the boil env's skill execution would surface here.
 
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 def _oracle_boil_config() -> dict:
-    """Flags from predicatorv3/{common,envs/all,oracle}.yaml flattened.
+    """Flags from the retired predicatorv3/{common,envs/all,oracle}.yaml.
 
     Kept minimal: 1 train task and 1 test task, no online learning
     cycles (oracle approach is not learning-based), no LLM (oracle

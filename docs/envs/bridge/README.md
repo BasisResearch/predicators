@@ -15,5 +15,5 @@ Gray pads mark the two leg sites; standing blocks are legs, lying blocks are spa
 ## Oracle solve trajectories
 
 `oracle_solve_<spec>.mp4`: `oracle_process_planning` solving one test task end-to-end (seed 0), recorded with `--make_test_videos`.
-The launch flags mirror the `bridge` entry in `scripts/configs/predicatorv3/envs/all.yaml`, plus `--no_repeated_arguments_in_grounding True` (set globally by `common.yaml` for config-launched runs, required on a bare CLI for the full spec to plan).
+The launch flags mirror the `bridge` entry of the retired phased menu `scripts/configs/predicatorv3/envs/all.yaml` (tag `iclr-empiric-submission`), plus `--no_repeated_arguments_in_grounding True` (set globally by that menu's `common.yaml` for config-launched runs, required on a bare CLI for the full spec to plan).
 The full-spec video was recorded with the default `pybullet_birrt_path_subsample_ratio 1`.
