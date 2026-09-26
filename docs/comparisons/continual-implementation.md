@@ -137,3 +137,51 @@ Prepared replacement configs are `protocol_continual_standalone_engine_noisy_r2.
 They preserve every prior run flag, with twelve non-Bridge seeds and three Bridge transfer seeds.
 Whether to replace the existing standalone cohort is pending the user's preference; no replacement agent runs have been submitted.
 Validation artifacts are in `/home/ycliang/predicators/logs/standalone_engine_contract_20260913/`.
+
+
+## Agentic real-to-sim baseline, 2026-09-18
+
+The user asked for a more realistic real-to-sim baseline than the domain twin: "just the PyBullet class and the URDFs".
+The arm is `agent_continual_real_to_sim` (menu keys `real_to_sim_opus` and `real_to_sim_sonnet`, launcher `continual_real_to_sim_benchmark_r1.yaml`).
+It receives the generic `PyBulletEnv` and `BaseEnv` sources, a domain-agnostic `SceneBase` bound to the robot's placement, home pose, finger conventions and the observation types, a manifest of the scene's bodies (shapes, mesh files, joints, colours, and which observed object each body is) and the URDF and mesh files those bodies and the robot were loaded from.
+The manifest records no masses, frictions, restitution or damping.
+The agent writes `simulator.py` as a `SceneBase` subclass whose `initialize_pybullet` loads the scene, syncs the features no body pose carries, implements the mechanisms it infers and declares its own parameters; the harness fits nothing and runs no uncertainty machinery, and `sim` has no world until the file loads.
+The model gate on the test level stays on.
+The menu runs the composite skill library, like the other arms of the Sept 18 benchmark; `skill_library: primitive` is the robot-stack variant.
+Review copy: `docs/prompt-review/2026-09-18-balloons/agent_continual_real_to_sim.md`.
+Seed 0 on the five benchmark settings was launched on Sept 18 from a frozen worktree at `5ea35c91c` (`continual_real_to_sim_benchmark_r1.yaml`).
+
+## Standalone and no-uncertainty revisions, 2026-09-18
+
+The standalone arm's `sim` probe is now kept close to WorldCoder.
+It scores the agent's `world_model.py` on the recorded data (`sim.score`), resets to a train task or the last observation, reads and banks the state, and rolls a plan through the program once (`sim.run`, text only).
+Plan search (`sim.refine`), repeated-trial rollouts, predicate scoring (`sim.predicates`), renders of predicted states, belief draws, probe suggestions and policy rollouts are withheld: the probe refuses them (`ToolContext.probe_disabled`), and neither the `run_python` description nor the play prompt offers them.
+The agent may write any search, sampling or diagnostics in its own code.
+
+The no-explicit-uncertainty arm no longer has the observation noise declared (`continual_obs_noise_declared: false`).
+Its prompt has no noise section, its observations carry no `[noise]` line, and the harness fit models none of the noise; the noise itself is the same as in every other arm.
+The arm refuses a configuration that declares it.
+
+The skill tools mention a rehearsal in `sim`, and offer `force`, only when the skill preflight is on; it has been off by default since Sept 18, so the earlier text was inaccurate for every arm.
+
+Both arms were relaunched for seed 0 on the five benchmark settings under the `_benchmark_r2` round keys (`continual_standalone_no_uncertainty_r2.yaml`).
+The earlier rounds, with the fuller probe and the declared noise, keep their logs under `_benchmark_r1` and `_raw_obs_opus_r1`.
+
+
+## EMPIRIC with the scene package, 2026-09-18
+
+The user asked for EMPIRIC to receive everything the agentic real-to-sim arm receives, and for a rerun on the benchmark runtime.
+`continual_provide_scene_package` gives the model arm the generic engine wrapper (`pybullet_env.py`, `base_env.py`), the scene manifest and the URDF and mesh files under `./reference/`, next to the domain twin that still backs the model.
+The menu entry `mb_scene_package_opus` also sets `agent_sim_provide_base_sim_source`, which adds the twin's own core module where the domain declares a split one (Fan and Balloons).
+Boil, Bridge and Domino declare none: their env modules hold the hidden mechanisms, so their twin source stays out of the sandbox.
+The launcher is `continual_empiric_scene_package_benchmark_r1.yaml` (5 domains x seeds 0-2), on the same menus as the other benchmark arms, so the skill preflight is off.
+
+## Realistic sim gap flag, 2026-09-18
+
+The user asked for a realistic-gap setting for EMPIRIC and agentic real-to-sim, toggled by a configuration flag.
+`sim_gap` (off by default) builds the live world, and only the live world, with hidden deviations from its nominal description (`predicators/pybullet_helpers/world_gap.py`).
+Movable bodies are built up to `sim_gap_geometry` (3%) larger or smaller, every body's mass and lateral friction are scaled by a factor in [1 / (1 + x), 1 + x] with x = `sim_gap_mass` (0.25) and `sim_gap_friction` (0.3), and nonzero `sim_gap_solver_iterations` / `sim_gap_substeps` replace the engine defaults.
+The draws come from `seed + sim_gap_seed_offset`, one per body and quantity, and hold for the run; a domain that resets a body's dynamics at a task boundary is deviated again rather than restored.
+Planning twins, the scene manifest and the asset files stay nominal, so EMPIRIC's twin, its parameter menu and the real-to-sim arm's references all describe the nominal world.
+Static bodies (tables, walls, fixtures) keep their nominal shape.
+The magnitudes should be fixed before any agent results, and the oracle-dynamics arm should still solve every domain under the gap before other arms are compared on it.

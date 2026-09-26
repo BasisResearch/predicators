@@ -208,8 +208,9 @@ def _mate_slot_for(state: State, blk: Object, face: str, mate: Object) -> str:
 
 def _block_index(blocks: List[Object]) -> Dict[str, int]:
     del blocks  # the index is fixed by name, not task contents
-    # Fixed name order matching the env: leg0, leg1, span0..span2.
-    full = [f"leg{i}" for i in range(2)] + [f"span{i}" for i in range(3)]
+    # Fixed name order matching the env: leg0, leg1, span0..span3 (the
+    # body pool holds up to four spans; a three-span task uses a prefix).
+    full = [f"leg{i}" for i in range(2)] + [f"span{i}" for i in range(4)]
     return {name: i for i, name in enumerate(full)}
 
 

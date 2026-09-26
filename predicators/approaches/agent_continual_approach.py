@@ -36,8 +36,10 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, FrozenSet, List, \
 
 from predicators.agent_sdk import journal as journal_mod
 from predicators.agent_sdk.fit_status import format_fit_status
+from predicators.agent_sdk.preflight_audit import PreflightAudit
 from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES, \
     play_tool_names
+from predicators.agent_sdk.tools.exploration import ProbeSurface
 from predicators.agent_sdk.tools.sandbox_guard import \
     _screen_text_for_sandbox_escape
 from predicators.agent_sdk.tools.synthesis import create_synthesis_tools
@@ -49,6 +51,7 @@ from predicators.approaches.agent_sim_learning_approach import \
 from predicators.approaches.agent_sim_predicate_invention_approach import \
     AgentSimPredicateInventionApproach
 from predicators.approaches.continual_play_mixin import ContinualPlayMixin
+from predicators.approaches.scene_package_mixin import ScenePackageMixin
 from predicators.code_sim_learning.rollout_env import dispose_env
 from predicators.code_sim_learning.utils import LearnedSimulator, apply_rules
 from predicators.envs import create_new_env
@@ -114,7 +117,7 @@ class _Workbench:
 _RoundModel = Tuple[_Workbench, Any, Dict[str, str]]
 
 
-class AgentContinualApproach(ContinualPlayMixin,
+class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
                              AgentSimPredicateInventionApproach):
     """C1's learner (hybrid simulator, parameter fit, predicate invention)
     playing under the continual protocol, modelling in the rounds it plays."""
@@ -157,20 +160,54 @@ class AgentContinualApproach(ContinualPlayMixin,
 
     def _play_system_prompt(self) -> str:
         # pylint: disable-next=import-outside-toplevel
-        from predicators.agent_sdk.play_prompts import build_model_contract, \
-            build_play_system_prompt
-
-        # The contract of the model files (docs/protocol/design.md,
-        # 5): model memory follows CFG.partially_observable, the
-        # system-identification menu is the base env's.
-        contract = build_model_contract(
-            partially_observable=CFG.partially_observable,
-            physical_params_section=self._physical_params_prompt_section(),
-            declared_params_only=CFG.agent_sim_learn_declared_params_only)
+        from predicators.agent_sdk.play_prompts import build_play_system_prompt
         return build_play_system_prompt(
             self._continual_tool_names(),
             base_sim_refs=self._base_sim_reference_paths(),
-            model_contract=contract)
+            model_contract=self._play_model_contract(),
+            **self._play_prompt_options())
+
+    def _play_model_contract(self, **options: Any) -> str:
+        """The contract of the model files (docs/protocol/design.md, 5).
+
+        Model memory follows CFG.partially_observable, the system-
+        identification menu is the base env's. ``options`` are the
+        frozen arms' keyword arguments for build_model_contract.
+        """
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.play_prompts import build_model_contract
+        return build_model_contract(
+            partially_observable=CFG.partially_observable,
+            physical_params_section=self._physical_params_prompt_section(),
+            declared_params_only=CFG.agent_sim_learn_declared_params_only,
+            **options)
+
+    def _play_prompt_options(self) -> Dict[str, Any]:
+        """Extra keyword arguments for build_play_system_prompt.
+
+        The frozen arms pass their arm statement here.
+        """
+        if CFG.continual_provide_scene_package:
+            return {"scene_package": True}
+        return {}
+
+    def _probe_surface(self) -> ProbeSurface:
+        """What this arm's ``sim`` probe accepts (``run_python``'s
+        description)."""
+        return ProbeSurface(fit=self._fit_available(),
+                            uncertainty=CFG.continual_uncertainty_decisions)
+
+    def _no_model_section(self) -> str:
+        """The play_query section shown while no model file exists."""
+        return "no_model"
+
+    def _fit_available(self) -> bool:
+        """Whether the harness fits parameters in this arm.
+
+        Frozen and no-fitting arms return False, so the query never asks
+        for a refit that the probe would refuse.
+        """
+        return True
 
     def _model_status(self, session: ProtocolSession) -> str:
         n_eps, n_steps = self._episode_counts(session)
@@ -178,13 +215,13 @@ class AgentContinualApproach(ContinualPlayMixin,
         from predicators.agent_sdk.prompt_templates import render
         if self._current_simulator_version is None:
             status = render("play_query",
-                            "no_model",
+                            self._no_model_section(),
                             n_episodes=str(n_eps),
                             n_steps=str(n_steps))
         else:
             new = max(0, n_eps - self._episodes_at_last_fit)
             refit_note = (" Refit with `sim.fit()` before you rely on the "
-                          "model." if new else "")
+                          "model." if new and self._fit_available() else "")
             status = render("play_query",
                             "model_status",
                             simulator_version=self._current_simulator_version,
@@ -251,6 +288,7 @@ class AgentContinualApproach(ContinualPlayMixin,
             sandbox_dir_for_agent=paths.sandbox_dir_for_agent,
             cycle_index_provider=self._learning_cycle_index,
             budget_check=lambda: _check_time_budget(self._tool_context),
+            probe_surface=self._probe_surface(),
         )
         self._install_extra_synthesis_surfaces(exec_ns, base_pred_triples,
                                                inferred_hint, extra_paths)
@@ -296,8 +334,12 @@ class AgentContinualApproach(ContinualPlayMixin,
         exec_ns["sim"] = probe_ns["sim"]
         exec_ns["BeliefProbe"] = probe_ns["BeliefProbe"]
         ctx.skill_preflight = (self._make_skill_preflight(
-            session, probe_ns["BeliefProbe"])
+            session, probe_ns["BeliefProbe"], paths.simulator_file)
                                if CFG.continual_skill_preflight else None)
+        ctx.execution_audit = (PreflightAudit(
+            ctx, session, paths.simulator_file,
+            os.path.join(self._get_log_dir(), "validation_audit.jsonl"))
+                               if CFG.continual_validation_audit else None)
         self._load_probe_extension(exec_ns, paths.base)
         declared = set(self._get_synthesis_tool_names() or ())
         return [t for t in toolkit.tools if getattr(t, "name", "") in declared]
@@ -431,6 +473,7 @@ class AgentContinualApproach(ContinualPlayMixin,
         ctx.current_observation_provider = None
         ctx.skill_gate = None
         ctx.skill_preflight = None
+        ctx.execution_audit = None
         ctx.probe_param_status = None
         ctx.probe_artifact_loaders.clear()
         ctx.learn_cycle_index = None
@@ -521,13 +564,12 @@ class AgentContinualApproach(ContinualPlayMixin,
         return cache[1]
 
     def _make_skill_preflight(
-            self, session: ProtocolSession,
-            probe_factory: Callable[[],
-                                    Any]) -> Callable[[str], Optional[str]]:
+            self, session: ProtocolSession, probe_factory: Callable[[], Any],
+            simulator_file: str) -> Callable[[str], Optional[str]]:
         """The ``ToolContext.skill_preflight`` of this round under
         ``continual_skill_preflight``: the request's plan text rehearsed
         on a private probe from the last real observation, against the
-        candidate ``simulator.py`` or the base physics before one exists.
+        agent's candidate ``simulator.py``.
 
         The sim runs the real skill controllers, so a controller failure
         there (a grasp pose in contact, no collision-free path, a lift
@@ -535,10 +577,16 @@ class AgentContinualApproach(ContinualPlayMixin,
         controller's diagnostic that the real env withholds. When the
         observation channel is noisy and uncertainty decisions are on,
         the request is also rolled from ``continual_skill_preflight_draws``
-        plausible poses; failing on more than half refuses it too. A
-        rehearsal that cannot run (no observation yet, the probe's
-        budget spent, a broken candidate) never blocks the request: the
-        failure is logged and the skill runs.
+        plausible poses; failing on more than half refuses it too.
+
+        Before a candidate exists the request runs unrehearsed. The
+        probe's fallback, the base physics with the hidden mechanisms
+        disabled, is not the real env: the Opus Bridge runs of Sept 17,
+        2026 had no model, and every refusal there was false, a welded
+        partner rehearsed as a loose block. A rehearsal that cannot run
+        (no observation yet, the probe's budget spent, a broken
+        candidate) never blocks the request either: the failure is
+        logged and the skill runs.
         """
         ctx = self._tool_context
 
@@ -549,6 +597,8 @@ class AgentContinualApproach(ContinualPlayMixin,
             return bool(failure) and failure != "0 actions"
 
         def preflight(plan_text: str) -> Optional[str]:
+            if not os.path.isfile(simulator_file):
+                return None
             try:
                 session.observe()
             except EpisodeOver:
@@ -674,19 +724,48 @@ class AgentContinualApproach(ContinualPlayMixin,
         opened on first use."""
         if not obs_triples:
             return []
+        return self._compute_base_pred_triples(obs_triples,
+                                               self._workbench_env())
+
+    def _workbench_env(self) -> Any:
+        """The workbench's own base-sim world (the visible physics with no
+        hidden mechanism), opened on first use and released with the round."""
         bench = self._workbench
         if bench.env is None:
             bench.env = create_new_env(CFG.env,
                                        do_cache=False,
                                        use_gui=False,
                                        skip_residual_dynamics=True)
-        return self._compute_base_pred_triples(obs_triples, bench.env)
+        return bench.env
 
     def _release_workbench_env(self) -> None:
         bench = self._workbench
         if bench.env is not None:
             dispose_env(bench.env)
             bench.env = None
+
+    # -- The scene package (engine, manifest, assets) -----------------------
+
+    def _scene_manifest_env(self) -> Tuple[Any, bool]:
+        # The workbench's own base-sim world, released with the round.
+        return self._workbench_env(), False
+
+    def _get_sandbox_reference_files(self) -> Dict[str, str]:
+        files = super()._get_sandbox_reference_files()
+        if CFG.continual_provide_scene_package:
+            files.update(self._scene_package_files())
+        return files
+
+    def _base_sim_reference_paths(self) -> List[str]:
+        paths = super()._base_sim_reference_paths()
+        if not CFG.continual_provide_scene_package:
+            return paths
+        package = self._scene_package_paths()
+        names = {os.path.basename(path.split(" ")[0]) for path in package}
+        # The twin's own core modules first, then the package; the
+        # engine wrapper is listed once.
+        return [path for path in paths if os.path.basename(path) not in names
+                ] + package
 
     def _fit_status_text(self) -> str:
         """The last fit as one line for the prompt: the point estimate per
@@ -730,7 +809,7 @@ class AgentContinualApproach(ContinualPlayMixin,
             save_dict.get("episodes_at_last_fit", 0))
 
 
-class AgentContinualModelFreeApproach(ContinualPlayMixin,
+class AgentContinualModelFreeApproach(ContinualPlayMixin, ScenePackageMixin,
                                       AgentModelFreeApproach):
     """The model-free baseline of the continual protocol: the env and skill
     tools, the sandbox and the journal, and nothing else.
@@ -764,6 +843,24 @@ class AgentContinualModelFreeApproach(ContinualPlayMixin,
         """No simulator, whatever ``agent_planner_use_simulator`` says: the arm
         has no ``run_python`` and must never hold a model of the env."""
         return None
+
+    # -- The scene package ------------------------------------------------
+
+    def _get_sandbox_reference_files(self) -> Dict[str, str]:
+        files = super()._get_sandbox_reference_files()
+        if CFG.continual_provide_scene_package:
+            files.update(self._scene_package_files())
+        return files
+
+    def _play_system_prompt(self) -> str:
+        if not CFG.continual_provide_scene_package:
+            return super()._play_system_prompt()
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.play_prompts import build_play_system_prompt
+        return build_play_system_prompt(
+            self._continual_tool_names(),
+            base_sim_refs=self._scene_package_paths(),
+            scene_package=True)
 
     # -- Parent-specific overrides ---------------------------------------
 

@@ -1225,6 +1225,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         to the pre-synthesis option model, which on cycle 1 wraps the
         real env (a live-physics leak into learning).
         """
+        self._tool_context.probe_validation_env_scope = \
+            self._fresh_candidate_validation_scope
         cache = self._probe_model_cache()
 
         def _provider() -> _OracleOptionModel:
@@ -1281,8 +1283,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                 fit=False)
             if CFG.agent_sim_learn_declared_params_only:
                 status = ("at the DECLARED values of the current "
-                          "simulator.py (parameter estimation is disabled "
-                          "in this run)")
+                          "simulator.py (harness parameter estimation is "
+                          "disabled in this run)")
             elif fit_state.get("digest") == digest:
                 status = format_fit_status(fit_state)
             else:
@@ -3421,8 +3423,27 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             prior.append("`./predicates.py`")
         return learn_prompts.render_prior_state_block(prior)
 
-    @staticmethod
+    def _simulator_load_namespace(self) -> Dict[str, Any]:
+        """The names pre-injected when ``simulator.py`` is exec'd.
+
+        Every loader of the agent's model file (the deploy, the probe's
+        candidate, the readiness gate, the synthesis tools) starts from
+        this namespace, so the base class the file subclasses is decided
+        in one place. The stock arms inject the env's ``BaseSimulator``,
+        the visible physics of the domain twin; an arm that hands the
+        agent a different base overrides this.
+        """
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.code_sim_learning.base_simulator import \
+            base_simulator_class
+        return {
+            "np": np,
+            "ParamSpec": ParamSpec,
+            "BaseSimulator": base_simulator_class(getattr(CFG, "env", "")),
+        }
+
     def _load_simulator_from_module_file(
+        self,
         path: str,
         trajectories: Optional[List[LowLevelTrajectory]] = None,
     ) -> Tuple[Optional[List], Optional[List[ParamSpec]], Optional[Dict[
@@ -3443,15 +3464,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             logger.warning("No simulator file at %s.", path)
             return None, None, None, None
 
-        # pylint: disable-next=import-outside-toplevel
-        from predicators.code_sim_learning.base_simulator import \
-            base_simulator_class
-        ns: Dict[str, Any] = {
-            "np": np,
-            "ParamSpec": ParamSpec,
-            "trajectories": trajectories or [],
-            "BaseSimulator": base_simulator_class(getattr(CFG, "env", "")),
-        }
+        ns: Dict[str, Any] = dict(self._simulator_load_namespace())
+        ns["trajectories"] = trajectories or []
         with open(path, "r", encoding="utf-8") as f:
             code = f.read()
         try:
@@ -3670,8 +3684,34 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             getattr(self._base_env, "_agent_param_values"))
 
     @contextmanager
+    def _fresh_candidate_validation_scope(
+        self,
+        physical_overrides: Optional[Dict[str,
+                                          float]] = None) -> Iterator[None]:
+        """Isolate the deployed candidate, without refitting or resampling."""
+        provider = self._tool_context.probe_option_model_provider
+        if provider is None:
+            raise RuntimeError("No candidate model provider")
+        # Loading may replace the base class and publish parameter values.
+        # Do this before constructing the world, not inside the fresh scope.
+        model = provider()
+        with self._fresh_model_env_scope(model, physical_overrides):
+            yield
+
+    @contextmanager
     def _fresh_validation_env_scope(
         self,
+        physical_overrides: Optional[Dict[str,
+                                          float]] = None) -> Iterator[None]:
+        """Isolate the solve-time option model's physics."""
+        with self._fresh_model_env_scope(self._option_model,
+                                         physical_overrides):
+            yield
+
+    @contextmanager
+    def _fresh_model_env_scope(
+        self,
+        model: Any,
         physical_overrides: Optional[Dict[str,
                                           float]] = None) -> Iterator[None]:
         """Run the option model on a freshly constructed base env.
@@ -3704,12 +3744,16 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         if self._identified_physical_params:
             fresh.apply_physical_param_overrides(
                 self._identified_physical_params)
+        # Candidate-declared values can differ from the last fitted values.
+        # Preserve the actual deployed subclass parameters, not their init.
+        deployed = getattr(self._base_env, "_agent_param_values", {})
+        if deployed:
+            fresh.apply_physical_param_overrides(dict(deployed))
         if physical_overrides:
             fresh.apply_physical_param_overrides(dict(physical_overrides))
         prev_env = self._base_env
         # Typed Any: sim_env and _simulator are dynamic attributes not on
         # _OptionModelBase.
-        model: Any = self._option_model
         prev_sim = getattr(model, "_simulator", None)
         rebind_sim = getattr(prev_sim, "__self__", None) is prev_env
         prev_sim_env = getattr(model, "sim_env", None)

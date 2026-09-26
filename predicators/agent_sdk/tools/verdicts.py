@@ -96,21 +96,18 @@ def make_solved_check(
 
     One policy for every surface (``BeliefProbe.refine`` and the
     explorer's refinement), so identical parameters can never get
-    contradictory verdicts across tools:
-    - a coarse rollout (option-boundary states only) never blocks, the
-      same rule the capture path applies (a coarse certificate can
-      falsely reject a legitimate cascade);
-    - evaluator exceptions never block (fail-open, logged) - a flaky
-      certificate must not abort a search mid-budget;
-    - a non-terminated verdict never blocks (the goal-atom check is the
-      caller's job; the gate only vetoes certified-non-solves).
-    ``on_reject`` is called with the rejected verdict's reward.
+    contradictory verdicts across tools: Only an explicit solved verdict
+    on a full rollout passes. Missing per-step states and evaluator
+    exceptions are unavailable checks, not task rejections or successful
+    certificates. The search may keep sampling, but must never advertise
+    those candidates as solved. ``on_reject`` is called with the
+    rejected verdict's reward.
     """
 
     def solved_check(states: List[State], labels: List[Any],
                      coarse: bool) -> Tuple[bool, str]:
         if coarse:
-            return True, ""
+            return False, "evaluator unavailable: per-step states missing"
         try:
             v = evaluate_states_with(evaluator,
                                      states,
@@ -118,8 +115,8 @@ def make_solved_check(
                                      sim_env=sim_env)
         except Exception as e:  # pylint: disable=broad-except
             logging.debug("In-search solved gate failed: %s", e)
-            return True, ""
-        if v["solved"] or not v["terminated"]:
+            return False, f"evaluator unavailable: {type(e).__name__}"
+        if v["solved"]:
             return True, ""
         if on_reject is not None:
             on_reject(v["reward"])

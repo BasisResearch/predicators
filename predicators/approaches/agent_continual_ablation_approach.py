@@ -12,7 +12,13 @@ from predicators.settings import CFG
 
 
 class AgentContinualNoFittingApproach(AgentContinualApproach):
-    """Revise declared values and ranges without numerical estimation."""
+    """Revise declared values and ranges without the harness estimator.
+
+    Only the harness-side fitting is removed (sim.fit, fitted residuals,
+    parameter sweeps, the deployment-time fit). The agent may estimate
+    values in its own sandbox code; they take effect through the
+    declarations.
+    """
 
     @classmethod
     def get_name(cls) -> str:
@@ -23,12 +29,18 @@ class AgentContinualNoFittingApproach(AgentContinualApproach):
             raise ValueError("No-fitting arm requires declared_params_only")
         super().__init__(*args, **kwargs)
 
+    def _no_model_section(self) -> str:
+        return "no_model_declared"
+
     def _fit_status_text(self) -> str:
-        return "agent-declared parameter values and ranges; no numerical fit"
+        return "agent-declared parameter values and ranges; no harness fit"
+
+    def _fit_available(self) -> bool:
+        return False
 
 
 class AgentContinualNoUncertaintyApproach(AgentContinualApproach):
-    """Noise-aware estimation followed by point-estimate decisions."""
+    """Fit raw observations, undeclared noise, no uncertainty handling."""
 
     @classmethod
     def get_name(cls) -> str:
@@ -46,11 +58,12 @@ class AgentContinualNoUncertaintyApproach(AgentContinualApproach):
             "code_sim_learning_interval_belief",
             "code_sim_learning_carry_posterior",
             "agent_sim_learn_declared_params_only",
+            "code_sim_learning_rollout_noise_filter",
+            "continual_belief_frame",
+            # The arm is not told about the observation noise.
+            "continual_obs_noise_declared",
         )
-        enabled = ("code_sim_learning_rollout_noise_filter",
-                   "continual_belief_frame")
         wrong = [name for name in disabled if getattr(CFG, name)]
-        wrong += [name for name in enabled if not getattr(CFG, name)]
         if wrong:
             raise ValueError("Invalid point-estimate configuration: " +
                              ", ".join(wrong))

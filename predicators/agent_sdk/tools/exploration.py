@@ -1,14 +1,37 @@
 """The solve-phase ``run_python`` tool over the belief probe."""
-from typing import Any, Callable, Dict
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, Optional
 
 from predicators.agent_sdk.config import ToolSurfaceConfig
 from predicators.agent_sdk.tools.context import ToolContext
 from predicators.agent_sdk.tools.python_exec import _make_python_exec_tool
 from predicators.agent_sdk.tools.results import _region_syntax_blurb
-from predicators.settings import CFG
 
 
-def belief_probe_blurb(synthesis_probe: bool) -> str:
+@dataclass(frozen=True)
+class ProbeSurface:
+    """What the ``sim`` probe of a session can do, for its description.
+
+    The tool description must offer exactly what the probe accepts: a
+    comparison arm that refuses fitting, model edits, alternative
+    parameter values or uncertainty sweeps must not be invited to use
+    them. ``fit``: ``sim.fit``, ``fit_params`` and ``sweep_params``.
+    ``edit_model``: the agent writes ``simulator.py`` (False when the
+    harness supplies it). ``sealed``: the agent's model is sealed at the
+    first real action (the zero-shot arm). ``alt_params``: scoring
+    alternative parameter values (``validate(params=...)``,
+    ``residuals(phys_params=...)``). ``uncertainty``: belief draws,
+    ``sim.belief``, ``sim.suggest_probes`` and physics sweeps.
+    """
+    fit: bool = True
+    edit_model: bool = True
+    sealed: bool = False
+    alt_params: bool = True
+    uncertainty: bool = True
+
+
+def belief_probe_blurb(synthesis_probe: bool,
+                       surface: Optional[ProbeSurface] = None) -> str:
     """The BeliefProbe surface description, shared by every prompt/tool surface
     that offers the probe.
 
@@ -16,17 +39,39 @@ def belief_probe_blurb(synthesis_probe: bool) -> str:
     the deployed belief model; synthesis sessions bind the same facade
     over the candidate simulator. One renderer so the two descriptions
     cannot drift. ``synthesis_probe`` selects the candidate-simulator
-    wording (task_idx-required resets, ``sim.fit``, and the
-    fit/refine/forward-run validation protocol).
+    wording (task_idx-required resets, the model file, and the
+    validation protocol); ``surface`` trims the calls a comparison arm
+    refuses (:class:`ProbeSurface`).
     """
+    surface = surface or ProbeSurface()
     if synthesis_probe:
-        sim_desc = (
-            "`sim` (a BeliefProbe over the CANDIDATE simulator: your current "
-            "simulator.py, rebuilt automatically when the file changes, at "
-            "the params of your last `sim.fit()` - it never fits on its "
-            "own, and results carry a PARAMS UNFITTED notice until you fit "
-            "the current file; errors until a loadable simulator.py "
-            "exists)")
+        if not surface.edit_model:
+            sim_desc = (
+                "`sim` (a BeliefProbe over the SUPPLIED simulator, fixed "
+                "for the run and not exposed as source; no call fits or "
+                "changes its parameters)")
+        elif surface.sealed:
+            sim_desc = (
+                "`sim` (a BeliefProbe over your simulator.py, rebuilt "
+                "automatically when the file changes until your first real "
+                "action seals it; afterwards it runs the sealed code at its "
+                "declared values, and no call fits or changes them; errors "
+                "until a loadable simulator.py exists)")
+        elif not surface.fit:
+            sim_desc = (
+                "`sim` (a BeliefProbe over the CANDIDATE simulator: your "
+                "current simulator.py, rebuilt automatically when the file "
+                "changes, at the values written in its declarations - the "
+                "harness fits nothing; errors until a loadable simulator.py "
+                "exists)")
+        else:
+            sim_desc = (
+                "`sim` (a BeliefProbe over the CANDIDATE simulator: your "
+                "current simulator.py, rebuilt automatically when the file "
+                "changes, at the params of your last `sim.fit()` - it never "
+                "fits on its own, and results carry a PARAMS UNFITTED "
+                "notice until you fit the current file; errors until a "
+                "loadable simulator.py exists)")
         reset_desc = (
             "`sim.reset(task_idx, mods=None)` sets the current state "
             "to a train task's init (task_idx is required in this "
@@ -34,56 +79,86 @@ def belief_probe_blurb(synthesis_probe: bool) -> str:
             "feature overrides (`mods={'obj': {'x': 1.05}}`); ")
         task_desc = ("`sim.task(task_idx)` describes a train task (goal, "
                      "objects, initial atoms and state) without touching "
-                     "the current state; " +
-                     ("`sim.fit` is DISABLED in this run (parameter "
-                      "estimation is off: every parameter is used as "
-                      "declared - see the system prompt); "
-                      if CFG.agent_sim_learn_declared_params_only else "") +
-                     "`sim.fit(traj_idxs=None, fixed=None)` fits "
-                     "PARAM_SPECS (loaded fresh from simulator.py) against "
-                     "the recorded data and returns the report (SSE "
-                     "init->fit, fitted values, identifiability when "
-                     "PHYSICAL_PARAM_SPECS is declared). No arguments = the "
-                     "CANONICAL fit the probe deploys (system-ID values "
-                     "applied to the planning env); traj_idxs (subset of "
-                     "trajectories; on the system-ID path a "
-                     "cross-trajectory consistency check) or fixed "
-                     "({name: value} pins; rule params only) = "
-                     "EXPLORATORY diagnostic, nothing published. Expensive "
-                     "- call after meaningful rule edits, not in loops; "
-                     "`sim.validate(traj_idxs=None, params=None)` replays "
-                     "recorded actions at deployed values without fitting or "
-                     "dropping recordings; explicit params are diagnostic "
-                     "overrides, never deployed. Use it to compare model "
-                     "structures on identical data; "
-                     "`sim.residuals(max_transitions=100, abs_tol=1e-4, "
-                     "rel_tol=1e-3, num_worst_examples=3, "
-                     "fit_params=False)` per-feature residual report for "
-                     "the current simulator.py rules (mismatch counts, "
-                     "mean/max abs error, vs-no-rule-baseline improvement, "
-                     "worst-N example transitions) - the fast inner loop "
-                     "for finding WHICH rule to fix. It is teacher-forced "
-                     "(each step predicted from the RECORDED state), so it "
-                     "CANNOT rule out a mis-set physical parameter: "
-                     "compounding errors reset every step. "
-                     "`sim.residuals(rollout=True, sweep_params=None, "
-                     "phys_params=None, sweep_num_points=6)` is the "
-                     "OPEN-LOOP counterpart: replays each recorded "
-                     "trajectory's actions free-running and reports the "
-                     "divergence at the current baselines. "
-                     "sweep_params=[names] (or 'all') additionally sweeps "
-                     "each named env-registry physical parameter across "
-                     "its plausible range ('this data is explained Nx "
-                     "better at a different friction'); "
-                     "phys_params={name: value} instead scores ONE "
-                     "hypothesized point and reports the SSE ratio vs the "
-                     "baseline (the cheap primitive for your own targeted "
-                     "sweeps). A sweep is slow (one fresh-env rollout per "
-                     "candidate per segment, minutes for the full "
-                     "registry) but it is the ONLY residual view that can "
-                     "see physical-parameter error - run one (e.g. "
-                     "sweep_params='all') BEFORE deciding whether to "
-                     "declare PHYSICAL_PARAM_SPECS, in either direction; ")
+                     "the current state; ")
+        if surface.fit:
+            task_desc += (
+                "`sim.fit(traj_idxs=None, fixed=None)` fits "
+                "PARAM_SPECS (loaded fresh from simulator.py) against "
+                "the recorded data and returns the report (SSE "
+                "init->fit, fitted values, identifiability when "
+                "PHYSICAL_PARAM_SPECS is declared). No arguments = the "
+                "CANONICAL fit the probe deploys (system-ID values "
+                "applied to the planning env); traj_idxs (subset of "
+                "trajectories; on the system-ID path a "
+                "cross-trajectory consistency check) or fixed "
+                "({name: value} pins; rule params only) = "
+                "EXPLORATORY diagnostic, nothing published. Expensive "
+                "- call after meaningful rule edits, not in loops; "
+                "`sim.validate(traj_idxs=None, params=None)` replays "
+                "recorded actions at deployed values without fitting or "
+                "dropping recordings; explicit params are diagnostic "
+                "overrides, never deployed. Use it to compare model "
+                "structures on identical data; ")
+        elif surface.alt_params:
+            task_desc += (
+                "`sim.validate(traj_idxs=None, params=None)` replays "
+                "recorded actions at the declared values without dropping "
+                "recordings; explicit params are diagnostic overrides, "
+                "never deployed. Use it to compare candidate values or "
+                "model structures on identical data; ")
+        else:
+            task_desc += (
+                "`sim.validate(traj_idxs=None)` replays recorded actions "
+                "under the fixed model without dropping recordings; ")
+        fit_arg = ", fit_params=False" if surface.fit else ""
+        purpose = ("the fast inner loop for finding WHICH rule to fix"
+                   if surface.edit_model else
+                   "the fast view of where the fixed model disagrees with "
+                   "the recordings")
+        task_desc += (
+            "`sim.residuals(max_transitions=100, abs_tol=1e-4, "
+            f"rel_tol=1e-3, num_worst_examples=3{fit_arg})` per-feature "
+            "residual report for the " +
+            ("current simulator.py rules"
+             if surface.edit_model else "supplied model") + " (mismatch "
+            "counts, mean/max abs error, vs-no-rule-baseline improvement, "
+            f"worst-N example transitions) - {purpose}. It is "
+            "teacher-forced (each step predicted from the RECORDED state), "
+            "so it CANNOT rule out a mis-set physical parameter: "
+            "compounding errors reset every step. ")
+        rollout_args = ["rollout=True"]
+        if surface.fit:
+            rollout_args.append("sweep_params=None")
+        if surface.alt_params:
+            rollout_args.append("phys_params=None")
+        if surface.fit:
+            rollout_args.append("sweep_num_points=6")
+        task_desc += (f"`sim.residuals({', '.join(rollout_args)})` is the "
+                      "OPEN-LOOP counterpart: replays each recorded "
+                      "trajectory's actions free-running and reports the "
+                      "divergence at the current baselines")
+        if surface.fit:
+            task_desc += (
+                ". sweep_params=[names] (or 'all') additionally sweeps "
+                "each named env-registry physical parameter across "
+                "its plausible range ('this data is explained Nx "
+                "better at a different friction')")
+        if surface.alt_params:
+            task_desc += (
+                "; phys_params={name: value} " +
+                ("instead " if surface.fit else "") +
+                "scores ONE hypothesized point and reports the SSE ratio "
+                "vs the baseline (the cheap primitive for your own targeted "
+                "sweeps)")
+        if surface.fit:
+            task_desc += (
+                ". A sweep is slow (one fresh-env rollout per "
+                "candidate per segment, minutes for the full "
+                "registry) but it is the ONLY residual view that can "
+                "see physical-parameter error - run one (e.g. "
+                "sweep_params='all') BEFORE deciding whether to "
+                "declare PHYSICAL_PARAM_SPECS, in either direction")
+        task_desc += "; "
     else:
         sim_desc = "`sim` (a BeliefProbe over the belief simulator)"
         reset_desc = (
@@ -93,6 +168,20 @@ def belief_probe_blurb(synthesis_probe: bool) -> str:
         task_desc = ("`sim.task(task_idx=None)` describes a task - goal, "
                      "objects, initial atoms and state (current task by "
                      "default) - without touching the current state; ")
+    belief_desc = (
+        "under a declared observation-noise channel "
+        "belief_draws=K rolls the plan from K draws of where the "
+        "objects may really be (the belief the last observation "
+        "showed) and `sim.belief()` lists that belief with the atoms "
+        "it is unsure about; " if surface.uncertainty else "")
+    probes_desc = (
+        "`sim.suggest_probes(sketch_text, max_draws=20, top_k=3)` rolls "
+        "your sketch forward on your own parameters and, per `-> "
+        "{subgoals}`-annotated step with continuous params, ranks "
+        "feasible alternatives by the learned model's ensemble "
+        "disagreement on those atoms (advice only: what you submit "
+        "runs as written); " if surface.uncertainty else "")
+    keep_working = "edit/fit/think" if surface.fit else "think/plan"
     return (f"{sim_desc}, `BeliefProbe()` "
             "(extra independent instances). BeliefProbe API: "
             f"{reset_desc}{task_desc}"
@@ -116,11 +205,8 @@ def belief_probe_blurb(synthesis_probe: bool) -> str:
             "unmodified reset() state) also scores each trial with the "
             "TASK EVALUATOR (per-trial solved/reward) - reaching the goal "
             "atoms is NOT the same as being scored a solve, so check this "
-            "BEFORE submitting; under a declared observation-noise channel "
-            "belief_draws=K rolls the plan from K draws of where the "
-            "objects may really be (the belief the last observation "
-            "showed) and `sim.belief()` lists that belief with the atoms "
-            "it is unsure about; contacts=True (single run) reports, per "
+            f"BEFORE submitting; {belief_desc}"
+            "contacts=True (single run) reports, per "
             "step, which robot links touched which objects and which "
             "object pairs touched, with action spans - use it to verify "
             "WHAT caused motion (e.g. an intended push vs. the arm "
@@ -131,13 +217,14 @@ def belief_probe_blurb(synthesis_probe: bool) -> str:
             "python for-loop over sim.run executes ONE rollout at a "
             "time, so for independent rollouts (plan variants, seeds, "
             "mods sweeps) launch them all with run_async, keep working "
-            "(edit/fit/think - handles survive across calls), then "
+            f"({keep_working} - handles survive across calls), then "
             "`sim.gather(handles, timeout=None)` waits and summarizes "
             "(read each handle's `.result`/`.error`; ~Nx faster at N "
             "workers) - wait with gather, NOT a `.done()` sleep loop: "
             "gather bounds the wait and flags stale results. Results "
             "reflect the model AS OF launch - gather "
-            "flags results that ran under an older simulator.py; "
+            "flags results that ran under an older "
+            f"{'simulator.py' if surface.edit_model else 'model state'}; "
             "adaptive loops (next params chosen from the last result) "
             "stay sequential by nature - use plain sim.run there; "
             "`sim.state()` / "
@@ -151,13 +238,7 @@ def belief_probe_blurb(synthesis_probe: bool) -> str:
             "points visually; `sim.snapshot()` / "
             "`sim.restore(id)` bank and rewind states (use to re-try "
             "different actions from one setup, or resume after a fixed "
-            "plan prefix without re-running it); "
-            "`sim.suggest_probes(sketch_text, max_draws=20, top_k=3)` rolls "
-            "your sketch forward on your own parameters and, per `-> "
-            "{subgoals}`-annotated step with continuous params, ranks "
-            "feasible alternatives by the learned model's ensemble "
-            "disagreement on those atoms (advice only: what you submit "
-            "runs as written); "
+            f"plan prefix without re-running it); {probes_desc}"
             "`sim.refine(sketch_text, timeout=60, require_goal=False, "
             "require_solved=False)` runs "
             "backtracking parameter search FROM THE CURRENT STATE (same "

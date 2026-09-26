@@ -297,7 +297,7 @@ The prompt gives no schedule and no certification rule.
 - `predicators/agent_sdk/prompts/play_system.md` and `play_query.md`: the continual prompts, with golden renders like the existing templates.
 - `predicators/approaches/agent_continual_approach.py`: `AgentSessionMixin` plus the tool context, the session loop, session resume, and `learn.run` as a sub-session launcher over the existing synthesis code.
 - `scripts/aggregate_scorecards.py`: scorecards to tables and curves, parameterised by the aggregation chosen later.
-- `scripts/configs/predicatorv3/protocol_continual.yaml`: the launcher, one job per env and seed and arm.
+- `scripts/configs/predicatorv3/continual_common.yaml` plus the menus `envs/continual.yaml` and `approaches/continual.yaml`: a launcher includes them, un-parks one env and the arms it compares, and names each arm with `EXTENDS` (for example `continual_balloons_compose_r2.yaml`); one job per env and seed and arm.
 
 ### 6.2 Entry point
 
@@ -423,7 +423,7 @@ Tests: `tests/run/test_continual.py` pins the counts, the recordings, the preemp
 Launching:
 
 ```bash
-python scripts/engaging/launch.py -c predicatorv3/protocol_continual.yaml --partition mit_preemptable
+python scripts/engaging/launch.py -c predicatorv3/continual_balloons_compose_r2.yaml --partition mit_preemptable
 ```
 
 The launcher passes `--auto_resume`, so a requeue resumes from the scorecard and the level recording in the run directory it adopts (section 4.7).
@@ -460,7 +460,7 @@ Step 2, the agent arm, landed the same day:
 
 Tests: `tests/agent_sdk/test_continual_tools.py` drives the tools over a real session on cover (a win through `skills_execute_plan`, divergences on positive and `NOT` expectations, parse errors, game over then reset, give up and run end, the cap hit inside a tool); `tests/approaches/test_agent_continual_approach.py` runs the play loop on boil with a scripted agent in place of the LLM (a round that acts and a round that gives up, the continuation of the conversation by its recorded id, the attempts record, the checkpoint, the resume of an in-flight round after a preemption, the idle guard).
 
-Launching the agent arm: un-skip `agent_continual` in `protocol_continual.yaml`.
+Launching the agent arm: write a launcher that includes `continual_common.yaml` and the menus and un-parks `agent_continual` with `EXTENDS` (see the header of `continual_common.yaml`).
 
 First agent result, boil seed 0, job 21964274 (2026-09-04): both levels won, 2127 steps and 5 resets on level 1 (one session, 129 turns, 85 skill invocations, 44 failed, one horizon game over), 374 steps and no reset on level 2, 55 min active, $24.66.
 The agent asked for no learning session and ran no model rollout: it measured the dynamics by probing the real environment, wrote a recipe into its journal, and replayed it on level 2.

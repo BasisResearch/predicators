@@ -1,7 +1,9 @@
 """Continual comparison contracts exercised through real play tools."""
+import os
+import re
 import shlex
 import sys
-from typing import Any, Iterator, Set
+from typing import Any, Callable, Dict, Iterator, List, Set, Tuple
 
 import pybullet as p
 import pytest
@@ -9,17 +11,24 @@ import pytest
 from predicators import utils
 from predicators.agent_sdk.belief_probe import BeliefProbe
 from predicators.approaches import create_approach
+from predicators.approaches.agent_continual_ablation_approach import \
+    AgentContinualNoUncertaintyApproach
 from predicators.envs import create_new_env
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.ground_truth_models import get_gt_options
 from predicators.run.continual import ContinualRun
 from predicators.run.level_players import create_level_player
+from predicators.settings import CFG
 from predicators.structs import Dataset
 from scripts.cluster_utils import config_to_cmd_flags, generate_run_configs
 from tests.approaches.test_agent_continual_approach import _call, _config, \
     _result
 
-CONFIG = "predicatorv3/protocol_continual_comparisons_noisy_r1.yaml"
+# The benchmark sweep: eight arms on the five benchmark settings, three
+# seeds each (Sept 18, 2026).
+CONFIG = "predicatorv3/continual_eight_agent_noisy_sweep.yaml"
+ARM_COUNT = 8
+SEEDS = {0, 1, 2}
 
 
 @pytest.fixture(autouse=True)
@@ -53,13 +62,12 @@ def _dispose_test_physics_clients(monkeypatch: Any) -> Iterator[None]:
 
 
 def test_comparison_config_matches_existing_domains(monkeypatch: Any) -> None:
-    """Only six requested arms, same domain settings and paired seeds."""
-    old = list(
-        generate_run_configs(
-            "predicatorv3/protocol_continual_noisy_sweep_r1.yaml", False))
+    """Eight arms share each domain's settings and run paired seeds."""
     new = list(generate_run_configs(CONFIG, False))
-    assert len(new) == 90
-    assert len({c.approach for c in new}) == 6
+    approaches = {c.approach for c in new}
+    assert len(approaches) == ARM_COUNT
+    assert len(new) == ARM_COUNT * 5 * len(SEEDS)
+    seeds: Dict[Tuple[str, str], Set[int]] = {}
     for cfg in new:
         monkeypatch.setattr(
             sys, "argv",
@@ -67,29 +75,58 @@ def test_comparison_config_matches_existing_domains(monkeypatch: Any) -> None:
         parsed = utils.parse_args()
         assert parsed["env"] == cfg.env
         assert parsed["approach"] == cfg.approach
-        assert cfg.approach not in ("agent_continual",
-                                    "agent_continual_model_free")
-        reference = next(c for c in old if c.env == cfg.env)
+        no_uncertainty = cfg.approach == "agent_continual_no_uncertainty"
+        if no_uncertainty:
+            assert not cfg.flags["continual_belief_frame"]
+            assert not cfg.flags["code_sim_learning_rollout_noise_filter"]
+            # Same noise as every arm, but not declared to this one.
+            assert not cfg.flags["continual_obs_noise_declared"]
+        seeds.setdefault((cfg.env, cfg.approach), set()).add(parsed["seed"])
+        # The EMPIRIC arm is the reference for the domain settings.
+        reference = next(
+            c for c in new
+            if c.env == cfg.env and c.approach == "agent_continual")
         keys = [
             k for k in reference.flags
             if k.startswith(("continual_obs_noise_", "balloons_", "boil_",
-                             "domino_"))
+                             "bridge_", "domino_", "fan_"))
         ]
         keys += [
             "num_train_tasks", "num_test_tasks", "continual_steps_per_level",
             "continual_levels"
         ]
         for key in keys:
+            if no_uncertainty and key == "continual_obs_noise_declared":
+                continue
             assert cfg.flags[key] == reference.flags[key], (cfg.env, key)
+    assert all(s == SEEDS for s in seeds.values())
+
+
+@pytest.mark.parametrize("flag", [
+    "continual_belief_frame", "code_sim_learning_rollout_noise_filter",
+    "continual_obs_noise_declared"
+])
+def test_no_uncertainty_rejects_smoothing(flag: str) -> None:
+    """A config override cannot silently restore denoising, or the noise
+    declaration, in this arm."""
+    cfg = next(c for c in generate_run_configs(CONFIG, False)
+               if c.approach == "agent_continual_no_uncertainty")
+    utils.reset_config({
+        **{k: v
+           for k, v in cfg.flags.items() if k != "log"}, flag: True
+    })
+    # Contract validation must fail before constructing an environment.
+    with pytest.raises(ValueError, match=flag):
+        AgentContinualNoUncertaintyApproach()
 
 
 @pytest.mark.parametrize("domain",
                          ["boil", "bridge", "fan", "domino", "balloons"])
 @pytest.mark.parametrize(
-    "arm", ["no_fitting", "no_uncertainty", "oracle_scene", "oracle_dynamics"])
+    "arm", ["no_fitting", "no_uncertainty", "scene_only", "oracle_dynamics"])
 def test_ablation_play_tools(tmp_path: Any, monkeypatch: Any, arm: str,
                              domain: str) -> None:
-    """Real noisy observations retain means; tools enforce arm restrictions."""
+    """No-uncertainty uses raw observations; tools enforce arm restrictions."""
     cfg = next(c for c in generate_run_configs(CONFIG, False)
                if c.env == f"pybullet_{domain}" and c.approach.endswith(arm))
     _config(
@@ -108,20 +145,35 @@ def test_ablation_play_tools(tmp_path: Any, monkeypatch: Any, arm: str,
                                  env.action_space,
                                  [t.task for t in env.get_train_tasks()])
 
-    def query(*_args: Any, **_kwargs: Any) -> Any:
+    def query(message: str, *_args: Any, **_kwargs: Any) -> Any:
         ctx = agent._tool_context  # pylint: disable=protected-access
+        # The first query's model status matches what the arm can do.
+        if arm in {"scene_only", "oracle_dynamics"}:
+            assert ("the supplied simulator, fixed for the run and not "
+                    "exposed as source") in message
+            assert "sim.fit()" not in message
+        elif arm == "no_fitting":
+            assert "the harness fits nothing" in message
+            assert "sim.fit()" not in message
+        else:
+            assert "call `sim.fit()`" in message
         observation = _call(agent, "env_observe")
-        assert "[noise]" in observation
+        # The no-uncertainty arm is not told about the noise at all.
+        assert ("[noise]" in observation) is (arm != "no_uncertainty")
         assert "[objects]" in observation
         prompt = agent._play_system_prompt()  # pylint: disable=protected-access
+        tool_description = next(t.description for t in ctx.extra_mcp_tools
+                                if t.name == "run_python")
         if arm == "no_uncertainty":
             assert "[belief]" not in observation
             assert "[atoms under the belief]" not in observation
-            assert "Point-estimate comparison" in prompt
+            assert "No explicit uncertainty handling" in prompt
             session = agent._play_session  # pylint: disable=protected-access
             obs = session.observe()
-            assert obs.belief is not None
-            assert obs.frame.allclose(obs.belief.frame)
+            assert obs.belief is None
+            assert "do not average, smooth, or filter" in prompt
+            for word in ("Observation noise", "sigma", "noisy", "denoise"):
+                assert word not in prompt, word
             probe = BeliefProbe(ctx)
             with pytest.raises(ValueError, match="Explicit uncertainty"):
                 probe.belief()
@@ -133,14 +185,61 @@ def test_ablation_play_tools(tmp_path: Any, monkeypatch: Any, arm: str,
                 probe.run("", belief_draws=2)
             # Numerical fitting remains installed even before any data.
             assert ctx.probe_fit_provider is not None
-        elif arm in {"oracle_scene", "oracle_dynamics"}:
-            heading = ("Oracle scene reconstruction comparison" if arm
-                       == "oracle_scene" else "Oracle dynamics comparison")
+        elif arm in {"scene_only", "oracle_dynamics"}:
+            heading = ("Scene-only comparison" if arm == "scene_only" else
+                       "Oracle dynamics comparison")
             assert heading in prompt
+            assert "not exposed as source" in prompt
             assert "unavailable" in BeliefProbe(ctx).fit()
+            # The supplied model never enters the sandbox, and nothing the
+            # agent can read names its calibration constants.
+            assert ctx.sandbox_dir is not None
+            assert not os.path.exists(
+                os.path.join(ctx.sandbox_dir, "simulator.py"))
+            paths = agent._resolve_synthesis_paths()  # pylint: disable=protected-access
+            assert os.path.isfile(paths.simulator_file)
+            assert not paths.simulator_file.startswith(ctx.sandbox_dir)
+            # Parameter names appear nowhere the agent reads; the values
+            # appear in no probe report and no sandbox file name (the
+            # query and observation carry unrelated numbers such as skill
+            # ranges, so values are not checked there).
+            reports = [
+                BeliefProbe(ctx).validate(),
+                BeliefProbe(ctx).residuals(),
+                _sandbox_listing(ctx)
+            ]
+            for text in [prompt, message, observation, tool_description
+                         ] + reports:
+                leaked = _leaked_calibration(domain, text, values=False)
+                assert not leaked, (arm, leaked, text[:400])
+            for text in reports:
+                leaked = _leaked_calibration(domain, text, values=True)
+                assert not leaked, (arm, leaked, text[:400])
+            with open(paths.simulator_file, encoding="utf-8") as f:
+                assert re.search(r"AGENT_PARAM_SPECS(: [^=]+)? = \[\]",
+                                 f.read())
         else:
-            assert "No numerical parameter fitting" in prompt
+            assert "No harness parameter fitting" in prompt
+            assert "Do not implement an optimizer" not in prompt
             assert "parameter estimation is disabled" in BeliefProbe(ctx).fit()
+        # The run_python description offers only what the arm's probe
+        # accepts.
+        if arm in {"scene_only", "oracle_dynamics", "no_fitting"}:
+            assert "sim.fit" not in tool_description
+            assert "PARAMS UNFITTED" not in tool_description
+        else:
+            assert "sim.fit(" in tool_description
+        if arm in {"scene_only", "oracle_dynamics"}:
+            assert "no `simulator.py` to read or write" in tool_description
+            assert "phys_params" not in tool_description
+        else:
+            assert "write `simulator.py`" in tool_description
+        if arm == "no_uncertainty":
+            assert "belief_draws" not in tool_description
+            assert "suggest_probes" not in tool_description
+            assert "physics_sweep=True" not in tool_description
+        else:
+            assert "belief_draws" in tool_description
         assert "step applied" in _call(agent,
                                        "env_step",
                                        action=[0.0] *
@@ -155,12 +254,39 @@ def test_ablation_play_tools(tmp_path: Any, monkeypatch: Any, arm: str,
     assert card.total_resets == 0
 
 
+def _leaked_calibration(domain: str, text: str, *, values: bool) -> List[str]:
+    """Parameter names (and, with ``values``, privileged constants) of the
+    supplied model in ``text``: a value counts only as a whole number, so a
+    coordinate such as 0.5079 does not match the friction 0.5."""
+    names: List[str] = []
+    constants: List[float] = []
+    if domain == "domino":
+        names = ["lateral_friction"]
+        constants = [float(CFG.domino_true_friction)]
+    elif domain == "balloons":
+        names = ["air_drag", "mass_oak", "lift_gold", "fade_height"]
+        constants = [float(CFG.balloons_drag)] + [
+            float(m) for m in CFG.balloons_box_masses
+        ] + [float(l) for l in CFG.balloons_lifts]
+    leaked = [n for n in names if n in text]
+    for value in (constants if values else []):
+        if re.search(rf"(?<![\d.]){re.escape(repr(value))}(?![\d])", text):
+            leaked.append(repr(value))
+    return leaked
+
+
+def _sandbox_listing(ctx: Any) -> str:
+    """Every file name in the sandbox, so a stray copy of the model shows."""
+    names: List[str] = []
+    for root, _dirs, files in os.walk(ctx.sandbox_dir):
+        names.extend(os.path.join(root, f) for f in files)
+    return "\n".join(sorted(names))
+
+
 def _configure_domain_comparison(tmp_path: Any, domain: str,
                                  approach: str) -> str:
-    """Use the cohort's real domain settings with local test outputs."""
-    config = ("predicatorv3/protocol_continual_bridge_span_comparisons_r1.yaml"
-              if domain == "bridge" else CONFIG)
-    cfg = next(c for c in generate_run_configs(config, False)
+    """Use the benchmark's real domain settings with local test outputs."""
+    cfg = next(c for c in generate_run_configs(CONFIG, False)
                if c.env == f"pybullet_{domain}" and c.approach == approach)
     _config(
         tmp_path, **{
@@ -196,7 +322,8 @@ def test_standalone_model_is_live_without_engine(tmp_path: Any,
                                  [t.task for t in env.get_train_tasks()])
     calls = []
 
-    def query(*_args: Any, **_kwargs: Any) -> Any:
+    def query(message: str, *_args: Any, **_kwargs: Any) -> Any:
+        assert "No world model yet" in message
         ctx = agent._tool_context  # pylint: disable=protected-access
         refs = agent._get_sandbox_reference_files()  # pylint: disable=protected-access
         assert not any(k.startswith("base_sim/") for k in refs)
@@ -269,6 +396,26 @@ def transition(obs, latent, option, rng):
         result = probe.run(plan, render=False)
         assert result is not None
         assert live_bodies() == before
+        # Close to WorldCoder: score and one rollout at a time; plan
+        # search, repeated trials, predicate scoring and engine renders
+        # are refused, and the descriptions do not offer them.
+        assert probe.run(plan) is not None  # text-only rollout
+        refusals: List[Callable[[], Any]] = [
+            lambda: probe.refine(plan), lambda: probe.run(plan, trials=2),
+            probe.predicates, lambda: probe.render("x"),
+            lambda: probe.suggest_probes(plan), probe.belief
+        ]
+        for refused in refusals:
+            with pytest.raises(RuntimeError, match="unavailable"):
+                refused()
+        tools = {t.name: t for t in ctx.extra_mcp_tools}
+        desc = tools["run_python"].description
+        for absent in ("sim.refine", "trials=", "sim.predicates", "sim.render",
+                       "evaluate_trajectory"):
+            assert absent not in desc, absent
+        assert "sim.score" in desc and "sim.run(plan_text)" in desc
+        assert "sim.refine" not in prompt
+        assert "first rehearses" not in prompt
         for kwargs in ({
                 "solved": True
         }, {
@@ -315,10 +462,17 @@ def test_zero_shot_seals_before_first_charge(tmp_path: Any, monkeypatch: Any,
             '    def _domain_specific_step(self):\n        pass\n'
             'RESIDUAL_ENV = Model\n')
 
-    def query(*_args: Any, **_kwargs: Any) -> Any:
+    def query(message: str, *_args: Any, **_kwargs: Any) -> Any:
+        assert "the dynamics are sealed at that point" in message
+        ctx = agent._tool_context  # pylint: disable=protected-access
+        description = next(t.description for t in ctx.extra_mcp_tools
+                           if t.name == "run_python")
+        assert "seals it" in description
+        assert "sim.fit" not in description
         action = [0.0] * env.action_space.shape[0]
         result = _call(agent, "env_step", action=action)
         assert "step applied" not in result
+        assert "No ./simulator.py yet" in result
         path = Path(agent._resolve_synthesis_paths().simulator_file)  # pylint: disable=protected-access
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(code, encoding="utf-8")

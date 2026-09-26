@@ -11,6 +11,7 @@ from typing import Optional, Sequence
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 # pylint: disable=wrong-import-position
+from predicators.agent_sdk.account_limits import ACCOUNT_LIMITED_EXIT_CODE
 from scripts.engaging.claude_accounts import LOGIN_ACCOUNT, POLICY_USAGE, \
     TOKEN_DIR, account_block, account_policy, describe_assignment, \
     resolve_accounts
@@ -74,6 +75,13 @@ _SELF_REQUEUE_BLOCK = """\
 # same healing path a preemption requeue already uses.
 _MAX_RESTARTS={max_restarts}
 _PY_PID=""
+_task_id() {{
+  if [ -n "$SLURM_ARRAY_JOB_ID" ]; then
+    _TASK_ID="${{SLURM_ARRAY_JOB_ID}}_${{SLURM_ARRAY_TASK_ID}}"
+  else
+    _TASK_ID="$SLURM_JOB_ID"
+  fi
+}}
 _requeue_on_timeout() {{
   if [ -z "$_PY_PID" ] || ! kill -0 "$_PY_PID" 2>/dev/null; then
     return  # python already finished; exit normally
@@ -82,11 +90,7 @@ _requeue_on_timeout() {{
     echo "[self-requeue] restart cap $_MAX_RESTARTS reached; not requeueing"
     return
   fi
-  if [ -n "$SLURM_ARRAY_JOB_ID" ]; then
-    _TASK_ID="${{SLURM_ARRAY_JOB_ID}}_${{SLURM_ARRAY_TASK_ID}}"
-  else
-    _TASK_ID="$SLURM_JOB_ID"
-  fi
+  _task_id
   echo "[self-requeue] wall limit imminent (restart" \\
        "${{SLURM_RESTART_COUNT:-0}}); requeueing $_TASK_ID"
   scontrol requeue "$_TASK_ID"
@@ -103,6 +107,19 @@ _RC=$?
 if [ "$_RC" -gt 128 ]; then
   wait "$_PY_PID"
   _RC=$?
+fi
+# Exit {account_limited_rc}: the Claude account hit a limit that outlasts the
+# run (predicators/agent_sdk/session_base.py AccountLimitedError) and is
+# now marked limited. Requeue so the restart picks another account.
+if [ "$_RC" -eq {account_limited_rc} ]; then
+  if [ "${{SLURM_RESTART_COUNT:-0}}" -ge "$_MAX_RESTARTS" ]; then
+    echo "[self-requeue] account limited; restart cap $_MAX_RESTARTS reached"
+  else
+    _task_id
+    echo "[self-requeue] account limited (restart" \\
+         "${{SLURM_RESTART_COUNT:-0}}); requeueing $_TASK_ID"
+    scontrol requeue "$_TASK_ID"
+  fi
 fi
 exit "$_RC"
 """
@@ -144,8 +161,10 @@ def _build_batch_script(entry_point: str,
                f"{args_and_flags_str} --seed $SLURM_ARRAY_TASK_ID")
     if not requeue:
         return "\n".join(header + [run_cmd])
-    block = _SELF_REQUEUE_BLOCK.format(max_restarts=_MAX_SELF_REQUEUES,
-                                       run_cmd=run_cmd)
+    block = _SELF_REQUEUE_BLOCK.format(
+        max_restarts=_MAX_SELF_REQUEUES,
+        account_limited_rc=ACCOUNT_LIMITED_EXIT_CODE,
+        run_cmd=run_cmd)
     return "\n".join(header + ["", block])
 
 

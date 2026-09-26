@@ -41,6 +41,8 @@ class PyBulletBalanceEnv(PyBulletEnv):
 
     # Plate
     _plate_height: ClassVar[float] = 0.02
+    # How far each plate drops (the other rises) per extra block on its side.
+    _shift_per_block: ClassVar[float] = 0.007
     _plate_z = _table_height - _plate_height * 3
     _plate1_pose: ClassVar[Pose3D] = (_table_x, _table2_y - _table_mid_w / 2 -
                                       _table_side_w / 2 - _table_gap, _plate_z)
@@ -372,7 +374,15 @@ class PyBulletBalanceEnv(PyBulletEnv):
                 self._default_orn,
                 physicsClientId=self._physics_client_id)
 
-        self._prev_diff = 0
+        # The plates were placed from the state, so recover the tilt
+        # they encode; a mid-episode state already has its blocks at the
+        # tilted heights and must not be shifted again.
+        self._prev_diff = int(
+            round((self._plate1_pose[2] - state.get(self._plate1, "z")) /
+                  self._shift_per_block))
+        for is_left in (True, False):
+            self._set_plate_offset(
+                is_left, self._plate_offset(is_left, self._prev_diff))
         self._update_balance_beam(state)
 
         self._block_id_to_block.clear()
@@ -398,96 +408,72 @@ class PyBulletBalanceEnv(PyBulletEnv):
                             physicsClientId=self._physics_client_id)
 
     def _update_balance_beam(self, state: State) -> None:
-        """Shift the plates, beams, *and blocks on them* to simulate a balance,
-        ensuring rising sides move blocks first then plate, and dropping sides
-        move plate first then blocks."""
+        """Tilt the beam to match the block counts on the two plates.
+
+        Each plate sits ``_shift_per_block`` lower per extra block on
+        its side (the other plate as much higher). When the count
+        difference changes, each plate and its beam are moved to their
+        new height and every unheld block on that side is carried by the
+        same displacement, so stacks stay resting on their plate.
+        """
         left_count = self.count_num_blocks(state, self._plate1)
         right_count = self.count_num_blocks(state, self._plate3)
         diff = left_count - right_count
         if CFG.balance_wierd_balance:
-            # Randomly plus or minus 1 to diff
             diff *= -1
         if diff == self._prev_diff:
             return
-
-        shift_per_block = 0.007
-        shift_amount = abs(diff) * shift_per_block
-        block_objs = state.get_objects(self._block_type)
-        left_dropping = diff > 0
-
-        def shift_blocks(is_left: bool, dropping: bool) -> None:
-            """Shift blocks for one side, dropping or rising."""
-            sign = -1 if dropping else 1
-            midpoint_y = self._table2_y
-            for block_obj in block_objs:
-                # Skip out-of-view or held
-                if state.get(block_obj, "z") < 0 or \
-                   self._held_obj_id == block_obj.id:
-                    continue
-                by = state.get(block_obj, "y")
-                belongs_to_side = (by < midpoint_y) if is_left else (
-                    by > midpoint_y)
-                if belongs_to_side:
-                    old_z = state.get(block_obj, "z")
-                    padding = 0
-                    new_z = old_z + (sign * shift_amount) + (sign * padding)
-                    block_pos, block_orn = p.getBasePositionAndOrientation(
-                        block_obj.id, physicsClientId=self._physics_client_id)
-                    p.resetBasePositionAndOrientation(
-                        block_obj.id, [block_pos[0], block_pos[1], new_z],
-                        block_orn,
-                        physicsClientId=self._physics_client_id)
-
-        def shift_plate(is_left: bool, dropping: bool) -> None:
-            """Shift plate & beam, dropping or rising."""
-            sign = -1 if dropping else 1
-            if is_left:
-                plate_id, beam_id = self._plate1.id, self._beam_ids[0]
-                base_plate_z, base_beam_z = self._plate1_pose[
-                    2], self._beam1_pose[2]
-            else:
-                plate_id, beam_id = self._plate3.id, self._beam_ids[1]
-                base_plate_z, base_beam_z = self._plate3_pose[
-                    2], self._beam2_pose[2]
-
-            new_plate_z = base_plate_z + (sign * shift_amount)
-            new_beam_z = base_beam_z + (sign * shift_amount)
-
-            plate_pos, plate_orn = p.getBasePositionAndOrientation(
-                plate_id, physicsClientId=self._physics_client_id)
-            p.resetBasePositionAndOrientation(
-                plate_id, [plate_pos[0], plate_pos[1], new_plate_z],
-                plate_orn,
-                physicsClientId=self._physics_client_id)
-
-            beam_pos, beam_orn = p.getBasePositionAndOrientation(
-                beam_id, physicsClientId=self._physics_client_id)
-            p.resetBasePositionAndOrientation(
-                beam_id, [beam_pos[0], beam_pos[1], new_beam_z],
-                beam_orn,
-                physicsClientId=self._physics_client_id)
-
-        # Left side update
-        if left_dropping:
-            # Drop left plate
-            shift_plate(is_left=True, dropping=True)
-            # Drop left blocks
-            shift_blocks(is_left=True, dropping=True)
-            # Rise right blocks
-            shift_blocks(is_left=False, dropping=False)
-            # Rise right plate
-            shift_plate(is_left=False, dropping=False)
-        else:
-            # Rise left blocks
-            shift_blocks(is_left=True, dropping=False)
-            # Rise left plate
-            shift_plate(is_left=True, dropping=False)
-            # Drop right plate
-            shift_plate(is_left=False, dropping=True)
-            # Drop right blocks
-            shift_blocks(is_left=False, dropping=True)
-
+        # Displacement of the left side; the right side moves opposite.
+        left_dz = -(diff - self._prev_diff) * self._shift_per_block
+        for is_left, dz in ((True, left_dz), (False, -left_dz)):
+            self._set_plate_offset(is_left, self._plate_offset(is_left, diff))
+            self._shift_blocks_on_side(state, is_left, dz)
         self._prev_diff = diff
+
+    def _plate_offset(self, is_left: bool, diff: int) -> float:
+        """Height of a plate above its level pose for a count difference."""
+        offset = diff * self._shift_per_block
+        return -offset if is_left else offset
+
+    def _set_plate_offset(self, is_left: bool, offset: float) -> None:
+        """Place a plate and its beam at ``offset`` above their level pose."""
+        if is_left:
+            bodies = ((self._plate1.id, self._plate1_pose), (self._beam_ids[0],
+                                                             self._beam1_pose))
+        else:
+            bodies = ((self._plate3.id, self._plate3_pose), (self._beam_ids[1],
+                                                             self._beam2_pose))
+        for body_id, level_pose in bodies:
+            pos, orn = p.getBasePositionAndOrientation(
+                body_id, physicsClientId=self._physics_client_id)
+            p.resetBasePositionAndOrientation(
+                body_id, [pos[0], pos[1], level_pose[2] + offset],
+                orn,
+                physicsClientId=self._physics_client_id)
+
+    def _shift_blocks_on_side(self, state: State, is_left: bool,
+                              dz: float) -> None:
+        """Move every unheld, in-view block on one side of the machine by
+        ``dz``, keeping its velocity."""
+        for block_obj in state.get_objects(self._block_type):
+            if state.get(block_obj, "z") < 0 or \
+               self._held_obj_id == block_obj.id:
+                continue
+            y = state.get(block_obj, "y")
+            if (y < self._table2_y) != is_left:
+                continue
+            pos, orn = p.getBasePositionAndOrientation(
+                block_obj.id, physicsClientId=self._physics_client_id)
+            lin, ang = p.getBaseVelocity(
+                block_obj.id, physicsClientId=self._physics_client_id)
+            p.resetBasePositionAndOrientation(
+                block_obj.id, [pos[0], pos[1], pos[2] + dz],
+                orn,
+                physicsClientId=self._physics_client_id)
+            p.resetBaseVelocity(block_obj.id,
+                                lin,
+                                ang,
+                                physicsClientId=self._physics_client_id)
 
     # -------------------------------------------------------------------------
     # Predicates
@@ -615,7 +601,8 @@ class PyBulletBalanceEnv(PyBulletEnv):
         block, table = objects
         y = state.get(block, "y")
         z = state.get(block, "z")
-        table_z = state.get(table, "z") + self._plate_height / 2
+        # The plate's half-extent along z is _plate_height.
+        table_z = state.get(table, "z") + self._plate_height
         desired_z = table_z + self._block_size * 0.5
 
         if (state.get(block, "is_held") < self.held_tol) and \

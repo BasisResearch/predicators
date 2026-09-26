@@ -51,7 +51,14 @@ _SANDBOX_HIDDEN_STATE_RE = re.compile(
 # sandbox_setup.VALIDATE_SANDBOX_SCRIPT), which anchors it differently
 # for shell-command strings; sharing the alternation keeps the two
 # guards covering the same modules by construction.
-SANDBOX_HIDDEN_MODULES_PATTERN = r"predicators\.(?:envs|ground_truth_models)\b"
+# The injected model base is the public surface. Its loader module and the
+# supplied Oracle artifacts carry privileged constructors/mechanisms too.
+# Include the package-level ``from ... import module`` spelling in text
+# screens; the runtime import hook sees the equivalent dotted module name.
+SANDBOX_HIDDEN_MODULES_PATTERN = (
+    r"predicators\.(?:envs|ground_truth_models|code_sim_learning"
+    r"(?:\.|\s+import\s+)(?:base_simulator|(?:continual|boil|bridge)_oracle))\b"
+)
 # Shell / interpreter forms that would start a python without the
 # sandbox's sitecustomize guard (PYTHONPATH edits, ``env -i``, and the
 # -S / -I / -E interpreter flags). Screened by the Bash hook and by the

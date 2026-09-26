@@ -14,6 +14,7 @@ from typing import Tuple
 
 import pytest
 
+from predicators.agent_sdk.account_limits import ACCOUNT_LIMITED_EXIT_CODE
 from scripts.engaging import claude_accounts
 from scripts.engaging.claude_accounts import ACCOUNTS_ENV_VAR, LOGIN_ACCOUNT, \
     POLICY_ENV_VAR, POLICY_ROUND_ROBIN, POLICY_USAGE, USAGE_FILE_ENV_VAR, \
@@ -62,6 +63,52 @@ def test_requeue_script_installs_self_requeue_trap(tmp_path) -> None:
     assert "${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}" in script
     ok, err = _bash_syntax_ok(script, tmp_path)
     assert ok, err
+
+
+def _run_requeue_block(tmp_path, python_rc: int,
+                       restart_count: int) -> Tuple[str, str]:
+    """Run the generated requeue block with a fake python exiting ``python_rc``
+    and a fake scontrol; return (scontrol calls, stdout)."""
+    script = _build_batch_script("main.py", "--env x", requeue=True)
+    block = script[script.index("# Self-requeue"):]
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(parents=True)
+    calls = tmp_path / "scontrol_calls"
+    (bin_dir / "python").write_text(f"#!/bin/bash\nexit {python_rc}\n")
+    (bin_dir / "scontrol").write_text(f"#!/bin/bash\necho \"$@\" >> {calls}\n")
+    for tool in bin_dir.iterdir():
+        tool.chmod(0o755)
+    (tmp_path / "block.sh").write_text(block, encoding="utf-8")
+    env = {
+        **os.environ,
+        "PATH": f"{bin_dir}:{os.environ['PATH']}",
+        "SLURM_ARRAY_JOB_ID": "700",
+        "SLURM_ARRAY_TASK_ID": "3",
+        "SLURM_RESTART_COUNT": str(restart_count),
+    }
+    result = subprocess.run(["bash", str(tmp_path / "block.sh")],
+                            env=env,
+                            capture_output=True,
+                            check=False)
+    assert result.returncode == python_rc
+    return (calls.read_text() if calls.exists() else "",
+            result.stdout.decode("utf-8"))
+
+
+def test_account_limited_exit_requeues_the_task(tmp_path) -> None:
+    """A run that exits with ACCOUNT_LIMITED_EXIT_CODE (its account hit a
+    weekly limit) requeues its own array task so the restart picks another
+    account; any other exit, or the restart cap, does not requeue."""
+    calls, out = _run_requeue_block(tmp_path / "limited",
+                                    ACCOUNT_LIMITED_EXIT_CODE, 0)
+    assert calls == "requeue 700_3\n"
+    assert "account limited" in out
+    calls, _ = _run_requeue_block(tmp_path / "crash", 1, 0)
+    assert calls == ""
+    calls, out = _run_requeue_block(tmp_path / "capped",
+                                    ACCOUNT_LIMITED_EXIT_CODE, 8)
+    assert calls == ""
+    assert "restart cap" in out
 
 
 # -- Claude accounts (scripts/engaging/claude_accounts.py) -----------------

@@ -46,6 +46,12 @@ _INLINE_SUBCLASS_SIMULATOR_PY = (
     "RESIDUAL_ENV = _AgentModel\n")
 
 
+def _load_simulator(path):
+    """Load through an instance so the arm's namespace hook is exercised."""
+    approach = AgentSimLearningApproach.__new__(AgentSimLearningApproach)
+    return approach._load_simulator_from_module_file(path)
+
+
 def test_balloons_artifact_cannot_call_hidden_base_helpers(tmp_path):
     """A loaded artifact receives visible physics without task answers."""
     utils.reset_config({"env": "pybullet_balloons", "seed": 0})
@@ -54,8 +60,7 @@ def test_balloons_artifact_cannot_call_hidden_base_helpers(tmp_path):
                     "    AGENT_PARAM_SPECS = []\n"
                     "    RESIDUAL_FEATURES = {}\n"
                     "RESIDUAL_ENV = Model\n")
-    _, _, _, ns = AgentSimLearningApproach._load_simulator_from_module_file(
-        str(path))
+    _, _, _, ns = _load_simulator(str(path))
     cls = read_residual_env(ns)
     assert cls is not None
     for name in ("true_box_mass", "lift_at_ground", "lift_at",
@@ -111,8 +116,7 @@ def test_loader_reads_subclass_form(tmp_path):
     the class, and a readable RESIDUAL_ENV export."""
     path = tmp_path / "simulator.py"
     path.write_text(_REEXPORT_SIMULATOR_PY)
-    rules, specs, features, ns = (
-        AgentSimLearningApproach._load_simulator_from_module_file(str(path)))
+    rules, specs, features, ns = (_load_simulator(str(path)))
     # No RESIDUAL_RULES/PARAM_SPECS, yet the file is loadable (not None).
     assert rules == []
     assert specs == []
@@ -165,7 +169,7 @@ def test_supplied_base_is_concrete_and_exposes_agent_params(
         "    RESIDUAL_FEATURES = {}\n"
         "RESIDUAL_ENV = Model\n")
     rules, specs, features, ns = \
-        AgentSimLearningApproach._load_simulator_from_module_file(str(path))
+        _load_simulator(str(path))
     assert rules == [] and specs == [] and features == {}
     cls = read_residual_env(ns)
     assert cls is not None
@@ -222,8 +226,7 @@ def test_supplied_base_applies_declared_physics_before_fit(tmp_path):
         "    AGENT_PARAM_SPECS = [ParamSpec('air_drag', .17, lo=.01, hi=1)]\n"
         "    RESIDUAL_FEATURES = {}\n"
         "RESIDUAL_ENV = Model\n")
-    _, _, _, ns = AgentSimLearningApproach._load_simulator_from_module_file(
-        str(path))
+    _, _, _, ns = _load_simulator(str(path))
     model = read_residual_env(ns)(use_gui=False)
     try:
         assert model._skip_domain_specific_dynamics
@@ -260,10 +263,8 @@ def test_loading_subclass_file_twice_does_not_raise(reset_balloons, tmp_path):
     path = tmp_path / "simulator.py"
     path.write_text(_INLINE_SUBCLASS_SIMULATOR_PY)
 
-    _, _, _, ns1 = (AgentSimLearningApproach._load_simulator_from_module_file(
-        str(path)))
-    _, _, _, ns2 = (AgentSimLearningApproach._load_simulator_from_module_file(
-        str(path)))
+    _, _, _, ns1 = (_load_simulator(str(path)))
+    _, _, _, ns2 = (_load_simulator(str(path)))
     cls1 = read_residual_env(ns1)
     cls2 = read_residual_env(ns2)
     # Two distinct concrete subclasses, both a valid RESIDUAL_ENV, both

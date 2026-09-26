@@ -2,8 +2,10 @@
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Iterator, List, Optional, Set
+from typing import Any, Callable, Dict, FrozenSet, Iterator, List, Optional, \
+    Set
 
+from predicators import utils
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
 from predicators.structs import CausalProcess, LowLevelTrajectory, \
@@ -61,6 +63,12 @@ class ToolContext:
     probe_fit_provider: Optional[Callable[..., str]] = None
     # Standalone program models cannot request engine replay diagnostics.
     probe_engine_available: bool = True
+    # ``sim`` calls this session refuses: method names (``refine``,
+    # ``predicates``, ``render``, ...) plus the ``run`` modes ``trials``
+    # (more than one trial) and ``render`` (per-step scene images, which
+    # need the real engine). A comparison arm lists what its surface
+    # withholds; the probe raises on a listed call instead of serving it.
+    probe_disabled: FrozenSet[str] = frozenset()
     # Synthesis-session loaders behind ``sim.predicates()`` and
     # ``sim.samplers()``: each reloads the agent-authored file fresh
     # (predicates.py / samplers.py), installs the result into the
@@ -87,6 +95,9 @@ class ToolContext:
     # skill fails there, or None when the request may run. Nothing is
     # charged for a refusal; force=true on the request skips it.
     skill_preflight: Optional[Callable[[str], Optional[str]]] = None
+    # Optional nonblocking observer of requested and executed actions.
+    # Kept separate from the legacy refusal callback, including raw routes.
+    execution_audit: Optional[Any] = None
     # Synthesis-session ``sim.residuals`` backend: computes the
     # per-feature residual report for the current simulator.py rules
     # (see ``SynthesisToolkit.residuals_runner``). None in solve
@@ -120,6 +131,7 @@ class ToolContext:
     # Refresh inferred memory after a model edit/refit before a current-state
     # probe. Continual MB sessions install this; other sessions keep None.
     current_observation_provider: Optional[Callable[[], State]] = None
+    execution_step_budget_provider: Optional[Callable[[], int]] = None
     # Arm-specific invariant checked before any charged continual request.
     before_real_action: Optional[Callable[[], None]] = None
     # The execution-time belief over it (observation_belief.BeliefFrame)
@@ -234,6 +246,10 @@ class ToolContext:
     # None ⇒ validation rollouts share the session env. Gated by
     # agent_plan_validation_fresh_env.
     validation_env_scope: Optional[Callable[..., Any]] = None
+    # Candidate-aware counterpart: loads the deployed candidate before
+    # cloning its physics and rebinds its option model for the whole rollout.
+    # Never substitute the solve-time model for a synthesis candidate.
+    probe_validation_env_scope: Optional[Callable[..., Any]] = None
     # Physics-margin points for the capture gate: a zero-arg callable
     # returning the current grid of perturbations spanning +-1 posterior
     # sigma of the identified physical params (full override dicts,
@@ -343,6 +359,12 @@ class ToolContext:
     # under the adaptive flag, it stays dormant so easy levels pay no
     # info-seeking step tax. Ignored unless the adaptive flag is on.
     param_sensitive_refusal_pending: bool = False
+
+    def execution_step_budget(self) -> int:
+        """The live protocol allowance, or the phased protocol's horizon."""
+        if self.execution_step_budget_provider is not None:
+            return self.execution_step_budget_provider()
+        return utils.real_episode_step_budget(self.phase)
 
     def info_seeking_active(self) -> bool:
         """Whether the proactive info-seeking apparatus should run now.

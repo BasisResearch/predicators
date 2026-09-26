@@ -9,6 +9,7 @@ For experiment results, use the [results index](uncertainty-results/INDEX.md).
 |---|---|
 | [Protocol and interaction](protocol/README.md) | Evaluation rules, agent interaction, and the original protocol design. |
 | [Learned models](models/README.md) | Simulator subclasses and system identification. |
+| [Simulator probe API](models/sim-api.md) | `sim.run` modes, uncertainty checks, evaluator acceptance, and model diagnostics. |
 | [Uncertainty](uncertainty/README.md) | Implementation audit, observation noise, and the proposed simplification. |
 | [Environments](envs/README.md) | Domain descriptions, illustrations, videos, and the PyBullet development guide. |
 | [Results](uncertainty-results/INDEX.md) | Noisy sweep, completed comparisons, diagnostics, and analysis outputs. |

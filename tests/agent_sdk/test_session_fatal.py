@@ -24,9 +24,12 @@ from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
 
 import predicators.agent_sdk.session_base as sb
 from predicators import utils
+from predicators.agent_sdk.account_limits import ACCOUNT_ENV_VAR, \
+    LIMIT_DIR_ENV_VAR, limited_until
 from predicators.agent_sdk.session_base import _LIMIT_DEFAULT_WAIT_SECS, \
-    _LIMIT_MAX_WAIT_SECS, AgentSessionFatalError, BaseAgentSessionManager, \
-    query_fatal_error, usage_limit_wait_seconds
+    _LIMIT_MAX_WAIT_SECS, _LIMIT_RESET_SLACK_SECS, AccountLimitedError, \
+    AgentSessionFatalError, BaseAgentSessionManager, \
+    account_limit_outlasts_run, query_fatal_error, usage_limit_wait_seconds
 from predicators.agent_sdk.session_manager import AgentSessionManager
 
 # The exact assistant text run_20260721_161159's queries came back with.
@@ -314,6 +317,90 @@ def test_non_limit_reasons_do_not_wait():
     assert usage_limit_wait_seconds("invalid api key") is None
     assert usage_limit_wait_seconds(
         "error result: something else broke") is None
+
+
+def _weekly_banner(reset: datetime.datetime) -> str:
+    """The weekly-limit banner as the CLI words it (2026-09-19, account c)."""
+    hour = reset.hour % 12 or 12
+    ampm = "pm" if reset.hour >= 12 else "am"
+    return (f"You've hit your weekly limit · resets {reset:%b} {reset.day}, "
+            f"{hour}{ampm} (America/New_York)")
+
+
+def test_weekly_limit_banner_states_a_dated_reset():
+    """The weekly banner is a usage limit whose dated reset is parsed; the
+    retry wait is clamped as for any limit, while the hand-off check sees the
+    full days-long reset."""
+    tz = ZoneInfo("America/New_York")
+    now = datetime.datetime(2026, 9, 19, 16, 20, tzinfo=tz)
+    reset = datetime.datetime(2026, 9, 22, 20, 0, tzinfo=tz)
+    banner = _weekly_banner(reset)
+    assert banner == ("You've hit your weekly limit · resets Sep 22, 8pm "
+                      "(America/New_York)")
+    assert query_fatal_error([_text_entry(banner)]) is not None
+    assert usage_limit_wait_seconds(banner,
+                                    now=now.timestamp()) == \
+        _LIMIT_MAX_WAIT_SECS
+    outlast = account_limit_outlasts_run(banner, now=now.timestamp())
+    assert outlast == pytest.approx((reset - now).total_seconds() +
+                                    _LIMIT_RESET_SLACK_SECS)
+
+
+def test_only_long_weekly_limits_hand_off_the_account():
+    """Session limits are always waited out (their banners name a time of day,
+    which reads as up to a day away once it has passed); a weekly limit hands
+    off only while its reset is further than a query may wait, and a reset
+    already past (or read across new year) is waited out."""
+    tz = ZoneInfo("America/New_York")
+    now = datetime.datetime(2026, 9, 19, 16, 20, tzinfo=tz).timestamp()
+    session = ("You've hit your session limit · resets 4:10pm "
+               "(America/New_York)")
+    assert account_limit_outlasts_run(session, now=now) is None
+    soon = datetime.datetime(2026, 9, 19, 20, 0, tzinfo=tz)
+    assert account_limit_outlasts_run(_weekly_banner(soon), now=now) is None
+    past = datetime.datetime(2026, 9, 18, 20, 0, tzinfo=tz)
+    assert account_limit_outlasts_run(_weekly_banner(past), now=now) is None
+    assert usage_limit_wait_seconds(_weekly_banner(past), now=now) == 0.0
+    new_year = datetime.datetime(2026, 12, 30, 12, 0, tzinfo=tz).timestamp()
+    january = datetime.datetime(2027, 1, 2, 20, 0, tzinfo=tz)
+    assert account_limit_outlasts_run(
+        _weekly_banner(january),
+        now=new_year) == pytest.approx((january.timestamp() - new_year) +
+                                       _LIMIT_RESET_SLACK_SECS)
+    assert account_limit_outlasts_run("You've hit your weekly limit.",
+                                      now=now) is None
+
+
+def test_run_streamed_query_hands_off_a_weekly_limited_account(
+        tmp_path, monkeypatch):
+    """A weekly-limited query is not waited on: the job's account is marked
+    limited until the stated reset and AccountLimitedError (a fatal error, so
+    no handler absorbs it) ends the run for a requeue on another account."""
+    mgr = _make_base_manager(tmp_path)
+    reset = datetime.datetime.now(ZoneInfo("America/New_York")).replace(
+        minute=0, second=0, microsecond=0) + datetime.timedelta(days=3)
+    responses = [[_text_entry(_weekly_banner(reset))]]
+
+    async def _fake_stream(_client, message, **_kwargs):
+        del message
+        return responses.pop(0)
+
+    async def _fake_sleep(secs):
+        raise AssertionError(f"waited {secs} s on a weekly limit")
+
+    monkeypatch.setattr(sb, "stream_agent_response", _fake_stream)
+    monkeypatch.setattr(sb.asyncio, "sleep", _fake_sleep)
+    monkeypatch.setenv(ACCOUNT_ENV_VAR, "c")
+    monkeypatch.setenv(LIMIT_DIR_ENV_VAR, str(tmp_path / "limited"))
+    mgr._client = object()
+    with pytest.raises(AccountLimitedError) as err:
+        asyncio.run(
+            mgr._run_streamed_query("do the thing", log_path=None,
+                                    kind="test"))
+    assert isinstance(err.value, AgentSessionFatalError)
+    until = limited_until("c", tmp_path / "limited")
+    assert until == pytest.approx(reset.timestamp() + _LIMIT_RESET_SLACK_SECS,
+                                  abs=5)
 
 
 def test_run_streamed_query_retries_after_limit(tmp_path, monkeypatch):

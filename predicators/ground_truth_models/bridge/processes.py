@@ -42,6 +42,15 @@ _TABLE = _ENV.table_height
 # ~1 mm of IK error to spare. Small is still better -- it shortens the
 # unplanned settle stroke.
 _DROP = 0.003
+# Row lengths the env supports per task (see PyBulletBridgeEnv._span_pool_size);
+# PickRow / SeatSpan get one process each per length.
+_ROW_LENGTHS = (3, 4)
+# Gripper palm half-width, the berth a top grasp needs from a STANDING
+# neighbour (taller than the grasped object), and the column-overlap
+# threshold below which a mid/back-row parking cell's grasp volume
+# clips a leg standing at a site (palm half-width + leg half-width).
+_PALM_HALF_WIDTH = 0.045
+_PALM_LEG_OVERLAP = 0.07
 
 
 def _pick_sampler(state: State, goal: Set[GroundAtom],
@@ -126,27 +135,39 @@ def _place_next_to_sampler(state: State, goal: Set[GroundAtom],
     return np.array([x, y, z, 0.0], dtype=np.float32)
 
 
+def row_grasp_index(n_spans: int) -> int:
+    """Which span of an ``n_spans`` row PickRow grasps: the middle one of an
+    odd row, the one just right of centre of an even row.
+
+    Balances the carried cantilever either way (see PickRow).
+    """
+    return n_spans // 2
+
+
 def _seat_span_sampler(state: State, goal: Set[GroundAtom],
                        rng: np.random.Generator,
                        objs: Sequence[Object]) -> Array:
     del goal
-    # objs = [robot, spanA, mid, spanB, legL, legR, siteL, siteR]. The
-    # welded row hangs from its grasped MIDDLE span (see PickRow), so
-    # seating is near-symmetric: land mid's center on the midpoint of
-    # the two leg tops and both outer spans arrive over their legs by
-    # the rigid geometry. (An end grasp put a 20 cm cantilever on the
-    # grasp constraint; its torsion yawed the far tip ~2-3 cm, enough
-    # to strike the far leg's edge on the way down and topple it.)
-    # Placement errors frozen into the welds make the row slightly
-    # asymmetric about mid, so center the ROW -- the midpoint of the
-    # outer spans' actual centers -- over the legs, not mid itself;
-    # otherwise the whole frozen offset lands on one seat joint.
-    span_a, mid, span_b = objs[1], objs[2], objs[3]
-    row_dx = (state.get(span_a, "x") + state.get(span_b, "x")) / 2 - \
-        state.get(mid, "x")
-    row_dy = (state.get(span_a, "y") + state.get(span_b, "y")) / 2 - \
-        state.get(mid, "y")
-    leg_l, leg_r = objs[4], objs[5]
+    # objs = [robot, span_0, ..., span_{n-1}, legL, legR, siteL, siteR].
+    # The welded row hangs from its grasped span (see PickRow and
+    # row_grasp_index), so seating is near-symmetric: land the ROW's
+    # centre on the midpoint of the two leg tops and both outer spans
+    # arrive over their legs by the rigid geometry. (An end grasp put a
+    # 20 cm cantilever on the grasp constraint; its torsion yawed the
+    # far tip ~2-3 cm, enough to strike the far leg's edge on the way
+    # down and topple it.) Placement errors frozen into the welds make
+    # the row slightly asymmetric about the held span, so centre the
+    # ROW -- the midpoint of the outer spans' actual centres -- over the
+    # legs, not the held span itself; otherwise the whole frozen offset
+    # lands on one seat joint.
+    spans = list(objs[1:-4])
+    held = spans[row_grasp_index(len(spans))]
+    first, last = spans[0], spans[-1]
+    row_dx = (state.get(first, "x") + state.get(last, "x")) / 2 - \
+        state.get(held, "x")
+    row_dy = (state.get(first, "y") + state.get(last, "y")) / 2 - \
+        state.get(held, "y")
+    leg_l, leg_r = objs[-4], objs[-3]
     x = (state.get(leg_l, "x") + state.get(leg_r, "x")) / 2 - row_dx + \
         rng.uniform(-0.003, 0.003)
     y = (state.get(leg_l, "y") + state.get(leg_r, "y")) / 2 - row_dy + \
@@ -155,7 +176,7 @@ def _seat_span_sampler(state: State, goal: Set[GroundAtom],
     # planning time on predicted states, so live robot-relative reads
     # are stale garbage (a robot-z-based "hang" read the home pose,
     # blew past the release_z bound, and crash-dropped the assembly).
-    # mid's center = leg top + span half-thickness + 2 cm descend
+    # held's center = leg top + span half-thickness + 2 cm descend
     # clearance for the carried rigid assembly. The settle-to-contact
     # release lowers the row until an outer span first touches a leg
     # top, so extra clearance costs nothing (no free fall to harden the
@@ -195,12 +216,27 @@ def _stage_spot_sampler(state: State, held: Object,
     and the fallback then dropped the bottle on top of a staged block.
     """
     rows = [_ENV.stage_row_back, _ENV.stage_row_mid, _ENV.stage_row_front]
+    site_xs = [state.get(o, "x") for o in state if o.type.name == "site"]
     candidates = []
     for row in rows:
         for col in _ENV.stage_cols:
             if np.hypot(col - _ENV.robot_base_pos[0],
                         row - _ENV.robot_base_pos[1]) > \
                     _ENV.reach_radius - 0.02:
+                continue
+            # Mid- and back-row cells directly behind a site are never
+            # a parking spot, whether or not a leg stands there yet:
+            # the rows sit 6 / 10 cm from the site band, and the palm of
+            # a later top grasp over the cell (half-width ~4.5 cm) clips
+            # a leg standing at the site (half-width 2.5 cm) whenever
+            # the columns overlap within 7 cm. The sampler runs at
+            # planning time on a predicted state, so it cannot rely on
+            # the leg being there already (a bottle parked 7.2 cm from
+            # a still-free site was unreachable once the leg stood; the
+            # oracle replanned into the same pick 300 times). Same rule
+            # as the env's initial staging (_stage_objects).
+            if row != _ENV.stage_row_front and any(
+                    abs(col - sx) < _PALM_LEG_OVERLAP for sx in site_xs):
                 continue
             candidates.append((col, row))
     rng.shuffle(candidates)
@@ -227,6 +263,11 @@ def _stage_spot_sampler(state: State, held: Object,
             if o.type.name == "site":
                 # Keep sites usable for later leg placements.
                 required = held_r + 0.045 + 0.01
+            elif _ENV._stands(state, o):  # pylint: disable=protected-access
+                # A standing block is taller than anything grasped next
+                # to it, so the palm, not the fingers, sets the berth.
+                required = _PALM_HALF_WIDTH + _footprint_radius(state,
+                                                                o) + 0.015
             else:
                 required = held_r + _footprint_radius(state, o) + 0.015
             if np.hypot(state.get(o, "x") - col,
@@ -303,6 +344,7 @@ class PyBulletBridgeGroundTruthProcessFactory(GroundTruthProcessFactory):
         Resting = predicates["Resting"]
         TopFree = predicates["TopFree"]
         EndsFree = predicates["EndsFree"]
+        RowComplete = predicates["RowComplete"]
 
         PickBlock = options["PickBlock"]
         PickBottle = options["PickBottle"]
@@ -363,35 +405,40 @@ class PyBulletBridgeGroundTruthProcessFactory(GroundTruthProcessFactory):
                 [robot, blk],
                 _pick_sampler))
 
-        # -- PickRow (grasp the fully welded span row by its MIDDLE) ----------
+        # -- PickRow{n} (grasp the COMPLETE welded span row) -------------------
         # The ONLY way to pick a welded block: requires the complete
         # Attached chain, so a partially cured row can never be lifted
         # (which would dangle the welded partner and break the pending
-        # joint's resting contact). Grasping the MIDDLE span balances
-        # the assembly: an end grasp cantilevers 20 cm of weldment off
-        # the grasp constraint, whose torsion yaws the far tip ~2-3 cm
-        # in flight -- enough to strike the far leg during seating.
-        robot = Variable("?robot", robot_type)
-        span_a = Variable("?spanA", block_type)
-        mid = Variable("?spanMid", block_type)
-        span_b = Variable("?spanB", block_type)
-        processes.add(
-            EndogenousProcess(
-                "PickRow", [robot, span_a, mid, span_b], {
-                    LiftedAtom(HandEmpty, [robot]),
-                    LiftedAtom(TopFree, [mid]),
-                    LiftedAtom(Attached, [span_a, mid]),
-                    LiftedAtom(Attached, [mid, span_b]),
-                    LiftedAtom(Lying, [span_a]),
-                    LiftedAtom(Lying, [mid]),
-                    LiftedAtom(Lying, [span_b]),
-                }, set(), set(), {LiftedAtom(Holding, [robot, mid])}, {
-                    LiftedAtom(HandEmpty, [robot]),
-                    LiftedAtom(Resting, [span_a]),
-                    LiftedAtom(Resting, [mid]),
-                    LiftedAtom(Resting, [span_b]),
-                }, _delay(2.0), torch.tensor(1.0), PickBlock, [robot, mid],
-                _pick_sampler))
+        # joint's resting contact), and RowComplete over the outer
+        # spans, so the chain is the whole row of the task (the only
+        # reason to lift a row is to seat it, and Bridged needs every
+        # span). One process per supported row length: the row's blocks
+        # are its parameters, and a row of the other length simply does
+        # not ground. Grasping near the row's centre balances the
+        # assembly: an end grasp cantilevers 20 cm of weldment off the
+        # grasp constraint, whose torsion yaws the far tip ~2-3 cm in
+        # flight -- enough to strike the far leg during seating.
+        for n_row in _ROW_LENGTHS:
+            robot = Variable("?robot", robot_type)
+            spans = [Variable(f"?span{i}", block_type) for i in range(n_row)]
+            held = spans[row_grasp_index(n_row)]
+            chain = {
+                LiftedAtom(Attached, [left, right])
+                for left, right in zip(spans, spans[1:])
+            }
+            lying = {LiftedAtom(Lying, [span]) for span in spans}
+            processes.add(
+                EndogenousProcess(
+                    f"PickRow{n_row}", [robot] + spans, {
+                        LiftedAtom(HandEmpty, [robot]),
+                        LiftedAtom(TopFree, [held]),
+                        LiftedAtom(RowComplete, [spans[0], spans[-1]]),
+                    } | chain | lying, set(), set(),
+                    {LiftedAtom(Holding, [robot, held])},
+                    {LiftedAtom(HandEmpty, [robot])}
+                    | {LiftedAtom(Resting, [span])
+                       for span in spans}, _delay(2.0), torch.tensor(1.0),
+                    PickBlock, [robot, held], _pick_sampler))
 
         # -- PickSpanFromRow (dismantle an UNCURED butt joint) ---------------
         # The Unstack analog: names the left neighbor so the adjacency
@@ -533,55 +580,57 @@ class PyBulletBridgeGroundTruthProcessFactory(GroundTruthProcessFactory):
                 _delay(4.0), torch.tensor(1.0), MoveTo, [robot],
                 _glue_end_b_sampler))
 
-        # -- SeatSpan3 (place the welded span row across the legs) ------------
+        # -- SeatSpan{n} (place the welded span row across the legs) ----------
         # A 3-span row is the minimum that makes the glue structurally
         # necessary: the unglued middle span has no support and falls
         # into the gap (a 2-span row mutually supports as a friction
         # arch). The Attached chain forces the row to be fully welded
-        # before seating, and the AtSite leg conditions force the legs
-        # to actually be erected first -- without them the planner
+        # before seating, RowComplete forces it to be the WHOLE row
+        # (Bridged needs every span; a seat over fewer spans would add
+        # a fictional Bridged), and the AtSite leg conditions force the
+        # legs to actually be erected first -- without them the planner
         # happily seated the span onto legs still at their staged spots
         # and "moved" them to the sites afterwards. No glue conditions
         # on the seat: seat joints are neither structural (the welded
-        # row rests on the legs by gravity) nor in the goal.
-        robot = Variable("?robot", robot_type)
-        span_a = Variable("?spanA", block_type)
-        mid = Variable("?spanMid", block_type)
-        span_b = Variable("?spanB", block_type)
-        leg_l = Variable("?legL", block_type)
-        leg_r = Variable("?legR", block_type)
-        site_l = Variable("?siteL", site_type)
-        site_r = Variable("?siteR", site_type)
-        condition = {
-            LiftedAtom(Holding, [robot, mid]),
-            LiftedAtom(Lying, [span_a]),
-            LiftedAtom(Lying, [mid]),
-            LiftedAtom(Lying, [span_b]),
-            LiftedAtom(Attached, [span_a, mid]),
-            LiftedAtom(Attached, [mid, span_b]),
-            LiftedAtom(Standing, [leg_l]),
-            LiftedAtom(Standing, [leg_r]),
-            LiftedAtom(AtSite, [leg_l, site_l]),
-            LiftedAtom(AtSite, [leg_r, site_r]),
-        }
-        processes.add(
-            EndogenousProcess(
-                "SeatSpan3",
-                [robot, span_a, mid, span_b, leg_l, leg_r, site_l, site_r],
-                condition, set(), set(), {
-                    LiftedAtom(HandEmpty, [robot]),
-                    LiftedAtom(SeatedOn, [span_a, leg_l]),
-                    LiftedAtom(SeatedOn, [span_b, leg_r]),
-                    LiftedAtom(Bridged, [site_l, site_r]),
-                    LiftedAtom(Resting, [span_a]),
-                    LiftedAtom(Resting, [mid]),
-                    LiftedAtom(Resting, [span_b]),
-                }, {
-                    LiftedAtom(Holding, [robot, mid]),
-                    LiftedAtom(TopFree, [leg_l]),
-                    LiftedAtom(TopFree, [leg_r]),
-                }, _delay(3.0), torch.tensor(1.0), Place, [robot],
-                _seat_span_sampler))
+        # row rests on the legs by gravity) nor in the goal. One process
+        # per supported row length, like PickRow.
+        for n_row in _ROW_LENGTHS:
+            robot = Variable("?robot", robot_type)
+            spans = [Variable(f"?span{i}", block_type) for i in range(n_row)]
+            held = spans[row_grasp_index(n_row)]
+            leg_l = Variable("?legL", block_type)
+            leg_r = Variable("?legR", block_type)
+            site_l = Variable("?siteL", site_type)
+            site_r = Variable("?siteR", site_type)
+            chain = {
+                LiftedAtom(Attached, [left, right])
+                for left, right in zip(spans, spans[1:])
+            }
+            lying = {LiftedAtom(Lying, [span]) for span in spans}
+            condition = {
+                LiftedAtom(Holding, [robot, held]),
+                LiftedAtom(RowComplete, [spans[0], spans[-1]]),
+                LiftedAtom(Standing, [leg_l]),
+                LiftedAtom(Standing, [leg_r]),
+                LiftedAtom(AtSite, [leg_l, site_l]),
+                LiftedAtom(AtSite, [leg_r, site_r]),
+            } | chain | lying
+            processes.add(
+                EndogenousProcess(
+                    f"SeatSpan{n_row}",
+                    [robot] + spans + [leg_l, leg_r, site_l, site_r],
+                    condition, set(), set(), {
+                        LiftedAtom(HandEmpty, [robot]),
+                        LiftedAtom(SeatedOn, [spans[0], leg_l]),
+                        LiftedAtom(SeatedOn, [spans[-1], leg_r]),
+                        LiftedAtom(Bridged, [site_l, site_r]),
+                    } | {LiftedAtom(Resting, [span])
+                         for span in spans}, {
+                             LiftedAtom(Holding, [robot, held]),
+                             LiftedAtom(TopFree, [leg_l]),
+                             LiftedAtom(TopFree, [leg_r]),
+                         }, _delay(3.0), torch.tensor(1.0), Place, [robot],
+                    _seat_span_sampler))
 
         # -- Wait -------------------------------------------------------------
         robot = Variable("?robot", robot_type)

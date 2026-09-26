@@ -81,6 +81,49 @@ _RUN_PYTHON_DESCRIPTION = (
     "recorded `trajectories`. This tool does NOT define the model: "
     "write `world_model.py` for that.")
 
+# The continual standalone arm's probe, kept close to WorldCoder: the agent
+# writes the world model, the harness scores it against the recorded data
+# and rolls a plan through it once; search, repeated trials, predicate
+# scoring and engine renders of predicted states are the agent's own
+# code to write, if it wants them.
+STANDALONE_PROBE_DISABLED = frozenset({
+    "refine", "predicates", "samplers", "render", "belief", "run_policy",
+    "run_async", "gather", "suggest_probes", "trials"
+})
+
+STANDALONE_RUN_PYTHON_DESCRIPTION = (
+    "Execute Python code (`code`, or `path` to a .py file you wrote in "
+    "the sandbox) for data exploration and model checking. Available "
+    "variables: trajectories (List[LowLevelTrajectory]; each has "
+    "`is_demo`, `train_task_idx`, `states`, `actions`; each action's "
+    "`get_option()` is the skill that produced it), train_tasks "
+    "(List[Task]; each has `init`, `goal`, `goal_holds(state)`), "
+    "is_goal_state (callable: state, task_idx -> bool), "
+    "describe_trajectory(traj_idx, include_states=True, "
+    "include_atoms=False, max_timesteps=10), np. print() output is "
+    "returned; the namespace persists across calls; oversize output is "
+    "saved under `tool_outputs/run_python/` and previewed. This namespace "
+    "ALSO binds `sim`, a probe over your current world_model.py, reloaded "
+    "automatically when the file changes (errors until a loadable file "
+    "exists). `sim.score(traj_idxs=None, num_particles=None)` scores the "
+    "model on the recorded trajectories (particle-filter kernel "
+    "pseudo-likelihood over the hidden state; 0 is perfect) with "
+    "per-feature errors and the worst transitions; `sim.reset(task_idx)` "
+    "sets the current state to a train task's init and "
+    "`sim.reset(current=True)` to the last real observation; "
+    "`sim.task(task_idx)` describes a train task; `sim.state()` returns "
+    "the current state's features; `sim.run(plan_text)` predicts one "
+    "option plan FROM THE CURRENT STATE through world_model.py, once, "
+    "reports each step's outcome as text (subgoal annotations are "
+    "CHECKED) and advances the state; `sim.snapshot()` / "
+    "`sim.restore(id)` bank and rewind the state. That is the whole "
+    "probe: there is no parameter search, repeated-trial rollout, "
+    "predicate scoring or scene rendering of predicted states; write any "
+    "search, sampling or diagnostics you need in your own code. Probe "
+    "rollouts are predictions of your model - never confuse them with "
+    "the recorded `trajectories`. This tool does NOT define the model: "
+    "write `world_model.py` for that.")
+
 
 def create_program_synthesis_tools(
     exec_ns: Dict[str, Any],
@@ -96,6 +139,7 @@ def create_program_synthesis_tools(
     cycle_index_provider: Optional[Callable[[], int]] = None,
     budget_check: Optional[Callable[[], None]] = None,
     rng: Optional[np.random.Generator] = None,
+    run_python_description: str = _RUN_PYTHON_DESCRIPTION,
 ) -> ProgramSynthesisToolkit:
     """Build the program-synthesis session's tools and probe backends.
 
@@ -114,6 +158,8 @@ def create_program_synthesis_tools(
         budget_check: Called before a score; raises to stop the call
             when the session's budget is spent.
         rng: The scorer's random source (particle draws / resampling).
+        run_python_description: The ``run_python`` tool description; an
+            arm with a narrower probe passes its own.
     """
     # pylint: disable=import-outside-toplevel
     from claude_agent_sdk import tool as _sdk_tool
@@ -194,7 +240,7 @@ def create_program_synthesis_tools(
     run_python = _make_python_exec_tool(
         tool,
         name="run_python",
-        description=_RUN_PYTHON_DESCRIPTION,
+        description=run_python_description,
         exec_ns=exec_ns,
         sandbox_dir=sandbox_dir,
         sandbox_dir_for_agent=sandbox_dir_for_agent,

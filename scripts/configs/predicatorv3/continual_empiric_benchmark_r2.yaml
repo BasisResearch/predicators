@@ -1,0 +1,26 @@
+# Two prospective seeds per domain, with bounded nonblocking validation.
+# Freeze this runtime before submitting; never resume historical EMPIRIC.
+includes:
+  - continual_common.yaml
+  - envs/continual.yaml
+  - approaches/continual.yaml
+START_SEED: 3
+NUM_SEEDS: 2
+ENVS:
+  balloons:
+    SKIP: false
+  bridge:
+    SKIP: false
+  boil:
+    SKIP: false
+  fan:
+    SKIP: false
+  domino_high_friction_turn:
+    SKIP: false
+APPROACHES:
+  mb_opus_benchmark_r2:
+    EXTENDS: mb_opus
+    FLAGS:
+      continual_skill_preflight: false
+      continual_validation_audit: true
+      continual_validation_audit_seconds: 600.0

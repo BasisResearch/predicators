@@ -264,7 +264,7 @@ def test_declared_params_prompt_section_is_flag_gated() -> None:
     plain = learn_prompts.build_learn_system_prompt(**kwargs)
     declared = learn_prompts.build_learn_system_prompt(
         declared_params_only=True, **kwargs)
-    marker = "Parameter estimation is DISABLED"
+    marker = "Harness parameter estimation is DISABLED"
     assert marker not in plain
     assert marker in declared
     assert "__" not in declared.replace("__init__", "")
