@@ -185,6 +185,20 @@ def build_play_system_prompt(tool_names: Sequence[str],
         sections.append(
             render("play_system",
                    "arm_from_assets" if fit_available else "arm_real_to_sim"))
+    # The joint belief replaces trials / solved / belief_draws with one
+    # rehearsal over its K joint draws (paper Section 3.3).
+    joint = (int(CFG.belief_joint_draws) > 0 and not point_estimate
+             and bool(CFG.continual_uncertainty_decisions))
+    final_rehearsal = render(
+        "play_system",
+        "final_rehearsal_joint" if joint else "final_rehearsal_legacy")
+    if joint:
+        candidates = str(int(CFG.belief_refine_candidates))
+        refine_cell = render("play_system",
+                             "refine_cell_joint",
+                             refine_candidates=candidates)
+    else:
+        refine_cell = render("play_system", "refine_cell_legacy")
     adaptive = ""
     if (model and not frozen and not point_estimate
             and CFG.agent_explorer_info_seeking
@@ -192,7 +206,10 @@ def build_play_system_prompt(tool_names: Sequence[str],
             and not CFG.agent_model_repair):
         adaptive = render("play_system", "adaptive_info_seeking")
     if frozen:
-        sections.append(render("play_system", "workflow_frozen"))
+        sections.append(
+            render("play_system",
+                   "workflow_frozen",
+                   final_rehearsal=final_rehearsal))
     elif point_estimate:
         declared = CFG.agent_sim_learn_declared_params_only
         sections.append(
@@ -216,6 +233,7 @@ def build_play_system_prompt(tool_names: Sequence[str],
             render("play_system",
                    "workflow",
                    adaptive_info_seeking=adaptive,
+                   final_rehearsal=final_rehearsal,
                    rehearsal_clause="once your scene model is loaded"
                    if scene_built else "model or not",
                    sim_first_round=render(
@@ -224,7 +242,12 @@ def build_play_system_prompt(tool_names: Sequence[str],
                    model_ready=render("play_system", ready)))
     if model:
         if not point_estimate and (not frozen or oracle_dynamics):
-            sections.append(render("play_system", "rehearsal_reliability"))
+            sections.append(
+                render("play_system",
+                       "rehearsal_reliability",
+                       state_rehearsal=render(
+                           "play_system", "state_rehearsal_joint"
+                           if joint else "state_rehearsal_legacy")))
         if oracle_dynamics:
             sections.append(render("play_system", "oracle_discrepancies"))
         if CFG.continual_require_model_on_test:
@@ -276,8 +299,8 @@ def build_play_system_prompt(tool_names: Sequence[str],
             "twin_scene_refs" if scene_package else "base_sim_refs",
             ref_listing="\n".join(f"- `{r}`" for r in base_sim_refs)))
         robustness = render(
-            "play_system", "robustness_point_estimate"
-            if point_estimate else "robustness_uncertainty")
+            "play_system", "robustness_point_estimate" if point_estimate else
+            "robustness_joint" if joint else "robustness_uncertainty")
         # The probe refuses physics_sweep without uncertainty decisions.
         if point_estimate:
             sweep_verdict = ""
@@ -287,7 +310,9 @@ def build_play_system_prompt(tool_names: Sequence[str],
                 if fit_available else "sweep_verdict_declared")
         if frozen:
             if oracle_dynamics:
-                robustness = render("play_system", "robustness_oracle")
+                robustness = render(
+                    "play_system", "robustness_oracle_joint"
+                    if joint else "robustness_oracle")
                 sweep_verdict = ""
             fixed = render(
                 "play_system", "frozen_line_supplied"
@@ -296,6 +321,7 @@ def build_play_system_prompt(tool_names: Sequence[str],
                 render("play_system",
                        "model_frozen",
                        fixed_line=fixed,
+                       refine_cell=refine_cell,
                        robustness_row=robustness,
                        sweep_verdict_line=sweep_verdict,
                        base_sim_refs=refs))
@@ -312,6 +338,7 @@ def build_play_system_prompt(tool_names: Sequence[str],
                        fit_rows=render(
                            "play_system", "fit_rows_harness"
                            if fit_available else "fit_rows_declared"),
+                       refine_cell=refine_cell,
                        robustness_row=robustness,
                        sweep_verdict_line=sweep_verdict,
                        base_sim_refs=refs))

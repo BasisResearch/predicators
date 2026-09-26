@@ -7,8 +7,10 @@ import pytest
 from predicators import utils
 from predicators.pybullet_helpers.geometry import Pose
 from predicators.pybullet_helpers.inverse_kinematics import \
-    pybullet_inverse_kinematics
-from predicators.pybullet_helpers.joint import get_kinematic_chain
+    InverseKinematicsError, pybullet_inverse_kinematics, \
+    pybullet_position_inverse_kinematics
+from predicators.pybullet_helpers.joint import get_joint_limits, \
+    get_kinematic_chain
 from predicators.pybullet_helpers.link import BASE_LINK, get_link_pose, \
     get_link_state
 from predicators.pybullet_helpers.robots import \
@@ -158,6 +160,49 @@ def test_pybullet_inverse_kinematics(scene_attributes):
             physics_client_id=scene_attributes["physics_client_id"],
             validate=True)
     assert "Inverse kinematics failed to converge." in str(e)
+
+
+def test_pybullet_position_inverse_kinematics(scene_attributes):
+    """Tests for pybullet_position_inverse_kinematics()."""
+    fetch_id = scene_attributes["fetch_id"]
+    ee_id = scene_attributes["ee_id"]
+    client = scene_attributes["physics_client_id"]
+    arm_joints = get_kinematic_chain(fetch_id, ee_id, physics_client_id=client)
+    lower, upper = get_joint_limits(fetch_id, arm_joints, client)
+    for joint, (position, velocity, _,
+                _) in zip(arm_joints,
+                          scene_attributes["initial_joints_states"]):
+        p.resetJointState(fetch_id,
+                          joint,
+                          targetValue=position,
+                          targetVelocity=velocity,
+                          physicsClientId=client)
+    target_position = scene_attributes["robot_home"]
+    joint_positions = pybullet_position_inverse_kinematics(
+        fetch_id,
+        ee_id,
+        target_position,
+        arm_joints,
+        lower,
+        upper,
+        physics_client_id=client)
+    assert all(lo <= q <= hi
+               for q, lo, hi in zip(joint_positions, lower, upper))
+    # The robot is left at the answer, which reaches the target.
+    assert np.allclose(get_link_state(fetch_id, ee_id, client)[4],
+                       target_position,
+                       atol=CFG.pybullet_ik_tol)
+    with pytest.raises(InverseKinematicsError):
+        pybullet_position_inverse_kinematics(
+            fetch_id,
+            ee_id, [
+                target_position[0], target_position[1],
+                target_position[2] + 100.0
+            ],
+            arm_joints,
+            lower,
+            upper,
+            physics_client_id=client)
 
 
 def test_fetch_pybullet_robot(physics_client_id):

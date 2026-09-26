@@ -217,11 +217,14 @@ def format_observation(obs: "ProtocolObservation",
         lines.append("[your predicates] " + ", ".join(invented))
     if obs.belief is not None and CFG.continual_uncertainty_decisions:
         try:
-            fractions = atom_fractions(
-                obs.belief, set(ctx.predicates),
-                int(CFG.continual_belief_draws),
-                np.random.default_rng(CFG.seed +
-                                      7919 * int(obs.ledger.run_steps)))
+            if ctx.joint_fractions_provider is not None:
+                fractions = ctx.joint_fractions_provider()
+            else:
+                fractions = atom_fractions(
+                    obs.belief, set(ctx.predicates),
+                    int(CFG.continual_belief_draws),
+                    np.random.default_rng(CFG.seed +
+                                          7919 * int(obs.ledger.run_steps)))
             unsure = uncertain_atoms(fractions)
         except Exception as e:  # pylint: disable=broad-except
             fractions, unsure = {}, []

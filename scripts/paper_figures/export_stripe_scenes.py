@@ -13,10 +13,8 @@ Display-only adjustments, recorded in each scene's metadata:
   Figure 1 uses; motion relative to the platforms or chute is unchanged.
 - Balloons draws its burst height as a red cap over the chute, as in
   Figure 1 (export_static_scenes.py).
-- Boil liquid is drawn no higher than the jug rim. The environment lets
-  water rise above the rim before it overflows, which reads as an
-  upturned jug. Its spill puddle, which restoring a state omits, is
-  drawn from the recorded spilled level.
+- Boil liquid is drawn no higher than the jug rim, and its spill puddle
+  is redrawn, as in Figure 1.
 - Bridge model states draw the glue the model remembers as the
   environment's glue patches.
 """
@@ -24,22 +22,19 @@ import argparse
 import hashlib
 import json
 import pickle
-import re
-import shlex
-import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from unittest.mock import patch
 
 import pybullet as p
-from export_static_scenes import _cap_chute, _migrate_balloons_layout, \
-    _migrate_fan_layout
+from export_static_scenes import _cap_chute, _cap_liquid_at_rim, \
+    _load_run_config, _migrate_balloons_layout, _migrate_fan_layout, \
+    _restore_spill
 from export_trajectory_scenes import _canonical_state
 from PIL import Image
 from render_scene_support import export_visual_scene, raised_flat_markers, \
     record_procedural_meshes, scene_signature
 
-from predicators import utils
 from predicators.envs import create_new_env
 from predicators.settings import CFG
 from predicators.structs import State
@@ -47,20 +42,6 @@ from predicators.structs import State
 ROOT = Path(__file__).resolve().parent
 LOGS = ROOT.parents[1] / "logs"
 SPEC = ROOT / "data/trajectories/stripes.json"
-
-
-def _load_run_config(run: Path) -> None:
-    """Restore the flags of a trusted local run from its launch command."""
-    info = re.sub(r"\x1b\[[0-9;]*m", "", (run / "info.log").read_text())
-    command = next(
-        line.split("Running command: ", 1)[1] for line in info.splitlines()
-        if "Running command:" in line)
-    argv = sys.argv
-    try:
-        sys.argv = shlex.split(command)[1:]
-        utils.reset_config(utils.parse_args())
-    finally:
-        sys.argv = argv
 
 
 def _recorded_state(run: Path, frame: Dict[str, Any]) -> State:
@@ -83,33 +64,6 @@ def _model_state(frame: Dict[str, Any]) -> State:
     with (LOGS / frame["states"]).open("rb") as stream:
         states = pickle.load(stream)  # Trusted local replay output.
     return states[frame.get("index", -1)]
-
-
-def _cap_liquid_at_rim(env: Any, state: State) -> State:
-    """Draw Boil liquid no higher than the jug rim."""
-    # The liquid starts at the jug's inner bottom, _LIQUID_OFFSET_BELOW_JUG
-    # below the jug origin; the rim is half the jug height above it.
-    rim = (
-        env.jug_height / 2 + env._LIQUID_OFFSET_BELOW_JUG  # pylint: disable=protected-access
-    ) * env.water_height_to_level_ratio
-    for jug in state.get_objects(env._jug_type):  # pylint: disable=protected-access
-        state.set(jug, "water_volume", min(state.get(jug, "water_volume"),
-                                           rim))
-    return state
-
-
-def _restore_spill(env: Any, state: State) -> None:
-    """Draw the recorded spill puddle, which restoring a state omits.
-
-    The environment builds its puddle only while stepping, so a restored
-    state with spilled water would otherwise render a dry table.
-    """
-    faucet = env._faucet  # pylint: disable=protected-access
-    spilled = state.get(faucet, "spilled_level")
-    if spilled > 0:
-        faucet._spilled_level = spilled  # pylint: disable=protected-access
-        env._spilled_water_id = env._create_spilled_water_block(  # pylint: disable=protected-access
-            spilled, state)
 
 
 def _show_remembered_glue(state: State, memory: Dict[str, Any]) -> State:

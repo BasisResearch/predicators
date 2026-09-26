@@ -30,11 +30,12 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+import json
 import logging
 import os
 import time
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, \
-    Sequence, Tuple, Union
+    Sequence, Set, Tuple, Union
 
 from predicators import utils
 from predicators.agent_sdk.config import RefinementConfig, ToolSurfaceConfig, \
@@ -409,6 +410,184 @@ class ProbeBeliefResult(_StrLikeResult):
         return "\n".join(lines)
 
 
+_UNSETTLED_ENGINES: Set[str] = set()
+
+
+def _settled(env: Any, state: State) -> State:
+    """``state`` after its engine's quasi-static settle, which makes a draw of
+    the state belief consistent with contacts and attachments (see
+    ``PyBulletEnv.settle_state``); unchanged when the engine has none."""
+    settle = getattr(env, "settle_state", None)
+    if settle is None:
+        name = type(env).__name__
+        if name not in _UNSETTLED_ENGINES:
+            _UNSETTLED_ENGINES.add(name)
+            logging.warning(
+                "State draws are not settled: the %s engine has no "
+                "settle_state, so rollouts start from the draws as drawn.",
+                name)
+        return state
+    try:
+        return settle(state)
+    except Exception as e:  # pylint: disable=broad-except
+        logging.warning(
+            "Settling a state draw failed, so its rollout starts "
+            "from the draw: %s", e)
+        return state
+
+
+def _log_rehearsal(ctx: "ToolContext", plan_text: str,
+                   result: "ProbeJointResult") -> None:
+    """Append one rehearsal to ``<log_dir>/rehearsals.jsonl``.
+
+    The record (time, plan, P-hat and each draw's outcome) is what a
+    calibration check joins with the executed plans and their real
+    outcomes: whether plans rehearsed at P-hat p succeed about a fraction
+    p of the time.
+    """
+    if not ctx.log_dir:
+        return
+    keys = ("params", "success", "solved", "goal_reached")
+    draws = [{k: d[k] for k in keys} for d in result.draws]
+    record = {
+        "time": time.time(),
+        "call": int(ctx.test_call_id),
+        "plan": plan_text,
+        "p_hat": result.p_hat,
+        "stderr": result.stderr,
+        "from_observation": result.from_observation,
+        "draws": draws,
+    }
+    try:
+        with open(os.path.join(ctx.log_dir, "rehearsals.jsonl"),
+                  "a",
+                  encoding="utf-8") as f:
+            f.write(json.dumps(record) + "\n")
+    except OSError as e:
+        logging.warning("Could not log the rehearsal: %s", e)
+
+
+def _fmt_draw_params(params: Dict[str, float], limit: int = 4) -> str:
+    """A draw's parameters, shortened for a one-line report."""
+    items = sorted(params.items())
+    text = ", ".join(f"{k}={v:.4g}" for k, v in items[:limit])
+    if len(items) > limit:
+        text += f", +{len(items) - limit} more"
+    return text
+
+
+def _separating_ranges(draws: List[Dict[str, Any]]) -> List[str]:
+    """One line per parameter whose failing and passing draws do not
+    overlap: the side of the parameter on which the plan fails."""
+    passing = [d for d in draws if d["success"]]
+    failing = [d for d in draws if not d["success"]]
+    if not passing or not failing:
+        return []
+    lines = []
+    for name in sorted(passing[0]["params"]):
+        good = [d["params"][name] for d in passing if name in d["params"]]
+        bad = [d["params"][name] for d in failing if name in d["params"]]
+        if not good or not bad:
+            continue
+        if max(bad) < min(good):
+            lines.append(f"{name}: every failing draw has {name} <= "
+                         f"{max(bad):.4g}; passing draws span "
+                         f"[{min(good):.4g}, {max(good):.4g}]")
+        elif min(bad) > max(good):
+            lines.append(f"{name}: every failing draw has {name} >= "
+                         f"{min(bad):.4g}; passing draws span "
+                         f"[{min(good):.4g}, {max(good):.4g}]")
+    return lines
+
+
+@dataclasses.dataclass(repr=False)
+class ProbeJointResult(_StrLikeResult):
+    """Outcome of ``BeliefProbe.run(plan)`` under the joint belief.
+
+    ``draws`` holds one dict per joint draw ``(theta_i, x_t_i)``:
+    ``params`` (theta_i), ``goal_reached``, ``solved`` (the task
+    evaluator's verdict on the episode so far followed by the draw's
+    rollout, None when it could not score the draw), ``success`` (solved
+    when scored, else goal reached), ``num_actions``, ``failure`` and
+    ``planner_seed``. ``p_hat`` is the fraction of successful draws and
+    ``stderr`` its standard error; ``mean`` is the step-by-step rollout
+    from the belief mean at the most likely parameters. Only the mean
+    rollout advances the current state, and its fields (``final_state``,
+    ``steps``, ``goal_reached``, ``final_atoms``) read through, as on a
+    single rollout's result.
+    """
+    draws: List[Dict[str, Any]]
+    p_hat: float
+    stderr: float
+    from_observation: bool
+    mean: Optional[Any] = None
+    notes: List[str] = dataclasses.field(default_factory=list)
+
+    @property
+    def successes(self) -> int:
+        """How many draws succeeded."""
+        return sum(1 for d in self.draws if d["success"])
+
+    def __getattr__(self, name: str) -> Any:
+        # String methods stay on this report; other unknown attributes
+        # read the mean rollout's result.
+        if not name.startswith("_") and not hasattr(str, name):
+            mean = self.__dict__.get("mean")
+            if mean is not None and hasattr(mean, name):
+                return getattr(mean, name)
+        return super().__getattr__(name)
+
+    def __repr__(self) -> str:
+        n = len(self.draws)
+        scored = sum(1 for d in self.draws if d["solved"] is not None)
+        source = ("each draw pairs a parameter draw with a state draw "
+                  "and the memory those parameters imply"
+                  if self.from_observation else
+                  "the probe is not on the current observation, so each "
+                  "draw varies the parameters from its current state")
+        lines = [
+            f"Rehearsal on {n} joint draws of the belief: P-hat = "
+            f"{self.p_hat:.2f} +- {self.stderr:.2f} ({self.successes}/{n} "
+            f"succeeded; {source}; fresh env and planner seed per draw)"
+        ]
+        if scored < n:
+            lines.append(
+                f"  {n - scored} draw(s) could not be scored by the task "
+                "evaluator and count by whether the goal atoms held.")
+        for k, d in enumerate(self.draws):
+            head = f"  draw {k} [{_fmt_draw_params(d['params'])}]"
+            if d["failure"]:
+                lines.append(f"{head}: FAILED - {d['failure']}")
+            elif d["solved"] is False:
+                lines.append(
+                    f"{head}: goal atoms "
+                    f"{'held' if d['goal_reached'] else 'did not hold'}"
+                    f", NOT solved ({d['num_actions']} actions)")
+            elif d["success"]:
+                lines.append(f"{head}: solved ({d['num_actions']} actions)")
+            else:
+                lines.append(f"{head}: goal NOT reached "
+                             f"({d['num_actions']} actions)")
+        separating = _separating_ranges(self.draws)
+        if separating:
+            lines.append("Where the draws fail:")
+            lines.extend(f"  {line}" for line in separating)
+        elif 0 < self.successes < n:
+            lines.append("  no single parameter separates the failing draws "
+                         "from the passing ones: the state draws, or "
+                         "combinations of parameters, decide them.")
+        # The mean rollout's report repeats its own notes.
+        mean_notes = getattr(self.mean, "notes", None) or []
+        lines.extend(f"NOTE: {n_}" for n_ in self.notes
+                     if n_ not in mean_notes)
+        if self.mean is not None:
+            lines.append("")
+            lines.append("Step-by-step rollout from the belief mean at the "
+                         "most likely parameters:")
+            lines.append(repr(self.mean))
+        return "\n".join(lines)
+
+
 @dataclasses.dataclass(repr=False)
 class ProbeBeliefState(_StrLikeResult):
     """Outcome of ``BeliefProbe.belief()``: the execution-time belief at the
@@ -502,8 +681,13 @@ class ProbeSuggestResult(_StrLikeResult):
     agent's own parameters' ensemble disagreement and the top alternatives."""
     suggestions: List[Any]
     notes: List[str]
+    # "disagreement" (the legacy ensemble score) or "information" (the
+    # joint belief's predicate information, paper Eq. 4).
+    measure: str = "disagreement"
 
     def __repr__(self) -> str:
+        if self.measure == "information":
+            return self._repr_information()
         lines = [
             "Probe suggestions - ensemble disagreement on each step's "
             "subgoal atoms (0 = every posterior member agrees on the "
@@ -535,6 +719,44 @@ class ProbeSuggestResult(_StrLikeResult):
                 per = ", ".join(f"{a}={v:.2f}" for a, v in per_atom.items())
                 lines.append(f"      alt {rank}: {_fmt_params(params)} "
                              f"disagreement {score:.2f} ({per})")
+        if not self.suggestions:
+            lines.append("  (no annotated step with continuous parameters)")
+        for note in self.notes:
+            lines.append(f"  NOTE: {note}")
+        return "\n".join(lines)
+
+    def _repr_information(self) -> str:
+        lines = [
+            "Experiment suggestions - the information (bits) a noisy "
+            "reading of each step's subgoal atoms carries about the "
+            "parameters, over the joint draws of the belief (higher = the "
+            "outcome depends more on what the belief is unsure of). These "
+            "are SUGGESTIONS: adopt an alternative only by writing it into "
+            "your plan, and weigh the information against the environment "
+            "steps it costs."
+        ]
+        for s in self.suggestions:
+            objs = ", ".join(s.objects)
+            head = f"  step {s.step_idx} {s.option_name}({objs}) -> " \
+                f"{{{', '.join(s.subgoal_atoms)}}}:"
+            if s.nominal_params is None:
+                head += " no proposal;"
+            elif not s.nominal_feasible:
+                head += (f" proposed {_fmt_params(s.nominal_params)} does "
+                         "NOT establish the subgoal in the model;")
+            else:
+                per = ", ".join(f"{a}={v:.2f}"
+                                for a, v in s.nominal_per_atom.items())
+                head += (f" proposed {_fmt_params(s.nominal_params)} "
+                         f"information {s.nominal_score:.2f} ({per});")
+            head += f" {s.n_feasible}/{s.n_draws} alternatives feasible"
+            lines.append(head)
+            if not s.candidates:
+                lines.append("      no feasible alternative found")
+            for rank, (params, score, per_atom) in enumerate(s.candidates, 1):
+                per = ", ".join(f"{a}={v:.2f}" for a, v in per_atom.items())
+                lines.append(f"      alt {rank}: {_fmt_params(params)} "
+                             f"information {score:.2f} ({per})")
         if not self.suggestions:
             lines.append("  (no annotated step with continuous parameters)")
         for note in self.notes:
@@ -1333,6 +1555,183 @@ class BeliefProbe:
         successes = sum(1 for d in draws if d["goal_reached"])
         return ProbeBeliefResult(draws, successes, from_belief, notices)
 
+    def _on_current_observation(self, state: State) -> bool:
+        """Whether ``state`` is the frame the last real observation showed."""
+        current = self._ctx.current_observation
+        return current is not None and state.allclose(current)
+
+    def _run_joint_draws(self,
+                         probe_task: Task,
+                         grounded: List[Any],
+                         sketch_steps: Any,
+                         all_predicates: Any,
+                         num_draws: int,
+                         seed: Optional[int],
+                         notices: List[str],
+                         fresh: bool = False,
+                         from_observation: Optional[bool] = None,
+                         return_final: bool = False,
+                         score: bool = True) -> ProbeJointResult:
+        """Rehearse the plan on ``num_draws`` joint draws of the belief.
+
+        Each draw runs on a fresh env at its own physical parameters,
+        with its rule parameters in scope, from its own start state and
+        memory, at its own planner seed, so the estimate also covers
+        execution variability. The draws are the session's, fixed per
+        decision point (common random numbers). A draw's success is the
+        task evaluator's verdict on the episode so far followed by its
+        rollout, else whether the goal atoms held. ``fresh`` uses new
+        draws instead of the common ones; ``from_observation`` overrides
+        the check that the probe task starts at the current observation
+        (a search that starts from the belief mean still rehearses the
+        current state). ``return_final`` adds each draw's final state,
+        sanitized, as ``final``; ``score`` False skips the task
+        evaluator.
+        """
+        # pylint: disable=import-outside-toplevel
+        import contextlib
+
+        import numpy as np
+
+        from predicators.agent_sdk import bilevel_sketch
+        from predicators.observation_noise import ObservationNoise
+        from predicators.run.recording import sanitize_state
+        from predicators.settings import CFG
+
+        # pylint: enable=import-outside-toplevel
+        ctx = self._ctx
+        provider = ctx.joint_draws_provider
+        assert provider is not None
+        if from_observation is None:
+            from_observation = self._on_current_observation(probe_task.init)
+        draws = list(provider(num_draws, fresh=fresh))
+        # A draw of the state belief under a noisy channel starts after a
+        # quasi-static settle in its own engine (_settled).
+        settle = from_observation and ObservationNoise.from_cfg().enabled
+        if not from_observation:
+            # A hypothetical state (after reset(mods=...) or a partial
+            # rollout): the parameters still vary, the state is the
+            # probe's own.
+            draws = [(theta, probe_task.init.copy()) for theta, _ in draws]
+        fresh_scope = self._fresh_scope()
+        if fresh_scope is None:
+            raise ValueError(
+                "The rehearsal needs the session's fresh-env scope "
+                "(unavailable here); run the plan once with "
+                "sim.run(plan, draws=0).")
+        names_provider = ctx.physical_param_names_provider
+        physical = set(names_provider() if names_provider else ())
+        evaluator: Any = None
+        if score and ctx.probe_engine_available and \
+                self._base_task is not None:
+            evaluator = self._base_task.evaluator
+        prefix_states: List[State] = []
+        prefix_labels: List[Any] = []
+        if evaluator is not None and from_observation and \
+                ctx.episode_prefix_provider is not None:
+            prefix_states, prefix_labels = ctx.episode_prefix_provider()
+            prefix_states = list(prefix_states)[:-1]
+        base_seed = seed if seed is not None else CFG.seed
+        draw_scope = ctx.joint_draw_scope
+
+        def _one_draw(k: int) -> Dict[str, Any]:
+            theta, start = draws[k]
+            phys = {n: v for n, v in theta.items() if n in physical}
+            rule = {n: v for n, v in theta.items() if n not in physical}
+            solved: Optional[bool] = None
+            with (draw_scope(rule) if (rule and draw_scope is not None)
+                  else contextlib.nullcontext()), \
+                    (fresh_scope(physical_overrides=phys)
+                     if phys else fresh_scope()), \
+                    absolute_rollout_seed(seed), \
+                    decorrelated_rollout_seed(k):
+                model = self._option_model()
+                if settle:
+                    start = _settled(getattr(model, "sim_env", None), start)
+                task_k = dataclasses.replace(probe_task, init=start)
+                collector = (_EvalStateCollector(model, start)
+                             if evaluator is not None else None)
+                r = bilevel_sketch.execute_plan_forward(
+                    task_k,
+                    grounded,
+                    model,
+                    predicates=all_predicates,
+                    sketch=sketch_steps,
+                    on_step=(collector.on_step
+                             if collector is not None else None),
+                    stop_on_failure=True)
+                if (collector is not None and not collector.coarse
+                        and len(collector.states) > 1):
+                    try:
+                        verdict = evaluate_states_with(
+                            evaluator,
+                            prefix_states + collector.states,
+                            prefix_labels + collector.labels,
+                            sim_env=getattr(model, "sim_env", None))
+                        solved = bool(verdict["solved"])
+                    except Exception as e:  # pylint: disable=broad-except
+                        logging.debug("Joint-draw verdict failed: %s", e)
+                        solved = None
+            failure: Optional[str] = None
+            if r.first_failure_idx is not None:
+                fs = r.steps[r.first_failure_idx]
+                failure = (f"step {r.first_failure_idx} "
+                           f"({_fmt_option(fs.option)}): "
+                           f"{fs.failure_reason or 'not initiable'}")
+            final: Optional[State] = None
+            if return_final:
+                last = start
+                for st in r.steps:
+                    if st.post_state is not None:
+                        last = st.post_state
+                final = sanitize_state(last)
+            success = (bool(solved) if solved is not None else
+                       bool(r.goal_reached) and failure is None)
+            return {
+                "final": final,
+                "params": dict(theta),
+                "goal_reached": bool(r.goal_reached),
+                "solved": solved,
+                "success": success,
+                "num_actions": sum(st.num_actions for st in r.steps),
+                "failure": failure,
+                "planner_seed": base_seed + k,
+            }
+
+        prefetched = prefetch_parallel(
+            [functools.partial(_one_draw, k) for k in range(len(draws))],
+            "probe joint draws")
+        results: List[Dict[str, Any]] = []
+        try:
+            for k in range(len(draws)):
+                _check_time_budget(ctx)
+                _count_rollout(ctx)
+                pre = prefetched[k]
+                results.append(pre if pre is not None else _one_draw(k))
+        except ProbeBudgetExceeded as e:
+            if not results:
+                raise
+            notices.append(f"time budget expired after {len(results)}/"
+                           f"{len(draws)} draws - the remaining draws were "
+                           f"skipped ({e})")
+        n = len(results)
+        p_hat = sum(1 for d in results if d["success"]) / n
+        stderr = float(np.sqrt(p_hat * (1.0 - p_hat) / n))
+        budget = ctx.execution_step_budget()
+        over = [
+            d for d in results if d["success"] and d["num_actions"] > budget
+        ]
+        if over:
+            notices.append(
+                f"{len(over)} successful draw(s) exceeded the remaining "
+                f"execution step budget ({budget} low-level steps) - the "
+                "real executor would run out of steps.")
+        return ProbeJointResult(results,
+                                p_hat,
+                                stderr,
+                                from_observation,
+                                notes=notices)
+
     def _parse_sketch(self, plan_text: str) -> Any:
         """Parse ``plan_text`` against the current state.
 
@@ -1414,6 +1813,47 @@ class BeliefProbe:
             raise ValueError(f"{flag}: this task defines no task evaluator.")
         return evaluator
 
+    def _run_rehearsal(self, plan_text: str, render: bool,
+                       seed: Optional[int]) -> ProbeJointResult:
+        """``run(plan)`` under the joint belief: the K joint draws, then the
+        rollout from the belief mean (see :meth:`run`)."""
+        # pylint: disable-next=import-outside-toplevel
+        import numpy as np
+
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk import bilevel_sketch
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.settings import CFG
+        ctx = self._ctx
+        _check_time_budget(ctx)
+        ctx.test_call_id += 1
+        probe_task, sketch_steps, all_predicates, notices = \
+            self._parse_sketch(plan_text)
+        grounded: List[Any] = []
+        for st in sketch_steps:
+            params = (st.initial_params if st.initial_params is not None else
+                      np.array([], dtype=np.float32))
+            grounded.append(
+                bilevel_sketch.ground_step(
+                    st, np.asarray(params, dtype=np.float32)))
+        result = self._run_joint_draws(probe_task, grounded, sketch_steps,
+                                       all_predicates,
+                                       int(CFG.belief_joint_draws), seed,
+                                       notices)
+        # The step-by-step rollout starts from the belief mean when the
+        # probe sits on the current observation.
+        belief = getattr(ctx, "current_belief", None)
+        mean_frame = getattr(belief, "frame", None)
+        if result.from_observation and mean_frame is not None:
+            self._state = mean_frame.copy()
+        result.mean = self.run(plan_text,
+                               render=render,
+                               contacts=bool(ctx.probe_engine_available),
+                               seed=seed,
+                               draws=0)
+        _log_rehearsal(ctx, plan_text, result)
+        return result
+
     def run(
         self,
         plan_text: str,
@@ -1425,17 +1865,33 @@ class BeliefProbe:
         seed: Optional[int] = None,
         fresh: bool = False,
         belief_draws: int = 0,
+        draws: Optional[int] = None,
     ) -> Union[ProbeResult, ProbeTrialsResult, ProbeSweepResult,
-               ProbeBeliefResult]:
+               ProbeBeliefResult, ProbeJointResult]:
         """Execute an option plan from the current state.
 
-        ``belief_draws=K`` (K > 0, its own mode) rolls the plan once
-        from each of K draws of the execution-time belief - where the
-        objects may really be given the observation and the declared
-        noise (the smoothed frame and spread the last observation
-        showed when the probe still sits on it, else the current state
-        with the declared sigma) - on a fresh env at the base planner
-        seed, and returns a ``ProbeBeliefResult``. This is how a
+        Under the joint belief (``belief_joint_draws`` K > 0), a plain
+        ``run(plan)`` rehearses the plan on the K joint draws of the
+        belief (a parameter draw, a state draw and the memory it implies,
+        a fresh env and a planner seed per draw) and reports the success
+        estimate P-hat with its standard error, each draw's outcome and
+        the parameter ranges on which draws fail, followed by a
+        step-by-step rollout from the belief mean at the most likely
+        parameters, with contacts, which advances the current state.
+        ``draws=0`` runs only that single rollout. The ``belief_draws``,
+        ``trials`` and ``solved`` modes below apply only without the
+        joint belief (``belief_joint_draws`` 0); under it they raise,
+        since the rehearsal replaces them. ``physics_sweep``,
+        ``contacts`` and ``fresh`` keep their meaning.
+
+        Without the joint belief, ``belief_draws=K`` (K > 0, its own
+        mode) rolls the plan once from each of K draws of the
+        execution-time belief - where the objects may really be given
+        the observation and the declared noise (the smoothed frame and
+        spread the last observation showed when the probe still sits on
+        it, else the current state with the declared sigma) - on a fresh
+        env at the base planner seed, and returns a
+        ``ProbeBeliefResult``. This is how a
         placement is certified over the target's plausible poses before
         real steps are spent on it. Needs a declared observation-noise
         channel.
@@ -1456,24 +1912,25 @@ class BeliefProbe:
         pass ``render=False`` inside tight sweep loops to skip that.
         Exploratory only: results are never captured.
 
-        ``trials=N`` (N > 1) runs the SAME plan N times and returns a
-        ``ProbeTrialsResult`` with the per-trial outcomes and success
-        count - use it to estimate a plan's reliability instead of
-        hand-rolled repeat loops. Each trial runs on a freshly
-        constructed physics env when the session provides one (repeats
-        on the shared env - including snapshot/restore replays - share
-        solver state and velocity residuals, so they are correlated
-        and read optimistic). With ``trials > 1`` nothing is rendered
-        and the current state is NOT advanced.
+        Without the joint belief, ``trials=N`` (N > 1) runs the SAME
+        plan N times and returns a ``ProbeTrialsResult`` with the
+        per-trial outcomes and success count - use it to estimate a
+        plan's reliability instead of hand-rolled repeat loops. Each
+        trial runs on a freshly constructed physics env when the session
+        provides one (repeats on the shared env - including
+        snapshot/restore replays - share solver state and velocity
+        residuals, so they are correlated and read optimistic). With
+        ``trials > 1`` nothing is rendered and the current state is NOT
+        advanced.
 
-        ``solved=True`` (needs ``trials`` >= 2 and the task's UNMODIFIED
-        initial state - plain ``reset()``, no rollout since) additionally
-        scores every trial with the TASK EVALUATOR, reporting per-trial
-        ``solved``/``reward``. Reaching the goal atoms is NOT the same as
-        being scored a solve - the evaluator can reject a goal-reaching
-        route - so check ``solved`` counts here BEFORE submitting via
-        ``submit_plan`` instead of discovering rejections one
-        submission at a time.
+        Without the joint belief, ``solved=True`` (needs ``trials`` >= 2
+        and the task's UNMODIFIED initial state - plain ``reset()``, no
+        rollout since) additionally scores every trial with the TASK
+        EVALUATOR, reporting per-trial ``solved``/``reward``. Reaching
+        the goal atoms is NOT the same as being scored a solve - the
+        evaluator can reject a goal-reaching route - so check ``solved``
+        counts here BEFORE submitting via ``submit_plan`` instead of
+        discovering rejections one submission at a time.
 
         ``contacts=True`` (single-run mode only, ``trials=1``) records
         every physical contact during the rollout and reports, per step,
@@ -1485,11 +1942,14 @@ class BeliefProbe:
 
         ``physics_sweep=True`` (its own mode - incompatible with
         ``trials``/``solved``/``contacts``) re-runs the plan once at
-        each point of a grid spanning the +-1-sigma uncertainty range
-        of the identified physical parameters (the SAME points the
-        capture gate checks), each on a fresh env at the base
-        motion-planner seed, plus once at the fitted values, and
-        returns a ``ProbeSweepResult`` with per-point outcomes. The
+        each stress point - under the joint belief, each physical
+        parameter at the ends of its 95% interval with the others at
+        their most likely values; without it, a grid spanning the
+        +-1-sigma uncertainty range of the identified physical
+        parameters (the SAME points the capture gate checks) - each on
+        a fresh env at the base motion-planner seed, plus once at the
+        fitted values, and returns a ``ProbeSweepResult`` with
+        per-point outcomes. The
         fitted values carry real uncertainty and the true environment
         may sit anywhere in the range - and success can be
         NON-MONOTONIC in a physical parameter (a cascade that topples
@@ -1539,6 +1999,21 @@ class BeliefProbe:
         from predicators.agent_sdk import bilevel_sketch
         # pylint: disable-next=import-outside-toplevel
         from predicators.settings import CFG
+        joint = (int(CFG.belief_joint_draws) > 0
+                 and self._ctx.joint_draws_provider is not None
+                 and CFG.continual_uncertainty_decisions)
+        if draws is not None and not joint:
+            raise ValueError("draws= needs the joint belief, which this "
+                             "session does not carry.")
+        if joint and (trials > 1 or solved or belief_draws > 0):
+            raise ValueError(
+                "trials, solved and belief_draws are replaced by the "
+                "rehearsal on the joint belief: sim.run(plan) reports the "
+                "success estimate over K joint draws (parameters, state and "
+                "memory), scored by the task evaluator.")
+        if joint and draws is None and not (contacts or fresh
+                                            or physics_sweep):
+            return self._run_rehearsal(plan_text, render, seed)
         if not self._ctx.probe_engine_available and (solved or contacts
                                                      or physics_sweep):
             raise ValueError("Engine diagnostics are unavailable for a "
@@ -2334,8 +2809,8 @@ class BeliefProbe:
                                  current_tag=current)
 
     def suggest_probes(self,
-                       sketch_text: str,
-                       max_draws: int = 20,
+                       sketch_text: Optional[str] = None,
+                       max_draws: Optional[int] = None,
                        top_k: int = 3) -> "ProbeSuggestResult":
         """Rank alternative continuous parameters by what they would teach.
 
@@ -2351,8 +2826,26 @@ class BeliefProbe:
         it. Needs the info-seeking ensemble (solve/explore sessions
         with ``agent_explorer_info_seeking``); otherwise the result
         says so.
+
+        Under the joint belief (``belief_joint_draws`` K > 0) a feasible
+        alternative is instead scored by the information its subgoal
+        readings carry about the parameters (paper Eq. 4): it is rolled
+        out, with the plan prefix, on each of the K joint draws; each
+        subgoal predicate is read, at the most likely parameters, on
+        ``belief_info_noise_samples`` noisy observations of each draw's
+        final state; and the score is the mean over subgoals of
+        ``H(mean_i r_ij) - mean_i H(r_ij)``. ``max_draws`` then defaults
+        to 8 alternatives per step, since each costs K rollouts.
         """
         self._require_available("suggest_probes")
+        if sketch_text is None:
+            raise ValueError(
+                "sim.suggest_probes(plan_text) needs the plan whose "
+                "experiment you want ranked: annotate the step you would "
+                "vary with its expected outcome, e.g. "
+                "'Place(robot:robot, b:block)[0.6, 0.3, 0.5, 0.0] -> "
+                "{OnTable(b:block)}'; its continuous parameters are the "
+                "candidates.")
         # pylint: disable=import-outside-toplevel
         import numpy as np
 
@@ -2364,6 +2857,12 @@ class BeliefProbe:
         _check_time_budget(ctx)
         if not CFG.continual_uncertainty_decisions:
             raise ValueError("Disagreement-based probing is disabled.")
+        if (int(CFG.belief_joint_draws) > 0
+                and ctx.joint_draws_provider is not None):
+            return self._suggest_on_joint_draws(
+                sketch_text, 8 if max_draws is None else int(max_draws), top_k)
+        if max_draws is None:
+            max_draws = 20
         scorer = ctx.atom_disagreement_fn
         if scorer is None:
             return ProbeSuggestResult([], [
@@ -2407,6 +2906,85 @@ class BeliefProbe:
             parameterized_samplers=ctx.parameterized_samplers or None,
             on_rollout=_on_rollout)
         return ProbeSuggestResult(suggestions, list(notices) + notes)
+
+    def _suggest_on_joint_draws(self, sketch_text: str, max_draws: int,
+                                top_k: int) -> "ProbeSuggestResult":
+        """``suggest_probes`` under the joint belief (see its docstring)."""
+        # pylint: disable=import-outside-toplevel
+        import numpy as np
+
+        from predicators.agent_sdk import bilevel_sketch
+        from predicators.code_sim_learning.active_experiment import \
+            noisy_read_information
+        from predicators.observation_noise import ObservationNoise
+        from predicators.settings import CFG
+
+        # pylint: enable=import-outside-toplevel
+        ctx = self._ctx
+        probe_task, sketch_steps, all_predicates, notices = \
+            self._parse_sketch(sketch_text)
+        on_observation = self._on_current_observation(probe_task.init)
+        noise = ObservationNoise.from_cfg()
+        num = int(CFG.belief_joint_draws)
+        samples = max(1, int(CFG.belief_info_noise_samples))
+
+        def plan_scorer(plan: List[Any],
+                        atoms: Any) -> Tuple[float, Dict[str, float]]:
+            result = self._run_joint_draws(probe_task,
+                                           plan,
+                                           sketch_steps[:len(plan)],
+                                           all_predicates,
+                                           num,
+                                           None, [],
+                                           from_observation=on_observation,
+                                           return_final=True,
+                                           score=False)
+            atom_list = sorted(atoms, key=str)
+            rows = []
+            for i, draw in enumerate(result.draws):
+                final = draw["final"]
+                # Common random numbers: draw i reads the same noise for
+                # every candidate.
+                rng = np.random.default_rng([int(CFG.seed), 7919, i])
+                reads = np.zeros(len(atom_list))
+                for _ in range(samples):
+                    view = noise.perturb(final, rng) if noise.enabled \
+                        else final.copy()
+                    # The predicates read the observation only.
+                    view.latent = {}
+                    reads += [float(a.holds(view)) for a in atom_list]
+                rows.append(reads / samples)
+            matrix = np.asarray(rows, dtype=float)
+            per_atom = {
+                str(a): noisy_read_information(matrix[:, [j]])
+                for j, a in enumerate(atom_list)
+            }
+            return noisy_read_information(matrix), per_atom
+
+        self._refine_calls += 1
+        rng = np.random.default_rng(CFG.seed + 100003 *
+                                    (self._instance_id + 1) +
+                                    self._refine_calls)
+        suggestions, notes = bilevel_sketch.suggest_probes(
+            probe_task,
+            sketch_steps,
+            self._option_model(),
+            predicates=all_predicates,
+            info_scorer=None,
+            rng=rng,
+            max_draws=max(1, max_draws),
+            top_k=max(1, int(top_k)),
+            parameterized_samplers=ctx.parameterized_samplers or None,
+            on_rollout=lambda: _check_time_budget(ctx),
+            plan_scorer=plan_scorer)
+        notices.append(
+            f"scores are the information (bits) one reading of each step's "
+            f"subgoals carries about the parameters, over the {num} joint "
+            f"draws with {samples} noisy observations each; 0 means every "
+            "draw reads the subgoals the same way.")
+        return ProbeSuggestResult(suggestions,
+                                  list(notices) + notes,
+                                  measure="information")
 
     def refine(self,
                sketch_text: str,
@@ -2456,6 +3034,18 @@ class BeliefProbe:
         _check_time_budget(ctx)
         probe_task, sketch_steps, all_predicates, notices = \
             self._parse_sketch(sketch_text)
+        joint = (int(CFG.belief_joint_draws) > 0
+                 and ctx.joint_draws_provider is not None
+                 and CFG.continual_uncertainty_decisions)
+        on_observation = self._on_current_observation(probe_task.init)
+        if joint and on_observation:
+            # Under the joint belief the search starts from the belief
+            # mean (paper Appendix B.4).
+            mean_frame = getattr(getattr(ctx, "current_belief", None), "frame",
+                                 None)
+            if mean_frame is not None:
+                probe_task = dataclasses.replace(probe_task,
+                                                 init=mean_frame.copy())
         solved_check: Optional[Callable[[List[State], List[Any], bool],
                                         Tuple[bool, str]]] = None
         gate_ran = [False]
@@ -2513,6 +3103,13 @@ class BeliefProbe:
         step_samples = outcome.step_samples_cumulative
         reason = outcome.termination_reason or ("success"
                                                 if success else "failure")
+        joint_note = ""
+        if joint and success:
+            refined_plan, joint_note, extra = self._select_on_joint_draws(
+                probe_task, sketch_steps, all_predicates, refined_plan,
+                timeout, rng, max_samples_per_step, require_goal, solved_check,
+                on_observation)
+            total_samples += extra
         plan_lines: List[str] = []
         for i, st in enumerate(sketch_steps):
             opt = refined_plan[i] if i < len(refined_plan) else None
@@ -2532,6 +3129,8 @@ class BeliefProbe:
                 "reason": df.fail_reason,
             }
         note_parts = list(notices)
+        if joint_note:
+            note_parts.append(joint_note)
         if require_solved and not gate_ran[0]:
             if not gate_called[0]:
                 note_parts.append(
@@ -2576,6 +3175,90 @@ class BeliefProbe:
         return ProbeRefineResult(success, reason, total_samples, step_samples,
                                  plan_lines, near_miss, " ".join(note_parts),
                                  verdict)
+
+    def _select_on_joint_draws(
+            self, probe_task: Task, sketch_steps: Any, all_predicates: Any,
+            first_plan: List[Any], timeout: float, rng: Any,
+            max_samples_per_step: int, require_goal: bool, solved_check: Any,
+            on_observation: bool) -> Tuple[List[Any], str, int]:
+        """Collect up to ``belief_refine_candidates`` proposals, score them on
+        the common joint draws, and re-estimate the best on fresh draws.
+
+        The first proposal is the search's own result; the others come
+        from further searches without the sketch's proposed parameters,
+        sharing the caller's timeout. Returns the chosen plan, a note
+        for the report and the samples the extra searches spent.
+        """
+        # pylint: disable=import-outside-toplevel
+        import numpy as np
+
+        from predicators.agent_sdk import bilevel_sketch
+        from predicators.settings import CFG
+
+        # pylint: enable=import-outside-toplevel
+        ctx = self._ctx
+        wanted = max(int(CFG.belief_refine_candidates), 1)
+        proposals = [list(first_plan)]
+        extra_samples = 0
+        open_steps = [
+            dataclasses.replace(st, initial_params=None, ground_sampler=None)
+            for st in sketch_steps
+        ]
+        deadline = time.monotonic() + timeout
+        while len(proposals) < wanted and time.monotonic() < deadline:
+            _check_time_budget(ctx)
+            left = deadline - time.monotonic()
+            outcome = bilevel_sketch.refine_sketch(
+                probe_task,
+                open_steps,
+                self._option_model(),
+                predicates=all_predicates,
+                timeout=max(1.0, left / max(1, wanted - len(proposals))),
+                rng=rng,
+                max_samples_per_step=max_samples_per_step,
+                check_subgoals=True,
+                check_final_goal=require_goal,
+                run_id="probe",
+                parameterized_samplers=ctx.parameterized_samplers or None,
+                strip_latent_wait_targets=not ctx.latent_tracking_available,
+                solved_check=solved_check)
+            extra_samples += outcome.total_samples
+            if not outcome.success:
+                continue
+            plan = list(outcome.plan)
+            duplicate = any(
+                all(
+                    np.allclose(a.params, b.params)
+                    for a, b in zip(plan, other)) for other in proposals)
+            if not duplicate:
+                proposals.append(plan)
+        num = int(CFG.belief_joint_draws)
+        scores = []
+        for plan in proposals:
+            result = self._run_joint_draws(probe_task,
+                                           plan,
+                                           sketch_steps,
+                                           all_predicates,
+                                           num,
+                                           None, [],
+                                           from_observation=on_observation)
+            scores.append(result.p_hat)
+        best = int(np.argmax(scores))
+        fresh = self._run_joint_draws(probe_task,
+                                      proposals[best],
+                                      sketch_steps,
+                                      all_predicates,
+                                      num,
+                                      None, [],
+                                      fresh=True,
+                                      from_observation=on_observation)
+        listed = ", ".join(f"{p:.2f}" for p in scores)
+        note = (f"Scored {len(proposals)} proposal(s) on the {num} common "
+                f"joint draws (P-hat {listed}) and kept proposal {best + 1}; "
+                f"its P-hat on {num} fresh draws is {fresh.p_hat:.2f} +- "
+                f"{fresh.stderr:.2f}, an estimate its selection does not "
+                "bias.")
+        return proposals[best], note, extra_samples
 
     # ── Internals ────────────────────────────────────────────────
 

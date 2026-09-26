@@ -1,8 +1,10 @@
 """Exercise the task certificate through the agent's actual simulator API."""
 # pylint: disable=protected-access
+import contextlib
 import dataclasses
-from typing import Any, Dict
+from typing import Any, Dict, Iterator, List, Tuple
 
+import numpy as np
 import pybullet as p
 import pytest
 
@@ -20,9 +22,22 @@ from predicators.envs.pybullet_domino import cascade_probe
 from predicators.envs.pybullet_domino.components.domino_component import \
     DominoComponent
 from predicators.ground_truth_models import get_gt_options
+from predicators.observation_belief import belief_draw, change_point_belief
+from predicators.observation_noise import ObservationNoise
 from predicators.option_model import _OracleOptionModel
 from predicators.run.recording import sanitize_state
 from predicators.structs import State
+
+# A learned program that only declares the friction it fits.
+_LEARNED_SOURCE = '''
+class LearnedDynamics(BaseSimulator):
+    AGENT_PARAM_SPECS = [ParamSpec("friction", 0.1, lo=0.0, hi=1.0)]
+    RESIDUAL_FEATURES = {}
+    def _on_agent_params_changed(self):
+        self.apply_physical_param_overrides(
+            {"lateral_friction": self.agent_param("friction")})
+RESIDUAL_ENV = LearnedDynamics
+'''
 
 
 def _scene_class(real: Any, initial: State) -> Any:
@@ -123,15 +138,7 @@ def test_subclass_trials_have_real_evaluator_verdicts(
         "ParamSpec":
         ParamSpec,
     }
-    source = oracle_source() if kind == "oracle" else '''
-class LearnedDynamics(BaseSimulator):
-    AGENT_PARAM_SPECS = [ParamSpec("friction", 0.1, lo=0.0, hi=1.0)]
-    RESIDUAL_FEATURES = {}
-    def _on_agent_params_changed(self):
-        self.apply_physical_param_overrides(
-            {"lateral_friction": self.agent_param("friction")})
-RESIDUAL_ENV = LearnedDynamics
-'''
+    source = oracle_source() if kind == "oracle" else _LEARNED_SOURCE
     exec(source, namespace)  # pylint: disable=exec-used
     task = real.get_test_tasks()[0].task
     cls = _scene_class(real, task.init) if kind == "scene" else \
@@ -205,6 +212,106 @@ RESIDUAL_ENV = LearnedDynamics
                                                       (0.04, 0.05))
             assert clients and all(not p.isConnected(cid) for cid in clients)
             assert before.allclose(candidate._get_state())
+    finally:
+        candidate.dispose()
+        real.dispose()
+
+
+def test_joint_rehearsal_settles_noisy_draws_and_certifies_them() -> None:
+    """On the Domino engine under observation noise, each joint draw's rollout
+    starts from its settled state, with every domino back on the table, and the
+    task's own certificate scores the draw."""
+    utils.reset_config({
+        "env": "pybullet_domino",
+        "seed": 0,
+        "num_train_tasks": 0,
+        "num_test_tasks": 1,
+        "domino_initialize_at_finished_state": True,
+        "domino_use_domino_blocks_as_target": True,
+        "domino_use_continuous_place": True,
+        "domino_has_glued_dominos": False,
+        "domino_test_turn_ratio": 0.0,
+        "domino_true_friction": 0.1,
+        "domino_planning_friction": 0.1,
+        "belief_joint_draws": 4,
+        "continual_uncertainty_decisions": True,
+        "continual_obs_noise_position": 0.01,
+        "continual_obs_noise_orientation": 0.04,
+    })
+    real: Any = create_new_env("pybullet_domino",
+                               do_cache=False,
+                               use_gui=False)
+    namespace: Dict[str, Any] = {
+        "BaseSimulator": base_simulator_class("pybullet_domino"),
+        "ParamSpec": ParamSpec,
+    }
+    exec(_LEARNED_SOURCE, namespace)  # pylint: disable=exec-used
+    candidate = namespace["RESIDUAL_ENV"](use_gui=False)
+    task = real.get_test_tasks()[0].task
+    task = dataclasses.replace(task, init=sanitize_state(task.init))
+    try:
+        # Draws of the state belief after eight noisy frames at rest.
+        noise = ObservationNoise.from_cfg()
+        rng = np.random.default_rng(0)
+        frames = [noise.perturb(task.init, rng) for _ in range(8)]
+        belief = change_point_belief(frames, noise, 8, 0.02)
+        drawn = [belief_draw(belief, rng) for _ in range(4)]
+        settled: List[Tuple[State, State]] = []
+        settle = candidate.settle_state
+
+        def recording_settle(state: State) -> State:
+            out = settle(state)
+            settled.append((state, out))
+            return out
+
+        candidate.settle_state = recording_settle
+        options = get_gt_options("pybullet_domino", skill_library="composite")
+        model = _OracleOptionModel(options, candidate.simulate)
+        model.sim_env = candidate
+        ctx = ToolContext(types=real.types,
+                          predicates=real.predicates,
+                          processes=set(),
+                          options=options,
+                          train_tasks=[task],
+                          example_state=task.init,
+                          current_task=task,
+                          option_model=model)
+
+        @contextlib.contextmanager
+        def _scope(physical_overrides: Any = None) -> Iterator[None]:
+            del physical_overrides
+            yield
+
+        def _draws(
+                num: int,
+                fresh: bool = False) -> List[Tuple[Dict[str, float], State]]:
+            del fresh
+            no_params: Dict[str, float] = {}
+            return [(dict(no_params), s.copy()) for s in drawn[:num]]
+
+        ctx.validation_env_scope = _scope
+        ctx.joint_draws_provider = _draws
+        ctx.physical_param_names_provider = set
+        ctx.episode_prefix_provider = lambda: ([task.init.copy()], [])
+        start = next(o for o in task.init if o.type.name == "domino"
+                     and DominoComponent._StartBlock_holds(task.init, [o]))
+        robot = next(o for o in task.init if o.type.name == "robot")
+        probe = BeliefProbe(ctx).reset(task_idx=0)
+        ctx.current_observation = task.init.copy()
+        result = probe.run(f"Push({robot}, {start})[0.04, 0.05]", render=False)
+        assert len(settled) == 4, str(result)
+        for (raw, out), expected in zip(settled, drawn):
+            assert raw.allclose(expected)
+            for obj in task.init:
+                if obj.type.name != "domino":
+                    continue
+                # Drawn heights scatter by millimetres; settled ones sit
+                # on the table.
+                assert out.get(obj,
+                               "z") == pytest.approx(task.init.get(obj, "z"),
+                                                     abs=1e-3)
+        assert all(d["solved"] is not None for d in result.draws), str(result)
+        assert result.p_hat >= 0.5, str(result)
     finally:
         candidate.dispose()
         real.dispose()

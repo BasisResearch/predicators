@@ -26,8 +26,8 @@ import math
 import os
 import subprocess
 from contextlib import contextmanager
-from typing import Any, Callable, Collection, Dict, FrozenSet, Iterator, \
-    List, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, Collection, ContextManager, Dict, \
+    FrozenSet, Iterator, List, Optional, Sequence, Set, Tuple
 
 import dill as pkl
 import numpy as np
@@ -64,7 +64,10 @@ from predicators.code_sim_learning.identifiability import Verdict, \
 from predicators.code_sim_learning.latent_tracker import LatentTracker, \
     make_latent_tracker, make_subclass_latent_tracker
 from predicators.code_sim_learning.model_state import has_model_state
-from predicators.code_sim_learning.orchestrator import run_rollout_sysid
+from predicators.code_sim_learning.orchestrator import \
+    prior_parameter_belief, run_rollout_sysid
+from predicators.code_sim_learning.parameter_belief import BeliefConfig, \
+    ParameterBelief, stable_seed
 from predicators.code_sim_learning.physical_sysid import fit_params_rollout
 from predicators.code_sim_learning.rollout_env import RolloutTrajectory, \
     dispose_env, physical_param_anchors
@@ -255,8 +258,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # the current fit, not the one deployed when the session opened.
         # Under agent_sim_learn_param_uncertainty False the points are
         # never built (see _physics_margin_points), so this returns [].
-        self._tool_context.physics_margin_provider = \
-            lambda: list(self._identified_physical_sigma_points)
+        self._tool_context.physics_margin_provider = self._stress_points
         # Rule-parameter margin points for the capture gate: the
         # calibrated ensemble the info-seeking explorer scores with
         # (posterior subsample / Laplace / jitter, see
@@ -268,6 +270,12 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             lambda: [dict(m) for m in self._param_ensemble]
         self._tool_context.rule_param_override_scope = \
             self._rule_param_override_scope
+        # The joint belief's rehearsals split a draw's parameters into the
+        # ones the env applies and the rule parameters read through the
+        # draw scope.
+        self._tool_context.physical_param_names_provider = \
+            lambda: {s.name for s in self._physical_param_specs}
+        self._tool_context.joint_draw_scope = self.joint_draw_scope
         # Env predicates surfaced to the agent (see
         # KEPT_INITIAL_PREDICATE_NAMES). Computed once here; everything
         # agent-facing flows through _get_all_predicates().
@@ -1104,6 +1112,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         sigma_points: Optional[List[Dict[str, float]]] = None,
         pinned: bool = False,
         coverage: Optional[Tuple[int, int]] = None,
+        belief: Optional[ParameterBelief] = None,
     ) -> None:
         """Deploy a canonical ``sim.fit`` result to the candidate probe.
 
@@ -1127,6 +1136,11 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         nan" model was deployed and every certification that cycle
         ran against it). ``sse`` must be finite; a pinned fit reports
         the SSE at the inits over all segments rather than nan.
+
+        ``belief`` is the fit's parameter factor of the joint belief
+        (``belief_joint_draws`` > 0), stored with the fit so that
+        :meth:`parameter_belief` serves it while the file is unchanged
+        and checkpoints carry it.
         """
         digest = None
         if os.path.isfile(simulator_file):
@@ -1158,6 +1172,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         state.pop("last_rejection", None)
         state["applied_physical"] = dict(applied_physical or {})
         state["sigma_points"] = list(sigma_points or [])
+        state["belief"] = belief.to_dict() if belief is not None else None
         self._probe_model_cache().clear()
         self._tool_context.probe_param_status = format_fit_status(state)
         logger.info("Synthesis probe: deployed %d params; %s.", len(params),
@@ -1195,6 +1210,96 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
     def _published_fit_is_pinned(self) -> bool:
         """Whether the canonical published fit never actually ran."""
         return bool(self._probe_fit_state().get("pinned", False))
+
+    def _stress_points(self) -> List[Dict[str, float]]:
+        """The parameter settings a physics sweep stress-tests.
+
+        ``sim.run(plan, physics_sweep=True)`` runs the plan at each.
+
+        Under the joint belief: each physical parameter at the ends of
+        its 95% posterior interval, the others at their most likely
+        values; these locate failure boundaries and carry no
+        probability. Otherwise the legacy +-1 sigma grid of the last
+        applied fit.
+        """
+        if int(CFG.belief_joint_draws) <= 0:
+            return list(self._identified_physical_sigma_points)
+        belief = self.parameter_belief()
+        if belief is None:
+            return []
+        physical = {s.name for s in self._physical_param_specs}
+        base = {
+            n: float(belief.map_estimate[n])
+            for n in belief.names if n in physical
+        }
+        points: List[Dict[str, float]] = []
+        for name in base:
+            for value in belief.interval(name, coverage=0.95):
+                if not np.isclose(value, base[name]):
+                    points.append({**base, name: float(value)})
+        return points
+
+    def _current_simulator_digest(self) -> Optional[str]:
+        """The hash of the current ``simulator.py``, or None without one."""
+        try:
+            path = self._resolve_synthesis_paths().simulator_file
+        except Exception:  # pylint: disable=broad-except
+            return None
+        if not os.path.isfile(path):
+            return None
+        with open(path, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+
+    def _belief_cache(self) -> Dict[Any, ParameterBelief]:
+        """Parameter beliefs by (source, version or file, parameters)."""
+        cache = getattr(self, "_belief_cache_store", None)
+        if cache is None:
+            cache = {}
+            setattr(self, "_belief_cache_store", cache)
+        return cache
+
+    def parameter_belief(self) -> Optional[ParameterBelief]:
+        """The parameter factor ``q(theta)`` of the joint belief, or None.
+
+        None when the joint belief is off (``belief_joint_draws`` 0, the
+        legacy uncertainty path). Otherwise the belief of the agent's
+        canonical ``sim.fit`` when that fit ran on the current content
+        of ``simulator.py`` over its current parameters, and the fit's
+        own prior, restricted to the declared bounds, before any such
+        fit, after an edit, or when harness fitting is disabled. A
+        program without parameters, such as a supplied model, gets an
+        empty belief whose draws vary nothing.
+        """
+        if int(CFG.belief_joint_draws) <= 0:
+            return None
+        specs = list(self._physical_param_specs) + list(
+            getattr(self, "_probe_rule_specs", None) or [])
+        names = tuple(s.name for s in specs)
+        digest = self._current_simulator_digest()
+        state = self._probe_fit_state()
+        stored = state.get("belief")
+        key: Tuple[Any, ...]
+        if (stored is not None and digest is not None
+                and state.get("digest") == digest
+                and not state.get("pinned", False)
+                and sorted(stored["names"]) == sorted(names)):
+            key = ("fit", state.get("version"), digest)
+        else:
+            stored = None
+            key = ("prior", digest, names)
+        cache = self._belief_cache()
+        if key not in cache:
+            if len(cache) > 8:
+                cache.clear()
+            if stored is not None:
+                cache[key] = ParameterBelief.from_dict(stored)
+            else:
+                cache[key] = prior_parameter_belief(
+                    specs,
+                    self.fit_prior_anchors(self._physical_param_specs),
+                    BeliefConfig.from_cfg(),
+                    seed=stable_seed(CFG.seed, "prior", digest, names))
+        return cache[key]
 
     def _make_candidate_probe_model_provider(
         self,
@@ -1247,6 +1352,9 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                     "fix the file and probe again.")
             residual_features = (features
                                  if features is not None else inferred_hint)
+            # The candidate's rule parameters, which the joint belief
+            # covers beside AGENT_PARAM_SPECS (see parameter_belief).
+            setattr(self, "_probe_rule_specs", list(specs))
             latent_init = read_latent_init(ns) if isinstance(ns,
                                                              dict) else None
             # The subclass model form: install the candidate's RESIDUAL_ENV
@@ -1331,6 +1439,20 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         spreads that reflect real posterior uncertainty over uniform
         jitter (see :meth:`_select_param_ensemble`).
         """
+        if int(CFG.belief_joint_draws) > 0:
+            # The joint belief replaces the legacy ensembles: its draws,
+            # restricted to the rule parameters the predicates read.
+            belief = self.parameter_belief()
+            rule_names = set(self._fitted_params)
+            members = [] if belief is None else [{
+                n: v
+                for n, v in draw.items() if n in rule_names
+            } for draw in belief.draw_dicts()]
+            self._param_ensemble = members if any(members) else []
+            logger.info(
+                "Rule-parameter ensemble: %d draws of the joint belief.",
+                len(self._param_ensemble))
+            return
         wanted = (CFG.agent_explorer_info_seeking
                   or CFG.agent_plan_validation_rule_param_margin)
         if (not wanted or not self._fitted_params
@@ -2042,7 +2164,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                     # resets the points, so set them after).
                     self._apply_identified_physical_params(dict(applied))
                     self._cycle_applied_physical = dict(applied)
-                    if CFG.agent_sim_learn_param_uncertainty:
+                    if CFG.agent_sim_learn_param_uncertainty and int(
+                            CFG.belief_joint_draws) <= 0:
                         self._identified_physical_sigma_points = list(
                             self._probe_fit_state().get("sigma_points") or [])
             elif CFG.agent_sim_learn_oracle_sim_program and base_pred_triples:
@@ -2881,15 +3004,32 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         return (getattr(self, "_residual_env_key", None)
                 or cls, tuple(sorted(values.items())))
 
-    def make_latent_tracker(self) -> Optional[LatentTracker]:
+    def make_latent_tracker(
+            self,
+            params: Optional[Dict[str,
+                                  float]] = None) -> Optional[LatentTracker]:
         """A fresh tracker over the current rules, params, and latent init (see
         ``code_sim_learning.latent_tracker``), or None for a fully- observable
         simulator.
 
         Parameters are passed by reference, as the belief simulator's
-        closure does, so a later in-place fit is seen.
+        closure does, so a later in-place fit is seen. ``params`` (one
+        draw of the parameter belief) instead binds the tracker to a
+        fixed copy of the deployed values overridden by the draw, so
+        each joint draw carries the memory its own parameters imply.
         """
         model_cls = getattr(self, "_residual_env_cls", None)
+        if params is not None:
+            fixed = {
+                **self._fitted_params,
+                **getattr(self, "_identified_physical_params", {}),
+                **params
+            }
+            if model_cls is not None:
+                return make_subclass_latent_tracker(model_cls,
+                                                    lambda: dict(fixed))
+            return make_latent_tracker(self._residual_rules, fixed,
+                                       self._latent_init)
         if model_cls is not None:
             return make_subclass_latent_tracker(
                 model_cls, lambda: {
@@ -2898,6 +3038,15 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                 })
         return make_latent_tracker(self._residual_rules, self._fitted_params,
                                    self._latent_init)
+
+    def joint_draw_scope(self, params: Dict[str,
+                                            float]) -> ContextManager[None]:
+        """Learned predicates and rules read ``params`` over the deployed
+        values for the duration (one joint draw's parameters)."""
+        return self._rule_param_override_scope({
+            **self._fitted_params,
+            **params
+        })
 
     # ── Partial-observability (latent) support ───────────────────
     # Reached only when the loaded rules use the recurrent 5-arg

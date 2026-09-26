@@ -1,6 +1,20 @@
 """The ``sim`` probe description offers exactly what each arm accepts."""
+import re
+from typing import Iterator
+
+import pytest
+
+from predicators import utils
 from predicators.agent_sdk.tools.exploration import ProbeSurface, \
     belief_probe_blurb
+
+
+@pytest.fixture(autouse=True)
+def _default_flags() -> Iterator[None]:
+    """The descriptions read CFG, so each test starts from the defaults."""
+    utils.reset_config({})
+    yield
+    utils.reset_config({})
 
 
 def test_default_surface_offers_everything() -> None:
@@ -55,6 +69,18 @@ def test_point_estimate_surface_drops_uncertainty() -> None:
     for phrase in ("belief_draws", "sim.belief()", "sim.suggest_probes"):
         assert phrase not in text
     assert "`sim.fit(" in text
+
+
+def test_joint_belief_surface_rehearses_on_the_joint_draws() -> None:
+    """Under the joint belief run() rehearses on K joint draws, and the flags
+    that rehearsal replaces are not offered."""
+    utils.reset_config({"belief_joint_draws": 16})
+    text = belief_probe_blurb(synthesis_probe=True)
+    assert "16 joint draws of the belief" in text
+    assert "P-hat" in text and "draws=0" in text
+    assert "sim.suggest_probes(plan_text" in text
+    for flag in (r"\btrials=", r"\bsolved=", r"\bbelief_draws\b"):
+        assert not re.search(flag, text), flag
 
 
 def test_solve_surface_unchanged() -> None:

@@ -139,6 +139,7 @@ def create_place_skill(
     verify_xy_tol: Optional[float] = None,
     verify_max_retries: int = 2,
     lift_before_move_above: bool = False,
+    retreat_from_release_point: bool = False,
 ) -> ParameterizedOption:
     """Create a multi-phase place skill that releases a held object.
 
@@ -247,6 +248,16 @@ def create_place_skill(
             aims upstream of the (repeatable) sag and lands on target
             with an unstrained servo.
         verify_max_retries: Retry budget for the verification.
+        retreat_from_release_point: Make the Retreat an upright lift from
+            where the release left the gripper: its target is frozen on
+            the phase's first step (read live, it follows every
+            sideways slip of the lift, and the slips add up), and a step
+            whose commanded orientation needs a joint past its limit is
+            solved for the position alone (see
+            ``Phase.relax_orientation_at_joint_limits``). A Fetch that
+            sets a Boil jug down close to its base holds the wrist flex
+            at its limit, and each upright lift step then slid the open
+            fingers 2-3 cm along the jug's handle into its body.
 
     Returns:
         A ``ParameterizedOption`` implementing the place skill.
@@ -321,12 +332,26 @@ def create_place_skill(
                 return False
         return True
 
-    def _held_offset(state: State,
-                     robot_obj: Object) -> Tuple[float, float, float]:
-        """(EE - held object) offset, or zeros if nothing is held.
+    def _held_offset(state: State, robot_obj: Object, target_yaw: float,
+                     cfg: SkillConfig) -> Tuple[float, float, float]:
+        """(EE - held object) offset at the target yaw, or zeros if nothing
+        is held.
 
         The xy components apply under ``compensate_held_offset``; the z
         component under ``compensate_held_z``.
+
+        The offset is measured in the current state, where the gripper
+        may not have turned to ``target_yaw`` yet. The held object turns
+        rigidly with the gripper, so the xy offset is rotated through the
+        gripper's remaining turn about the vertical. A target evaluated
+        before the turn (a planned move's goal, fixed on the phase's
+        first step) otherwise aims the gripper off by up to twice the
+        grasp offset, and the planner checks the held object for
+        collisions where it will not be. The current yaw comes from
+        forward kinematics of the measured joints: the commanded frame
+        Rz(yaw) Ry(tilt) keeps its y axis horizontal at (-sin yaw,
+        cos yaw) for every tilt, while the state's ``wrist`` feature
+        sits at the Euler gimbal lock with the gripper pointing down.
         """
         if not (compensate_held_offset or compensate_held_z):
             return 0.0, 0.0, 0.0
@@ -338,6 +363,13 @@ def create_place_skill(
                 dx = state.get(robot_obj, "x") - state.get(obj, "x")
                 dy = state.get(robot_obj, "y") - state.get(obj, "y")
                 dz = state.get(robot_obj, "z") - state.get(obj, "z")
+                joints = getattr(state, "joint_positions", None)
+                if joints is not None:
+                    m = p.getMatrixFromQuaternion(
+                        cfg.robot.forward_kinematics(list(joints)).orientation)
+                    turn = target_yaw - float(np.arctan2(-m[1], m[4]))
+                    dx, dy = (float(np.cos(turn) * dx - np.sin(turn) * dy),
+                              float(np.sin(turn) * dx + np.cos(turn) * dy))
                 return ((dx, dy) if compensate_held_offset else (0.0, 0.0)) \
                     + ((dz, ) if compensate_held_z else (0.0, ))
         return 0.0, 0.0, 0.0
@@ -349,7 +381,7 @@ def create_place_skill(
         cfg: SkillConfig,
     ) -> Tuple[float, float, float, float]:
         x, y, yaw = float(params[0]), float(params[1]), float(params[3])
-        off_x, off_y, _ = _held_offset(state, objects[0])
+        off_x, off_y, _ = _held_offset(state, objects[0], yaw, cfg)
         return x + off_x, y + off_y, cfg.transport_z, yaw
 
     def _drop_pose(
@@ -358,10 +390,9 @@ def create_place_skill(
         params: Array,
         cfg: SkillConfig,
     ) -> Tuple[float, float, float, float]:
-        del cfg  # unused
         x, y = float(params[0]), float(params[1])
         drop_z, yaw = float(params[2]), float(params[3])
-        off_x, off_y, off_z = _held_offset(state, objects[0])
+        off_x, off_y, off_z = _held_offset(state, objects[0], yaw, cfg)
         return x + off_x, y + off_y, drop_z + off_z, yaw
 
     def _retreat_pose(
@@ -376,6 +407,8 @@ def create_place_skill(
         ``compensate_held_offset``; once the object is released nothing
         is held, so re-deriving the drop pose would shift the target by
         the whole grasp offset and turn the lift into a lateral drag.
+        Under ``retreat_from_release_point`` the Retreat phases freeze
+        this target on their first step.
         """
         robot = objects[0]
         return (state.get(robot, "x"), state.get(robot, "y"), cfg.transport_z,
@@ -572,10 +605,13 @@ def create_place_skill(
             # Retreat failed and left the gripper pinching a placed
             # domino, and the recovery move swept a staged blue off the
             # table before the push, voiding an otherwise-clean cascade).
-            make_move_to_phase("Retreat",
-                               _retreat_pose,
-                               "hold",
-                               use_motion_planning=False),
+            make_move_to_phase(
+                "Retreat",
+                _retreat_pose,
+                "hold",
+                use_motion_planning=False,
+                freeze_target=retreat_from_release_point,
+                relax_orientation_at_joint_limits=retreat_from_release_point),
             Phase(
                 name="FullyOpenFingers",
                 action_type=PhaseAction.CHANGE_FINGERS,
@@ -594,10 +630,13 @@ def create_place_skill(
             # Straight vertical lift (see the partial-release Retreat):
             # rise from the gripper's xy by incremental IK, never a
             # planned detour that could rake the scene as the fingers open.
-            make_move_to_phase("Retreat",
-                               _retreat_pose,
-                               "open",
-                               use_motion_planning=False),
+            make_move_to_phase(
+                "Retreat",
+                _retreat_pose,
+                "open",
+                use_motion_planning=False,
+                freeze_target=retreat_from_release_point,
+                relax_orientation_at_joint_limits=retreat_from_release_point),
         ])
 
     return PhaseSkill(name,

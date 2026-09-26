@@ -68,7 +68,12 @@ FLAGS:
   code_sim_learning_interval_belief: true
   agent_explorer_info_seeking_noise_aware: true
   code_sim_learning_rollout_noise_filter: true
-  code_sim_learning_carry_posterior: true
+  # The joint belief (docs/uncertainty/principled-belief.md): K joint
+  # draws for rehearsal, monitoring and experiment scoring; the prior
+  # stays at its declared centre and explainable segments are pooled.
+  belief_joint_draws: 16
+  code_sim_learning_carry_posterior: false
+  code_sim_learning_rollout_consistency_factor: 0.0
   code_sim_learning_fit_evidence: true
   continual_belief_frame: true
   agent_model_repair: true

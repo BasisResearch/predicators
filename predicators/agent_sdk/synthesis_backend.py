@@ -78,6 +78,7 @@ class SynthesisBackend(Protocol):
         sigma_points: Optional[List[Dict[str, float]]] = None,
         pinned: bool = False,
         coverage: Optional[Tuple[int, int]] = None,
+        belief: Optional[Any] = None,
     ) -> None:
         """Deploy a canonical ``sim.fit`` result to the candidate probe.
 

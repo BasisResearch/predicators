@@ -1,8 +1,10 @@
 """Base class for an approach."""
 
 import abc
+import contextlib
 from collections import defaultdict
-from typing import Any, Callable, List, Optional, Sequence, Set
+from typing import Any, Callable, ContextManager, Dict, List, Optional, \
+    Sequence, Set
 
 import numpy as np
 from gym.spaces import Box
@@ -62,7 +64,9 @@ class BaseApproach(abc.ABC):
         """
         return []
 
-    def make_latent_tracker(self) -> Optional[Any]:
+    def make_latent_tracker(  # pylint: disable=useless-return
+            self,
+            params: Optional[Dict[str, float]] = None) -> Optional[Any]:
         """An execution-time latent tracker for the coming episode, or None.
 
         CogMan calls this at every episode reset. An approach whose
@@ -71,9 +75,23 @@ class BaseApproach(abc.ABC):
         ``LatentTracker`` so the states handed to its policy, the
         termination function, and the execution monitor carry the
         belief's latent; everything else returns None and executes on
-        bare observations as before.
+        bare observations as before. ``params`` binds the tracker to one
+        draw of the parameter belief instead of the deployed values.
         """
+        del params
         return None
+
+    def parameter_belief(self) -> Optional[Any]:
+        """The parameter factor of the joint belief, or None when it is off or
+        the approach has no learned parameters."""
+        return None
+
+    def joint_draw_scope(self, params: Dict[str,
+                                            float]) -> ContextManager[None]:
+        """A scope in which learned predicates and rules read ``params`` over
+        the deployed values (one joint draw's parameters)."""
+        del params
+        return contextlib.nullcontext()
 
     def model_state_revision(self) -> Optional[Any]:
         """Identity of a model whose memory continual execution must track.

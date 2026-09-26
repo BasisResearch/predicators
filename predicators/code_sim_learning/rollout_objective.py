@@ -319,10 +319,17 @@ def _iter_rollout_residual_terms(
         if summary_w > 0 and sim_states:
             for res in endpoint_residuals:
                 terms.append(summary_w * _huberize(res, delta))
-            terms.extend(
-                _onset_residuals([states[0]] + sim_states, states,
-                                 residual_features, config.settle_tol,
-                                 summary_w))
+            # Under a declared noise channel every object "moves" on the
+            # first observed frame by more than settle_tol, in the
+            # recording and in the replay alike, so the onset term carries
+            # no timing information and charges any model that holds a
+            # still object still (docs/uncertainty/principled-belief.md,
+            # Rerun protocol).
+            if config.observation_noise is None:
+                terms.extend(
+                    _onset_residuals([states[0]] + sim_states, states,
+                                     residual_features, config.settle_tol,
+                                     summary_w))
         return terms
 
     if not score_intervals:

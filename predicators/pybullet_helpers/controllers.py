@@ -8,7 +8,7 @@ from gym.spaces import Box
 from predicators import utils
 from predicators.pybullet_helpers.geometry import Pose
 from predicators.pybullet_helpers.inverse_kinematics import \
-    InverseKinematicsError
+    InverseKinematicsError, pybullet_position_inverse_kinematics
 from predicators.pybullet_helpers.joint import JointPositions
 from predicators.pybullet_helpers.robots.mobile_fetch import \
     MobileFetchPyBulletRobot
@@ -56,6 +56,16 @@ def _compute_arm_joint_positions(robot: SingleArmPyBulletRobot,
                                     set_joints=True)
 
 
+def _within_joint_limits(robot: SingleArmPyBulletRobot,
+                         joint_positions: JointPositions,
+                         tol: float = 1e-3) -> bool:
+    """Whether the arm joints (fingers aside) respect the joint limits."""
+    fingers = (robot.left_finger_joint_idx, robot.right_finger_joint_idx)
+    return all(lo - tol <= q <= hi + tol for i, (q, lo, hi) in enumerate(
+        zip(joint_positions, robot.joint_lower_limits,
+            robot.joint_upper_limits)) if i not in fingers)
+
+
 def _build_action_from_joints(
         robot: SingleArmPyBulletRobot,
         joint_positions: JointPositions,
@@ -86,6 +96,7 @@ def get_move_end_effector_to_pose_action(
     finger_action_nudge_magnitude: float,
     validate: bool = True,
     move_base: bool = True,
+    relax_orientation_at_joint_limits: bool = False,
 ) -> Action:
     """Get an action for moving the end effector to a target pose.
 
@@ -96,6 +107,12 @@ def get_move_end_effector_to_pose_action(
     factories' ``_maybe_drive_base``) should pass ``move_base=False`` to keep
     this purely an arm motion -- otherwise the base would drift during delicate
     incremental-IK phases such as a switch push.
+
+    With ``relax_orientation_at_joint_limits``, a step whose target
+    orientation needs a joint past its limit is solved for the position
+    alone, within the limits. Otherwise the action's clip to the joint
+    limits pins that joint and the end effector lands off the step,
+    sideways.
     """
     if move_base and _robot_supports_base_action(robot):
         max_base_vel_norm = getattr(robot, "default_base_vel_norm",
@@ -118,11 +135,29 @@ def get_move_end_effector_to_pose_action(
 
     ee_action = _compute_ee_action_pose(current_pose, target_pose,
                                         max_vel_norm)
+    joint_positions: Optional[JointPositions] = None
     try:
         joint_positions = _compute_arm_joint_positions(
             robot, current_joint_positions, ee_action, validate)
     except InverseKinematicsError:
-        raise utils.OptionExecutionFailure("Inverse kinematics failed.")
+        if not relax_orientation_at_joint_limits:
+            raise utils.OptionExecutionFailure("Inverse kinematics failed.")
+    if relax_orientation_at_joint_limits and (
+            joint_positions is None
+            or not _within_joint_limits(robot, joint_positions)):
+        robot.set_joints(current_joint_positions)
+        try:
+            joint_positions = pybullet_position_inverse_kinematics(
+                robot.robot_id,
+                robot.end_effector_id,
+                ee_action.position,
+                robot.arm_joints,
+                robot.joint_lower_limits,
+                robot.joint_upper_limits,
+                physics_client_id=robot.physics_client_id)
+        except InverseKinematicsError:
+            raise utils.OptionExecutionFailure("Inverse kinematics failed.")
+    assert joint_positions is not None
     # Handle the fingers. Fingers drift if left alone.
     # When the fingers are not explicitly being opened or closed, we
     # nudge the fingers toward being open or closed according to the

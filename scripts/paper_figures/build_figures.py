@@ -734,9 +734,11 @@ def _rehearse(d: Drawing,
     sx0, sy0 = x + 16, y + 66
     gx = x + w - 40
     d.rect(gx, y + 42, 26, 40, fill="#e3f1e7", stroke=GREEN, radius=2)
-    offsets = (34, 46, 51, 56, 61, 66, 71, 76, 80, 92)
+    # K = 16 rollouts, 13 of which land in the goal box (13/16).
+    offsets = (33, 37, 44, 47, 50, 53, 56, 59, 62, 65, 68, 71, 74, 77, 80, 91)
     # Each rollout starts from its own state draw.
-    starts = (-3.6, 2.4, -1.2, 3.6, 0.0, -2.4, 1.2, -4.4, 4.4, -0.4)
+    starts = (-3.6, 2.4, -1.2, 3.6, 0.0, -2.4, 1.2, -4.4, 4.4, -0.4, 2.8, -2.8,
+              0.8, -1.8, 1.8, -0.8)
     for offset, start in zip(offsets, starts):
         end = y + offset
         inside = y + 42 <= end <= y + 82
@@ -751,13 +753,13 @@ def _rehearse(d: Drawing,
         d.add("circle",
               cx=gx + 13,
               cy=end,
-              r=1.8,
+              r=1.4,
               fill=GREEN if inside else RUST)
         d.add("circle", cx=sx0, cy=begin, r=1.6, fill=state, fill_opacity=0.85)
     d.text(sx0, sy0 + 16, "xₜ⁽ⁱ⁾", 9, state, "bold", "middle", italic=True)
     d.rich(x + 8, y + 32,
            ["(1/", ("K", "i"), ") Σᵢ ",
-            ("R", "i"), "(τ⁽ⁱ⁾) = 0.8"], 7.8, GREEN)
+            ("R", "i"), "(τ⁽ⁱ⁾) = 13/16"], 7.8, GREEN)
 
 
 # Titles and captions of the loop's steps, which use the running glue example.

@@ -105,3 +105,55 @@ def pybullet_inverse_kinematics(
         joint_vals.append(joint_val)
 
     return joint_vals
+
+
+def pybullet_position_inverse_kinematics(
+    robot: int,
+    end_effector: int,
+    target_position: Pose3D,
+    joints: Sequence[int],
+    lower_limits: Sequence[float],
+    upper_limits: Sequence[float],
+    physics_client_id: int,
+) -> JointPositions:
+    """Runs position-only IK that keeps ``joints`` inside their limits.
+
+    PyBullet's solver ignores joint limits, so every iterate is clipped
+    to them and the next solve starts from the clipped configuration:
+    the joints left free absorb the motion a pinned joint cannot make.
+    The robot is left at the returned configuration. Raises
+    InverseKinematicsError when the position is not reached within
+    CFG.pybullet_ik_tol after CFG.pybullet_max_ik_iters iterates.
+    """
+    all_joints = get_joints(robot, physics_client_id=physics_client_id)
+    joint_infos = get_joint_infos(robot,
+                                  all_joints,
+                                  physics_client_id=physics_client_id)
+    free_joints = [
+        joint_info.jointIndex for joint_info in joint_infos
+        if joint_info.qIndex > -1
+    ]
+    assert set(joints).issubset(set(free_joints))
+    for _ in range(CFG.pybullet_max_ik_iters):
+        free_joint_vals = p.calculateInverseKinematics(
+            robot,
+            end_effector,
+            target_position,
+            physicsClientId=physics_client_id,
+        )
+        joint_vals = np.clip(
+            [free_joint_vals[free_joints.index(joint)] for joint in joints],
+            lower_limits, upper_limits)
+        for joint, joint_val in zip(joints, joint_vals):
+            p.resetJointState(robot,
+                              joint,
+                              targetValue=joint_val,
+                              physicsClientId=physics_client_id)
+        ee_link_pose = get_link_pose(robot, end_effector, physics_client_id)
+        if np.allclose(ee_link_pose.position,
+                       target_position,
+                       atol=CFG.pybullet_ik_tol):
+            return [float(v) for v in joint_vals]
+    raise InverseKinematicsError(
+        "Position-only inverse kinematics failed to converge within the "
+        "joint limits.")

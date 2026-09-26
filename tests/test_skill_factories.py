@@ -5,6 +5,7 @@ Covers: SkillConfig, Phase, PhaseSkill, create_wait_option,
         create_pick_skill, create_place_skill, create_push_skill.
 """
 import logging
+from dataclasses import replace
 
 import numpy as np
 import pybullet as p
@@ -26,6 +27,8 @@ from predicators.ground_truth_models.skill_factories.push import \
     create_push_skill, resolve_ee_yaw_offset
 from predicators.ground_truth_models.skill_factories.wait import \
     create_wait_option
+from predicators.pybullet_helpers.controllers import \
+    get_move_end_effector_to_pose_action
 from predicators.pybullet_helpers.geometry import Pose
 from predicators.pybullet_helpers.inverse_kinematics import \
     InverseKinematicsError
@@ -1559,6 +1562,118 @@ class TestCreatePlaceSkill:
         action = grounded.policy(state)
         assert isinstance(action, Action)
         assert robot.action_space.contains(action.arr)
+
+
+class TestPlaceHeldOffsetAndRetreat:
+    """The held-object compensation and the Retreat of create_place_skill."""
+
+    # A Fetch that set a Boil jug down close to its base (jug centre
+    # (0.566, 1.262), place yaw -1.894, 2026-09-25) holds its wrist flex
+    # 0.02 rad from the joint limit; an upright lift from there needs the
+    # wrist past it.
+    _DROP_JOINTS = [
+        0.865, 0.7169, 0.9022, -1.6912, -0.7811, 2.1432, -3.1408, 0.0112,
+        0.0106
+    ]
+    _DROP_YAW = -1.8942
+
+    @pytest.fixture(scope="class", name="boil_fetch")
+    def _boil_fetch(self):
+        """A Fetch on the Boil base pose, in its own client."""
+        client = p.connect(p.DIRECT)
+        robot = create_single_arm_pybullet_robot(
+            "fetch",
+            client,
+            Pose((0.75, 1.35, 0.85),
+                 p.getQuaternionFromEuler([0.0, np.pi / 2, -np.pi / 2])),
+            base_pose=Pose((0.75, 0.65, 0.0),
+                           p.getQuaternionFromEuler([0.0, 0.0, np.pi / 2])))
+        yield robot
+        p.disconnect(client)
+
+    def _lift(self, robot, relax):
+        """One 5 cm upright lift step from the drop configuration."""
+        start = robot.forward_kinematics(self._DROP_JOINTS)
+        up = Pose(
+            (start.position[0], start.position[1], start.position[2] + 0.05),
+            p.getQuaternionFromEuler([0.0, np.pi / 2, self._DROP_YAW]))
+        action = get_move_end_effector_to_pose_action(
+            robot=robot,
+            current_joint_positions=self._DROP_JOINTS,
+            current_pose=start,
+            target_pose=up,
+            finger_status="hold",
+            max_vel_norm=0.05,
+            finger_action_nudge_magnitude=1e-3,
+            validate=True,
+            move_base=False,
+            relax_orientation_at_joint_limits=relax)
+        return up, robot.forward_kinematics(list(action.arr))
+
+    def test_upright_lift_at_the_wrist_limit_slides_sideways(self, boil_fetch):
+        """Clipped to the wrist limit, the upright step lands centimetres off
+        its vertical."""
+        up, reached = self._lift(boil_fetch, relax=False)
+        assert np.hypot(reached.position[0] - up.position[0],
+                        reached.position[1] - up.position[1]) > 0.01
+
+    def test_relaxed_lift_goes_straight_up(self, boil_fetch):
+        """Solved for the position alone, the step reaches the point above."""
+        up, reached = self._lift(boil_fetch, relax=True)
+        assert np.allclose(reached.position, up.position, atol=2e-3)
+
+    def test_retreat_from_release_point(self, robot_scene):
+        """Under retreat_from_release_point both Retreat variants lift from the
+        release point, relaxing the orientation at a joint limit; by default
+        they follow the gripper."""
+        _, robot = robot_scene
+        for release_until_ungrasped in (True, False):
+            config = replace(_make_config(robot),
+                             release_until_ungrasped=release_until_ungrasped)
+            for anchored in (True, False):
+                opt = create_place_skill("Place", [_ROBOT_TYPE],
+                                         config,
+                                         retreat_from_release_point=anchored)
+                retreats = [
+                    ph for ph in _phases_of(opt) if ph.name == "Retreat"
+                ]
+                assert len(retreats) == 1
+                assert retreats[0].freeze_target == anchored
+                assert retreats[0].relax_orientation_at_joint_limits == \
+                    anchored
+
+    def test_held_offset_turns_with_the_gripper(self, robot_scene):
+        """The drop target, evaluated before the gripper turns, uses the offset
+        the held object will have at the target yaw."""
+        _, robot = robot_scene
+        utils.reset_config({"seed": 123})
+        held_type = Type("held", ["x", "y", "z", "is_held"])
+        robot_obj, held = _make_robot_obj(), Object("held0", held_type)
+        config = _make_config(robot)
+        opt = create_place_skill("Place", [_ROBOT_TYPE],
+                                 config,
+                                 compensate_held_offset=True)
+        # The home gripper points down at yaw -pi; the held object hangs
+        # 8 cm behind the end effector along world x.
+        state = _make_home_state(robot_obj, robot)
+        ee = (state.get(robot_obj,
+                        "x"), state.get(robot_obj,
+                                        "y"), state.get(robot_obj, "z"))
+        state = _make_home_state(robot_obj,
+                                 robot,
+                                 obj=held,
+                                 obj_xyz=(ee[0] - 0.08, ee[1], ee[2] - 0.03,
+                                          1.0))
+        drop = _phases_of(opt)[0]
+        assert drop.name == "MoveToDrop"
+        # A quarter turn to yaw -pi/2 carries the offset from +x to +y.
+        params = np.array([0.75, 1.35, 0.55, -np.pi / 2], dtype=np.float32)
+        _, target, _ = drop.target_fn(state, [robot_obj], params, config)
+        assert np.allclose(target.position[:2], (0.75, 1.35 + 0.08), atol=1e-3)
+        # No turn, no rotation.
+        params = np.array([0.75, 1.35, 0.55, -np.pi], dtype=np.float32)
+        _, target, _ = drop.target_fn(state, [robot_obj], params, config)
+        assert np.allclose(target.position[:2], (0.75 + 0.08, 1.35), atol=1e-3)
 
 
 # ===========================================================================

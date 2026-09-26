@@ -293,12 +293,18 @@ def test_agent_builds_the_scene_and_rehearses_in_it(tmp_path: Any,
             "assert r['attachments_preserved'], r\nprint('restored')")
         assert "restored" in restored and not restored.startswith(
             "ERROR"), restored
-        independent = _call(
-            approach,
-            "run_python",
-            code="r = sim.reset(current=True).run("
-            "'Wait(robot:robot)[2]', trials=2)\n"
-            "assert r.fresh_env_per_trial\nprint('independent')")
+        if from_assets:
+            # EMPIRIC's joint belief rehearses on its joint draws, each on a
+            # fresh world at its own planner seed; this replaces trials.
+            code = ("r = sim.reset(current=True).run('Wait(robot:robot)[2]')\n"
+                    "seeds = {d['planner_seed'] for d in r.draws}\n"
+                    "assert len(r.draws) > 1 and len(seeds) == len(r.draws)\n"
+                    "print('independent')")
+        else:
+            code = ("r = sim.reset(current=True).run("
+                    "'Wait(robot:robot)[2]', trials=2)\n"
+                    "assert r.fresh_env_per_trial\nprint('independent')")
+        independent = _call(approach, "run_python", code=code)
         assert "independent" in independent and not independent.startswith(
             "ERROR"), independent
         # The world behind sim is the agent's class, not the twin.
@@ -343,7 +349,8 @@ def test_agent_builds_the_scene_and_rehearses_in_it(tmp_path: Any,
 
 
 def test_from_assets_pilot_retains_empiric_capabilities() -> None:
-    """Two seeds per domain, fitting and uncertainty, no preflight."""
+    """Two seeds per domain, fitting and EMPIRIC's joint belief, no
+    preflight."""
     runs = list(
         generate_run_configs(
             "predicatorv3/continual_from_assets_pilot_r1.yaml", False))
@@ -358,7 +365,9 @@ def test_from_assets_pilot_retains_empiric_capabilities() -> None:
         assert run.flags["agent_sim_learn_declared_params_only"] is False
         assert run.flags["continual_uncertainty_decisions"] is True
         assert run.flags["code_sim_learning_interval_belief"] is True
-        assert run.flags["code_sim_learning_carry_posterior"] is True
+        # The joint belief, with the prior at its declared centre.
+        assert run.flags["belief_joint_draws"] == 16
+        assert run.flags["code_sim_learning_carry_posterior"] is False
         assert run.flags["continual_skill_preflight"] is False
         if run.env == "pybullet_fan":
             assert run.flags["fan_ramp_transfer"] is True

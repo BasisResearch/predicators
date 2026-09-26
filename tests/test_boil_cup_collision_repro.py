@@ -18,7 +18,6 @@ import logging
 from typing import Any
 
 import numpy as np
-import pytest
 
 from predicators import utils
 from predicators.envs import _MOST_RECENT_ENV_INSTANCE
@@ -57,23 +56,16 @@ class _ExposedBoilEnv(PyBulletBoilEnv):
         return self._current_state.copy()
 
 
-@pytest.mark.xfail(
-    reason="Geometric collision: jug at (0.5313, 1.2899, yaw=2.5974) "
-    "physically blocks SwitchBurnerOn's IK goal pose. This is the bug "
-    "the run_20260512_210304 log surfaces. Steps 3+4 of "
-    "investigate-in-why-in-swirling-lampson.md keep refinement and "
-    "execution agreeing on the failure (see "
-    "test_full_attempt2_sequence_refinement_vs_execution); they don't "
-    "change the geometry. Resolving this requires a clearance-aware "
-    "Place sampler (option B in the plan) — tracked as follow-up.",
-    strict=True,
-)
 def test_switch_burner_on_after_place_at_attempt2_pose(caplog):
     """Reproduce Cycle 0 attempt 2 end-to-end: pick the jug, place it on the
-    burner at the failing Place params, then run SwitchBurnerOn.
+    burner at the attempt-2 Place params, then run SwitchBurnerOn.
 
-    Documents the *geometric* cup-collision bug; should fail until a
-    clearance-aware Place sampler lands.
+    Under the May 2026 handle-targeting Place the jug landed where it
+    blocked the press. Since Place targets the jug's centre, the jug has
+    to land there, clear of the press. The planned drop goal once kept
+    the pick yaw's grasp offset: the planner saw the held jug inside the
+    burner switch and refused, and SwitchBurnerOn then moved with the
+    jug still in hand.
     """
     utils.reset_config({
         "env": "pybullet_boil",
@@ -108,8 +100,12 @@ def test_switch_burner_on_after_place_at_attempt2_pose(caplog):
                                                           dtype=np.float32)))
 
     # 2) Place at the attempt-2 coordinates that produced the failure.
-    env.execute_option(options["Place"].ground(
+    placed = env.execute_option(options["Place"].ground(
         [robot], np.array([0.5313, 1.2899, 0.5659, 2.5974], dtype=np.float32)))
+    assert placed.get(jug, "is_held") < 0.5
+    assert np.hypot(
+        placed.get(jug, "x") - 0.5313,
+        placed.get(jug, "y") - 1.2899) < 0.01
 
     # 3) SwitchBurnerOn with the same params the failing run used.
     opt = options["SwitchBurnerOn"].ground([robot, burner],
@@ -223,16 +219,16 @@ def test_full_attempt2_sequence_refinement_vs_execution(caplog):
         f"step {exec_step} (reason={exec_reason!r}).")
 
 
-def test_option_model_and_execution_agree_on_failing_place_params(caplog):
-    """Refinement and execution should agree: if execution will fail with a
-    particular Place sample, the option-model rollout used by refinement must
-    also fail.
+def test_option_model_and_execution_agree_on_attempt2_place(caplog):
+    """Refinement and execution should agree on the attempt-2 Place: the
+    option-model rollout used by refinement and the executed option both put
+    the jug on its target.
 
     The original bug: refinement said the plan was feasible, but
-    execution hit a cup collision. Place now targets the jug's centre
-    and checks the held jug's clearance at the drop pose, so the option
-    model rejects these parameters at Place itself, before the
-    SwitchBurnerOn that used to collide with the placed jug.
+    execution hit a cup collision. Place now targets the jug's centre,
+    with the grasp offset turned to the place yaw (measured at the pick
+    yaw, it put the planner's held jug inside the burner switch, and
+    both paths refused a placement the jug clears).
     """
     from predicators.option_model import _OracleOptionModel
 
@@ -280,13 +276,20 @@ def test_option_model_and_execution_agree_on_failing_place_params(caplog):
         options["Place"].ground([robot],
                                 np.array([0.5313, 1.2899, 0.5659, 2.5974],
                                          dtype=np.float32)))
-    fail_reason = option_model.last_execution_failure
-    assert na == 0, (
-        f"option_model should reject a Place whose held jug touches the "
-        f"burner switch. Instead it returned {na} actions, which would "
-        f"have lied to the refinement step.")
-    assert fail_reason is not None
-    assert "BiRRT collision" in fail_reason, (
-        f"Expected BiRRT-collision failure under option_model, got: "
-        f"{fail_reason!r}")
-    assert "burner_switch" in fail_reason, fail_reason
+    assert na > 0, (f"option_model should place the jug, got failure "
+                    f"{option_model.last_execution_failure!r}")
+    assert np.hypot(
+        state.get(jug, "x") - 0.5313,
+        state.get(jug, "y") - 1.2899) < 0.01
+
+    # The executed option agrees.
+    env.set_state(init_state)
+    env.execute_option(options["PickJug"].ground([robot, jug],
+                                                 np.array([0.01],
+                                                          dtype=np.float32)))
+    placed = env.execute_option(options["Place"].ground(
+        [robot], np.array([0.5313, 1.2899, 0.5659, 2.5974], dtype=np.float32)))
+    assert placed.get(jug, "is_held") < 0.5
+    assert np.hypot(
+        placed.get(jug, "x") - 0.5313,
+        placed.get(jug, "y") - 1.2899) < 0.01

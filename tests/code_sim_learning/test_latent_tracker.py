@@ -137,8 +137,12 @@ class _TrackingApproach(BaseApproach):
     def is_learning_based(self) -> bool:
         return False
 
-    def make_latent_tracker(self) -> Optional[LatentTracker]:
-        return LatentTracker([_cure_rule], {"cure_steps": 1.0}, {"count": 0})
+    def make_latent_tracker(
+            self,
+            params: Optional[Dict[str,
+                                  float]] = None) -> Optional[LatentTracker]:
+        values = {"cure_steps": 1.0, **(params or {})}
+        return LatentTracker([_cure_rule], values, {"count": 0})
 
     def _solve(self, task: Task, timeout: int) -> Any:
         del task, timeout

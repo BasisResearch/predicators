@@ -1151,6 +1151,50 @@ def test_push_second_switch_boil_position_mode():
     assert result.get(burner_switch2, "is_on") > 0.5
 
 
+def test_planned_place_turns_the_held_offset_boil():
+    """A planned Place aims the gripper where the held jug's centre lands at
+    the target yaw (position mode, BiRRT).
+
+    The planned drop goal is fixed on the phase's first step, before the
+    gripper turns from the pick yaw to the place yaw. The grasp offset
+    measured there pointed the wrong way: the planner put the jug 15 cm
+    from its target, found it in the burner switch, and refused a
+    placement on the burner centre.
+    """
+    utils.reset_config({
+        "env": "pybullet_boil",
+        "use_gui": False,
+        "pybullet_control_mode": "position",
+        "pybullet_robot": "fetch",
+        "pybullet_sim_steps_per_action": 20,
+        "boil_use_skill_factories": True,
+        "skill_phase_use_motion_planning": True,
+        "boil_num_jugs_train": [1],
+        "boil_num_jugs_test": [1],
+        "boil_num_burner_train": [1],
+        "boil_num_burner_test": [1],
+    })
+    env = _ExposedBoilEnv(use_gui=False)
+    jug, robot, burner = env._jugs[0], env._robot, env._burners[0]
+    state = env.get_train_tasks()[0].init.copy()
+    # The jug under the faucet, its handle turned 45 degrees from the
+    # robot; the place turns it a quarter and a half further.
+    state.set(jug, "x", 1.0531)
+    state.set(jug, "y", 1.4288)
+    state.set(jug, "z", env.jug_init_z)
+    state.set(jug, "rot", -np.pi / 4)
+    state.set(jug, "is_held", 0.0)
+    env.set_state(state)
+    held = env.execute_option(env.PickJug.ground([robot, jug], [0.005]))
+    assert held.get(jug, "is_held") > 0.5
+    bx, by = state.get(burner, "x"), state.get(burner, "y")
+    result = env.execute_option(
+        env.Place.ground([robot], [bx, by, 0.5244, np.pi / 2]))
+    assert result.get(jug, "is_held") < 0.5
+    assert np.hypot(result.get(jug, "x") - bx,
+                    result.get(jug, "y") - by) < 0.02
+
+
 def test_push_switch_on_fan_position_mode():
     """SwitchOn toggles a fan switch to on (position mode)."""
     utils.reset_config({

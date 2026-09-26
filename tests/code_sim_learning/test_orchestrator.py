@@ -15,6 +15,7 @@ from predicators import utils
 from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.code_sim_learning.identifiability import Verdict
 from predicators.code_sim_learning.orchestrator import run_rollout_sysid
+from predicators.code_sim_learning.parameter_belief import BeliefConfig
 from predicators.code_sim_learning.rollout_env import num_rollouts_run
 from predicators.structs import Action, Object, State, Type
 
@@ -176,3 +177,46 @@ def test_fit_reports_the_laplace_evidence_when_asked():
         assert plain.evidence is None
     finally:
         utils.reset_config({})
+
+
+def test_fit_builds_the_parameter_belief_when_asked():
+    """With belief draws requested, the fit carries q(theta) around its MAP,
+    applies the MAP itself, and a cached fit reuses the same draws."""
+    env = _GainEnv()
+    spec = ParamSpec("gain", 1.0, lo=0.1, hi=10.0, scale="log")
+    traj = _trajectory()
+    fit_cache = {}
+    config = BeliefConfig(num_draws=16)
+    outcome = run_rollout_sysid(env, [traj], [spec],
+                                _RESIDUAL_FEATURES,
+                                anchors={"gain": 1.0},
+                                rms_cache={},
+                                fit_cache=fit_cache,
+                                fit_cache_key="vers_001",
+                                belief_config=config)
+    belief = outcome.belief
+    assert belief is not None
+    assert belief.names == ["gain"]
+    assert belief.draws.shape == (16, 1)
+    assert np.all((belief.draws >= 0.1) & (belief.draws <= 10.0))
+    assert outcome.applied == {"gain": outcome.fitted["gain"]}
+    lo, hi = belief.interval("gain")
+    assert lo <= outcome.fitted["gain"] <= hi
+    assert abs(outcome.fitted["gain"] - 2.0) < 0.2
+    count = num_rollouts_run()
+    again = run_rollout_sysid(env, [traj], [spec],
+                              _RESIDUAL_FEATURES,
+                              anchors={"gain": 1.0},
+                              rms_cache={},
+                              fit_cache=fit_cache,
+                              fit_cache_key="vers_001",
+                              belief_config=config)
+    assert again.from_cache and num_rollouts_run() == count
+    assert again.belief is not None
+    assert np.array_equal(again.belief.draws, belief.draws)
+    plain = run_rollout_sysid(env, [traj], [spec],
+                              _RESIDUAL_FEATURES,
+                              anchors={"gain": 1.0},
+                              rms_cache={},
+                              belief_config=BeliefConfig(num_draws=0))
+    assert plain.belief is None

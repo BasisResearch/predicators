@@ -27,20 +27,25 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from predicators.code_sim_learning.config import SysIdConfig
+from predicators.code_sim_learning.config import DEFAULT_NOISE_SIGMA, \
+    SysIdConfig
 from predicators.code_sim_learning.evidence import LaplaceEvidence, \
     laplace_log_evidence
 from predicators.code_sim_learning.fit_space import FitResult, ParamSpec, \
-    scalar_to_fit_space
+    prior_widths, scalar_to_fit_space
 from predicators.code_sim_learning.identifiability import \
     identifiability_report, select_trustworthy_params
 from predicators.code_sim_learning.inference_result import \
     LegacyInferenceResult
+from predicators.code_sim_learning.parameter_belief import BeliefConfig, \
+    ParameterBelief, build_parameter_belief, prior_belief, stable_seed
 from predicators.code_sim_learning.physical_sysid import \
-    _explainability_cache_key, fit_params_rollout_trimmed
+    _ROLLOUT_PRIOR_SIGMA_SCALE, _explainability_cache_key, \
+    fit_params_rollout_trimmed
 from predicators.code_sim_learning.rollout_env import RolloutTrajectory, \
     num_rollouts_run
-from predicators.code_sim_learning.rollout_objective import compute_rollout_sse
+from predicators.code_sim_learning.rollout_objective import \
+    compute_rollout_residuals, compute_rollout_sse
 from predicators.code_sim_learning.trajectory_prep import \
     compute_residual_scaling
 
@@ -87,6 +92,11 @@ class SysIdOutcome:
     # The Laplace evidence at the MAP (code_sim_learning_fit_evidence);
     # None when off or when the fit carries no Jacobian.
     evidence: Optional[LaplaceEvidence] = None
+    # The parameter factor of the joint belief (belief_joint_draws > 0):
+    # the posterior along lines through the MAP, with its draws. When
+    # present, ``applied`` is the MAP itself; the legacy trust selection
+    # and report adjuster do not run.
+    belief: Optional[ParameterBelief] = None
 
     @property
     def inference(self) -> LegacyInferenceResult:
@@ -114,6 +124,8 @@ class _FitComputation:
     # consumed); None when no fit ran. Cache-safe: it closes over the
     # env FACTORY and the survivor list, both stable per cache key.
     sse_fn: Optional[SseFn] = None
+    # See SysIdOutcome.belief.
+    belief: Optional[ParameterBelief] = None
 
 
 def run_rollout_sysid(
@@ -133,6 +145,7 @@ def run_rollout_sysid(
     report_adjuster: Optional[ReportAdjuster] = None,
     held: Optional[Dict[str, float]] = None,
     config: Optional[SysIdConfig] = None,
+    belief_config: Optional[BeliefConfig] = None,
 ) -> SysIdOutcome:
     """Run the full rollout sysID flow on recorded trajectories.
 
@@ -153,8 +166,15 @@ def run_rollout_sysid(
     here); ``held`` is the currently-deployed value per param, consumed
     by the INCONSISTENT hold policy in
     :func:`select_trustworthy_params`.
+
+    With ``belief_config.num_draws > 0`` the fit also builds the
+    parameter factor of the joint belief (:mod:`.parameter_belief`) and
+    applies the MAP as the nominal point; the report adjuster and the
+    trust selection belong to the legacy uncertainty path and are
+    skipped.
     """
     config = config or SysIdConfig.from_cfg()
+    belief_config = belief_config or BeliefConfig.from_cfg()
     anchors = anchors or {}
     t0 = time.monotonic()
     n0 = num_rollouts_run()
@@ -184,14 +204,17 @@ def run_rollout_sysid(
     if core is None:
         core = _compute_fit(fit_env, rollouts, physical_specs,
                             residual_features, rules, rule_specs, latent_init,
-                            anchors, rms_cache, config)
+                            anchors, rms_cache, config, belief_config)
         if fit_cache is not None and cache_key is not None:
             fit_cache[cache_key] = core
 
     fitted = dict(core.fit_result.point_estimate)
     report = copy.deepcopy(core.report)
     applied: Dict[str, float] = {}
-    if core.num_survivors > 0:
+    belief = getattr(core, "belief", None)
+    if core.num_survivors > 0 and belief is not None:
+        applied = {n: float(fitted[n]) for n in physical_names}
+    elif core.num_survivors > 0:
         if report_adjuster is not None:
             report_adjuster(core.fit_result, report, core.sse_fn)
         applied = select_trustworthy_params(fitted,
@@ -220,7 +243,8 @@ def run_rollout_sysid(
         pre_sse_survivors=getattr(core, "pre_sse_survivors", float("nan")),
         hull_candidates=list(core.hull_candidates),
         from_cache=from_cache,
-        evidence=getattr(core, "evidence", None))
+        evidence=getattr(core, "evidence", None),
+        belief=belief)
 
 
 def _log_data_health(report: Dict[str, Dict[str, Any]],
@@ -269,6 +293,7 @@ def _compute_fit(
     rms_cache: Optional[Dict[Tuple, Tuple[List[float], List[Dict[str,
                                                                  float]]]]],
     config: SysIdConfig,
+    belief_config: Optional[BeliefConfig] = None,
 ) -> _FitComputation:
     """The cacheable fit core: trim + fit + report on the survivors."""
     physical_names = [s.name for s in physical_specs]
@@ -368,6 +393,17 @@ def _compute_fit(
                       | {float(fitted[name])})
         if len(vals) > 1 and name in report:
             report[name]["candidate_values"] = vals
+    belief: Optional[ParameterBelief] = None
+    if belief_config is not None and belief_config.num_draws > 0:
+
+        def rollout_residuals_fn(params: Dict[str, float]) -> np.ndarray:
+            return compute_rollout_residuals(fit_env, survivors, params,
+                                             residual_features, physical_names,
+                                             rules, latent_init, scaling)
+
+        belief = _build_belief(result, all_specs, anchors,
+                               rollout_residuals_fn, belief_config,
+                               len(survivors))
     return _FitComputation(fit_result=result,
                            report=report,
                            num_survivors=len(survivors),
@@ -377,4 +413,77 @@ def _compute_fit(
                            post_sse=post_sse,
                            pre_sse_survivors=pre_sse_survivors,
                            evidence=evidence,
-                           sse_fn=rollout_sse_fn)
+                           sse_fn=rollout_sse_fn,
+                           belief=belief)
+
+
+def _prior_widths_for(all_specs: Sequence[ParamSpec],
+                      centers: Dict[str, float]) -> np.ndarray:
+    """The fit's Gaussian prior widths (fit space), centred on ``centers``."""
+    center_specs = [
+        ParamSpec(s.name,
+                  float(centers[s.name]),
+                  lo=s.lo,
+                  hi=s.hi,
+                  scale=s.scale,
+                  discrete=s.discrete) for s in all_specs
+    ]
+    return np.asarray(prior_widths(center_specs, _ROLLOUT_PRIOR_SIGMA_SCALE),
+                      dtype=float)
+
+
+def prior_parameter_belief(all_specs: Sequence[ParamSpec],
+                           anchors: Dict[str, float], config: BeliefConfig,
+                           seed: int) -> ParameterBelief:
+    """``q(theta)`` before any fit of the current program: the fit's prior.
+
+    The same Gaussian prior a rollout fit would fold in (centred on each
+    parameter's anchor, else its declared init, with the fit's widths),
+    restricted to the declared bounds. A program without parameters gets
+    an empty belief whose draws are empty dicts.
+    """
+    centers = {s.name: anchors.get(s.name, s.init_value) for s in all_specs}
+    sigmas = _prior_widths_for(all_specs, centers)
+    return prior_belief(list(all_specs),
+                        centers,
+                        {s.name: float(w)
+                         for s, w in zip(all_specs, sigmas)},
+                        config=config,
+                        seed=seed)
+
+
+def _build_belief(result: FitResult, all_specs: Sequence[ParamSpec],
+                  anchors: Dict[str, float],
+                  residuals_fn: Callable[[Dict[str, float]], np.ndarray],
+                  belief_config: BeliefConfig,
+                  num_survivors: int) -> ParameterBelief:
+    """The parameter factor around ``result``'s MAP, under its own prior.
+
+    The prior is the one the fit folded in: centred on each parameter's
+    anchor (else its declared init) with the fit's widths, recomputed
+    the same way when the result does not carry them. Draws are seeded
+    by the global seed and the fit's identity, so a cached fit reuses
+    its draws.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.settings import CFG
+    centers = {s.name: anchors.get(s.name, s.init_value) for s in all_specs}
+    sigmas = result.prior_sigma
+    if sigmas is None or len(sigmas) != len(all_specs):
+        sigmas = _prior_widths_for(all_specs, centers)
+    fitted = result.point_estimate
+    return build_parameter_belief(
+        list(all_specs),
+        fitted,
+        residuals_fn,
+        noise_sigma=float(result.noise_sigma or DEFAULT_NOISE_SIGMA),
+        prior_centers={
+            s.name: scalar_to_fit_space(s, float(centers[s.name]))
+            for s in all_specs
+        },
+        prior_sigmas={
+            s.name: float(sigma)
+            for s, sigma in zip(all_specs, sigmas)
+        },
+        config=belief_config,
+        seed=stable_seed(CFG.seed, sorted(fitted.items()), num_survivors))
