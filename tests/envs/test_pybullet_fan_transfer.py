@@ -209,9 +209,11 @@ def test_transfer_wind_model_and_moving_restart(env):
                 simulated.set(env._switches[0], "is_on", 0.0)
             real = env.simulate(real, _noop(real))
             simulated = advance(model, simulated)
+            # Independent Bullet clients can differ by a few 1e-5 m after
+            # static scenery is inserted in a different body-ID order.
             assert np.allclose(real[env._ball],
                                simulated[env._ball],
-                               atol=1e-5)
+                               atol=1e-4)
             if i == 69:
                 saved = simulated.copy()
             elif i >= 70:
@@ -224,7 +226,9 @@ def test_transfer_wind_model_and_moving_restart(env):
         p.disconnect(restarted._physics_client_id)
 
 
-def test_ramp_geometry_gravity_and_model_restore():
+@pytest.mark.parametrize("landing_extension", [0.0, 0.10])
+@pytest.mark.parametrize("ramp_rise", [0.003, 0.004])
+def test_ramp_geometry_gravity_and_model_restore(landing_extension, ramp_rise):
     """Visible wedge geometry causes downhill motion in real and model
     worlds."""
     utils.reset_config({
@@ -235,6 +239,8 @@ def test_ramp_geometry_gravity_and_model_restore():
         "fan_exposed_transfer": True,
         "fan_inertial_transfer": True,
         "fan_ramp_transfer": True,
+        "fan_ramp_landing_extension": landing_extension,
+        "fan_ramp_rise": ramp_rise,
         "fan_train_num_walls_per_task": [0],
         "fan_test_num_walls_per_task": [0],
     })
@@ -242,24 +248,39 @@ def test_ramp_geometry_gravity_and_model_restore():
     base = base_simulator_class("pybullet_fan")(use_gui=False)
     restarted = base_simulator_class("pybullet_fan")(use_gui=False)
     try:
+        x_offset = env.ramp_scene_x_offset
         for split in ("train", "test", "train", "test"):
             real = env.reset(split, 0)
             ramp, = real.get_objects(env._ramp_type)
             base._set_state(real)
             restored = base._get_state()
             assert np.allclose(restored[ramp], real[ramp], atol=1e-5)
-            assert real.get(ramp, "rise") == pytest.approx(0.004)
-            for x in (0.75, 1.00):
+            assert real.get(ramp, "rise") == pytest.approx(ramp_rise)
+            landing = env._platforms[1]
+            for feature in ("x", "x_len"):
+                assert restored.get(landing, feature) == pytest.approx(
+                    real.get(landing, feature))
+            left = real.get(landing, "x") - real.get(landing, "x_len") / 2
+            right = real.get(landing, "x") + real.get(landing, "x_len") / 2
+            assert left == pytest.approx(1.07 + x_offset)
+            expected_right = (real.get(env._target, "x") + 0.16 +
+                              landing_extension if split == "test" else 1.45 +
+                              x_offset)
+            assert right == pytest.approx(expected_right)
+            for local_x in (0.75, 1.00):
+                x = local_x + x_offset
                 ray = p.rayTest((x, real.get(ramp, "y"), 0.8),
                                 (x, real.get(ramp, "y"), 0.1),
                                 physicsClientId=env._physics_client_id)[0]
                 assert ray[0] == env._boundary_named(ramp).id
-                assert ray[3][2] == pytest.approx(0.404 - (x - 0.67) * 0.01,
+                assert ray[3][2] == pytest.approx(0.4 + ramp_rise *
+                                                  (1 - (local_x - 0.67) / 0.4),
                                                   abs=1e-5)
         real = real.copy()
-        real.set(env._ball, "x", 0.76)
+        real.set(env._ball, "x", 0.76 + x_offset)
         real.set(env._ball, "y", real.get(ramp, "y"))
-        real.set(env._ball, "z", 0.404 - 0.09 * 0.01 + env.ball_radius)
+        real.set(env._ball, "z",
+                 0.4 + ramp_rise * (1 - 0.09 / 0.4) + env.ball_radius)
         simulated = real.copy()
         saved = None
         for tick in range(25):
@@ -276,9 +297,9 @@ def test_ramp_geometry_gravity_and_model_restore():
                                    simulated[env._ball],
                                    atol=0.001)
         print("RAMP_GRAVITY", real.get(env._ball, "x"))
-        assert real.get(env._ball, "x") > 0.80
+        assert real.get(env._ball, "x") > 0.80 + x_offset
         assert real.get(env._ball, "z") > 0.40
-        # Exercise the bay/ramp seam from the actual initial state. A mesh
+        # Exercise the start/ramp seam from the actual initial state. A mesh
         # collision margin can create an unintended curb despite correct
         # interior surface heights and downhill gravity.
         crossing = env.reset("train", 0).copy()
@@ -286,9 +307,101 @@ def test_ramp_geometry_gravity_and_model_restore():
         for _ in range(100):
             crossing = env.simulate(crossing, _noop(crossing))
         print("RAMP_SEAM", crossing.get(env._ball, "x"))
-        assert crossing.get(env._ball, "x") > 1.25
+        assert crossing.get(env._ball, "x") > 1.25 + x_offset
         assert crossing.get(env._ball, "z") > 0.40
     finally:
         p.disconnect(env._physics_client_id)
         p.disconnect(base._physics_client_id)
         p.disconnect(restarted._physics_client_id)
+
+
+def test_ramp_fan_banks_have_separate_evenly_spaced_supports():
+    """Fan posts touch the floor, stay off the deck, and cover each edge."""
+    utils.reset_config({
+        "env": "pybullet_fan",
+        "seed": 0,
+        "num_train_tasks": 1,
+        "num_test_tasks": 1,
+        "fan_exposed_transfer": True,
+        "fan_inertial_transfer": True,
+        "fan_ramp_transfer": True,
+        "fan_train_num_walls_per_task": [0],
+        "fan_test_num_walls_per_task": [0],
+    })
+    env = PyBulletFanEnv(use_gui=False)
+    try:
+        state = env.reset("test", 0)
+        boundary_objects = state.get_objects(env._boundary_type)
+        assert len(boundary_objects) == 3
+        assert all(
+            state.get(boundary, "x") > 0.0 and state.get(boundary, "y") > 0.0
+            for boundary in boundary_objects)
+        platform_x_lbs = []
+        platform_x_ubs = []
+        platform_aabbs = [
+            p.getAABB(env._boundary_named(platform).id,
+                      physicsClientId=env._physics_client_id)
+            for platform in env._platforms
+        ]
+        for platform_aabb in platform_aabbs:
+            platform_x_lbs.append(platform_aabb[0][0])
+            platform_x_ubs.append(platform_aabb[1][0])
+        platform_center_x = (min(platform_x_lbs) + max(platform_x_ubs)) / 2
+        assert platform_center_x == pytest.approx(env.robot_base_pos[0],
+                                                  abs=0.015)
+        expected_counts = [4, 4, 5, 5]
+        for side_idx, fan in enumerate(env._fans):
+            poses = env._fan_bank_poses(side_idx)
+            assert len(poses) == expected_counts[side_idx]
+            varying_axis = 1 if side_idx in (0, 1) else 0
+            coordinates = np.asarray([pose[varying_axis] for pose in poses])
+            assert np.allclose(np.diff(coordinates), np.diff(coordinates)[0])
+            expected_bounds = ((env.fan_y_lb,
+                                env.fan_y_ub) if varying_axis == 1 else
+                               (env.fan_x_lb + env.ramp_scene_x_offset,
+                                env.ramp_fan_x_ub + env.ramp_scene_x_offset))
+            assert coordinates[[0, -1]] == pytest.approx(expected_bounds)
+            assert np.mean(coordinates) == pytest.approx(
+                sum(expected_bounds) / 2)
+            assert len(fan.fan_ids) == len(fan.support_ids) == len(poses)
+            for fan_id, support_id, (x, y, _) in zip(fan.fan_ids,
+                                                     fan.support_ids, poses):
+                support_position, _ = p.getBasePositionAndOrientation(
+                    support_id, physicsClientId=env._physics_client_id)
+                fan_aabbs = [
+                    p.getAABB(fan_id,
+                              link_idx,
+                              physicsClientId=env._physics_client_id)
+                    for link_idx in range(
+                        -1,
+                        p.getNumJoints(fan_id,
+                                       physicsClientId=env._physics_client_id))
+                ]
+                fan_min_z = min(aabb[0][2] for aabb in fan_aabbs)
+                assert support_position[:2] == pytest.approx((x, y))
+                assert support_position[2] == pytest.approx(
+                    env.fan_support_height / 2)
+                assert not p.getCollisionShapeData(
+                    support_id, -1, physicsClientId=env._physics_client_id)
+                assert fan_min_z == pytest.approx(env.fan_support_height,
+                                                  abs=0.005)
+                if side_idx == 1:
+                    fan_min_x = min(aabb[0][0] for aabb in fan_aabbs)
+                    assert fan_min_x > max(platform_x_ubs) + 0.01
+                if side_idx in (0, 1):
+                    half_x = env.fan_support_x_len / 2
+                    half_y = env.fan_support_y_len / 2
+                else:
+                    half_x = env.fan_support_y_len / 2
+                    half_y = env.fan_support_x_len / 2
+                support_aabb = ((x - half_x, y - half_y, 0.0),
+                                (x + half_x, y + half_y,
+                                 env.fan_support_height))
+                for platform_aabb in platform_aabbs:
+                    overlap_x = (support_aabb[0][0] < platform_aabb[1][0]
+                                 and support_aabb[1][0] > platform_aabb[0][0])
+                    overlap_y = (support_aabb[0][1] < platform_aabb[1][1]
+                                 and support_aabb[1][1] > platform_aabb[0][1])
+                    assert not (overlap_x and overlap_y)
+    finally:
+        p.disconnect(env._physics_client_id)

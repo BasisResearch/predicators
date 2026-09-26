@@ -1,0 +1,15 @@
+{
+  "generated_by": "scripts/render_cycles_scene.py; do not edit manually",
+  "blender_version": "4.5.3 LTS",
+  "engine": "CYCLES",
+  "device": "CPU",
+  "samples": 48,
+  "scene_source": "/orcd/home/002/ycliang/predicators/scripts/paper_figures/data/cycles_scenes/balloons_start.json",
+  "scene_sha256": "6f60bf31d508b3785646cdb1be6283580ad85bc1d20f6c185a830524e59de294",
+  "output_sha256": "3c07371df5c7a198be32e1d59c3faae28319cc6d35232fe629884c0b35858f24",
+  "visual_shapes": 83,
+  "blender_mesh_objects": 79,
+  "geometry": "Recorded world transforms; box edges receive at most 0.6 mm visual bevels",
+  "appearance": "Procedural materials, soft area lighting, AgX; duplicate surfaces removed",
+  "physics_steps": 0
+}

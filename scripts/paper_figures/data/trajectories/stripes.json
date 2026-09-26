@@ -1,0 +1,240 @@
+{
+ "description": "One recorded EMPIRIC run per domain, from experiments to the solved test task. Each frame's caption names what the agent does and its detail what follows, as observed or, in model frames, as the model predicts. Frames with 'states' come from the agent's own model, replayed by render_model_rollout.py on the run's own code. The agent learns between frames 'learn_after' and 'learn_after' + 1: 'learned' lists its simulator program P and parameters θ, or θ alone when the program adds no mechanism.",
+ "rows": [
+  {
+   "domain": "Domino",
+   "run": "domino_high_friction_turn-mb_opus_gate_r1/seed0/run_20260917_082017",
+   "learn_after": 0,
+   "learned": [
+    "θ"
+   ],
+   "frames": [
+    {
+     "level": "L01",
+     "episode": 0,
+     "step": 173,
+     "caption": "Push green",
+     "detail": "row topples"
+    },
+    {
+     "states": "figure_model_rollouts/domino_seed0/side_hit/rollout_states.pkl",
+     "index": -1,
+     "caption": "Hit one side-on",
+     "detail": "falls with the blow"
+    },
+    {
+     "states": "figure_model_rollouts/domino_seed0/cand_a/rollout_states.pkl",
+     "index": -1,
+     "caption": "Place two blues",
+     "detail": "turns 90° in 12/12 rollouts"
+    },
+    {
+     "level": "L02",
+     "episode": 0,
+     "step": 156,
+     "caption": "Place two blues",
+     "detail": "blue 2 aimed at blue 1"
+    },
+    {
+     "level": "L02",
+     "episode": 0,
+     "step": "last",
+     "caption": "Goal reached",
+     "detail": "chain turns 90°"
+    }
+   ]
+  },
+  {
+   "domain": "Bridge",
+   "run": "bridge-mb_opus_benchmark_r2/seed3/run_20260919_124955",
+   "learn_after": 1,
+   "learned": [
+    "P",
+    "θ"
+   ],
+   "frames": [
+    {
+     "level": "L01",
+     "episode": 0,
+     "step": 173,
+     "caption": "Dab an end",
+     "detail": "end face turns yellow"
+    },
+    {
+     "level": "L01",
+     "episode": 0,
+     "step": 779,
+     "caption": "Lift one block",
+     "detail": "glued neighbor rises"
+    },
+    {
+     "states": "figure_model_rollouts/bridge_seed3/out/rollout_states.pkl",
+     "index": -1,
+     "show_memory_glue": true,
+     "caption": "Dab six ends",
+     "detail": "all six glued"
+    },
+    {
+     "level": "L02",
+     "episode": 0,
+     "step": 321,
+     "caption": "Dab six ends",
+     "detail": "all six glued, as predicted"
+    },
+    {
+     "level": "L02",
+     "episode": 0,
+     "step": "last",
+     "caption": "Goal reached",
+     "detail": "span on both supports"
+    }
+   ]
+  },
+  {
+   "domain": "Balloons",
+   "run": "balloons-mb_opus_benchmark_r2/seed3/run_20260919_124956",
+   "resolution": [
+    1280,
+    800
+   ],
+   "flags": {
+    "balloons_scene": "chute"
+   },
+   "learn_after": 1,
+   "learned": [
+    "P",
+    "θ"
+   ],
+   "frames": [
+    {
+     "level": "L01",
+     "episode": 0,
+     "step": 90,
+     "caption": "Free all three",
+     "detail": "one bursts at the ceiling"
+    },
+    {
+     "level": "L01",
+     "episode": 1,
+     "step": 193,
+     "caption": "Free green alone",
+     "detail": "box hovers at 0.6 m"
+    },
+    {
+     "states": "figure_model_rollouts/balloons_seed3/out/rollout_states.pkl",
+     "index": -1,
+     "caption": "Free gold, then blue",
+     "detail": "0.9 m, no burst"
+    },
+    {
+     "level": "L03",
+     "episode": 0,
+     "step": 117,
+     "caption": "Free gold",
+     "detail": "0.8 m, as predicted"
+    },
+    {
+     "level": "L03",
+     "episode": 0,
+     "step": "last",
+     "caption": "Goal reached",
+     "detail": "0.9 m, in the band"
+    }
+   ]
+  },
+  {
+   "domain": "Boil",
+   "run": "boil-mb_opus_gate_preflight_two_jug_tight_r1/seed1/run_20260917_082805",
+   "learn_after": 1,
+   "learned": [
+    "P",
+    "θ"
+   ],
+   "frames": [
+    {
+     "level": "L01",
+     "episode": 0,
+     "step": 106,
+     "caption": "Turn on the tap",
+     "detail": "water misses the jug"
+    },
+    {
+     "level": "L01",
+     "episode": 0,
+     "step": 270,
+     "caption": "Set jug on puddle",
+     "detail": "fills at a measured rate"
+    },
+    {
+     "states": "figure_model_rollouts/boil_seed1/out/rollout_states.pkl",
+     "index": -1,
+     "caption": "Boil one, fill one",
+     "detail": "both boil, no spill"
+    },
+    {
+     "level": "L02",
+     "episode": 0,
+     "step": 334,
+     "caption": "Boil one, fill one",
+     "detail": "first already boiling"
+    },
+    {
+     "level": "L02",
+     "episode": 0,
+     "step": "last",
+     "caption": "Goal reached",
+     "detail": "both boiled, no spill"
+    }
+   ]
+  },
+  {
+   "domain": "Fan",
+   "run": "fan_ramp-mb_opus_ramp_skill_repair_r1/seed2/run_20260921_090827",
+   "learn_after": 0,
+   "learned": [
+    "P",
+    "θ"
+   ],
+   "frames": [
+    {
+     "level": "L01",
+     "episode": 0,
+     "step": 138,
+     "split": "train",
+     "caption": "Fan on, then off",
+     "detail": "ball rolls 0.9 m"
+    },
+    {
+     "states": "figure_model_rollouts/fan_seed2/l1_lip/rollout_states.pkl",
+     "index": -1,
+     "split": "train",
+     "caption": "Replay the burst",
+     "detail": "stalls on a false lip"
+    },
+    {
+     "states": "figure_model_rollouts/fan_seed2/l2_plan/rollout_states.pkl",
+     "index": -1,
+     "split": "test",
+     "caption": "Push, brake, blow",
+     "detail": "reaches the pad"
+    },
+    {
+     "level": "L02",
+     "episode": 0,
+     "step": 183,
+     "split": "test",
+     "caption": "Push, then brake",
+     "detail": "1.23 m; model 1.21 m"
+    },
+    {
+     "level": "L02",
+     "episode": 0,
+     "step": "last",
+     "split": "test",
+     "caption": "Goal reached",
+     "detail": "6 mm from prediction"
+    }
+   ]
+  }
+ ]
+}

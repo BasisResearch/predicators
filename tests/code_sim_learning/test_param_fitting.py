@@ -53,9 +53,7 @@ def _setup_env():
         "option_model_use_gui": False,
         "wait_option_terminate_on_atom_change": True,
     })
-    # Cache the env: get_gt_options builds the skills from the cached env's
-    # types, which a partially observable Boil env left by an earlier test
-    # would otherwise supply.
+    # Cached, so get_gt_options builds the skills from this env's types.
     env = create_new_env("pybullet_boil", do_cache=True, use_gui=False)
     task = [t.task for t in env.get_train_tasks()][0]
     options = get_gt_options(env.get_name())

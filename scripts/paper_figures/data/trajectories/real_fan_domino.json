@@ -1,0 +1,153 @@
+{
+  "generated_by": "scripts/paper_figures/import_real_robot_frames.py; do not edit manually",
+  "description": "Recorded gust-camera frames from one real-robot run, without tracker overlays: the two probes and the test for Figure 3, and the test's first and last frames for Figure 1.",
+  "experiment": "exp_20260922_134142",
+  "seed": 1790098902,
+  "source_folder": "https://drive.google.com/drive/folders/1bcFFkaMb1ZKa0p1sK5KuMdQQ92xojnBO",
+  "report_sha256": "ac6599ed234e6c54b0eead105d2425c9531db184cd269f83aee1a90bd04603c1",
+  "agent_log_sha256": "8fac164d49e24fbe5bc69ced14d55a1373a167509c5579882e600382dce870be",
+  "crop": [
+    115,
+    200,
+    605,
+    540
+  ],
+  "teaser_crop": [
+    80,
+    110,
+    580,
+    540
+  ],
+  "measured": [
+    {
+      "episode": 1,
+      "block": "green",
+      "distance_m": 0.251,
+      "slide_cm": 0.0,
+      "fall_deg": 0.9,
+      "flat_in_patch": false
+    },
+    {
+      "episode": 2,
+      "block": "grey",
+      "distance_m": 0.248,
+      "slide_cm": 12.1,
+      "fall_deg": 87.62,
+      "flat_in_patch": true
+    },
+    {
+      "episode": 3,
+      "block": "green",
+      "distance_m": 0.377,
+      "slide_cm": 9.9,
+      "fall_deg": 89.65,
+      "flat_in_patch": true
+    }
+  ],
+  "test_plan": {
+    "block": "green",
+    "at": [
+      0.375,
+      0.0
+    ],
+    "also": {
+      "block": "grey",
+      "at": [
+        0.2,
+        0.0
+      ]
+    },
+    "predicted_slide_cm": [
+      10.1,
+      2.3
+    ],
+    "p_success": 0.54
+  },
+  "posterior": {
+    "kept": 80,
+    "draws": 800,
+    "masses": {
+      "green": {
+        "mean": 0.2991816087471464,
+        "std": 0.06034596213590567
+      },
+      "grey": {
+        "mean": 0.1602904861959794,
+        "std": 0.0727108151007946
+      }
+    },
+    "p_green_lighter": 4.9221610177555713e-29
+  },
+  "frames": [
+    {
+      "name": "real_fan_domino_0",
+      "label": "Blow at green",
+      "episode": 1,
+      "video": "casc_explore.mp4",
+      "video_sha256": "cc6207d1617ec9f18ed50cbb31722c2292b60f615335c995d55a151b657690dc",
+      "frame_index": 1655,
+      "time_s": 55.167,
+      "sha256": "36543713caaaf8af3a036913f8f88eb9d9e7e5e474239261919a9d33ea57f5d0"
+    },
+    {
+      "name": "real_fan_domino_1",
+      "label": "Blow at gray",
+      "episode": 2,
+      "video": "casc_explore.mp4",
+      "video_sha256": "cc6207d1617ec9f18ed50cbb31722c2292b60f615335c995d55a151b657690dc",
+      "frame_index": 4313,
+      "time_s": 143.767,
+      "sha256": "4d435f3ce3cc21e93ff913f7e5964609904616e26f2a2bbc040b453f97a870df"
+    },
+    {
+      "name": "real_fan_domino_2",
+      "label": "Stand gray upwind",
+      "episode": 3,
+      "video": "casc_test.mp4",
+      "video_sha256": "0b78b088d25e1697259b66f64ca2a918386eaf860f37b398a7810b1a8b650435",
+      "frame_index": 2505,
+      "time_s": 83.5,
+      "sha256": "787fef066386d5fae80f3389e211fb2b5e67d1bacfb643f2059ac2344c03613c"
+    },
+    {
+      "name": "real_fan_domino_3",
+      "label": "Blow at gray",
+      "episode": 3,
+      "video": "casc_test.mp4",
+      "video_sha256": "0b78b088d25e1697259b66f64ca2a918386eaf860f37b398a7810b1a8b650435",
+      "frame_index": 2595,
+      "time_s": 86.5,
+      "sha256": "353d920d946d43986a5322fbcbe7dfb7ecfe347ff7b293fa7d1d5ceafe49b661"
+    },
+    {
+      "name": "real_fan_domino_4",
+      "label": "Goal reached",
+      "episode": 3,
+      "video": "casc_test.mp4",
+      "video_sha256": "0b78b088d25e1697259b66f64ca2a918386eaf860f37b398a7810b1a8b650435",
+      "frame_index": 2800,
+      "time_s": 93.333,
+      "sha256": "034659bbb5655702e87a4b23c3a675936ee08608ec01a2fe055c80c0e5e0841a"
+    }
+  ],
+  "teaser_frames": [
+    {
+      "name": "real_fan_domino_start",
+      "state": "start",
+      "video": "casc_test.mp4",
+      "video_sha256": "0b78b088d25e1697259b66f64ca2a918386eaf860f37b398a7810b1a8b650435",
+      "frame_index": 0,
+      "time_s": 0.0,
+      "sha256": "80c0938c21bca3d3017977f7e0430156f4488205ef128aa669194b27ac9511cf"
+    },
+    {
+      "name": "real_fan_domino_win",
+      "state": "win",
+      "video": "casc_test.mp4",
+      "video_sha256": "0b78b088d25e1697259b66f64ca2a918386eaf860f37b398a7810b1a8b650435",
+      "frame_index": 2790,
+      "time_s": 93.0,
+      "sha256": "1eb9f6c4609efce27486ca680f332d90598d8c20c5db457233fc6776750ecca9"
+    }
+  ]
+}

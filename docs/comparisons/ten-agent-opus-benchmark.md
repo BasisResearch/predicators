@@ -1,8 +1,8 @@
-# Opus benchmark sweep: eleven agents and r2 cohorts
+# Opus benchmark sweep: twelve agents and r2 cohorts
 
-Compiled 2026-09-20T18:31:30.660231+00:00 from 235 finished scorecards on the five benchmark settings fixed on September 18 plus separate Fan exposed-transfer, inertial, and ramp development cohorts.
+Compiled 2026-09-22T13:52:50.639300+00:00 from 298 finished scorecards on the current benchmark settings and archived Fan development cohorts.
 All agents are Claude Opus with the composite skill library.
-Preflight settings differ across historical cohorts: some selected EMPIRIC Boil, Domino, Balloons, and Fan runs had preflight enabled; the selected Bridge reruns, EMPIRIC r2 replacements, and newer comparison arms used preflight off.
+Preflight settings differ across historical cohorts: some selected EMPIRIC Boil, Domino, and Balloons runs had preflight enabled; the selected Bridge reruns, EMPIRIC r2 replacements, and newer comparison arms used preflight off.
 This is not a matched preflight ablation.
 Every linked log directory contains the selected run's scorecard, agent logs, recordings and videos.
 This page is a snapshot: runs listed under "Unfinished runs" are not counted anywhere above them.
@@ -10,10 +10,11 @@ This page is a snapshot: runs listed under "Unfinished runs" are not counted any
 ## Status at this snapshot
 
 - Oracle dynamics: 25/25 seeds finished across five domains.
-- EMPIRIC: 25/25 seeds finished (five selected seeds per domain; Boil and Balloons seed 2 and seeds 3-4 use r2).
+- EMPIRIC: 25/25 seeds finished (five selected seeds per domain; Boil and Balloons seed 2 and seeds 3-4 outside Fan use r2; Fan uses the repaired-skill cohort).
+- EMPIRIC from assets: 10/10 seeds finished (two per domain; Fan uses the ramp variant, not the maze).
 - Fan transfer pilot: EMPIRIC 1/2 and Direct agent 1/2 seeds finished (separate from the five-domain totals above).
-- Fan (inertial transfer): EMPIRIC 5/5 solved, 5/5 finished; Direct agent 4/5 solved, 5/5 finished.
-- Fan (ramp transfer): EMPIRIC 3/3 solved, 3/5 finished; Direct agent 1/4 solved, 4/5 finished.
+- Fan (inertial transfer): Oracle dynamics 5/5 solved, 5/5 finished; EMPIRIC 5/5 solved, 5/5 finished; Direct agent 4/5 solved, 5/5 finished; Direct agent + scene assets 4/5 solved, 5/5 finished; Standalone sim. 4/5 solved, 5/5 finished; No harness fitting 5/5 solved, 5/5 finished; No explicit uncert. 5/5 solved, 5/5 finished.
+- Fan (ramp transfer): Oracle dynamics 5/5 solved, 5/5 finished; EMPIRIC 5/5 solved, 5/5 finished; Direct agent 3/5 solved, 5/5 finished; Direct agent + scene assets 0/5 solved, 5/5 finished; Standalone sim. 3/5 solved, 5/5 finished; No harness fitting 5/5 solved, 5/5 finished; No explicit uncert. 5/5 solved, 5/5 finished; EMPIRIC from assets 1/2 solved, 2/2 finished.
 - Direct + scene: 25/25 seeds finished.
   Unfinished: none.
 - EMPIRIC + scene package: four unfinished runs remain paused at the user's request (Balloons seed 0, Boil seeds 0 and 2, Domino seed 0).
@@ -45,7 +46,7 @@ python ../../../scripts/plotting/plot_benchmark_arms.py benchmark-arms-opus
 
 ## Settings and cohort selection
 
-The five settings are the menu defaults in [envs/continual.yaml](../../scripts/configs/predicatorv3/envs/continual.yaml): Boil two-jug test, Domino high-friction turn, Fan maze test, Bridge four-span test row and Balloons composition test levels.
+The five settings are the menu defaults in [envs/continual.yaml](../../scripts/configs/predicatorv3/envs/continual.yaml): Boil two-jug test, Domino high-friction turn, Fan ramp test, Bridge four-span test row and Balloons composition test levels.
 EMPIRIC and the direct agent ran before the benchmark rounds under their own round keys; the four-span EMPIRIC runs are the preflight-off ones (r2 seed 0, r3 seeds 1-2).
 The other arms ran as `<arm>_opus_benchmark_<round>` from frozen worktrees:
 
@@ -66,6 +67,7 @@ EMPIRIC + scene package is EMPIRIC plus everything the agentic real-to-sim arm r
 No arm runs with the realistic sim gap (`sim_gap`, commit `b0c2f0190`); every scene description matches the live world exactly.
 
 Oracle dynamics combines r2 seeds 0-4 for Domino and Bridge with r1 seeds 0-2 and r2 seeds 3-4 for the other domains.
+Fan instead uses the fresh five-seed prompt-aligned Oracle cohort; earlier Fan Oracle results are excluded rather than pooled.
 The [Oracle repair pilot](oracle-dynamics-validation-r2.md) also shows the two Oracle rounds side by side.
 
 EMPIRIC r2 uses seeds 3 and 4 across all five domains on the repaired runtime.
@@ -84,12 +86,25 @@ It is also excluded from the paper figure and its data selection.
 
 ## Fan inertial and ramp development
 
-The Fan inertial and Fan ramp columns include screening seeds 0-1 and fresh confirmation seeds 2-4 for EMPIRIC and Direct agent.
+Five seeds each of Oracle dynamics, Direct + scene, Standalone sim., No harness fitting, and No explicit uncertainty were also launched on the frozen no-ramp Fan inertial configuration on September 21.
+Their finished results are included in the archived Fan inertial cohort; these runs do not use the candidate shared push-skill repair.
+The archived Fan inertial cohort includes screening seeds 0-1 and fresh confirmation seeds 2-4 for EMPIRIC and Direct agent.
 Only finished runs enter bars, curves, and averages; unfinished runs are listed separately, not counted as failures.
 Inertial confirmation finished 3/3 for both methods, so its pilot solve-rate gap did not replicate.
-Ramp confirmation is a separate prospective test of the frozen ramp candidate; pooled development results are not independent confirmation.
+The Fan column now uses only the matched repaired-skill cohort (ramp_skill_repair_r1), with five prompt-aligned Oracle dynamics seeds and five seeds for each of the other six methods.
+Earlier ramp results are replaced, not pooled; pending new seeds never fall back to old results.
 See the [development record](../amps/fan-development.md) for task illustrations, cohort provenance, and failure analysis.
-Both columns are excluded from paper figures and data selection.
+The ramp setting is now the default Fan in both figures.
+The old maze, exposed-transfer, and inertial settings remain archived in these tables but are excluded from both figures.
+
+## EMPIRIC from assets development
+
+EMPIRIC from assets builds its own scene and mechanisms while retaining harness fitting and uncertainty.
+It is a separate magenta entry, with two seeds planned each for Domino, Bridge, Balloons, Boil and Fan ramp.
+Cancelled Fan maze pilots are excluded; the Fan maze and inertial columns have no results for this agent.
+Only finished scorecards enter the bars and curves; empty entries are pending or untested, not zero solve rates.
+These development runs are excluded from paper figures.
+See [implementation and launch notes](../amps/empiric-from-assets.md).
 
 ## Averages across seeds
 
@@ -111,6 +126,7 @@ The last column gives finished versus planned seeds for each entry; incomplete e
 | Domino (high-friction turn) | 8. EMPIRIC + scene pkg. | 2/2 (100%) | 4/4 (100%) | 362 (n=2) | 0 | 2/3 |
 | Domino (high-friction turn) | 9. Scene only | 2/2 (100%) | 4/4 (100%) | 303.5 (n=2) | 0 | 2/3 |
 | Domino (high-friction turn) | 11. Agentic real-to-sim | 0/3 (0%) | 3/6 (50%) | - (n=0) | 0 | 3/3 |
+| Domino (high-friction turn) | 12. EMPIRIC from assets | 0/2 (0%) | 2/4 (50%) | - (n=0) | 0 | 2/2 |
 | Bridge (four-span) | 1. Oracle dynamics | 5/5 (100%) | 10/10 (100%) | 3,204.8 (n=5) | 0 | 5/5 |
 | Bridge (four-span) | 2. EMPIRIC | 5/5 (100%) | 10/10 (100%) | 3,795.2 (n=5) | 0 | 5/5 |
 | Bridge (four-span) | 3. Direct agent | 4/5 (80%) | 9/10 (90%) | 5,474.2 (n=4) | 0 | 5/5 |
@@ -121,6 +137,7 @@ The last column gives finished versus planned seeds for each entry; incomplete e
 | Bridge (four-span) | 8. EMPIRIC + scene pkg. | 3/3 (100%) | 6/6 (100%) | 3,931.3 (n=3) | 0.3 | 3/3 |
 | Bridge (four-span) | 9. Scene only | 2/3 (66.7%) | 5/6 (83.3%) | 4,026 (n=2) | 0.3 | 3/3 |
 | Bridge (four-span) | 11. Agentic real-to-sim | 3/3 (100%) | 6/6 (100%) | 3,177 (n=3) | 0 | 3/3 |
+| Bridge (four-span) | 12. EMPIRIC from assets | 2/2 (100%) | 4/4 (100%) | 3,647.5 (n=2) | 0.5 | 2/2 |
 | Balloons (composition) | 1. Oracle dynamics | 5/5 (100%) | 15/15 (100%) | 726.4 (n=5) | 0 | 5/5 |
 | Balloons (composition) | 2. EMPIRIC | 5/5 (100%) | 15/15 (100%) | 847 (n=5) | 1 | 5/5 |
 | Balloons (composition) | 3. Direct agent | 4/5 (80%) | 14/15 (93.3%) | 727 (n=4) | 1 | 5/5 |
@@ -131,6 +148,7 @@ The last column gives finished versus planned seeds for each entry; incomplete e
 | Balloons (composition) | 8. EMPIRIC + scene pkg. | 1/2 (50%) | 5/6 (83.3%) | 1,304 (n=1) | 2 | 2/3 |
 | Balloons (composition) | 9. Scene only | 2/3 (66.7%) | 8/9 (88.9%) | 916 (n=2) | 1.3 | 3/3 |
 | Balloons (composition) | 11. Agentic real-to-sim | 3/3 (100%) | 9/9 (100%) | 1,362 (n=3) | 3.7 | 3/3 |
+| Balloons (composition) | 12. EMPIRIC from assets | 1/2 (50%) | 5/6 (83.3%) | 627 (n=1) | 1 | 2/2 |
 | Boil (two-jug) | 1. Oracle dynamics | 5/5 (100%) | 10/10 (100%) | 764.8 (n=5) | 0 | 5/5 |
 | Boil (two-jug) | 2. EMPIRIC | 5/5 (100%) | 10/10 (100%) | 1,331 (n=5) | 0.8 | 5/5 |
 | Boil (two-jug) | 3. Direct agent | 3/5 (60%) | 8/10 (80%) | 1,167.7 (n=3) | 0.6 | 5/5 |
@@ -142,6 +160,7 @@ The last column gives finished versus planned seeds for each entry; incomplete e
 | Boil (two-jug) | 9. Scene only | 3/3 (100%) | 6/6 (100%) | 1,521.3 (n=3) | 2 | 3/3 |
 | Boil (two-jug) | 10. Zero-shot model | 1/1 (100%) | 2/2 (100%) | 828 (n=1) | 0 | 1/3 |
 | Boil (two-jug) | 11. Agentic real-to-sim | 3/3 (100%) | 6/6 (100%) | 875.7 (n=3) | 0 | 3/3 |
+| Boil (two-jug) | 12. EMPIRIC from assets | 2/2 (100%) | 4/4 (100%) | 1,132 (n=2) | 0 | 2/2 |
 | Fan (maze) | 1. Oracle dynamics | 5/5 (100%) | 10/10 (100%) | 1,164 (n=5) | 0 | 5/5 |
 | Fan (maze) | 2. EMPIRIC | 5/5 (100%) | 10/10 (100%) | 842.8 (n=5) | 0 | 5/5 |
 | Fan (maze) | 3. Direct agent | 5/5 (100%) | 10/10 (100%) | 1,596.8 (n=5) | 0 | 5/5 |
@@ -154,10 +173,21 @@ The last column gives finished versus planned seeds for each entry; incomplete e
 | Fan (maze) | 11. Agentic real-to-sim | 3/3 (100%) | 6/6 (100%) | 1,306 (n=3) | 0 | 3/3 |
 | Fan (exposed transfer) | 2. EMPIRIC | 1/1 (100%) | 2/2 (100%) | 1,095 (n=1) | 0 | 1/2 |
 | Fan (exposed transfer) | 3. Direct agent | 1/1 (100%) | 2/2 (100%) | 724 (n=1) | 0 | 1/2 |
+| Fan (inertial transfer) | 1. Oracle dynamics | 5/5 (100%) | 10/10 (100%) | 869.8 (n=5) | 0 | 5/5 |
 | Fan (inertial transfer) | 2. EMPIRIC | 5/5 (100%) | 10/10 (100%) | 1,656.2 (n=5) | 0 | 5/5 |
 | Fan (inertial transfer) | 3. Direct agent | 4/5 (80%) | 9/10 (90%) | 1,880 (n=4) | 0 | 5/5 |
-| Fan (ramp transfer) | 2. EMPIRIC | 3/3 (100%) | 6/6 (100%) | 2,379 (n=3) | 0 | 3/5 |
-| Fan (ramp transfer) | 3. Direct agent | 1/4 (25%) | 5/8 (62.5%) | 1,722 (n=1) | 0 | 4/5 |
+| Fan (inertial transfer) | 4. Direct agent + scene assets | 4/5 (80%) | 9/10 (90%) | 1,358.8 (n=4) | 0.2 | 5/5 |
+| Fan (inertial transfer) | 5. Standalone sim. | 4/5 (80%) | 9/10 (90%) | 1,849.5 (n=4) | 0 | 5/5 |
+| Fan (inertial transfer) | 6. No harness fitting | 5/5 (100%) | 10/10 (100%) | 1,436.8 (n=5) | 0 | 5/5 |
+| Fan (inertial transfer) | 7. No explicit uncert. | 5/5 (100%) | 10/10 (100%) | 1,280.4 (n=5) | 0 | 5/5 |
+| Fan (ramp transfer) | 1. Oracle dynamics | 5/5 (100%) | 10/10 (100%) | 2,694 (n=5) | 0 | 5/5 |
+| Fan (ramp transfer) | 2. EMPIRIC | 5/5 (100%) | 10/10 (100%) | 2,474.8 (n=5) | 0 | 5/5 |
+| Fan (ramp transfer) | 3. Direct agent | 3/5 (60%) | 6/10 (60%) | 3,098 (n=3) | 3.8 | 5/5 |
+| Fan (ramp transfer) | 4. Direct agent + scene assets | 0/5 (0%) | 5/10 (50%) | - (n=0) | 0.2 | 5/5 |
+| Fan (ramp transfer) | 5. Standalone sim. | 3/5 (60%) | 8/10 (80%) | 3,917 (n=3) | 1.8 | 5/5 |
+| Fan (ramp transfer) | 6. No harness fitting | 5/5 (100%) | 10/10 (100%) | 2,436.2 (n=5) | 0 | 5/5 |
+| Fan (ramp transfer) | 7. No explicit uncert. | 5/5 (100%) | 10/10 (100%) | 1,851.4 (n=5) | 0 | 5/5 |
+| Fan (ramp transfer) | 12. EMPIRIC from assets | 1/2 (50%) | 3/4 (75%) | 1,713 (n=1) | 0 | 2/2 |
 
 ## Per-seed results and log directories
 
@@ -207,6 +237,8 @@ The last column gives finished versus planned seeds for each entry; incomplete e
 | 11. Agentic real-to-sim | 0 | 1/2 | 563 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_real_to_sim/domino_high_friction_turn-real_to_sim_opus_benchmark_r1/seed0/run_20260918_095756) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_real_to_sim/domino_high_friction_turn-real_to_sim_opus_benchmark_r1/seed0/run_20260918_095756/scorecard.json) |
 | 11. Agentic real-to-sim | 1 | 1/2 | 213 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_real_to_sim/domino_high_friction_turn-real_to_sim_opus_benchmark_r1/seed1/run_20260918_095756) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_real_to_sim/domino_high_friction_turn-real_to_sim_opus_benchmark_r1/seed1/run_20260918_095756/scorecard.json) |
 | 11. Agentic real-to-sim | 2 | 1/2 | 704 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_real_to_sim/domino_high_friction_turn-real_to_sim_opus_benchmark_r1/seed2/run_20260918_095756) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_real_to_sim/domino_high_friction_turn-real_to_sim_opus_benchmark_r1/seed2/run_20260918_095756/scorecard.json) |
+| 12. EMPIRIC from assets | 0 | 1/2 | 541 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_from_assets/domino_high_friction_turn-from_assets_opus_pilot_r1/seed0/run_20260921_145605) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_from_assets/domino_high_friction_turn-from_assets_opus_pilot_r1/seed0/run_20260921_145605/scorecard.json) |
+| 12. EMPIRIC from assets | 1 | 1/2 | 339 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_from_assets/domino_high_friction_turn-from_assets_opus_pilot_r1/seed1/run_20260921_145556) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_from_assets/domino_high_friction_turn-from_assets_opus_pilot_r1/seed1/run_20260921_145556/scorecard.json) |
 
 ### Bridge (four-span)
 
@@ -256,6 +288,8 @@ The last column gives finished versus planned seeds for each entry; incomplete e
 | 11. Agentic real-to-sim | 0 | 2/2 | 2,753 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_real_to_sim/bridge-real_to_sim_opus_benchmark_r1/seed0/run_20260918_095755) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_real_to_sim/bridge-real_to_sim_opus_benchmark_r1/seed0/run_20260918_095755/scorecard.json) |
 | 11. Agentic real-to-sim | 1 | 2/2 | 3,257 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_real_to_sim/bridge-real_to_sim_opus_benchmark_r1/seed1/run_20260918_095755) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_real_to_sim/bridge-real_to_sim_opus_benchmark_r1/seed1/run_20260918_095755/scorecard.json) |
 | 11. Agentic real-to-sim | 2 | 2/2 | 3,521 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_real_to_sim/bridge-real_to_sim_opus_benchmark_r1/seed2/run_20260918_095755) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_real_to_sim/bridge-real_to_sim_opus_benchmark_r1/seed2/run_20260918_095755/scorecard.json) |
+| 12. EMPIRIC from assets | 0 | 2/2 | 3,061 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_from_assets/bridge-from_assets_opus_pilot_r1/seed0/run_20260921_145106) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_from_assets/bridge-from_assets_opus_pilot_r1/seed0/run_20260921_145106/scorecard.json) |
+| 12. EMPIRIC from assets | 1 | 2/2 | 4,234 | 1 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_from_assets/bridge-from_assets_opus_pilot_r1/seed1/run_20260921_145106) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_from_assets/bridge-from_assets_opus_pilot_r1/seed1/run_20260921_145106/scorecard.json) |
 
 ### Balloons (composition)
 
@@ -304,6 +338,8 @@ The last column gives finished versus planned seeds for each entry; incomplete e
 | 11. Agentic real-to-sim | 0 | 3/3 | 1,268 | 4 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_real_to_sim/balloons-real_to_sim_opus_benchmark_r1/seed0/run_20260918_095755) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_real_to_sim/balloons-real_to_sim_opus_benchmark_r1/seed0/run_20260918_095755/scorecard.json) |
 | 11. Agentic real-to-sim | 1 | 3/3 | 756 | 2 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_real_to_sim/balloons-real_to_sim_opus_benchmark_r1/seed1/run_20260918_095755) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_real_to_sim/balloons-real_to_sim_opus_benchmark_r1/seed1/run_20260918_095755/scorecard.json) |
 | 11. Agentic real-to-sim | 2 | 3/3 | 2,062 | 5 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_real_to_sim/balloons-real_to_sim_opus_benchmark_r1/seed2/run_20260918_095755) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_real_to_sim/balloons-real_to_sim_opus_benchmark_r1/seed2/run_20260918_095755/scorecard.json) |
+| 12. EMPIRIC from assets | 0 | 3/3 | 627 | 1 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_from_assets/balloons-from_assets_opus_pilot_r1/seed0/run_20260921_145557) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_from_assets/balloons-from_assets_opus_pilot_r1/seed0/run_20260921_145557/scorecard.json) |
+| 12. EMPIRIC from assets | 1 | 2/3 | 524 | 1 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_from_assets/balloons-from_assets_opus_pilot_r1/seed1/run_20260921_145557) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_from_assets/balloons-from_assets_opus_pilot_r1/seed1/run_20260921_145557/scorecard.json) |
 
 ### Boil (two-jug)
 
@@ -352,6 +388,8 @@ The last column gives finished versus planned seeds for each entry; incomplete e
 | 11. Agentic real-to-sim | 0 | 2/2 | 781 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_real_to_sim/boil-real_to_sim_opus_benchmark_r1/seed0/run_20260918_095755) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_real_to_sim/boil-real_to_sim_opus_benchmark_r1/seed0/run_20260918_095755/scorecard.json) |
 | 11. Agentic real-to-sim | 1 | 2/2 | 879 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_real_to_sim/boil-real_to_sim_opus_benchmark_r1/seed1/run_20260918_095755) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_real_to_sim/boil-real_to_sim_opus_benchmark_r1/seed1/run_20260918_095755/scorecard.json) |
 | 11. Agentic real-to-sim | 2 | 2/2 | 967 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_real_to_sim/boil-real_to_sim_opus_benchmark_r1/seed2/run_20260918_095755) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_real_to_sim/boil-real_to_sim_opus_benchmark_r1/seed2/run_20260918_095755/scorecard.json) |
+| 12. EMPIRIC from assets | 0 | 2/2 | 1,089 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_from_assets/boil-from_assets_opus_pilot_r1/seed0/run_20260921_145558) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_from_assets/boil-from_assets_opus_pilot_r1/seed0/run_20260921_145558/scorecard.json) |
+| 12. EMPIRIC from assets | 1 | 2/2 | 1,175 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_from_assets/boil-from_assets_opus_pilot_r1/seed1/run_20260921_145555) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_from_assets/boil-from_assets_opus_pilot_r1/seed1/run_20260921_145555/scorecard.json) |
 
 ### Fan (maze)
 
@@ -413,6 +451,11 @@ The last column gives finished versus planned seeds for each entry; incomplete e
 
 | Approach | Seed | Levels won | Steps | Resets | Log directory | Scorecard |
 |---|---:|---:|---:|---:|---|---|
+| 1. Oracle dynamics | 0 | 2/2 | 737 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_inertial-oracle_dynamics_opus_inertial_r1/seed0/run_20260921_081429) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_inertial-oracle_dynamics_opus_inertial_r1/seed0/run_20260921_081429/scorecard.json) |
+| 1. Oracle dynamics | 1 | 2/2 | 717 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_inertial-oracle_dynamics_opus_inertial_r1/seed1/run_20260921_081426) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_inertial-oracle_dynamics_opus_inertial_r1/seed1/run_20260921_081426/scorecard.json) |
+| 1. Oracle dynamics | 2 | 2/2 | 1,034 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_inertial-oracle_dynamics_opus_inertial_r1/seed2/run_20260921_081426) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_inertial-oracle_dynamics_opus_inertial_r1/seed2/run_20260921_081426/scorecard.json) |
+| 1. Oracle dynamics | 3 | 2/2 | 1,052 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_inertial-oracle_dynamics_opus_inertial_r1/seed3/run_20260921_084722) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_inertial-oracle_dynamics_opus_inertial_r1/seed3/run_20260921_084722/scorecard.json) |
+| 1. Oracle dynamics | 4 | 2/2 | 809 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_inertial-oracle_dynamics_opus_inertial_r1/seed4/run_20260921_081426) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan_inertial-oracle_dynamics_opus_inertial_r1/seed4/run_20260921_081426/scorecard.json) |
 | 2. EMPIRIC | 0 | 2/2 | 1,405 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_inertial-mb_opus_inertial_pilot_r1/seed0/run_20260920_092143) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_inertial-mb_opus_inertial_pilot_r1/seed0/run_20260920_092143/scorecard.json) |
 | 2. EMPIRIC | 1 | 2/2 | 2,272 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_inertial-mb_opus_inertial_pilot_r1/seed1/run_20260920_092153) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_inertial-mb_opus_inertial_pilot_r1/seed1/run_20260920_092153/scorecard.json) |
 | 2. EMPIRIC | 2 | 2/2 | 1,328 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_inertial-mb_opus_inertial_confirmation_r1/seed2/run_20260920_111039) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_inertial-mb_opus_inertial_confirmation_r1/seed2/run_20260920_111039/scorecard.json) |
@@ -423,18 +466,68 @@ The last column gives finished versus planned seeds for each entry; incomplete e
 | 3. Direct agent | 2 | 2/2 | 2,614 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_inertial-mf_opus_inertial_confirmation_r1/seed2/run_20260920_111039) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_inertial-mf_opus_inertial_confirmation_r1/seed2/run_20260920_111039/scorecard.json) |
 | 3. Direct agent | 3 | 2/2 | 1,262 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_inertial-mf_opus_inertial_confirmation_r1/seed3/run_20260920_111039) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_inertial-mf_opus_inertial_confirmation_r1/seed3/run_20260920_111039/scorecard.json) |
 | 3. Direct agent | 4 | 2/2 | 2,067 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_inertial-mf_opus_inertial_confirmation_r1/seed4/run_20260920_111039) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_inertial-mf_opus_inertial_confirmation_r1/seed4/run_20260920_111039/scorecard.json) |
+| 4. Direct agent + scene assets | 0 | 1/2 | 1,990 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_inertial-mf_scene_package_opus_inertial_r1/seed0/run_20260921_081426) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_inertial-mf_scene_package_opus_inertial_r1/seed0/run_20260921_081426/scorecard.json) |
+| 4. Direct agent + scene assets | 1 | 2/2 | 1,385 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_inertial-mf_scene_package_opus_inertial_r1/seed1/run_20260921_081424) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_inertial-mf_scene_package_opus_inertial_r1/seed1/run_20260921_081424/scorecard.json) |
+| 4. Direct agent + scene assets | 2 | 2/2 | 1,136 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_inertial-mf_scene_package_opus_inertial_r1/seed2/run_20260921_081424) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_inertial-mf_scene_package_opus_inertial_r1/seed2/run_20260921_081424/scorecard.json) |
+| 4. Direct agent + scene assets | 3 | 2/2 | 1,195 | 1 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_inertial-mf_scene_package_opus_inertial_r1/seed3/run_20260921_081424) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_inertial-mf_scene_package_opus_inertial_r1/seed3/run_20260921_081424/scorecard.json) |
+| 4. Direct agent + scene assets | 4 | 2/2 | 1,719 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_inertial-mf_scene_package_opus_inertial_r1/seed4/run_20260921_081424) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_inertial-mf_scene_package_opus_inertial_r1/seed4/run_20260921_081424/scorecard.json) |
+| 5. Standalone sim. | 0 | 2/2 | 1,993 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_inertial-standalone_opus_inertial_r1/seed0/run_20260921_081424) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_inertial-standalone_opus_inertial_r1/seed0/run_20260921_081424/scorecard.json) |
+| 5. Standalone sim. | 1 | 1/2 | 1,768 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_inertial-standalone_opus_inertial_r1/seed1/run_20260921_081424) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_inertial-standalone_opus_inertial_r1/seed1/run_20260921_081424/scorecard.json) |
+| 5. Standalone sim. | 2 | 2/2 | 1,691 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_inertial-standalone_opus_inertial_r1/seed2/run_20260921_081424) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_inertial-standalone_opus_inertial_r1/seed2/run_20260921_081424/scorecard.json) |
+| 5. Standalone sim. | 3 | 2/2 | 1,466 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_inertial-standalone_opus_inertial_r1/seed3/run_20260921_081424) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_inertial-standalone_opus_inertial_r1/seed3/run_20260921_081424/scorecard.json) |
+| 5. Standalone sim. | 4 | 2/2 | 2,248 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_inertial-standalone_opus_inertial_r1/seed4/run_20260921_081427) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_inertial-standalone_opus_inertial_r1/seed4/run_20260921_081427/scorecard.json) |
+| 6. No harness fitting | 0 | 2/2 | 1,923 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_inertial-no_fitting_opus_inertial_r1/seed0/run_20260921_081427) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_inertial-no_fitting_opus_inertial_r1/seed0/run_20260921_081427/scorecard.json) |
+| 6. No harness fitting | 1 | 2/2 | 1,170 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_inertial-no_fitting_opus_inertial_r1/seed1/run_20260921_081427) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_inertial-no_fitting_opus_inertial_r1/seed1/run_20260921_081427/scorecard.json) |
+| 6. No harness fitting | 2 | 2/2 | 892 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_inertial-no_fitting_opus_inertial_r1/seed2/run_20260921_081427) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_inertial-no_fitting_opus_inertial_r1/seed2/run_20260921_081427/scorecard.json) |
+| 6. No harness fitting | 3 | 2/2 | 2,373 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_inertial-no_fitting_opus_inertial_r1/seed3/run_20260921_081427) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_inertial-no_fitting_opus_inertial_r1/seed3/run_20260921_081427/scorecard.json) |
+| 6. No harness fitting | 4 | 2/2 | 826 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_inertial-no_fitting_opus_inertial_r1/seed4/run_20260921_081427) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_inertial-no_fitting_opus_inertial_r1/seed4/run_20260921_081427/scorecard.json) |
+| 7. No explicit uncert. | 0 | 2/2 | 865 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_inertial-no_uncertainty_opus_inertial_r1/seed0/run_20260921_081427) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_inertial-no_uncertainty_opus_inertial_r1/seed0/run_20260921_081427/scorecard.json) |
+| 7. No explicit uncert. | 1 | 2/2 | 1,106 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_inertial-no_uncertainty_opus_inertial_r1/seed1/run_20260921_081427) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_inertial-no_uncertainty_opus_inertial_r1/seed1/run_20260921_081427/scorecard.json) |
+| 7. No explicit uncert. | 2 | 2/2 | 1,236 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_inertial-no_uncertainty_opus_inertial_r1/seed2/run_20260921_081713) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_inertial-no_uncertainty_opus_inertial_r1/seed2/run_20260921_081713/scorecard.json) |
+| 7. No explicit uncert. | 3 | 2/2 | 1,600 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_inertial-no_uncertainty_opus_inertial_r1/seed3/run_20260921_081428) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_inertial-no_uncertainty_opus_inertial_r1/seed3/run_20260921_081428/scorecard.json) |
+| 7. No explicit uncert. | 4 | 2/2 | 1,595 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_inertial-no_uncertainty_opus_inertial_r1/seed4/run_20260921_081428) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_inertial-no_uncertainty_opus_inertial_r1/seed4/run_20260921_081428/scorecard.json) |
 
 ### Fan (ramp transfer)
 
 | Approach | Seed | Levels won | Steps | Resets | Log directory | Scorecard |
 |---|---:|---:|---:|---:|---|---|
-| 2. EMPIRIC | 0 | 2/2 | 2,626 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_pilot_r1/seed0/run_20260920_112730) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_pilot_r1/seed0/run_20260920_112730/scorecard.json) |
-| 2. EMPIRIC | 1 | 2/2 | 2,076 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_pilot_r1/seed1/run_20260920_112733) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_pilot_r1/seed1/run_20260920_112733/scorecard.json) |
-| 2. EMPIRIC | 4 | 2/2 | 2,435 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_confirmation_r1/seed4/run_20260920_130308) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_confirmation_r1/seed4/run_20260920_130308/scorecard.json) |
-| 3. Direct agent | 0 | 1/2 | 1,919 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_pilot_r1/seed0/run_20260920_112733) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_pilot_r1/seed0/run_20260920_112733/scorecard.json) |
-| 3. Direct agent | 1 | 1/2 | 3,444 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_pilot_r1/seed1/run_20260920_112729) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_pilot_r1/seed1/run_20260920_112729/scorecard.json) |
-| 3. Direct agent | 3 | 2/2 | 1,722 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_confirmation_r1/seed3/run_20260920_130303) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_confirmation_r1/seed3/run_20260920_130303/scorecard.json) |
-| 3. Direct agent | 4 | 1/2 | 1,584 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_confirmation_r1/seed4/run_20260920_130259) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_confirmation_r1/seed4/run_20260920_130259/scorecard.json) |
+| 1. Oracle dynamics | 0 | 2/2 | 3,280 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_fan_prompt_r2/seed0/run_20260922_055537) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_fan_prompt_r2/seed0/run_20260922_055537/scorecard.json) |
+| 1. Oracle dynamics | 1 | 2/2 | 2,863 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_fan_prompt_r2/seed1/run_20260922_055538) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_fan_prompt_r2/seed1/run_20260922_055538/scorecard.json) |
+| 1. Oracle dynamics | 2 | 2/2 | 3,350 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_fan_prompt_r2/seed2/run_20260922_055536) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_fan_prompt_r2/seed2/run_20260922_055536/scorecard.json) |
+| 1. Oracle dynamics | 3 | 2/2 | 3,009 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_fan_prompt_r2/seed3/run_20260922_055536) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_fan_prompt_r2/seed3/run_20260922_055536/scorecard.json) |
+| 1. Oracle dynamics | 4 | 2/2 | 968 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_fan_prompt_r2/seed4/run_20260922_055541) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_fan_prompt_r2/seed4/run_20260922_055541/scorecard.json) |
+| 2. EMPIRIC | 0 | 2/2 | 2,743 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_skill_repair_r1/seed0/run_20260921_090823) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_skill_repair_r1/seed0/run_20260921_090823/scorecard.json) |
+| 2. EMPIRIC | 1 | 2/2 | 1,564 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_skill_repair_r1/seed1/run_20260921_090827) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_skill_repair_r1/seed1/run_20260921_090827/scorecard.json) |
+| 2. EMPIRIC | 2 | 2/2 | 3,003 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_skill_repair_r1/seed2/run_20260921_090827) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_skill_repair_r1/seed2/run_20260921_090827/scorecard.json) |
+| 2. EMPIRIC | 3 | 2/2 | 2,333 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_skill_repair_r1/seed3/run_20260921_090824) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_skill_repair_r1/seed3/run_20260921_090824/scorecard.json) |
+| 2. EMPIRIC | 4 | 2/2 | 2,731 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_skill_repair_r1/seed4/run_20260921_090824) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_skill_repair_r1/seed4/run_20260921_090824/scorecard.json) |
+| 3. Direct agent | 0 | 2/2 | 5,363 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_skill_repair_r1/seed0/run_20260921_121409) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_skill_repair_r1/seed0/run_20260921_121409/scorecard.json) |
+| 3. Direct agent | 1 | 0/2 | 1,852 | 3 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_skill_repair_r1/seed1/run_20260921_121409) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_skill_repair_r1/seed1/run_20260921_121409/scorecard.json) |
+| 3. Direct agent | 2 | 2/2 | 2,722 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_skill_repair_r1/seed2/run_20260921_121409) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_skill_repair_r1/seed2/run_20260921_121409/scorecard.json) |
+| 3. Direct agent | 3 | 0/2 | 3,232 | 16 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_skill_repair_r1/seed3/run_20260921_121409) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_skill_repair_r1/seed3/run_20260921_121409/scorecard.json) |
+| 3. Direct agent | 4 | 2/2 | 1,209 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_skill_repair_r1/seed4/run_20260921_121409) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_skill_repair_r1/seed4/run_20260921_121409/scorecard.json) |
+| 4. Direct agent + scene assets | 0 | 1/2 | 1,645 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_scene_package_opus_ramp_skill_repair_r1/seed0/run_20260921_121409) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_scene_package_opus_ramp_skill_repair_r1/seed0/run_20260921_121409/scorecard.json) |
+| 4. Direct agent + scene assets | 1 | 1/2 | 7,268 | 1 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_scene_package_opus_ramp_skill_repair_r1/seed1/run_20260921_121409) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_scene_package_opus_ramp_skill_repair_r1/seed1/run_20260921_121409/scorecard.json) |
+| 4. Direct agent + scene assets | 2 | 1/2 | 1,755 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_scene_package_opus_ramp_skill_repair_r1/seed2/run_20260921_121626) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_scene_package_opus_ramp_skill_repair_r1/seed2/run_20260921_121626/scorecard.json) |
+| 4. Direct agent + scene assets | 3 | 1/2 | 2,570 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_scene_package_opus_ramp_skill_repair_r1/seed3/run_20260921_121408) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_scene_package_opus_ramp_skill_repair_r1/seed3/run_20260921_121408/scorecard.json) |
+| 4. Direct agent + scene assets | 4 | 1/2 | 2,974 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_scene_package_opus_ramp_skill_repair_r1/seed4/run_20260921_121408) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_scene_package_opus_ramp_skill_repair_r1/seed4/run_20260921_121408/scorecard.json) |
+| 5. Standalone sim. | 0 | 1/2 | 3,236 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_ramp-standalone_opus_ramp_skill_repair_r1/seed0/run_20260921_121408) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_ramp-standalone_opus_ramp_skill_repair_r1/seed0/run_20260921_121408/scorecard.json) |
+| 5. Standalone sim. | 1 | 2/2 | 8,825 | 9 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_ramp-standalone_opus_ramp_skill_repair_r1/seed1/run_20260921_121408) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_ramp-standalone_opus_ramp_skill_repair_r1/seed1/run_20260921_121408/scorecard.json) |
+| 5. Standalone sim. | 2 | 2/2 | 1,250 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_ramp-standalone_opus_ramp_skill_repair_r1/seed2/run_20260921_121409) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_ramp-standalone_opus_ramp_skill_repair_r1/seed2/run_20260921_121409/scorecard.json) |
+| 5. Standalone sim. | 3 | 2/2 | 1,676 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_ramp-standalone_opus_ramp_skill_repair_r1/seed3/run_20260921_121409) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_ramp-standalone_opus_ramp_skill_repair_r1/seed3/run_20260921_121409/scorecard.json) |
+| 5. Standalone sim. | 4 | 1/2 | 2,203 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_ramp-standalone_opus_ramp_skill_repair_r1/seed4/run_20260921_121408) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_ramp-standalone_opus_ramp_skill_repair_r1/seed4/run_20260921_121408/scorecard.json) |
+| 6. No harness fitting | 0 | 2/2 | 4,428 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_ramp-no_fitting_opus_ramp_skill_repair_r1/seed0/run_20260921_121408) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_ramp-no_fitting_opus_ramp_skill_repair_r1/seed0/run_20260921_121408/scorecard.json) |
+| 6. No harness fitting | 1 | 2/2 | 1,693 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_ramp-no_fitting_opus_ramp_skill_repair_r1/seed1/run_20260921_121408) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_ramp-no_fitting_opus_ramp_skill_repair_r1/seed1/run_20260921_121408/scorecard.json) |
+| 6. No harness fitting | 2 | 2/2 | 2,015 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_ramp-no_fitting_opus_ramp_skill_repair_r1/seed2/run_20260921_121408) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_ramp-no_fitting_opus_ramp_skill_repair_r1/seed2/run_20260921_121408/scorecard.json) |
+| 6. No harness fitting | 3 | 2/2 | 882 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_ramp-no_fitting_opus_ramp_skill_repair_r1/seed3/run_20260921_121424) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_ramp-no_fitting_opus_ramp_skill_repair_r1/seed3/run_20260921_121424/scorecard.json) |
+| 6. No harness fitting | 4 | 2/2 | 3,163 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_ramp-no_fitting_opus_ramp_skill_repair_r1/seed4/run_20260921_121424) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_ramp-no_fitting_opus_ramp_skill_repair_r1/seed4/run_20260921_121424/scorecard.json) |
+| 7. No explicit uncert. | 0 | 2/2 | 2,094 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_ramp-no_uncertainty_opus_ramp_skill_repair_r1/seed0/run_20260921_121414) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_ramp-no_uncertainty_opus_ramp_skill_repair_r1/seed0/run_20260921_121414/scorecard.json) |
+| 7. No explicit uncert. | 1 | 2/2 | 3,917 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_ramp-no_uncertainty_opus_ramp_skill_repair_r1/seed1/run_20260921_121408) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_ramp-no_uncertainty_opus_ramp_skill_repair_r1/seed1/run_20260921_121408/scorecard.json) |
+| 7. No explicit uncert. | 2 | 2/2 | 916 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_ramp-no_uncertainty_opus_ramp_skill_repair_r1/seed2/run_20260921_121408) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_ramp-no_uncertainty_opus_ramp_skill_repair_r1/seed2/run_20260921_121408/scorecard.json) |
+| 7. No explicit uncert. | 3 | 2/2 | 988 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_ramp-no_uncertainty_opus_ramp_skill_repair_r1/seed3/run_20260921_121408) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_ramp-no_uncertainty_opus_ramp_skill_repair_r1/seed3/run_20260921_121408/scorecard.json) |
+| 7. No explicit uncert. | 4 | 2/2 | 1,342 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_ramp-no_uncertainty_opus_ramp_skill_repair_r1/seed4/run_20260921_121408) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_ramp-no_uncertainty_opus_ramp_skill_repair_r1/seed4/run_20260921_121408/scorecard.json) |
+| 12. EMPIRIC from assets | 0 | 1/2 | 2,314 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_from_assets/fan_ramp-from_assets_opus_pilot_r1/seed0/run_20260921_145636) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_from_assets/fan_ramp-from_assets_opus_pilot_r1/seed0/run_20260921_145636/scorecard.json) |
+| 12. EMPIRIC from assets | 1 | 2/2 | 1,713 | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_from_assets/fan_ramp-from_assets_opus_pilot_r1/seed1/run_20260921_145651) | [scorecard](/orcd/home/002/ycliang/predicators/logs/agent_continual_from_assets/fan_ramp-from_assets_opus_pilot_r1/seed1/run_20260921_145651/scorecard.json) |
 
 ## Unfinished runs
 
@@ -463,6 +556,3 @@ These seeds have no finished scorecard at this snapshot and are excluded above.
 | Fan (maze) | 10. Zero-shot model | 2 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_zero_shot/fan-zero_shot_opus_benchmark_r1/seed2/run_20260918_091745) |
 | Fan (exposed transfer) | 2. EMPIRIC | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_transfer-mb_opus_transfer_pilot_r1/seed0/run_20260920_081344) |
 | Fan (exposed transfer) | 3. Direct agent | 0 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_transfer-mf_opus_transfer_pilot_r1/seed0/run_20260920_081344) |
-| Fan (ramp transfer) | 2. EMPIRIC | 2 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_confirmation_r1/seed2/run_20260920_130314) |
-| Fan (ramp transfer) | 2. EMPIRIC | 3 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_confirmation_r1/seed3/run_20260920_130308) |
-| Fan (ramp transfer) | 3. Direct agent | 2 | [run logs](/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_confirmation_r1/seed2/run_20260920_130303) |

@@ -579,7 +579,7 @@ def test_model_gate_on_a_test_level(tmp_path: Any) -> None:
             continual_levels="test_only",
             continual_require_model_on_test=True)
     env, approach = _make_approach()
-    assert "Test levels require a fitted model" in \
+    assert "Test levels require a loaded model" in \
         approach._play_system_prompt()
     counter = '''
 class Counter(BaseSimulator):

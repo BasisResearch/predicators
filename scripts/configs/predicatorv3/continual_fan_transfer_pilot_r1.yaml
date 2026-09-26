@@ -10,7 +10,7 @@ FLAGS:
   continual_validation_audit: false
 ENVS:
   fan_transfer:
-    EXTENDS: fan
+    EXTENDS: fan_maze
     FLAGS:
       fan_exposed_transfer: true
       # Quoted CLI literals replace the inherited lists; YAML lists append.

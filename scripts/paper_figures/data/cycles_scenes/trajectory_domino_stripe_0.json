@@ -1,0 +1,1546 @@
+{
+  "generated_by": "scripts/render_egl_scenes.py; do not edit manually",
+  "metadata": {
+    "domain": "Domino",
+    "run": "domino_high_friction_turn-mb_opus_gate_r1/seed0/run_20260917_082017",
+    "source": "agent_continual/domino_high_friction_turn-mb_opus_gate_r1/seed0/run_20260917_082017/L01/episodes.pkl",
+    "source_sha256": "e7a3ad2bbe4caf4c7dcc565189e0064e5f8503897454313353e494e8aa2bf4cb",
+    "level": "L01",
+    "episode": 0,
+    "step": 173,
+    "model": false,
+    "display_notes": [],
+    "physics_steps_after_restore": 0
+  },
+  "camera": {
+    "view": [
+      -0.8660255074501038,
+      0.12096094340085983,
+      -0.4851478040218353,
+      0.0,
+      -0.5,
+      -0.20951050519943237,
+      0.8403007388114929,
+      0.0,
+      1.4901162970204496e-08,
+      0.970295786857605,
+      0.24192185699939728,
+      0.0,
+      1.2745190858840942,
+      -0.4595247805118561,
+      -2.1437642574310303,
+      1.0
+    ],
+    "projection": [
+      1.7320507764816284,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.7320507764816284,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      -1.0020020008087158,
+      -1.0,
+      0.0,
+      0.0,
+      -0.20020020008087158,
+      0.0
+    ],
+    "width": 900,
+    "height": 900
+  },
+  "shapes": [
+    {
+      "body": 0,
+      "link": -1,
+      "index": 0,
+      "name": "plane",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/plane.obj",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "rgba": [
+        0.5,
+        0.51,
+        0.53,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": -1,
+      "index": 0,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/base_link.dae",
+      "position": [
+        0.75,
+        0.7236000299453735,
+        -0.00139999995008111
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35600000619888306,
+        0.3610000014305115,
+        0.37599998712539673,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 0,
+      "index": 1,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/r_wheel_link.STL",
+      "position": [
+        0.9373800158500671,
+        0.7248914241790771,
+        0.05392500013113022
+      ],
+      "quaternion_xyzw": [
+        -2.1648077636676283e-17,
+        -2.1648077636676283e-17,
+        0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.0860000029206276,
+        0.5059999823570251,
+        0.7670000195503235,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 1,
+      "index": 2,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/l_wheel_link.STL",
+      "position": [
+        0.5626199841499329,
+        0.7248914241790771,
+        0.05392500013113022
+      ],
+      "quaternion_xyzw": [
+        -2.1648077636676283e-17,
+        -2.1648077636676283e-17,
+        0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.0860000029206276,
+        0.5059999823570251,
+        0.7670000195503235,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 2,
+      "index": 3,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/torso_lift_link.dae",
+      "position": [
+        0.75,
+        0.6367249488830566,
+        0.47602999210357666
+      ],
+      "quaternion_xyzw": [
+        -2.1648077636676283e-17,
+        -2.1648077636676283e-17,
+        0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 3,
+      "index": 4,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/head_pan_link.dae",
+      "position": [
+        0.75,
+        0.6898499727249146,
+        1.0790313482284546
+      ],
+      "quaternion_xyzw": [
+        -2.1648077636676283e-17,
+        -2.1648077636676283e-17,
+        0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.35600000619888306,
+        0.3610000014305115,
+        0.37599998712539673,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 4,
+      "index": 5,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/head_tilt_link.dae",
+      "position": [
+        0.75,
+        0.8323800563812256,
+        1.1370304822921753
+      ],
+      "quaternion_xyzw": [
+        -2.1648077636676283e-17,
+        -2.1648077636676283e-17,
+        0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.0860000029206276,
+        0.5059999823570251,
+        0.7670000195503235,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 10,
+      "index": 6,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/shoulder_pan_link.dae",
+      "position": [
+        0.75,
+        0.7562499642372131,
+        0.8246099948883057
+      ],
+      "quaternion_xyzw": [
+        -1.9013651315121474e-17,
+        -2.3994987557836235e-17,
+        0.6210567355155945,
+        0.7837656140327454
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 11,
+      "index": 7,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/shoulder_lift_link.dae",
+      "position": [
+        0.7767435312271118,
+        0.8701525330543518,
+        0.8846099972724915
+      ],
+      "quaternion_xyzw": [
+        0.12965244054794312,
+        -0.1636197715997696,
+        0.6073727011680603,
+        0.7664967179298401
+      ],
+      "rgba": [
+        0.0860000029206276,
+        0.5059999823570251,
+        0.7670000195503235,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 12,
+      "index": 8,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/upperarm_roll_link.dae",
+      "position": [
+        0.8224387168884277,
+        1.0647714138031006,
+        0.9740326404571533
+      ],
+      "quaternion_xyzw": [
+        0.4188727140426636,
+        0.08673793822526932,
+        0.6230165362358093,
+        0.654883623123169
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 13,
+      "index": 9,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/elbow_flex_link.dae",
+      "position": [
+        0.850189745426178,
+        1.1829646825790405,
+        1.0283396244049072
+      ],
+      "quaternion_xyzw": [
+        -0.19598442316055298,
+        0.5514500141143799,
+        0.7247027158737183,
+        0.36372920870780945
+      ],
+      "rgba": [
+        0.0860000029206276,
+        0.5059999823570251,
+        0.7670000195503235,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 14,
+      "index": 10,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/forearm_roll_link.dae",
+      "position": [
+        0.7204490303993225,
+        1.2442395687103271,
+        0.893351674079895
+      ],
+      "quaternion_xyzw": [
+        -0.35947442054748535,
+        0.08129864931106567,
+        0.9070180654525757,
+        0.20368359982967377
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 15,
+      "index": 11,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/wrist_flex_link.dae",
+      "position": [
+        0.6384555101394653,
+        1.2829639911651611,
+        0.808042049407959
+      ],
+      "quaternion_xyzw": [
+        0.6900578737258911,
+        -0.15548864006996155,
+        -0.689727246761322,
+        -0.1546601504087448
+      ],
+      "rgba": [
+        0.0860000029206276,
+        0.5059999823570251,
+        0.7670000195503235,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 16,
+      "index": 12,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/wrist_roll_link.dae",
+      "position": [
+        0.6384831070899963,
+        1.2827914953231812,
+        0.6695421934127808
+      ],
+      "quaternion_xyzw": [
+        0.5009503364562988,
+        -0.4996718168258667,
+        -0.5002284049987793,
+        -0.4991477131843567
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 17,
+      "index": 13,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/gripper_link.dae",
+      "position": [
+        0.6385163068771362,
+        1.2825840711593628,
+        0.5030922889709473
+      ],
+      "quaternion_xyzw": [
+        0.5009503364562988,
+        -0.4996718168258667,
+        -0.5002284049987793,
+        -0.4991477131843567
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 18,
+      "index": 14,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/r_gripper_finger_link.STL",
+      "position": [
+        0.5216554403305054,
+        1.2823083400726318,
+        0.5030693411827087
+      ],
+      "quaternion_xyzw": [
+        0.5009503364562988,
+        -0.4996718168258667,
+        -0.5002284049987793,
+        -0.4991477131843567
+      ],
+      "rgba": [
+        0.35600000619888306,
+        0.3610000014305115,
+        0.37599998712539673,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 19,
+      "index": 15,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/l_gripper_finger_link.STL",
+      "position": [
+        0.7553591728210449,
+        1.2828598022460938,
+        0.5031152367591858
+      ],
+      "quaternion_xyzw": [
+        0.5009503364562988,
+        -0.4996718168258667,
+        -0.5002284049987793,
+        -0.4991477131843567
+      ],
+      "rgba": [
+        0.35600000619888306,
+        0.3610000014305115,
+        0.37599998712539673,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 20,
+      "index": 16,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/bellows_link.STL",
+      "position": [
+        0.75,
+        0.6367250084877014,
+        0.47602999210357666
+      ],
+      "quaternion_xyzw": [
+        -2.1648077636676283e-17,
+        -2.1648077636676283e-17,
+        0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 21,
+      "index": 17,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/estop_link.STL",
+      "position": [
+        0.5110799670219421,
+        0.5989500284194946,
+        0.30987000465393066
+      ],
+      "quaternion_xyzw": [
+        0.5000008940696716,
+        0.5000008940696716,
+        0.49999910593032837,
+        0.49999910593032837
+      ],
+      "rgba": [
+        0.800000011920929,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 22,
+      "index": 18,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/laser_link.STL",
+      "position": [
+        0.75,
+        0.9585999846458435,
+        0.2863999903202057
+      ],
+      "quaternion_xyzw": [
+        0.7071067690849304,
+        0.7071067690849304,
+        -7.31230126362753e-14,
+        -7.31230126362753e-14
+      ],
+      "rgba": [
+        0.7919999957084656,
+        0.8199999928474426,
+        0.9330000281333923,
+        1.0
+      ]
+    },
+    {
+      "body": 1,
+      "link": 23,
+      "index": 19,
+      "name": "fetch",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/torso_fixed_link.dae",
+      "position": [
+        0.75,
+        0.6367250084877014,
+        0.37602499127388
+      ],
+      "quaternion_xyzw": [
+        -2.164819013323959e-17,
+        -2.164819013323959e-17,
+        0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        0.0860000029206276,
+        0.5059999823570251,
+        0.7670000195503235,
+        1.0
+      ]
+    },
+    {
+      "body": 2,
+      "link": -1,
+      "index": 0,
+      "name": "",
+      "kind": 3,
+      "dimensions": [
+        4.8100000000000005,
+        0.05,
+        2.275
+      ],
+      "mesh": "",
+      "position": [
+        0.75,
+        3.6549999713897705,
+        1.1375000476837158
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 3,
+      "link": -1,
+      "index": 0,
+      "name": "",
+      "kind": 3,
+      "dimensions": [
+        4.8100000000000005,
+        0.05,
+        2.275
+      ],
+      "mesh": "",
+      "position": [
+        0.75,
+        -1.1549999713897705,
+        1.1375000476837158
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 4,
+      "link": -1,
+      "index": 0,
+      "name": "",
+      "kind": 3,
+      "dimensions": [
+        0.05,
+        4.8100000000000005,
+        2.275
+      ],
+      "mesh": "",
+      "position": [
+        -1.6549999713897705,
+        1.25,
+        1.1375000476837158
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 5,
+      "link": -1,
+      "index": 0,
+      "name": "",
+      "kind": 3,
+      "dimensions": [
+        0.05,
+        4.8100000000000005,
+        2.275
+      ],
+      "mesh": "",
+      "position": [
+        3.1549999713897705,
+        1.25,
+        1.1375000476837158
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 6,
+      "link": -1,
+      "index": 0,
+      "name": "table",
+      "kind": 3,
+      "dimensions": [
+        0.5,
+        0.9,
+        0.4
+      ],
+      "mesh": "",
+      "position": [
+        0.75,
+        1.350000023841858,
+        0.20000000298023224
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 7,
+      "link": -1,
+      "index": 0,
+      "name": "table",
+      "kind": 3,
+      "dimensions": [
+        0.5,
+        0.9,
+        0.4
+      ],
+      "mesh": "",
+      "position": [
+        0.75,
+        1.850000023841858,
+        0.20000000298023224
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.7071067690849304,
+        0.7071067690849304
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 8,
+      "link": -1,
+      "index": 0,
+      "name": "",
+      "kind": 3,
+      "dimensions": [
+        0.07,
+        0.015,
+        0.15
+      ],
+      "mesh": "",
+      "position": [
+        0.6329289674758911,
+        1.2776542901992798,
+        0.4179357588291168
+      ],
+      "quaternion_xyzw": [
+        0.46300289034843445,
+        0.4641197919845581,
+        0.5346003174781799,
+        0.5333138108253479
+      ],
+      "rgba": [
+        0.56,
+        0.93,
+        0.56,
+        1.0
+      ]
+    },
+    {
+      "body": 8,
+      "link": 0,
+      "index": 1,
+      "name": "",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "",
+      "position": [
+        0.7081754803657532,
+        1.2778356075286865,
+        0.42860937118530273
+      ],
+      "quaternion_xyzw": [
+        0.46300289034843445,
+        0.4641197919845581,
+        0.5346003174781799,
+        0.5333138108253479
+      ],
+      "rgba": [
+        0.56,
+        0.93,
+        0.56,
+        1.0
+      ],
+      "vertices": [
+        [
+          0.0075,
+          0,
+          0
+        ],
+        [
+          -0.0075,
+          0.0075,
+          0
+        ],
+        [
+          -0.0075,
+          -0.0075,
+          0
+        ]
+      ],
+      "indices": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "body": 9,
+      "link": -1,
+      "index": 0,
+      "name": "",
+      "kind": 3,
+      "dimensions": [
+        0.07,
+        0.015,
+        0.15
+      ],
+      "mesh": "",
+      "position": [
+        0.9240399599075317,
+        1.2768305540084839,
+        0.467693567276001
+      ],
+      "quaternion_xyzw": [
+        0.19411885738372803,
+        0.1939944624900818,
+        0.6797394156455994,
+        0.680175244808197
+      ],
+      "rgba": [
+        0.85,
+        0.7,
+        0.85,
+        1.0
+      ]
+    },
+    {
+      "body": 9,
+      "link": 0,
+      "index": 1,
+      "name": "",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "",
+      "position": [
+        0.9641528725624084,
+        1.276804804801941,
+        0.5322455167770386
+      ],
+      "quaternion_xyzw": [
+        0.19411885738372803,
+        0.1939944624900818,
+        0.6797394156455994,
+        0.680175244808197
+      ],
+      "rgba": [
+        0.85,
+        0.7,
+        0.85,
+        1.0
+      ],
+      "vertices": [
+        [
+          0.0075,
+          0,
+          0
+        ],
+        [
+          -0.0075,
+          0.0075,
+          0
+        ],
+        [
+          -0.0075,
+          -0.0075,
+          0
+        ]
+      ],
+      "indices": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "body": 10,
+      "link": -1,
+      "index": 0,
+      "name": "",
+      "kind": 3,
+      "dimensions": [
+        0.07,
+        0.015,
+        0.15
+      ],
+      "mesh": "",
+      "position": [
+        0.4699999988079071,
+        1.274999976158142,
+        0.4749999940395355
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "rgba": [
+        0.6,
+        0.8,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 10,
+      "link": 0,
+      "index": 1,
+      "name": "",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "",
+      "position": [
+        0.4699999988079071,
+        1.274999976158142,
+        0.5509999990463257
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "rgba": [
+        0.6,
+        0.8,
+        1.0,
+        1.0
+      ],
+      "vertices": [
+        [
+          0.0075,
+          0,
+          0
+        ],
+        [
+          -0.0075,
+          0.0075,
+          0
+        ],
+        [
+          -0.0075,
+          -0.0075,
+          0
+        ]
+      ],
+      "indices": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "body": 11,
+      "link": -1,
+      "index": 0,
+      "name": "",
+      "kind": 3,
+      "dimensions": [
+        0.07,
+        0.015,
+        0.15
+      ],
+      "mesh": "",
+      "position": [
+        0.7574038505554199,
+        1.2746504545211792,
+        0.42713406682014465
+      ],
+      "quaternion_xyzw": [
+        0.4307461082935333,
+        0.42610156536102295,
+        0.559479296207428,
+        0.5655777454376221
+      ],
+      "rgba": [
+        0.6,
+        0.8,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 11,
+      "link": 0,
+      "index": 1,
+      "name": "",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "",
+      "position": [
+        0.8306658864021301,
+        1.273856282234192,
+        0.4473341405391693
+      ],
+      "quaternion_xyzw": [
+        0.4307461082935333,
+        0.42610156536102295,
+        0.559479296207428,
+        0.5655777454376221
+      ],
+      "rgba": [
+        0.6,
+        0.8,
+        1.0,
+        1.0
+      ],
+      "vertices": [
+        [
+          0.0075,
+          0,
+          0
+        ],
+        [
+          -0.0075,
+          0.0075,
+          0
+        ],
+        [
+          -0.0075,
+          -0.0075,
+          0
+        ]
+      ],
+      "indices": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "body": 12,
+      "link": -1,
+      "index": 0,
+      "name": "",
+      "kind": 3,
+      "dimensions": [
+        0.07,
+        0.015,
+        0.15
+      ],
+      "mesh": "",
+      "position": [
+        0.8531461358070374,
+        1.2735337018966675,
+        0.44456714391708374
+      ],
+      "quaternion_xyzw": [
+        0.35229724645614624,
+        0.34890031814575195,
+        0.611084520816803,
+        0.6170340180397034
+      ],
+      "rgba": [
+        0.6,
+        0.8,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 12,
+      "link": 0,
+      "index": 1,
+      "name": "",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "",
+      "position": [
+        0.9185922741889954,
+        1.2728996276855469,
+        0.48319873213768005
+      ],
+      "quaternion_xyzw": [
+        0.35229724645614624,
+        0.34890031814575195,
+        0.611084520816803,
+        0.6170340180397034
+      ],
+      "rgba": [
+        0.6,
+        0.8,
+        1.0,
+        1.0
+      ],
+      "vertices": [
+        [
+          0.0075,
+          0,
+          0
+        ],
+        [
+          -0.0075,
+          0.0075,
+          0
+        ],
+        [
+          -0.0075,
+          -0.0075,
+          0
+        ]
+      ],
+      "indices": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "body": 13,
+      "link": -1,
+      "index": 0,
+      "name": "",
+      "kind": 3,
+      "dimensions": [
+        0.07,
+        0.015,
+        0.15
+      ],
+      "mesh": "",
+      "position": [
+        0.9991697669029236,
+        1.2752994298934937,
+        0.476796954870224
+      ],
+      "quaternion_xyzw": [
+        -0.001698909210972488,
+        1.3387641217832424e-07,
+        -7.880127668613568e-05,
+        0.9999985694885254
+      ],
+      "rgba": [
+        0.6,
+        0.8,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 13,
+      "link": 0,
+      "index": 1,
+      "name": "",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "",
+      "position": [
+        0.9991698265075684,
+        1.2755576372146606,
+        0.5527965426445007
+      ],
+      "quaternion_xyzw": [
+        -0.001698909210972488,
+        1.3387641217832424e-07,
+        -7.880127668613568e-05,
+        0.9999985694885254
+      ],
+      "rgba": [
+        0.6,
+        0.8,
+        1.0,
+        1.0
+      ],
+      "vertices": [
+        [
+          0.0075,
+          0,
+          0
+        ],
+        [
+          -0.0075,
+          0.0075,
+          0
+        ],
+        [
+          -0.0075,
+          -0.0075,
+          0
+        ]
+      ],
+      "indices": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "body": 14,
+      "link": -1,
+      "index": 0,
+      "name": "",
+      "kind": 3,
+      "dimensions": [
+        0.07,
+        0.015,
+        0.15
+      ],
+      "mesh": "",
+      "position": [
+        10.100000381469727,
+        10.100000381469727,
+        0.07500000298023224
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "rgba": [
+        0.6000000238418579,
+        0.800000011920929,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 14,
+      "link": 0,
+      "index": 1,
+      "name": "",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "",
+      "position": [
+        10.100000381469727,
+        10.100000381469727,
+        0.1509999930858612
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        0.0,
+        1.0
+      ],
+      "vertices": [
+        [
+          0.0075,
+          0,
+          0
+        ],
+        [
+          -0.0075,
+          0.0075,
+          0
+        ],
+        [
+          -0.0075,
+          -0.0075,
+          0
+        ]
+      ],
+      "indices": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "body": 15,
+      "link": -1,
+      "index": 0,
+      "name": "",
+      "kind": 3,
+      "dimensions": [
+        0.07,
+        0.015,
+        0.15
+      ],
+      "mesh": "",
+      "position": [
+        10.199999809265137,
+        10.199999809265137,
+        0.07500000298023224
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "rgba": [
+        0.6000000238418579,
+        0.800000011920929,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "body": 15,
+      "link": 0,
+      "index": 1,
+      "name": "",
+      "kind": 5,
+      "dimensions": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "mesh": "",
+      "position": [
+        10.199999809265137,
+        10.199999809265137,
+        0.1509999930858612
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "rgba": [
+        1.0,
+        1.0,
+        0.0,
+        1.0
+      ],
+      "vertices": [
+        [
+          0.0075,
+          0,
+          0
+        ],
+        [
+          -0.0075,
+          0.0075,
+          0
+        ],
+        [
+          -0.0075,
+          -0.0075,
+          0
+        ]
+      ],
+      "indices": [
+        0,
+        1,
+        2
+      ]
+    }
+  ],
+  "mesh_sha256": {
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/plane.obj": "0cc3ec11a128956c6888a3ef8a79edaa279cd70e0df7ab96f7749e24f55067f5",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/base_link.dae": "5bce2661b072f9402f4af89b40b107271054e3c7705e2f9f23ffaf286e4a3b7c",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/r_wheel_link.STL": "e805e07d57faa72b957229538aec68ed935f656c599b9556530ddc6f45874aa5",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/l_wheel_link.STL": "f00a69358c8af5c74cfd49d8990707e22e8318370209fe32dbf98610dcf05a6b",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/torso_lift_link.dae": "45f38616be359918c6dd5a73bde21672d40730aed3c251084e09d1d79bcd2c7d",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/head_pan_link.dae": "1b4df542a4ad3d32e7a119a9d6fc397bc6c691643d47408a0b4bc3048342d218",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/head_tilt_link.dae": "8acf75c4beaa7fb1d67331942e611ecc2ca2896e076bc16b26196499987d5fef",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/shoulder_pan_link.dae": "8c54f5ca312504a4938214e23d70779f5a3e53c20700401006fedbc7e7c896ad",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/shoulder_lift_link.dae": "230f01402296c58c01cbf833b57ff92a987ca3684020b94f9a04b55c38c022ee",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/upperarm_roll_link.dae": "6a1ccacd7efc0f0f7f63ae010cb689b930dfcb7d2e761916791cce286a7a55c4",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/elbow_flex_link.dae": "2073fb649284297a5ef95926c808db5ac22fe0119018be9fb1d2ec46c337a2b6",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/forearm_roll_link.dae": "0556b2360bba65612e6179292d71fd1785b3ec5936c580f478e7644b70bbccdb",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/wrist_flex_link.dae": "da0776b66c8840bba6e78b65d9af51efa33b5876eafa033ddeb08ee3aacff401",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/wrist_roll_link.dae": "3df20e834a404da01a25bfee84c655036b64461a75533ef0e8aaa4c04134ae90",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/gripper_link.dae": "756a8fbc9a1cc34a01d07cf041d357f642252f0c3b0dd7f61d1fd12c98a03f73",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/r_gripper_finger_link.STL": "0f10460121e2bcacaa63a409cc1ea30f78fb96fe4d2ddaa2b616aac3e300ffbd",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/l_gripper_finger_link.STL": "aca440e0444fd8bcbbade739ea27ed3755d23bf823eb4d900bec00ee1c3b709c",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/bellows_link.STL": "90902856fe2d931ca099558378e89c2de22048075bc05def4fd5af311c398f29",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/estop_link.STL": "08ee8f343d047983477a5c57292ec6b4a4d317e9a999c8fbfd45b3249c8226fe",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/laser_link.STL": "285e57045df959a58c14d0b26c1a24203bd213acd17554f5b07bc526dfbc0747",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/torso_fixed_link.dae": "6721289f9f4dc4789cd587b97763009f498ee47fb37275d0cdaffd3d3562c350"
+  }
+}

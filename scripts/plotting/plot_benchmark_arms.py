@@ -10,16 +10,20 @@ Arms with no finished run in a domain draw nothing there.
 
 Usage: python scripts/plotting/plot_benchmark_arms.py <output stem>
 Add --paper after the output stem for the seven-arm, two-row paper view,
-using repaired Oracle r2 cohorts in Domino and Bridge only.
+using repaired Oracle r2 cohorts in Domino and Bridge only. Add
+--records=<summary.json> to redraw an archived selection, such as the
+paper's, instead of scanning the logs.
 writes <stem>.png, <stem>.pdf and <stem>-summary.json (per-seed records
 with the run directory each one read, plus the per-arm summary).
 """
 import glob
+import io
 import json
 import os
+import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 import matplotlib
 
@@ -40,23 +44,23 @@ MF = "agent_continual_model_free"
 ARMS = [
     "oracle_dynamics", "MB", "MF", "mf_scene_package", "standalone",
     "no_fitting", "no_uncertainty", "mb_scene_package", "scene_only",
-    "zero_shot", "real_to_sim"
+    "zero_shot", "real_to_sim", "from_assets"
 ]
 LABELS = [
     "Oracle dynamics", "EMPIRIC", "Direct agent",
     "Direct agent + scene assets", "Standalone sim.", "No harness fitting",
-    "No explicit uncert.", "EMPIRIC + scene pkg.", "Scene only",
-    "Zero-shot model", "Agentic real-to-sim"
+    "No explicit uncertainty", "EMPIRIC + scene pkg.", "Scene only",
+    "Zero-shot model", "Agentic real-to-sim", "EMPIRIC from assets"
 ]
 COLORS = [
     "#88929d", "#087f8c", "#bd5929", "#7a3312", "#7467a6", "#b19658",
-    "#397957", "#0b4f6c", "#6b9483", "#5588ad", "#a5573f"
+    "#397957", "#0b4f6c", "#6b9483", "#5588ad", "#a5573f", "#c04483"
 ]
 GROUPS = [
     ("Oracle reference", 0, 1),
     ("Methods", 1, 5),
     ("EMPIRIC ablations", 5, 7),
-    ("Additional comparisons", 7, 11),
+    ("Additional comparisons", 7, 12),
 ]
 APPROACH_DIR = {
     "mb_scene_package": "agent_continual",
@@ -167,7 +171,7 @@ _ORDER = [
 DOMAINS.sort(key=lambda d: _ORDER.index(d[0]))
 DISPLAY_TITLE = {domain: domain.split(" (", 1)[0] for domain in _ORDER}
 # Keep exploratory columns out of both paper records and paper rendering.
-PAPER_DOMAINS = tuple(_ORDER)
+PAPER_DOMAINS = tuple(_ORDER[:-1] + ["Fan (ramp transfer)"])
 FAN_TRANSFER = "Fan (exposed transfer)"
 _transfer_dirs: Dict[str, List[str]] = {arm: [] for arm in ARMS}
 for _arm, _approach, _round in (("MB", MB, "mb"), ("MF", MF, "mf")):
@@ -187,7 +191,52 @@ for _variant, _title in zip(("inertial", "ramp"), FAN_VARIANTS):
             for s in range(5)
         ]
     DOMAINS.append((_title, _variant_dirs))
-    DISPLAY_TITLE[_title] = f"Fan {_variant}"
+    DISPLAY_TITLE[_title] = "Fan" if _variant == "ramp" else "Fan inertial"
+    if _variant == "inertial":
+        for _arm, _approach in (("oracle_dynamics",
+                                 "agent_continual_oracle_dynamics"),
+                                ("mf_scene_package",
+                                 "agent_continual_model_free"),
+                                ("standalone",
+                                 "agent_continual_program_world_model"),
+                                ("no_fitting", "agent_continual_no_fitting"),
+                                ("no_uncertainty",
+                                 "agent_continual_no_uncertainty")):
+            _variant_dirs[_arm] = [
+                f"{_approach}/fan_inertial-{_arm}_opus_inertial_r1/seed{s}"
+                for s in range(5)
+            ]
+# Use only the matched repaired-skill cohort for the current ramp column.
+# Pending seeds must not fall back to the earlier geometry/skill experiments.
+_ramp_dirs = dict(DOMAINS)["Fan (ramp transfer)"]
+for _arm, _approach, _round in (
+    ("MB", MB, "mb"),
+    ("MF", MF, "mf"),
+    ("mf_scene_package", MF, "mf_scene_package"),
+    ("standalone", "agent_continual_program_world_model", "standalone"),
+    ("no_fitting", "agent_continual_no_fitting", "no_fitting"),
+    ("no_uncertainty", "agent_continual_no_uncertainty", "no_uncertainty"),
+):
+    _ramp_dirs[_arm] = [
+        f"{_approach}/fan_ramp-{_round}_opus_ramp_skill_repair_r1/seed{s}"
+        for s in range(5)
+    ]
+# Oracle Fan now uses only the fresh prompt-aligned cohort.  Failed startup
+# attempts and every earlier ramp cohort remain archived but are not pooled.
+_ramp_dirs["oracle_dynamics"] = [
+    "agent_continual_oracle_dynamics/"
+    f"fan-oracle_dynamics_opus_fan_prompt_r2/seed{s}" for s in range(5)
+]
+# Assets-only EMPIRIC is a separate two-seed development arm.
+# Exclude its cancelled maze runs and never substitute them for ramp data.
+for _domain, _dirs in DOMAINS:
+    _asset_key = ("fan_ramp" if _domain == "Fan (ramp transfer)" else
+                  ENV_KEY.get(_domain))
+    _dirs["from_assets"] = ([
+        f"agent_continual_from_assets/{_asset_key}-"
+        f"from_assets_opus_pilot_r1/seed{s}" for s in range(2)
+    ] if _asset_key is not None and _domain != "Fan (maze)" else [])
+
 # Arms shown de-emphasised (grey bars and labels).
 GREYED = {"mb_scene_package", "scene_only", "zero_shot", "real_to_sim"}
 GREY = "#c3c9cd"
@@ -200,6 +249,35 @@ MUTED = {
 }
 
 Row = Dict[str, Any]
+
+
+class Fonts(NamedTuple):
+    """Text sizes, in points on the figure canvas."""
+    tick: float
+    label: float
+    title: float
+    legend: float
+
+
+SCREEN_FONTS = Fonts(tick=10, label=11, title=12, legend=10)
+# The paper prints its 15 in wide canvas at the 5.5 in text width. These
+# printed sizes match the text of Figures 1 to 3: 5.5 pt ticks, 6 pt labels
+# and legend, 7.2 pt domain titles.
+PAPER_FONTS = Fonts(*(size * 15.0 / 5.5 for size in (5.5, 6.0, 7.2, 6.0)))
+
+
+def _longhand_fonts(svg: str) -> str:
+    """Spell out the CSS font shorthand in matplotlib's SVG text, which Figma's
+    SVG import ignores, as separate weight, size and family."""
+
+    def expand(match: "re.Match[str]") -> str:
+        weight, size, family = match.groups()
+        parts = [f"font-family: {family}", f"font-size: {size}"]
+        if weight:
+            parts.append(f"font-weight: {weight}")
+        return "; ".join(parts)
+
+    return re.sub(r"font: (?:(\d+) )?([\d.]+px) ('[^']+')", expand, svg)
 
 
 def colour(arm: str, i: int) -> str:
@@ -262,7 +340,7 @@ def records() -> List[Row]:
 
 
 def paper_records(rows: List[Row]) -> List[Row]:
-    """Select five-seed paper cohorts, preserving every row's provenance."""
+    """Select current paper cohorts, preserving every row's provenance."""
     selected = []
     for row in rows:
         if row["domain"] not in PAPER_DOMAINS:
@@ -291,7 +369,8 @@ def _solve_curves(ax: Any,
                   domain: str,
                   col: int,
                   arms: Optional[List[str]] = None,
-                  curve_style: str = "default") -> None:
+                  curve_style: str = "default",
+                  fonts: Fonts = SCREEN_FONTS) -> None:
     """Fraction of finished runs that solved the domain within each step
     budget: a step up at every solved run's total steps, flat after the
     last one, so the plateau height is the solve rate."""
@@ -358,11 +437,11 @@ def _solve_curves(ax: Any,
                           if x >= 1000 else f"{x:g}"))
         ax.spines[["top", "right", "left"]].set_visible(False)
         ax.spines["bottom"].set_color("#aebec5")
-        ax.tick_params(length=0, pad=4, labelsize=10)
+        ax.tick_params(length=0, pad=4, labelsize=fonts.tick)
         ax.grid(axis="x", color="#dce4e7", lw=.6)
-        ax.set_xlabel("Successful-run steps", fontsize=11)
+        ax.set_xlabel("Successful-run steps", fontsize=fonts.label)
         if col == 0:
-            ax.set_ylabel("Successful seeds", fontsize=11)
+            ax.set_ylabel("Successful seeds", fontsize=fonts.label)
         return
     # Paint in reverse legend order so the primary methods remain visible
     # where curves overlap. EMPIRIC is painted after the
@@ -430,11 +509,30 @@ def _solve_curves(ax: Any,
         FuncFormatter(lambda x, _: f"{x/1000:g}k" if x >= 1000 else f"{x:g}"))
     ax.spines[["top", "right"]].set_visible(False)
     ax.spines[["bottom", "left"]].set_color("#aebec5")
-    ax.tick_params(length=0, pad=4, labelsize=10)
+    ax.tick_params(length=0, pad=4, labelsize=fonts.tick)
     ax.grid(color="#dce4e7", lw=.6)
-    ax.set_xlabel("Step budget", fontsize=11)
+    ax.set_xlabel("Step budget", fontsize=fonts.label)
     if col == 0:
-        ax.set_ylabel("Runs solved (%)", fontsize=11)
+        ax.set_ylabel("Runs solved (%)", fontsize=fonts.label)
+
+
+def _solve_columns(ax: Any, count: int, groups: List[Tuple[str, int, int]],
+                   fonts: Fonts) -> None:
+    """Style the paper's solve-rate columns on the solve curves' scale, so a
+    column's height matches where its curve ends."""
+    ax.set_xlim(-.6, count - .4)
+    for group_index, (_, start, end) in enumerate(groups):
+        if group_index % 2 == 0:
+            ax.axvspan(start - .5, end - .5, color="#f2f4f5", zorder=0)
+    ax.axhline(0, color="#aebec5", lw=.8, zorder=1)
+    ax.set_xticks([])
+    ax.set_ylim(-4, 104)
+    ax.set_yticks([0, 50, 100])
+    ax.spines[["top", "right", "bottom"]].set_visible(False)
+    ax.spines["left"].set_color("#aebec5")
+    ax.tick_params(length=0, pad=4, labelsize=fonts.tick)
+    ax.set_axisbelow(True)
+    ax.grid(axis="y", color="#dce4e7", lw=.6)
 
 
 def render(rows: List[Row],
@@ -445,8 +543,13 @@ def render(rows: List[Row],
     plt.rcParams.update({
         "font.family": "DejaVu Sans",
         "font.size": 9,
-        "pdf.fonttype": 42
+        "pdf.fonttype": 42,
+        # The paper view's SVG, the source of the Figma copy, keeps its text
+        # editable and its ids fixed.
+        "svg.fonttype": "none",
+        "svg.hashsalt": "paper-results",
     })
+    fonts = PAPER_FONTS if paper else SCREEN_FONTS
     arms = PAPER_ARMS if paper else ARMS
     labels = [LABELS[ARMS.index(a)] for a in arms]
     if paper:
@@ -454,16 +557,9 @@ def render(rows: List[Row],
     groups = [("Oracle", 0, 1), ("Methods", 1, 5),
               ("Ablations", 5, 7)] if paper else GROUPS
     fields = ["solve", "steps"] if paper else ["solve", "steps", "resets"]
-    # Retain the superseded pilot in records and tables, not the figure.
-    domains = [item for item in DOMAINS if item[0] != FAN_TRANSFER]
-    if paper:
-        paper_order = [
-            "Domino", "Bridge (4-span)", "Balloons (composition)",
-            "Boil (2-jug)", "Fan (maze)"
-        ]
-        domains = sorted(
-            (item for item in DOMAINS if item[0] in PAPER_DOMAINS),
-            key=lambda item: paper_order.index(item[0]))
+    # Preserve historical variants in records, never pool them into Fan.
+    domains = sorted((item for item in DOMAINS if item[0] in PAPER_DOMAINS),
+                     key=lambda item: PAPER_DOMAINS.index(item[0]))
     columns = len(domains)
     fig, axes = plt.subplots(len(fields),
                              columns,
@@ -486,7 +582,7 @@ def render(rows: List[Row],
                         fontsize=9,
                         zorder=5)
             if field == "steps":
-                _solve_curves(ax, rows, domain, col, arms, curve_style)
+                _solve_curves(ax, rows, domain, col, arms, curve_style, fonts)
                 if not any(r["domain"] == domain for r in rows):
                     ax.set_xticks([])
                 continue
@@ -511,22 +607,41 @@ def render(rows: List[Row],
                          values=vals))
                 if vals:
                     assert avg is not None
-                    ax.barh(i,
-                            avg,
-                            height=.56,
-                            zorder=2,
-                            color=colour(arm, ARMS.index(arm)))
-                    jitter = (np.linspace(-.15, .15, len(vals))
-                              if len(vals) > 1 else [0])
-                    ax.scatter(
-                        vals,
-                        i + np.asarray(jitter),
-                        s=12,
-                        facecolors="white",
-                        edgecolors=MUTED[arm] if arm in GREYED else "#263c46",
-                        linewidths=.6,
-                        zorder=3,
-                        clip_on=False)
+                    if paper and field == "solve":
+                        # The paper stands the solve rates up as columns, so
+                        # they share the solve curves' vertical axis. Each
+                        # seed solves or fails, so it shows no seed dots.
+                        ax.bar(i,
+                               avg,
+                               width=.56,
+                               zorder=2,
+                               color=colour(arm, ARMS.index(arm)))
+                        if avg == 0:
+                            # A zero column would vanish; a stub on the
+                            # baseline shows that the agent solved no run.
+                            ax.hlines(0,
+                                      i - .28,
+                                      i + .28,
+                                      color=colour(arm, ARMS.index(arm)),
+                                      lw=2.4,
+                                      zorder=3)
+                    else:
+                        ax.barh(i,
+                                avg,
+                                height=.56,
+                                zorder=2,
+                                color=colour(arm, ARMS.index(arm)))
+                        jitter = (np.linspace(-.15, .15, len(vals))
+                                  if len(vals) > 1 else [0])
+                        ax.scatter(vals,
+                                   i + np.asarray(jitter),
+                                   s=12,
+                                   facecolors="white",
+                                   edgecolors=MUTED[arm]
+                                   if arm in GREYED else "#263c46",
+                                   linewidths=.6,
+                                   zorder=3,
+                                   clip_on=False)
                 if field == "steps":
                     ax.text(.98,
                             i,
@@ -539,11 +654,21 @@ def render(rows: List[Row],
                             bbox=dict(facecolor="white",
                                       edgecolor="none",
                                       pad=.6))
+            if paper and field == "solve":
+                _solve_columns(ax, len(arms), groups, fonts)
+                ax.set_title(DISPLAY_TITLE[domain],
+                             fontsize=fonts.title,
+                             fontweight="bold",
+                             color="#203744",
+                             pad=6)
+                if col == 0:
+                    ax.set_ylabel("Runs solved (%)", fontsize=fonts.label)
+                continue
             ax.set_ylim(len(arms) - .4, -.7)
             for group_index, (_, start, end) in enumerate(groups):
                 if group_index % 2 == 0:
                     ax.axhspan(start - .5, end - .5, color="#f2f4f5", zorder=0)
-            ax.set_yticks(range(len(arms)), labels, fontsize=10)
+            ax.set_yticks(range(len(arms)), labels, fontsize=fonts.tick)
             ax.tick_params(axis="y", labelleft=False)
             for tick, arm in zip(ax.get_yticklabels(), arms):
                 if arm in ("MB", "MB_r2"):
@@ -552,18 +677,18 @@ def render(rows: List[Row],
                     tick.set_color("#9aa3a8")
             ax.spines[["top", "right", "left"]].set_visible(False)
             ax.spines["bottom"].set_color("#aebec5")
-            ax.tick_params(length=0, pad=4, labelsize=10)
+            ax.tick_params(length=0, pad=4, labelsize=fonts.tick)
             ax.set_axisbelow(True)
             ax.grid(axis="x", color="#dce4e7", lw=.6)
             if field == "solve":
                 ax.set_xlim((0, 100) if paper else (-3, 108))
                 ax.set_xticks([0, 50, 100])
                 ax.set_title(DISPLAY_TITLE[domain],
-                             fontsize=12,
+                             fontsize=fonts.title,
                              fontweight="bold",
                              color="#203744",
                              pad=6 if paper else 12)
-                ax.set_xlabel("Successful runs (%)", fontsize=11)
+                ax.set_xlabel("Runs solved (%)", fontsize=fonts.label)
             elif field == "steps":
                 maximum = max(
                     (r["steps"] for r in rows
@@ -574,17 +699,21 @@ def render(rows: List[Row],
                 ax.xaxis.set_major_formatter(
                     FuncFormatter(lambda x, _: f"{x/1000:g}k"
                                   if x >= 1000 else f"{x:g}"))
-                ax.set_xlabel("Successful-run steps", fontsize=11)
+                ax.set_xlabel("Successful-run steps", fontsize=fonts.label)
             else:
                 ax.set_xlim(left=-.05, right=max(1, ax.get_xlim()[1]))
                 ax.xaxis.set_major_locator(MaxNLocator(3, integer=True))
-                ax.set_xlabel("Resets (all runs)", fontsize=11)
-    fig.subplots_adjust(left=.06,
-                        right=.99,
-                        top=.87 if paper else .89,
-                        bottom=.11 if paper else .05,
+                ax.set_xlabel("Resets (all runs)", fontsize=fonts.label)
+    # The paper's printed text is larger relative to the canvas, so it needs
+    # wider margins and two legend rows.
+    # In the paper the plots, with their labels, are centred on the canvas,
+    # like the legend above them.
+    fig.subplots_adjust(left=.0605 if paper else .06,
+                        right=.9755 if paper else .99,
+                        top=.78 if paper else .89,
+                        bottom=.13 if paper else .05,
                         wspace=.23,
-                        hspace=.45)
+                        hspace=.3 if paper else .45)
     handles = []
     legend_labels = []
     legend_arms = []
@@ -597,37 +726,56 @@ def render(rows: List[Row],
                            lw=8.0 if paper else 5.0))
             legend_labels.append(labels[i])
             legend_arms.append(arm)
-    legend_anchor = (.03, .985, .94, 0.) if paper else (.5, .985)
-    if not paper:
-        # Matplotlib fills columns first; keep the visual reading order by row.
-        indices = [
-            i for col in range(6) for i in (col, col + 6) if i < len(arms)
-        ]
-        handles = [handles[i] for i in indices]
-        legend_labels = [legend_labels[i] for i in indices]
-        legend_arms = [legend_arms[i] for i in indices]
-    leg = fig.legend(handles,
-                     legend_labels,
-                     loc="upper left" if paper else "upper center",
-                     ncol=len(arms) if paper else 6,
-                     mode="expand" if paper else None,
-                     borderaxespad=0 if paper else .5,
-                     columnspacing=0.9 if paper else 2.0,
-                     handlelength=2.2 if paper else 2.0,
-                     handletextpad=0.65 if paper else 0.8,
-                     fontsize=12 if paper else 10,
-                     frameon=False,
-                     bbox_to_anchor=legend_anchor)
-    for text, arm in zip(leg.get_texts(), legend_arms):
-        if arm in ("MB", "MB_r2"):
-            text.set_fontweight("bold")
-        if arm in GREYED:
-            text.set_color("#9aa3a8")
-    for ext in ("png", "pdf"):
-        fig.savefig(f"{output}.{ext}",
+    if paper:
+        # One centred legend per row, four agents over three, so the shorter
+        # second row sits under the middle of the first.
+        legend_rows = [list(range(4)), list(range(4, len(arms)))]
+    else:
+        # One legend; matplotlib fills its columns first, so this order reads
+        # by row.
+        legend_rows = [[
+            i for col in range(6) for i in range(col, len(arms), 6)
+        ]]
+    top = .99 if paper else .985
+    for entries in legend_rows:
+        leg = fig.legend([handles[i] for i in entries],
+                         [legend_labels[i] for i in entries],
+                         loc="upper center",
+                         ncol=len(entries) if paper else 6,
+                         borderpad=0 if paper else .4,
+                         borderaxespad=0 if paper else .5,
+                         columnspacing=2.0,
+                         handlelength=2.2 if paper else 2.0,
+                         handletextpad=0.65 if paper else 0.8,
+                         fontsize=fonts.legend,
+                         frameon=False,
+                         bbox_to_anchor=(.5, top))
+        for text, i in zip(leg.get_texts(), entries):
+            if legend_arms[i] in ("MB", "MB_r2"):
+                text.set_fontweight("bold")
+            if legend_arms[i] in GREYED:
+                text.set_color("#9aa3a8")
+        # The next row starts one line space below this one, as within a
+        # legend.
+        box = leg.get_window_extent(fig.canvas.get_renderer()).transformed(
+            fig.transFigure.inverted())
+        top = box.y0 - leg.labelspacing * fonts.legend / (72 *
+                                                          fig.get_figheight())
+    # Without creation dates, re-exporting an unchanged figure writes the
+    # same bytes.
+    undated = {"pdf": {"CreationDate": None}, "svg": {"Date": None}}
+    for ext in ("png", "pdf", "svg") if paper else ("png", "pdf"):
+        target: Any = io.StringIO() if ext == "svg" else f"{output}.{ext}"
+        fig.savefig(target,
+                    format=ext,
                     dpi=180,
                     bbox_inches=None,
-                    pad_inches=0 if paper else .06)
+                    pad_inches=0 if paper else .06,
+                    metadata=undated.get(ext))
+        if ext == "svg":
+            Path(f"{output}.svg").write_text(_longhand_fonts(
+                target.getvalue()),
+                                             encoding="utf-8")
     plt.close(fig)
     with open(f"{output}-summary.json", "w", encoding="utf-8") as f:
         json.dump(dict(records=rows, summary=summary), f, indent=2)
@@ -635,7 +783,14 @@ def render(rows: List[Row],
 
 def main() -> None:
     """Print every finished seed and draw the figure."""
-    found = records()
+    archive = next((arg.removeprefix("--records=")
+                    for arg in sys.argv[2:] if arg.startswith("--records=")),
+                   None)
+    if archive is None:
+        found = records()
+    else:
+        with open(archive, encoding="utf-8") as f:
+            found = json.load(f)["records"]
     for row in found:
         print(row["domain"], row["arm"], f"s{row['seed']}",
               f"{row['won']}/{row['levels']}", row["steps"], "steps",
@@ -648,10 +803,15 @@ def main() -> None:
         "markers")
     if curve_style not in {"default", "offset", "dashes", "markers", "strips"}:
         raise ValueError(f"Unknown curve style: {curve_style}")
-    render(paper_records(found) if paper else found,
+    # An archived selection is drawn as recorded.
+    render(paper_records(found) if paper and archive is None else found,
            out,
            paper=paper,
            curve_style=curve_style)
+    if archive is not None:
+        with open(f"{out}-summary.json", encoding="utf-8") as f:
+            assert json.load(f)["records"] == found, (
+                "the redraw changed the archived records")
     print("saved", out + ".png")
 
 

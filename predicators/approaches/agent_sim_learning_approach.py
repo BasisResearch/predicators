@@ -231,10 +231,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # Pass the option model in so the parent __init__ doesn't spin up
         # its own full-process env, which would fight this one for the
         # PyBullet GUI client.
-        self._base_env = create_new_env(CFG.env,
-                                        do_cache=False,
-                                        use_gui=CFG.option_model_use_gui,
-                                        skip_residual_dynamics=True)
+        self._base_env = self._create_initial_base_env(types)
         if option_model is None:
             option_model = _OracleOptionModel(initial_options,
                                               self._base_env.simulate)
@@ -2213,6 +2210,14 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         return sse
 
     # ── System identification (PHYSICAL_PARAM_SPECS) support ──────────
+
+    def _create_initial_base_env(self, types: Set[Type]) -> Any:
+        """Initial model substrate; scene-built arms supply only the robot."""
+        del types
+        return create_new_env(CFG.env,
+                              do_cache=False,
+                              use_gui=CFG.option_model_use_gui,
+                              skip_residual_dynamics=True)
 
     def _make_planning_base_env(self, use_gui: bool = False) -> Any:
         """A fresh planning base env.
