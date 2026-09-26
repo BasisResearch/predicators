@@ -293,8 +293,7 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         self._install_extra_synthesis_surfaces(exec_ns, base_pred_triples,
                                                inferred_hint, extra_paths)
         candidate_provider = self._make_candidate_probe_model_provider(
-            paths.simulator_file, trajectories, base_pred_triples,
-            inferred_hint)
+            paths.simulator_file, trajectories)
 
         def probe_model() -> _OptionModelBase:
             # Before a candidate exists the probe runs the real skill
@@ -437,7 +436,7 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
                               inferred_hint: Dict[str, List[str]], paths: Any,
                               extra_paths: Dict[str, str]) -> None:
         loaded = self._load_synthesis_artifacts(trajectories, inferred_hint,
-                                                paths, extra_paths, {})
+                                                paths, extra_paths)
         if loaded is None:
             # No loadable simulator.py this session: the prior model, if
             # any, still stands.

@@ -2,8 +2,8 @@
 
 :class:`SynthesisBackend` declares exactly the approach surface that the
 synthesis tool factories in :mod:`predicators.agent_sdk.tools`
-(``create_synthesis_tools``, ``make_predicate_quality_loader``,
-``make_sampler_loader``) and the approach-layer validation
+(``create_synthesis_tools``, ``make_predicate_quality_loader``) and
+the approach-layer validation
 glue in :mod:`predicators.approaches.synthesis_validation` dereference.
 It exists so those modules can be typed against the contract instead of
 importing the concrete ``AgentSimLearningApproach`` - the import that
@@ -22,8 +22,7 @@ if TYPE_CHECKING:
     from predicators.code_sim_learning.utils import LearnedSimulator
     from predicators.option_model import _OracleOptionModel
     from predicators.structs import Action, LowLevelTrajectory, \
-        ParameterizedOption, ParameterizedSampler, Predicate, State, Task, \
-        Type
+        ParameterizedOption, Predicate, State, Task, Type
 
 
 class SynthesisBackend(Protocol):
@@ -60,8 +59,6 @@ class SynthesisBackend(Protocol):
                                                                     float]]]]
 
     # ── State written by the tools ───────────────────────────────
-    # Per-skill samplers keyed by option name.
-    _synthesized_samplers: Dict[str, ParameterizedSampler]
     # Candidate simulator state published during validation so the
     # recurrent combined simulator sees the rules under evaluation.
     _residual_rules: Optional[List]
@@ -92,9 +89,6 @@ class SynthesisBackend(Protocol):
         ...
 
     def _get_all_options(self) -> Set[ParameterizedOption]:
-        ...
-
-    def _get_all_samplers(self) -> Dict[str, ParameterizedSampler]:
         ...
 
     def _group_triples_by_trajectory(
@@ -137,29 +131,6 @@ class SynthesisBackend(Protocol):
             self, version_tag: str) -> Optional[Dict[str, LaplaceEvidence]]:
         """The previous version's recorded evidence, as a one-entry dict."""
 
-    def _record_sysid_diagnostics(self, report: Dict[str, Dict[str, Any]],
-                                  physical_names: Sequence[str],
-                                  num_survivors: int, num_segments: int,
-                                  rms: List[float]) -> None:
-        ...
-
-    def _fit_parameters_recurrent(
-        self,
-        rules: List,
-        specs: List[ParamSpec],
-        base_pred_triples: List[Tuple[State, Action, State]],
-        residual_features: Dict[str, List[str]],
-    ) -> Tuple[FitResult, float]:
-        ...
-
-    def _fit_parameters_joint_rollout(
-        self,
-        rules: List,
-        rule_specs: List[ParamSpec],
-        residual_features: Dict[str, List[str]],
-    ) -> Tuple[FitResult, float]:
-        ...
-
     def _build_combined_simulator(
         self,
         learned_simulator: LearnedSimulator,
@@ -195,23 +166,3 @@ class PredicateSynthesisBackend(SynthesisBackend, Protocol):
     # Initial predicates that survived retraction, used to build the
     # exec namespace the agent's predicate code runs in.
     _kept_initial_predicates: Set[Predicate]
-
-
-class SamplerSynthesisBackend(Protocol):
-    """The narrow surface ``make_sampler_loader`` needs.
-
-    ``SamplerLearningMixin`` satisfies this directly (its declared host-
-    class contract covers every member), so the mixin can pass ``self``
-    without seeing the full backend.
-    """
-
-    _fitted_params: Dict[str, float]
-    _train_tasks: List[Task]
-    _types: Set[Type]
-    _synthesized_samplers: Dict[str, ParameterizedSampler]
-
-    def _get_all_predicates(self) -> Set[Predicate]:
-        ...
-
-    def _get_all_options(self) -> Set[ParameterizedOption]:
-        ...

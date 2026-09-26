@@ -2118,7 +2118,6 @@ class LowLevelTrajectory:
     _train_task_idx: Optional[int] = field(default=None)
     _source_simulator_version: Optional[str] = field(default=None)
     _source_predicates_version: Optional[str] = field(default=None)
-    _source_samplers_version: Optional[str] = field(default=None)
     _env_reward: Optional[float] = field(default=None)
     _env_terminated: Optional[bool] = field(default=None)
 
@@ -2162,12 +2161,6 @@ class LowLevelTrajectory:
         """Snapshot tag of the predicates set used to generate the plan that
         collected this trajectory, or ``None`` if not tracked."""
         return self._source_predicates_version
-
-    @property
-    def source_samplers_version(self) -> Optional[str]:
-        """Snapshot tag of the per-skill samplers used to generate the plan
-        that collected this trajectory, or ``None`` if not tracked."""
-        return self._source_samplers_version
 
     @property
     def env_rejected(self) -> bool:
@@ -2635,8 +2628,7 @@ class InteractionRequest:
     # explorers); online learning treats ``False`` as not-solved for
     # early stopping even if real-env execution happens to reach the
     # goal, so a model that executes-but-mispredicts isn't certified as
-    # trained. See AgentModelBasedExplorer /
-    # run.online_learning.generate_interaction_results.
+    # trained. See run.online_learning.generate_interaction_results.
     mental_model_solved: Optional[bool] = None
 
 

@@ -3,8 +3,8 @@
 Converts ``claude_agent_sdk`` message types (``AssistantMessage``,
 ``UserMessage``, ``ResultMessage``, and the ``SystemMessage`` that marks
 a context compaction) into plain dicts suitable for logging and
-serialization.  Used by ``AgentSessionManager``,
-``LocalSandboxSessionManager``, and ``docker_agent_runner``.
+serialization.  Used by ``AgentSessionManager`` and
+``LocalSandboxSessionManager``.
 """
 from typing import Any, Dict, List, Optional, Sequence
 

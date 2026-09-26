@@ -2,8 +2,7 @@
 
 Converts the ``List[Dict[str, Any]]`` collected by response parsers into
 a human-readable markdown document.  Used by
-``LocalSandboxSessionManager._flush_log`` and
-``docker_agent_runner._flush_log``.
+``LocalSandboxSessionManager._flush_log``.
 """
 import json
 from typing import Any, Dict, List, Optional

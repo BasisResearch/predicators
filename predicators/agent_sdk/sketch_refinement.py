@@ -25,8 +25,8 @@ from predicators.agent_sdk.sketch_parsing import _fmt_params
 from predicators.agent_sdk.sketch_types import SketchStep
 from predicators.option_model import _OptionModelBase
 from predicators.planning import run_backtracking_refinement
-from predicators.structs import GroundAtom, ParameterizedOption, \
-    ParameterizedSampler, Predicate, State, Task, _Option
+from predicators.structs import GroundAtom, ParameterizedOption, Predicate, \
+    State, Task, _Option
 
 # Signature of an info-gain scorer: given a candidate post-state and the
 # atoms whose truth the step is meant to establish, return a scalar where
@@ -152,7 +152,6 @@ class _RefineContext:
     deepest_failure_holder: Optional[List[DeepestFailure]]
     info_scorer: Optional[InfoScorer]
     info_n_feasible_target: int
-    parameterized_samplers: Optional[Dict[str, ParameterizedSampler]]
     solved_check: Optional[Callable[[List[State], List[Any], bool],
                                     Tuple[bool, str]]]
     # Proposed continuous params are decisions, not seeds: a step that
@@ -202,7 +201,6 @@ class _RefinementState:
     # Options whose synthesized sampler already misbehaved once - so the
     # per-draw fallback warning fires at most once per option, not on every
     # one of the (potentially thousands of) draws during backtracking.
-    sampler_warned: Set[str] = dataclasses.field(default_factory=set)
 
     # Step indices whose LLM-proposed initial_params have already been used --
     # tried directly on the plain path, or seeded into the info-seeking pool.
@@ -248,47 +246,18 @@ class _RefinementState:
     elapsed: List[float] = dataclasses.field(default_factory=list)
 
 
-def _draw_params(search: _RefinementState, ctx: _RefineContext,
-                 step: SketchStep, state: State,
+def _draw_params(step: SketchStep, state: State,
                  rng_: np.random.Generator) -> np.ndarray:
-    """Draw continuous params for a step's option.
-
-    Precedence, most specific first: the step's ground sampler (a ``~``
-    annotation compiled into a ``GroundSampler``: uniform window or
-    named code fn), then the option's learned parameterized sampler
-    (keyed by option name), then uniform ``sample_params`` - the
-    fallback also on a sampler error or wrong-shaped return (a
-    misbehaving ground fn falls all the way to uniform, not to the
-    parameterized sampler, mirroring the parameterized fallback).
-    """
+    """Draw continuous params for a step's option: from the step's ground
+    sampler (a ``~`` annotation compiled into a ``GroundSampler``: uniform
+    window or named code fn) when it has one and it draws, uniformly with
+    ``sample_params`` otherwise."""
     if step.ground_sampler is not None:
         drawn = step.ground_sampler.draw(state, rng_, step.option.params_space,
                                          step.objects, step.subgoal_atoms
                                          or set())
         if drawn is not None:
             return drawn
-        return sample_params(step.option, rng_)
-    sampler = (ctx.parameterized_samplers.get(step.option.name)
-               if ctx.parameterized_samplers else None)
-    if sampler is not None:
-        box = step.option.params_space
-        expected = box.shape[0]
-        try:
-            raw = sampler(state, step.subgoal_atoms or set(), rng_,
-                          list(step.objects))
-            params = np.asarray(raw, dtype=np.float32).reshape(-1)
-            if params.shape == (expected, ):
-                return np.clip(params, box.low, box.high)
-            reason = (f"returned shape {params.shape}, "
-                      f"expected ({expected},)")
-        except Exception as e:  # pylint: disable=broad-except
-            reason = f"raised {type(e).__name__}: {e}"
-        if step.option.name not in search.sampler_warned:
-            search.sampler_warned.add(step.option.name)
-            logging.warning(
-                "[%s] synthesized sampler for %s %s; falling back to "
-                "uniform sampling for this option.", ctx.run_id,
-                step.option.name, reason)
     return sample_params(step.option, rng_)
 
 
@@ -347,21 +316,16 @@ def _is_pinned(ctx: _RefineContext, step: SketchStep) -> bool:
             and step.option.params_space.shape[0] > 0)
 
 
-def _is_deterministic(ctx: _RefineContext, step: SketchStep) -> bool:
-    """Whether the step's sampler flags itself as returning constant params."""
-    # A sampler may flag itself as returning constant params (ignoring
-    # state/rng); re-drawing it yields the identical option, so its step
-    # gets a single attempt -- backtracking then skips straight past it
-    # instead of wasting the full budget re-descending through it.
-    if step.ground_sampler is not None:
-        # A ground-sampler step bypasses the parameterized sampler,
-        # so a deterministic sampler flag must not collapse it to
-        # one attempt. An all-zero window pins every draw to the
-        # center, which IS deterministic - one attempt suffices.
-        return step.ground_sampler.deterministic
-    sampler = (ctx.parameterized_samplers.get(step.option.name)
-               if ctx.parameterized_samplers else None)
-    return bool(getattr(sampler, "deterministic", False))
+def _is_deterministic(step: SketchStep) -> bool:
+    """Whether the step's ground sampler returns constant params.
+
+    Re-drawing it yields the identical option, so its step gets a single
+    attempt: backtracking then skips straight past it instead of wasting
+    the full budget re-descending through it. An all-zero window pins
+    every draw to the center, which is deterministic.
+    """
+    return (step.ground_sampler is not None
+            and step.ground_sampler.deterministic)
 
 
 def _sample_info_seeking(search: _RefinementState, ctx: _RefineContext,
@@ -493,8 +457,7 @@ def _sample_info_seeking(search: _RefinementState, ctx: _RefineContext,
             if len(scored) > n_pooled_before else "infeasible — not pooled")
 
     while len(scored) < ctx.info_n_feasible_target and n_draws < draw_cap:
-        grounded = ground_step(step,
-                               _draw_params(search, ctx, step, state, rng_))
+        grounded = ground_step(step, _draw_params(step, state, rng_))
         n_draws += 1
         _consider(grounded)
     pool.spent += n_draws
@@ -573,7 +536,7 @@ def _sample_step(search: _RefinementState, ctx: _RefineContext, idx: int,
         logging.debug("[%s] step %d %s: trying LLM-proposed params %s",
                       ctx.run_id, idx, step.option.name, params.tolist())
         return ground_step(step, params)
-    return ground_step(step, _draw_params(search, ctx, step, state, rng_))
+    return ground_step(step, _draw_params(step, state, rng_))
 
 
 def _validate_step(search: _RefinementState, ctx: _RefineContext, idx: int,
@@ -703,7 +666,6 @@ def refine_sketch(
     deepest_failure_holder: Optional[List[DeepestFailure]] = None,
     info_scorer: Optional[InfoScorer] = None,
     info_n_feasible_target: int = 1,
-    parameterized_samplers: Optional[Dict[str, ParameterizedSampler]] = None,
     strip_latent_wait_targets: bool = True,
     solved_check: Optional[Callable[[List[State], List[Any], bool],
                                     Tuple[bool, str]]] = None,
@@ -798,17 +760,9 @@ def refine_sketch(
     that ``WaitOption`` terminates on the intended atom change rather
     than the first incidental one.
 
-    ``parameterized_samplers`` maps an option name to a parameterized
-    (per-skill) sampler ``(state, subgoal_atoms, rng, objects) ->
-    params`` (the NSRTSampler signature, with the step subgoal in the
-    atoms slot), used on both plain and info-seeking draws to aim that
-    option's parameters at the subgoal instead of drawing uniformly.
-    The return is clipped to the option's box; a missing or misbehaving
-    sampler falls back to uniform sampling. A step whose sketch line
-    carries a ``~ [widths]`` region annotation bypasses the sampler
-    entirely: after the one-shot center try, its draws come from the
-    step's ``GroundSampler``, the most specific prior winning - ground
-    sampler, then parameterized sampler, then uniform.
+    A step whose sketch line carries a ``~ [widths]`` region annotation
+    draws, after the one-shot center try, from the step's
+    ``GroundSampler``; other steps draw uniformly.
     """
     if not sketch:
         return RefineOutcome(plan=[],
@@ -833,7 +787,6 @@ def refine_sketch(
                          deepest_failure_holder=deepest_failure_holder,
                          info_scorer=info_scorer,
                          info_n_feasible_target=info_n_feasible_target,
-                         parameterized_samplers=parameterized_samplers,
                          solved_check=solved_check,
                          pin_proposed_params=pin_proposed_params,
                          pinned_step_retries=max(1, pinned_step_retries))
@@ -853,7 +806,7 @@ def refine_sketch(
     for _step in sketch:
         if _step.option.params_space.shape[0] == 0:
             max_tries.append(1)
-        elif _is_deterministic(ctx, _step):
+        elif _is_deterministic(_step):
             max_tries.append(1)
         elif _is_pinned(ctx, _step):
             max_tries.append(ctx.pinned_step_retries)
@@ -1045,7 +998,6 @@ def suggest_probes(
     rng: np.random.Generator,
     max_draws: int = 20,
     top_k: int = 3,
-    parameterized_samplers: Optional[Dict[str, ParameterizedSampler]] = None,
     on_rollout: Optional[Callable[[], None]] = None,
     plan_scorer: Optional[Callable[[List[_Option], Set[GroundAtom]],
                                    Tuple[float, Dict[str, float]]]] = None,
@@ -1084,26 +1036,6 @@ def suggest_probes(
             for a in sorted(atoms, key=str)
         }
 
-    ctx = _RefineContext(task=task,
-                         sketch=sketch,
-                         option_model=option_model,
-                         predicates=predicates,
-                         max_samples_per_step=max_draws,
-                         check_subgoals=True,
-                         check_final_goal=False,
-                         log_state=False,
-                         run_id="suggest_probes",
-                         on_step_fail=None,
-                         deepest_failure_holder=None,
-                         info_scorer=info_scorer,
-                         info_n_feasible_target=1,
-                         parameterized_samplers=parameterized_samplers,
-                         solved_check=None,
-                         pin_proposed_params=True,
-                         pinned_step_retries=1)
-    search = _RefinementState(step_pools=[None] * len(sketch),
-                              step_trajs=[None] * len(sketch),
-                              step_samples_cumulative=[0] * len(sketch))
     suggestions: List[StepProbeSuggestion] = []
     notes: List[str] = []
     state = task.init
@@ -1147,8 +1079,7 @@ def suggest_probes(
         best_option: Optional[_Option] = None
         if has_params and atoms:
             for _ in range(max_draws):
-                grounded = ground_step(
-                    step, _draw_params(search, ctx, step, state, rng))
+                grounded = ground_step(step, _draw_params(step, state, rng))
                 n_draws += 1
                 nxt = _roll(grounded)
                 if nxt is None or not atoms.issubset(
@@ -1232,7 +1163,6 @@ def refine_and_validate_report(
     max_samples_per_step: int,
     check_subgoals: bool,
     log_state: bool = False,
-    parameterized_samplers: Optional[Dict[str, ParameterizedSampler]] = None,
     run_id: str = "refine",
     timeout_source: str = "explicit",
     extra_summary_lines: Optional[List[str]] = None,
@@ -1278,7 +1208,6 @@ def refine_and_validate_report(
         check_subgoals=check_subgoals,
         log_state=log_state,
         run_id=run_id,
-        parameterized_samplers=parameterized_samplers,
         solved_check=solved_check,
         strip_latent_wait_targets=strip_latent_wait_targets,
     )

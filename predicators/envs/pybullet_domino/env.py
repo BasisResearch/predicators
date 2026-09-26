@@ -270,23 +270,18 @@ class PyBulletDominoComposedEnv(PyBulletDominoBaseEnv):
         # automatically after every reset_state.
         friction = CFG.domino_true_friction
         if self._skip_domain_specific_dynamics and \
-                CFG.domino_planning_friction is not None and \
-                not CFG.agent_sim_learn_oracle_sim_params:
-            # agent_sim_learn_oracle_sim_params grants the planner the
-            # TRUE friction (oracle upper bound) while task generation keeps
-            # using domino_planning_friction for the differentiation filter.
+                CFG.domino_planning_friction is not None:
             friction = CFG.domino_planning_friction
         if self._domino_component is not None and abs(
                 friction - self._domino_component.domino_friction) > 1e-9:
             self.set_domino_physical_params(lateral_friction=friction)
         # Heavy-block tasks: planning sims BELIEVE the heavy gray blocks
         # are ordinary dominoes (normal mass), so their rollouts propagate
-        # a chain straight through one. The eval env (and the oracle-
-        # params planner) keeps the true heavy mass, asserted at reset.
+        # a chain straight through one. The eval env keeps the true heavy
+        # mass, asserted at reset.
         if CFG.domino_heavy_block_tasks \
                 and self._domino_component is not None \
-                and self._skip_domain_specific_dynamics \
-                and not CFG.agent_sim_learn_oracle_sim_params:
+                and self._skip_domain_specific_dynamics:
             self.set_domino_physical_params(block_mass=self.domino_mass)
 
     def _create_robot_predicates(self) -> None:

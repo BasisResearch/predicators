@@ -17,8 +17,7 @@ This package replaces the former single-module ``tools.py``. Layout:
 - ``python_exec``: shared python-exec core (run_python /
   run_python).
 - ``synthesis`` / ``params_view``: the synthesis-session tool factory.
-- ``predicate_synthesis`` / ``sampler_synthesis``: the loaders behind
-  ``sim.predicates()`` / ``sim.samplers()``.
+- ``predicate_synthesis``: the loader behind ``sim.predicates()``.
 
 This facade re-exports the package's public surface (plus a few
 underscore names kept for pre-split imports); new code should import
@@ -36,7 +35,6 @@ from predicators.agent_sdk.tools.registry import ALL_TOOL_NAMES, \
     list_session_tool_names
 from predicators.agent_sdk.tools.results import _make_coercing_tool, \
     _make_spilling_text_result, session_log_filename
-from predicators.agent_sdk.tools.sampler_synthesis import make_sampler_loader
 from predicators.agent_sdk.tools.sandbox_guard import \
     SANDBOX_HIDDEN_MODULES_PATTERN, SANDBOX_INTROSPECTION, \
     SANDBOX_SYSTEM_ROOTS, _screen_text_for_sandbox_escape
@@ -73,7 +71,6 @@ __all__ = [
     "list_session_tool_names",
     "load_ground_sampler_fns",
     "make_predicate_quality_loader",
-    "make_sampler_loader",
     "make_solved_check",
     "make_write_snapshot_hook",
     "render_pybullet_image",

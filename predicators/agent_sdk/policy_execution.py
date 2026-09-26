@@ -13,10 +13,7 @@ when finished. This module holds the two shared pieces:
   build a fresh instance per episode/rollout.
 * :func:`execute_policy_forward` - the closed-loop sibling of
   ``plan_execution.execute_plan_forward``, used for belief-model
-  validation. The real executor
-  (``AgentModelBasedApproach._policy_to_execution_policy``) mirrors its
-  semantics step for step, so validation and real execution share one
-  behavioral contract:
+  validation, with this behavioral contract:
 
   - OPTION failures (not initiable, env failure, 0 actions) do NOT end
     the episode: the failure text is surfaced to the policy via

@@ -1612,18 +1612,13 @@ class EnvironmentFailure(ExceptionWithInfo):
 
 
 def real_episode_step_budget(phase: Optional[str]) -> int:
-    """Low-level steps a real episode of this ``phase`` may use.
+    """Low-level steps a real episode may use: the horizon, in every agent
+    session phase.
 
-    Explore (interaction-request) episodes are capped by
-    ``max_num_steps_interaction_request`` on top of the horizon; test
-    and any other episodes by ``horizon`` alone. The belief tools quote
-    this number to the agent so its plans are sized for the budget the
-    real executor enforces (a 1000-step explore cap once went unstated
-    while the tools quoted the 3000-step horizon, and half the bridge
-    experiments were cut mid-plan).
+    The belief tools quote this number to the agent so its plans are
+    sized for the budget the real executor enforces.
     """
-    if phase == "explore":
-        return int(min(CFG.horizon, CFG.max_num_steps_interaction_request))
+    del phase
     return int(CFG.horizon)
 
 
