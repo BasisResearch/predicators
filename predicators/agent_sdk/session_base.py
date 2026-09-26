@@ -897,13 +897,14 @@ class BaseAgentSessionManager:
         """Terminate the run after consecutive fatally-broken queries.
 
         Each fatal query (see :func:`query_fatal_error`) returns in ~1 s
-        at $0.00 and is otherwise indistinguishable from a no-capture
-        attempt, so without this check the solve restart / replan /
-        online-cycle budgets grind through hundreds of instant failures.
-        The counter is process-wide (class attribute) and any healthy
-        query resets it; at ``agent_sdk_max_consecutive_fatal_queries``
-        the raised :class:`AgentSessionFatalError` propagates past the
-        per-task handlers and ends the run.
+        at $0.00 and is otherwise indistinguishable from an attempt that
+        produced nothing, so without this check the solve restart /
+        replan / online-cycle budgets grind through hundreds of instant
+        failures. The counter is process-wide (class attribute) and any
+        healthy query resets it; at
+        ``agent_sdk_max_consecutive_fatal_queries`` the raised
+        :class:`AgentSessionFatalError` propagates past the per-task
+        handlers and ends the run.
         """
         limit = CFG.agent_sdk_max_consecutive_fatal_queries
         if limit <= 0:

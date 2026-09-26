@@ -177,10 +177,9 @@ def test_candidate_probe_model_provider_glue(tmp_path) -> None:
 
 
 def test_probe_descriptions_follow_phase() -> None:
-    """The probe surface follows the session: the solve-phase run_python
-    carries the belief-simulator + submit_plan wording, while the synthesis
-    run_python's description carries the candidate-simulator +
-    evaluate_plan_refinement wording."""
+    """The probe surface follows the session: the exploration run_python
+    carries the belief-simulator wording, the synthesis run_python the
+    candidate-simulator wording, and neither names the removed submit tools."""
     utils.reset_config({})
 
     def _desc(ctx: ToolContext) -> str:
@@ -192,7 +191,8 @@ def test_probe_descriptions_follow_phase() -> None:
 
     solve_desc = _desc(ToolContext())
     assert "belief simulator" in solve_desc
-    assert "submit_plan" in solve_desc
+    assert "skills_execute_plan" in solve_desc
+    assert "submit_plan" not in solve_desc
     # The solve namespace also carries the recorded real trajectories.
     assert "trajectories" in solve_desc
     assert "describe_trajectory" in solve_desc
@@ -219,6 +219,7 @@ def test_probe_descriptions_follow_phase() -> None:
     # The fit/refine/forward-run protocol replaced the old validation
     # tool, and the probe is unconditional in synthesis sessions.
     assert "evaluate_plan_refinement" not in synth_desc
+    assert "submit_plan" not in synth_desc
 
 
 def test_probe_namespace_contract() -> None:
