@@ -1,0 +1,15 @@
+{
+  "generated_by": "scripts/render_cycles_scene.py; do not edit manually",
+  "blender_version": "4.5.3 LTS",
+  "engine": "CYCLES",
+  "device": "CPU",
+  "samples": 48,
+  "scene_source": "/orcd/home/002/ycliang/predicators/scripts/paper_figures/data/cycles_scenes/trajectory_bridge_train_0.json",
+  "scene_sha256": "c9696a481f757bd9e1c72454e7e835a68b632b596d5dcdc751b630fa1e3eb512",
+  "output_sha256": "dea4a0164203a6f4bd9c0e7df67fa4fe1a6ca6dd4e2f24511b65339ce7d8c743",
+  "visual_shapes": 55,
+  "blender_mesh_objects": 55,
+  "geometry": "Recorded world transforms; box edges receive at most 0.6 mm visual bevels",
+  "appearance": "Procedural materials, soft area lighting, AgX; duplicate surfaces removed",
+  "physics_steps": 0
+}

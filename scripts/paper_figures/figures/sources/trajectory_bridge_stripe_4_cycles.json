@@ -1,0 +1,15 @@
+{
+  "generated_by": "scripts/render_cycles_scene.py; do not edit manually",
+  "blender_version": "4.5.3 LTS",
+  "engine": "CYCLES",
+  "device": "CPU",
+  "samples": 48,
+  "scene_source": "/orcd/home/002/ycliang/predicators/scripts/paper_figures/data/cycles_scenes/trajectory_bridge_stripe_4.json",
+  "scene_sha256": "8ca807987121d4d5dd1e110cbf84f7c86ab2145969ebf16b68462a0b79b791fc",
+  "output_sha256": "ce36f03b9ee73baa148a62b0b801e0a7476eca30f9dd4eaeb9042e1631d89b3b",
+  "visual_shapes": 55,
+  "blender_mesh_objects": 55,
+  "geometry": "Recorded world transforms; box edges receive at most 0.6 mm visual bevels",
+  "appearance": "Procedural materials, soft area lighting, AgX; duplicate surfaces removed",
+  "physics_steps": 0
+}

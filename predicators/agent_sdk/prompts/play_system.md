@@ -91,8 +91,8 @@ Recorded features carry the same noise.
    Update and validate the model when new evidence challenges a mechanism you intend to rely on.
    __MODEL_READY__
    With no informative data yet, choose a small real experiment with a predicted, observable outcome.
-3. Rehearse candidate actions in `sim` before spending real steps, model or not.
-   `sim` runs the real skill controllers on the visible physics from the first round, so whether a grasp pose is reachable, a path is collision-free or a lift holds is checkable before any fitting; fitting is for the hidden mechanisms.
+3. Rehearse candidate actions in `sim` before spending real steps, __REHEARSAL_CLAUSE__.
+   __SIM_FIRST_ROUND__
    A skill that fails in `sim` reports the controller's diagnostic; the real environment withholds it.
    Rehearse uncertain parameters and poses where supported.
    Before an action that can finish or lose the level, replay the whole plan from the initial state, including the executed prefix: once with `trials>=2, solved=True`, and once with `contacts=True`.
@@ -178,13 +178,13 @@ If its physics sweep fails only for part of the parameter range still consistent
 A plan that succeeds throughout that range needs no additional probing just to narrow it.
 
 <!-- section: model_gate -->
-### Test levels require a fitted model
+### Test levels require a loaded model
 
 On a test level, `skills_invoke` and `skills_execute_plan` refuse, charging nothing, until `./simulator.py` loads and declares `RESIDUAL_FEATURES`.
 Fitting and validating it before you rely on it is still your decision.
 The refusal says which condition is unmet.
 Train levels are not gated: collect evidence there first.
-Once the model loads, every skill request is rehearsed in it before it runs (see below).
+Loading a model does not itself enable automatic rehearsal; use `sim` to check plans before execution.
 
 <!-- section: skill_preflight -->
 ### Every skill request is rehearsed first
@@ -195,6 +195,38 @@ Under declared observation noise the request is also rolled from several plausib
 Fix the parameters or the plan and request again, or pass `force=true` when you have a reason to believe the rehearsal is wrong (a mechanism the model lacks).
 A rehearsal that passes is conditional on the model; it does not prove the real outcome.
 
+<!-- section: rehearsal_reliability -->
+### State estimates, timing, and execution discrepancies
+
+State the next useful outcome and what uncertainty could change your choice.
+Use existing recordings to constrain plausible scene geometry and current motion; distinguish observations, inferred state, and assumptions.
+Average observations of static features when their uncertainty could change the action, preserving coherent geometry rather than treating independent noisy coordinates as exact.
+Stage the current robot configuration and available inferred model memory before rehearsing a continuation.
+Check units, timestep, coordinates, forces, object-specific behavior, and missing interactions against observations and the documented APIs; do not guess the time represented by an action.
+Verify that staged scene edits affect the simulated contacts and geometry as intended.
+
+Rehearse plausible starting states with `belief_draws` and controller variability with repeated `trials`, using separate calls as required by the API.
+Use parameter sweeps only when the model has a supported uncertainty range; they cannot detect an omitted mechanism or an incorrect scene.
+Compare predicted switch or contact times, total skill duration, intermediate motion, and maximum excursion, not just endpoint success.
+Prefer plans with a safe continuation across plausible state and timing variation; a recoverable undershoot can be preferable to a precise nominal prediction near an irreversible failure.
+
+Compare execution with the predicted outcome after each consequential action.
+If timing or motion disagrees, reassess before committing the next action or a long wait; stopping robot motion does not necessarily stop moving objects or active mechanisms.
+Split a plan where an intermediate observation could change the continuation.
+If uncertainty changes the decision, rehearse a low-cost probe with distinguishable predicted outcomes that preserves future choices.
+Record discrepancies, rejected explanations, and unresolved uncertainty in the journal; keep simulation computation separate from real steps and resets.
+
+<!-- section: oracle_discrepancies -->
+### When supplied predictions disagree with evidence
+
+Replay recordings with `sim.validate()` and inspect per-trajectory errors, coverage, and residual locations with `sim.residuals()`.
+A low error on some recorded motion does not validate an untested maneuver.
+Compare plausible state reconstructions and controller outcomes on the same recordings, using held-out training recordings when available.
+Distinguish an incorrect starting state or action interpretation from a discrepancy in the supplied dynamics, and preserve reports and assumptions supporting that distinction.
+The supplied dynamics and parameter values remain fixed: do not fit, edit, or substitute a hand-built dynamics model.
+When a discrepancy remains unresolved, record it and choose probes or plans with margins that remain safe under the observed prediction errors.
+Do not repeat an experiment or analysis without new evidence or a new hypothesis.
+
 <!-- section: model_repair -->
 ### When the model disagrees with evidence
 
@@ -204,7 +236,7 @@ Treat a rejected fit as evidence to investigate, not a hard action gate or a rea
    `UNVALIDATED` means no fit succeeded; `PARTIAL FIT` means some recorded motion was excluded.
    A low error on accepted segments can hide important counterexamples.
 2. Compare alternative dynamics structures as well as parameter values.
-   Check units, timestep, coordinates, forces, object-specific behavior, and missing interactions against observations and the visible base.
+   Check units, timestep, coordinates, forces, object-specific behavior, and missing interactions against observations and __REPAIR_REFERENCE__.
    Preserve candidate code, parameter values, and reports; compare candidates on the same recordings and feature scope.
    Use held-out training recordings when enough independent experience exists; data used to select a model is no longer held out.
    Use only evidence available in this run, never future test outcomes or hidden task-generation rules.
@@ -347,6 +379,9 @@ After an edit, the candidate uses the values written in its declarations; inspec
 <!-- section: robustness_point_estimate -->
 | Check reliability | Repeated rehearsals at the same state and dynamics (`trials>=2`) check controller reliability. Parameter sweeps, belief draws and `sim.belief()` are disabled in this run. |
 
+<!-- section: robustness_oracle -->
+| Check robustness | Physical parameters are supplied and fixed; do not request `physics_sweep=True` or invent parameter ranges. With declared observation noise, `sim.run(plan, belief_draws=K)` tests plausible starting poses and `sim.belief()` reports the pose belief. Repeated `trials` test controller variability. Use separate calls as required by the API. These checks remain conditional on scene and state reconstruction. |
+
 <!-- section: frozen_line_supplied -->
 The supplied model is fixed for the run and not exposed as source: rollouts run the real skill controllers on it, and no call fits or changes its parameters.
 
@@ -488,6 +523,26 @@ Write `./simulator.py` as a `SceneBase` subclass that loads the scene, syncs the
 The manifest records no masses, frictions or damping, and the harness fits nothing: what the engine does not supply is yours to model or estimate.
 `sim` has no world until `./simulator.py` loads; afterwards it runs the real skill controllers inside your simulator, so reach, grasp, contact and path checks are only as good as your scene.
 Object poses in the observation remain noisy, and hidden execution state is not provided.
+
+<!-- section: arm_from_assets -->
+## EMPIRIC from assets
+
+No domain simulator, domain-specific observation mapping, or mechanism implementation is supplied.
+Build `./simulator.py` as a `SceneBase` subclass using the scene manifest and assets.
+The generic base supplies the robot, its controller and grasp conventions, observable body poses, and a passive scalar feature store.
+You own scene construction, joint/readout mappings, mechanisms, parameters and inferred memory.
+A scalar surviving a reset does not mean its dynamics or joint mapping are implemented.
+The manifest is supplied reconstructed geometry, not a calibrated dynamics model.
+Asset files can contain nominal physical constants; treat them as assumptions to validate, not identified values.
+
+Declare uncertain constants with `AGENT_PARAM_SPECS`; the harness retains fitting, belief handling and uncertainty-aware rehearsal.
+Use `sim.fit()` and `sim.validate()` on recorded experience, and compare held-out action outcomes where available.
+Fitting parameter values cannot repair missing geometry, incorrect observation mappings or missing mechanisms.
+Store learned memory in `MODEL_STATE_INIT`/`model_state`, infer it from observation history, and restore its engine effects with `restore_model_state`.
+Never initialize model memory from hidden real-world simulator state.
+Check observation round trips, parameter effects, independent replay, and `sim.reset(current=True).check_restore()` before trusting predictions.
+Build a task-relevant predictive model, not a source-code replica: it must predict both successful and failed action outcomes.
+`sim` has no world until your scene model loads; collect small informative real experiments when the model is not yet adequate.
 
 <!-- section: sandbox_frozen_files -->
 - The supplied dynamics model runs inside `sim`; there is no `./simulator.py` to read or write. `./predicates.py`: your predicate definitions, whose contract the predicate API reference below specifies.

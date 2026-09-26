@@ -33,6 +33,18 @@ The supplied simulator, which runs inside `sim` and is not exposed as source, co
 
 A simulated success or failure is conditional on the model; neither proves what the real environment will do. Where the model is silent about a process, plan from observed evidence and margins rather than from its prediction.
 
+### State estimates, timing, and execution discrepancies
+
+State the next useful outcome and what uncertainty could change your choice. Use existing recordings to constrain plausible scene geometry and current motion; distinguish observations, inferred state, and assumptions. Average observations of static features when their uncertainty could change the action, preserving coherent geometry rather than treating independent noisy coordinates as exact. Stage the current robot configuration and available inferred model memory before rehearsing a continuation. Check units, timestep, coordinates, forces, object-specific behavior, and missing interactions against observations and the documented APIs; do not guess the time represented by an action. Verify that staged scene edits affect the simulated contacts and geometry as intended.
+
+Rehearse plausible starting states with `belief_draws` and controller variability with repeated `trials`, using separate calls as required by the API. Use parameter sweeps only when the model has a supported uncertainty range; they cannot detect an omitted mechanism or an incorrect scene. Compare predicted switch or contact times, total skill duration, intermediate motion, and maximum excursion, not just endpoint success. Prefer plans with a safe continuation across plausible state and timing variation; a recoverable undershoot can be preferable to a precise nominal prediction near an irreversible failure.
+
+Compare execution with the predicted outcome after each consequential action. If timing or motion disagrees, reassess before committing the next action or a long wait; stopping robot motion does not necessarily stop moving objects or active mechanisms. Split a plan where an intermediate observation could change the continuation. If uncertainty changes the decision, rehearse a low-cost probe with distinguishable predicted outcomes that preserves future choices. Record discrepancies, rejected explanations, and unresolved uncertainty in the journal; keep simulation computation separate from real steps and resets.
+
+### When supplied predictions disagree with evidence
+
+Replay recordings with `sim.validate()` and inspect per-trajectory errors, coverage, and residual locations with `sim.residuals()`. A low error on some recorded motion does not validate an untested maneuver. Compare plausible state reconstructions and controller outcomes on the same recordings, using held-out training recordings when available. Distinguish an incorrect starting state or action interpretation from a discrepancy in the supplied dynamics, and preserve reports and assumptions supporting that distinction. The supplied dynamics and parameter values remain fixed: do not fit, edit, or substitute a hand-built dynamics model. When a discrepancy remains unresolved, record it and choose probes or plans with margins that remain safe under the observed prediction errors. Do not repeat an experiment or analysis without new evidence or a new hypothesis.
+
 ## Tools
 
 - `run_python`: code in the sandbox with the `sim` probe over your model files (`sim.residuals`, `sim.run`, `sim.refine`, ...). Free.
@@ -84,12 +96,12 @@ The run is one conversation. A round consists of one harness prompt and your res
 | Load predicates | `sim.predicates()` reloads and installs the current definitions and reports their behavior on recorded episodes. Call it after editing predicates. |
 | Choose a start | `sim.reset()` uses the current level's initial state; `sim.reset(current=True)` uses the latest real observation and available model-memory estimate. `sim.reset(task_idx=i, mods={...})` stages a chosen task and feature modifications. |
 | Refine and rehearse | `sim.refine(plan, require_goal=True)` searches skill parameters; run the refined plan continuously with `sim.run(plan, solved=True)`. |
-| Check robustness | `sim.run(plan, physics_sweep=True)` tests physical-parameter uncertainty. With declared observation noise, `sim.run(plan, belief_draws=K)` tests plausible starting poses and `sim.belief()` reports the pose belief. These checks are conditional on the model. |
+| Check robustness | Physical parameters are supplied and fixed; do not request `physics_sweep=True` or invent parameter ranges. With declared observation noise, `sim.run(plan, belief_draws=K)` tests plausible starting poses and `sim.belief()` reports the pose belief. Repeated `trials` test controller variability. Use separate calls as required by the API. These checks remain conditional on scene and state reconstruction. |
 | Inspect and branch | `sim.render(label, annotations=[...])` visualizes a staged scene; `sim.snapshot()` and `sim.restore()` preserve branches. |
 
 ### Interpreting task verdicts
 
-`is_goal_state(state, task_idx)` and `evaluate_trajectory(states, actions=None, task_idx=0)` expose the task's reward model. `sim.run(...).states` supplies a continuous predicted trajectory to score. Where evaluation includes a physical replay, it uses the model; even a verdict on recorded states can depend on it. Pass action labels for tasks whose evaluator replays an action: one `("Skill", ("obj", ...), (param, ...))` per transition, or `None` for an unlabeled transition. Without labels the evaluator may use a canonical action; read the verdict's `note` to see what it actually scored. `evaluate_trajectory(states, actions, physics_sweep=True)` checks replay verdicts across the declared parameter range. Only the live environment's `WIN` certifies completion.
+`is_goal_state(state, task_idx)` and `evaluate_trajectory(states, actions=None, task_idx=0)` expose the task's reward model. `sim.run(...).states` supplies a continuous predicted trajectory to score. Where evaluation includes a physical replay, it uses the model; even a verdict on recorded states can depend on it. Pass action labels for tasks whose evaluator replays an action: one `("Skill", ("obj", ...), (param, ...))` per transition, or `None` for an unlabeled transition. Without labels the evaluator may use a canonical action; read the verdict's `note` to see what it actually scored.  Only the live environment's `WIN` certifies completion.
 
 ## Predicate API reference
 

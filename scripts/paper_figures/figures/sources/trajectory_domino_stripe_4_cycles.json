@@ -1,0 +1,15 @@
+{
+  "generated_by": "scripts/render_cycles_scene.py; do not edit manually",
+  "blender_version": "4.5.3 LTS",
+  "engine": "CYCLES",
+  "device": "CPU",
+  "samples": 48,
+  "scene_source": "/orcd/home/002/ycliang/predicators/scripts/paper_figures/data/cycles_scenes/trajectory_domino_stripe_4.json",
+  "scene_sha256": "8aa56bfb94a802a17eaa7df198cc711c31cf10a59837f070e271e015f3bb4789",
+  "output_sha256": "e4206f8996c7752734f929bd94a09e5f3be9ca9881ce42131e15979b0c0a927b",
+  "visual_shapes": 43,
+  "blender_mesh_objects": 42,
+  "geometry": "Recorded world transforms; box edges receive at most 0.6 mm visual bevels",
+  "appearance": "Procedural materials, soft area lighting, AgX; duplicate surfaces removed",
+  "physics_steps": 0
+}

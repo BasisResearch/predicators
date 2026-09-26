@@ -1,0 +1,20 @@
+# Six comparison arms on exactly the repaired EMPIRIC ramp runtime.
+includes:
+  - /home/ycliang/predicators/logs/fan-ramp-skill-repair-runtime-20260921/scripts/configs/predicatorv3/continual_fan_ramp_skill_repair_r1.yaml
+START_SEED: 0
+NUM_SEEDS: 5
+APPROACHES:
+  mb_opus_ramp_skill_repair_r1:
+    SKIP: true
+  oracle_dynamics_opus_ramp_skill_repair_r1:
+    EXTENDS: oracle_dynamics_opus
+  mf_opus_ramp_skill_repair_r1:
+    EXTENDS: mf_opus
+  mf_scene_package_opus_ramp_skill_repair_r1:
+    EXTENDS: mf_scene_package_opus
+  standalone_opus_ramp_skill_repair_r1:
+    EXTENDS: standalone_opus
+  no_fitting_opus_ramp_skill_repair_r1:
+    EXTENDS: no_fitting_opus
+  no_uncertainty_opus_ramp_skill_repair_r1:
+    EXTENDS: no_uncertainty_opus

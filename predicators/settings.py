@@ -1127,6 +1127,10 @@ class GlobalSettings:
     fan_inertial_transfer = False
     # Optional visible downhill ramp, with a protected training counterpart.
     fan_ramp_transfer = False
+    # Visible elevation drop shared by training and test ramps, in metres.
+    fan_ramp_rise = 0.004
+    # Extra exposed landing length, without moving the target or adding walls.
+    fan_ramp_landing_extension = 0.0
     fan_train_num_pos_x = 3
     fan_train_num_pos_y = 3
     # The historical 6 x 6 uniform test split. The loc bounds in

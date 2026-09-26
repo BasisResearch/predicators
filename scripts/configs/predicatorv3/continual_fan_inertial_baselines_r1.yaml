@@ -1,0 +1,20 @@
+# Five additional arms on the original frozen, no-ramp inertial domain.
+includes:
+  - /home/ycliang/predicators/logs/fan-inertial-baselines-runtime-20260921/scripts/configs/predicatorv3/continual_fan_inertial_pilot_r1.yaml
+START_SEED: 0
+NUM_SEEDS: 5
+APPROACHES:
+  mb_opus_inertial_pilot_r1:
+    SKIP: true
+  mf_opus_inertial_pilot_r1:
+    SKIP: true
+  oracle_dynamics_opus_inertial_r1:
+    EXTENDS: oracle_dynamics_opus
+  mf_scene_package_opus_inertial_r1:
+    EXTENDS: mf_scene_package_opus
+  standalone_opus_inertial_r1:
+    EXTENDS: standalone_opus
+  no_fitting_opus_inertial_r1:
+    EXTENDS: no_fitting_opus
+  no_uncertainty_opus_inertial_r1:
+    EXTENDS: no_uncertainty_opus

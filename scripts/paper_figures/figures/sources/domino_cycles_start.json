@@ -1,0 +1,15 @@
+{
+  "generated_by": "scripts/render_cycles_scene.py; do not edit manually",
+  "blender_version": "4.5.3 LTS",
+  "engine": "CYCLES",
+  "device": "CPU",
+  "samples": 48,
+  "scene_source": "/orcd/home/002/ycliang/predicators/scripts/paper_figures/data/cycles_scenes/domino_start.json",
+  "scene_sha256": "ec7528b8bfdd12fa48f11479c3dc43d7194e736a3bf4bf127d2adc50491e3a98",
+  "output_sha256": "1f15d998a05e824c45266eb4418a077c29126665af7dc46bb1f5095d690b4c04",
+  "visual_shapes": 39,
+  "blender_mesh_objects": 38,
+  "geometry": "Recorded world transforms; box edges receive at most 0.6 mm visual bevels",
+  "appearance": "Procedural materials, soft area lighting, AgX; duplicate surfaces removed",
+  "physics_steps": 0
+}

@@ -67,6 +67,58 @@ def _open_clips(env, state, indices):
     return _settle(env)
 
 
+def test_target_band_is_centered_inside_chute(env_module):
+    """The target-height marker must not intersect either chute wall."""
+    _, env = env_module
+    state = env.level_state(0, [0], (0.5, 0.6))
+    assert state.get(env._band, "x") == pytest.approx(env.box_xy[0])
+    assert state.get(env._band, "y") == pytest.approx(env.box_xy[1])
+    assert env.band_half_xy < env.chute_half_gap
+    clearance = env.chute_half_gap - env.band_half_xy
+    assert clearance >= env.chute_wall_half_thickness
+
+
+def test_cable_visuals_preserve_motion_and_hide_popped_balloons():
+    """Camera-visible cables must not change trajectories or task objects."""
+    _, plain = _make_env()
+    _, decorated = _make_env()
+    try:
+        for env in (plain, decorated):
+            state = env.level_state(0, [3, 0], (0.5, 0.6))
+            env._set_state(state)
+            env._set_clip_on(env._clips[0], True)
+            env._current_observation = env._get_state()
+        for _ in range(100):
+            decorated._sync_cable_visuals()
+            expected = plain._step_once(_hold(plain))
+            actual = decorated._step_once(_hold(decorated))
+            for obj in expected:
+                np.testing.assert_allclose(expected[obj],
+                                           actual[obj],
+                                           atol=1e-7,
+                                           rtol=0)
+        assert set(decorated._cable_bodies) == {decorated._balloons[0].name}
+        for body, _ in decorated._cable_bodies.values():
+            assert not p.getCollisionShapeData(
+                body, -1, physicsClientId=decorated._physics_client_id)
+            assert p.getDynamicsInfo(
+                body, -1, physicsClientId=decorated._physics_client_id)[0] == 0
+        decorated._sync_cable_visuals()
+        shape_count = len(decorated._cable_shapes)
+        decorated._sync_cable_visuals()
+        assert len(decorated._cable_shapes) == shape_count
+        decorated._popped[decorated._balloons[0].name] = True
+        decorated._sync_cable_visuals()
+        assert not decorated._cable_bodies
+        fewer = decorated.level_state(0, [0], (0.5, 0.6))
+        decorated._set_state(fewer)
+        decorated._sync_cable_visuals()
+        assert not decorated._cable_bodies
+    finally:
+        plain.dispose()
+        decorated.dispose()
+
+
 def test_release_lift_and_the_analytic_law(env_module):
     """An open clip frees its balloon onto the box, which hangs near the
     analytic height; on the base sim nothing rises."""

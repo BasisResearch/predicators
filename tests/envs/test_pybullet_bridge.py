@@ -14,7 +14,7 @@ import pybullet as p
 import pytest
 
 from predicators import utils
-from predicators.envs import _MOST_RECENT_ENV_INSTANCE
+from predicators.envs import create_new_env
 from predicators.structs import Action, EnvironmentTask, GroundAtom
 
 
@@ -193,14 +193,11 @@ def test_place_settles_to_contact():
         "pybullet_birrt_contact_margin": -0.005,
         "pybullet_birrt_path_subsample_ratio": 1,
     })
-    from predicators.envs.pybullet_bridge import \
-        PyBulletBridgeEnv  # pylint: disable=import-outside-toplevel
     from predicators.ground_truth_models import \
         get_gt_options  # pylint: disable=import-outside-toplevel
-    env = PyBulletBridgeEnv(use_gui=False)
-    # get_gt_options builds the skills from the cached env's types: cache
-    # this env so they match its block type, not one an earlier test left.
-    _MOST_RECENT_ENV_INSTANCE[env.get_name()] = env
+
+    # Cached, so get_gt_options builds the skills from this env's types.
+    env = create_new_env("pybullet_bridge")
     try:
         task = env._generate_train_tasks()[0]
         env._set_state(task.init)
@@ -572,14 +569,11 @@ def test_degenerate_top_edge_grasp_fails_honestly():
         "pybullet_birrt_contact_margin": -0.005,
         "pybullet_birrt_path_subsample_ratio": 1,
     })
-    from predicators.envs.pybullet_bridge import \
-        PyBulletBridgeEnv  # pylint: disable=import-outside-toplevel
     from predicators.ground_truth_models import \
         get_gt_options  # pylint: disable=import-outside-toplevel
-    env = PyBulletBridgeEnv(use_gui=False)
-    # get_gt_options builds the skills from the cached env's types: cache
-    # this env so they match its block type, not one an earlier test left.
-    _MOST_RECENT_ENV_INSTANCE[env.get_name()] = env
+
+    # Cached, so get_gt_options builds the skills from this env's types.
+    env = create_new_env("pybullet_bridge")
     try:
         env.reset("test", 0)
         state = env._get_state()

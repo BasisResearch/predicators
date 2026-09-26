@@ -22,6 +22,8 @@ def main() -> None:
     parser.add_argument("--inertial", action="store_true")
     parser.add_argument("--search-bursts", action="store_true")
     parser.add_argument("--ramp", action="store_true")
+    parser.add_argument("--landing-extension", type=float, default=0.0)
+    parser.add_argument("--ramp-rise", type=float, default=0.004)
     parser.add_argument("--brake-search", action="store_true")
     parser.add_argument("--brake-max", type=int, default=60)
     parser.add_argument("--contacts", action="store_true")
@@ -39,6 +41,8 @@ def main() -> None:
         "fan_exposed_transfer": True,
         "fan_inertial_transfer": args.inertial,
         "fan_ramp_transfer": args.ramp,
+        "fan_ramp_landing_extension": args.landing_extension,
+        "fan_ramp_rise": args.ramp_rise,
         "fan_train_num_walls_per_task": [0],
         "fan_test_num_walls_per_task": [0],
         "fan_test_num_pos_x": 3,

@@ -1,0 +1,15 @@
+{
+  "generated_by": "scripts/render_cycles_scene.py; do not edit manually",
+  "blender_version": "4.5.3 LTS",
+  "engine": "CYCLES",
+  "device": "CPU",
+  "samples": 48,
+  "scene_source": "/orcd/home/002/ycliang/predicators/scripts/paper_figures/data/cycles_scenes/trajectory_fan_stripe_4.json",
+  "scene_sha256": "3994e5d1d81bc17e9e3cfe058bedec3dd4a4942c6cfd74b6c40b19e307b0f8dc",
+  "output_sha256": "8a03a372eb33a9b43681f0d61f638f582bd0e016c68cf4f4e834b88c59c7d103",
+  "visual_shapes": 302,
+  "blender_mesh_objects": 297,
+  "geometry": "Recorded world transforms; box edges receive at most 0.6 mm visual bevels",
+  "appearance": "Procedural materials, soft area lighting, AgX; duplicate surfaces removed",
+  "physics_steps": 0
+}

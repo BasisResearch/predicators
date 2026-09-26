@@ -243,6 +243,9 @@ class TestPhase:
 
     def test_move_to_pose_phase(self):
         """Test move to pose phase."""
+        # The motion-planning default is read from CFG, which an earlier
+        # test may have left set.
+        utils.reset_config({"seed": 123})
 
         def dummy_target(_state, _objects, _params, _cfg):
             return None, None, "open"
@@ -959,6 +962,33 @@ class TestExecutorRails:
                 assert isinstance(action, Action)
                 assert grounded.memory["phase_idx"] == 1
 
+    def test_free_space_detour_keeps_its_tracking_budget(self, robot_scene):
+        """A valid detour is not aborted under the shorter descent budget."""
+        _, robot = robot_scene
+        utils.reset_config({"seed": 123})
+        robot_obj, obj = _make_robot_obj(), _make_obj()
+        state = _make_home_state(robot_obj,
+                                 robot,
+                                 obj=obj,
+                                 obj_xyz=(1.35, 0.75, 0.5))
+        opt, phase = self._direct_skill(robot, obj, on_blocked="fail")
+        grounded = opt.ground([robot_obj, obj], np.zeros(0))
+        assert grounded.initiable(state)
+        pid = id(phase)
+        far = list(_flipped_action(state.joint_positions, robot, 0.4).arr)
+        grounded.memory.update({
+            _BIRRT_TRAJ_KEY.format(pid): [far, far],
+            _BIRRT_STEP_KEY.format(pid): 1,
+            _BIRRT_HOLD_KEY.format(pid):
+            CFG.pybullet_direct_path_max_hold_steps,
+            f"birrt_last_cmd_{pid}": 0,
+            f"birrt_finger_{pid}": "open",
+            f"birrt_detour_{pid}": True,
+        })
+        action = grounded.policy(state)
+        assert isinstance(action, Action)
+        assert grounded.memory[_BIRRT_STEP_KEY.format(pid)] == 1
+
 
 # ===========================================================================
 # 5. Wait option
@@ -1447,6 +1477,47 @@ class TestCreatePickSkill:
 # ===========================================================================
 # 9. create_place_skill — structure
 # ===========================================================================
+
+
+def test_approach_final_correction_replans_once(robot_scene, monkeypatch):
+    """A non-contact approach never ends with an unchecked IK correction."""
+    # pylint: disable=protected-access
+    _, robot = robot_scene
+    utils.reset_config({"seed": 123})
+    robot_obj = _make_robot_obj()
+    state = _make_home_state(robot_obj, robot)
+    phase = make_move_to_phase("Approach",
+                               lambda *_: (1.35, 0.75, 0.5, 0.0),
+                               direct_descend=True,
+                               allow_approach_detour=True,
+                               use_motion_planning=True)
+    skill = PhaseSkill("Approach", [_ROBOT_TYPE], Box(0, 1, (0, )),
+                       _make_config(robot), [phase])
+    joints = list(state.joint_positions)
+    memory = {
+        _BIRRT_TRAJ_KEY.format(id(phase)): [joints],
+        _BIRRT_STEP_KEY.format(id(phase)): 1,
+        f"birrt_finger_{id(phase)}": "open",
+    }
+    planned = []
+
+    def plan(*_args):
+        planned.append(True)
+        return [joints, joints]
+
+    def unchecked(*_args):
+        pytest.fail("Non-contact final correction used unchecked IK")
+
+    monkeypatch.setattr(skill, "_plan_without_simulator", plan)
+    monkeypatch.setattr(skill, "_execute_move_ik", unchecked)
+    action = skill._execute_move_birrt(phase, state, memory, [robot_obj],
+                                       np.zeros(0))
+    assert isinstance(action, Action)
+    assert len(planned) == 1
+    memory[_BIRRT_STEP_KEY.format(id(phase))] = 1
+    with pytest.raises(utils.OptionExecutionFailure, match="after replanning"):
+        skill._execute_move_birrt(phase, state, memory, [robot_obj],
+                                  np.zeros(0))
 
 
 class TestCreatePlaceSkill:

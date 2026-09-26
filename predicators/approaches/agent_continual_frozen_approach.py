@@ -264,6 +264,11 @@ class AgentContinualOracleDynamicsApproach(AgentContinualZeroShotApproach):
     _frozen_prompt_section = "oracle_dynamics"
     _frozen_model_supplied = True
 
+    def _play_prompt_options(self) -> Dict[str, Any]:
+        options = super()._play_prompt_options()
+        options["oracle_dynamics"] = True
+        return options
+
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         from predicators.code_sim_learning.continual_oracle import \
             oracle_source  # pylint: disable=import-outside-toplevel

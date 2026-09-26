@@ -9,7 +9,7 @@
       "levels": 2,
       "steps": 368,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-mb_opus_gate_r1/seed0/run_20260917_082017"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-mb_opus_gate_r1/seed0/run_20260917_082017"
     },
     {
       "domain": "Domino",
@@ -20,7 +20,7 @@
       "levels": 2,
       "steps": 285,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-mb_opus_gate_r1/seed1/run_20260917_082021"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-mb_opus_gate_r1/seed1/run_20260917_082021"
     },
     {
       "domain": "Domino",
@@ -31,7 +31,7 @@
       "levels": 2,
       "steps": 459,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-mb_opus_gate_r1/seed2/run_20260917_082021"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-mb_opus_gate_r1/seed2/run_20260917_082021"
     },
     {
       "domain": "Domino",
@@ -42,7 +42,7 @@
       "levels": 2,
       "steps": 265,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-mb_opus_benchmark_r2/seed3/run_20260919_124956"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-mb_opus_benchmark_r2/seed3/run_20260919_124956"
     },
     {
       "domain": "Domino",
@@ -53,7 +53,7 @@
       "levels": 2,
       "steps": 348,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-mb_opus_benchmark_r2/seed4/run_20260919_124952"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/domino_high_friction_turn-mb_opus_benchmark_r2/seed4/run_20260919_124952"
     },
     {
       "domain": "Domino",
@@ -64,7 +64,7 @@
       "levels": 2,
       "steps": 455,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_opus_r1/seed0/run_20260917_082021"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_opus_r1/seed0/run_20260917_082021"
     },
     {
       "domain": "Domino",
@@ -75,7 +75,7 @@
       "levels": 2,
       "steps": 559,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_opus_r1/seed1/run_20260917_082017"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_opus_r1/seed1/run_20260917_082017"
     },
     {
       "domain": "Domino",
@@ -86,7 +86,7 @@
       "levels": 2,
       "steps": 456,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_opus_r1/seed2/run_20260917_082029"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_opus_r1/seed2/run_20260917_082029"
     },
     {
       "domain": "Domino",
@@ -97,7 +97,7 @@
       "levels": 2,
       "steps": 541,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_opus_benchmark_r2/seed3/run_20260919_161613"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_opus_benchmark_r2/seed3/run_20260919_161613"
     },
     {
       "domain": "Domino",
@@ -108,7 +108,7 @@
       "levels": 2,
       "steps": 573,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_opus_benchmark_r2/seed4/run_20260919_161613"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_opus_benchmark_r2/seed4/run_20260919_161613"
     },
     {
       "domain": "Domino",
@@ -119,7 +119,7 @@
       "levels": 2,
       "steps": 552,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_scene_package_opus_benchmark_r1/seed0/run_20260919_040929"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_scene_package_opus_benchmark_r1/seed0/run_20260919_040929"
     },
     {
       "domain": "Domino",
@@ -130,7 +130,7 @@
       "levels": 2,
       "steps": 710,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_scene_package_opus_benchmark_r1/seed1/run_20260919_040850"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_scene_package_opus_benchmark_r1/seed1/run_20260919_040850"
     },
     {
       "domain": "Domino",
@@ -141,7 +141,7 @@
       "levels": 2,
       "steps": 504,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_scene_package_opus_benchmark_r1/seed2/run_20260919_040850"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_scene_package_opus_benchmark_r1/seed2/run_20260919_040850"
     },
     {
       "domain": "Domino",
@@ -152,7 +152,7 @@
       "levels": 2,
       "steps": 324,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_scene_package_opus_benchmark_r1/seed3/run_20260919_161612"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_scene_package_opus_benchmark_r1/seed3/run_20260919_161612"
     },
     {
       "domain": "Domino",
@@ -163,7 +163,7 @@
       "levels": 2,
       "steps": 822,
       "resets": 1,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_scene_package_opus_benchmark_r1/seed4/run_20260919_161612"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/domino_high_friction_turn-mf_scene_package_opus_benchmark_r1/seed4/run_20260919_161612"
     },
     {
       "domain": "Domino",
@@ -174,7 +174,7 @@
       "levels": 2,
       "steps": 902,
       "resets": 1,
-      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/domino_high_friction_turn-standalone_opus_benchmark_r2/seed0/run_20260918_153933"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/domino_high_friction_turn-standalone_opus_benchmark_r2/seed0/run_20260918_153933"
     },
     {
       "domain": "Domino",
@@ -185,7 +185,7 @@
       "levels": 2,
       "steps": 650,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/domino_high_friction_turn-standalone_opus_benchmark_r2/seed1/run_20260918_162527"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/domino_high_friction_turn-standalone_opus_benchmark_r2/seed1/run_20260918_162527"
     },
     {
       "domain": "Domino",
@@ -196,7 +196,7 @@
       "levels": 2,
       "steps": 1022,
       "resets": 1,
-      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/domino_high_friction_turn-standalone_opus_benchmark_r2/seed2/run_20260918_162527"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/domino_high_friction_turn-standalone_opus_benchmark_r2/seed2/run_20260918_162527"
     },
     {
       "domain": "Domino",
@@ -207,7 +207,7 @@
       "levels": 2,
       "steps": 418,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/domino_high_friction_turn-standalone_opus_benchmark_r2/seed3/run_20260919_161607"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/domino_high_friction_turn-standalone_opus_benchmark_r2/seed3/run_20260919_161607"
     },
     {
       "domain": "Domino",
@@ -218,7 +218,7 @@
       "levels": 2,
       "steps": 492,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/domino_high_friction_turn-standalone_opus_benchmark_r2/seed4/run_20260919_161609"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/domino_high_friction_turn-standalone_opus_benchmark_r2/seed4/run_20260919_161609"
     },
     {
       "domain": "Domino",
@@ -229,7 +229,7 @@
       "levels": 2,
       "steps": 374,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_oracle_dynamics/domino_high_friction_turn-oracle_dynamics_opus_benchmark_r2/seed0/run_20260919_120029"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/domino_high_friction_turn-oracle_dynamics_opus_benchmark_r2/seed0/run_20260919_120029"
     },
     {
       "domain": "Domino",
@@ -240,7 +240,7 @@
       "levels": 2,
       "steps": 324,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_oracle_dynamics/domino_high_friction_turn-oracle_dynamics_opus_benchmark_r2/seed1/run_20260919_120258"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/domino_high_friction_turn-oracle_dynamics_opus_benchmark_r2/seed1/run_20260919_120258"
     },
     {
       "domain": "Domino",
@@ -251,7 +251,7 @@
       "levels": 2,
       "steps": 329,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_oracle_dynamics/domino_high_friction_turn-oracle_dynamics_opus_benchmark_r2/seed2/run_20260919_120029"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/domino_high_friction_turn-oracle_dynamics_opus_benchmark_r2/seed2/run_20260919_120029"
     },
     {
       "domain": "Domino",
@@ -262,7 +262,7 @@
       "levels": 2,
       "steps": 257,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_oracle_dynamics/domino_high_friction_turn-oracle_dynamics_opus_benchmark_r2/seed3/run_20260919_161610"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/domino_high_friction_turn-oracle_dynamics_opus_benchmark_r2/seed3/run_20260919_161610"
     },
     {
       "domain": "Domino",
@@ -273,7 +273,7 @@
       "levels": 2,
       "steps": 256,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_oracle_dynamics/domino_high_friction_turn-oracle_dynamics_opus_benchmark_r2/seed4/run_20260919_161610"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/domino_high_friction_turn-oracle_dynamics_opus_benchmark_r2/seed4/run_20260919_161610"
     },
     {
       "domain": "Domino",
@@ -284,7 +284,7 @@
       "levels": 2,
       "steps": 578,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/domino_high_friction_turn-no_fitting_opus_benchmark_r1/seed0/run_20260918_091719"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/domino_high_friction_turn-no_fitting_opus_benchmark_r1/seed0/run_20260918_091719"
     },
     {
       "domain": "Domino",
@@ -295,7 +295,7 @@
       "levels": 2,
       "steps": 326,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/domino_high_friction_turn-no_fitting_opus_benchmark_r1/seed1/run_20260918_091719"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/domino_high_friction_turn-no_fitting_opus_benchmark_r1/seed1/run_20260918_091719"
     },
     {
       "domain": "Domino",
@@ -306,7 +306,7 @@
       "levels": 2,
       "steps": 436,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/domino_high_friction_turn-no_fitting_opus_benchmark_r1/seed2/run_20260918_091709"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/domino_high_friction_turn-no_fitting_opus_benchmark_r1/seed2/run_20260918_091709"
     },
     {
       "domain": "Domino",
@@ -317,7 +317,7 @@
       "levels": 2,
       "steps": 418,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/domino_high_friction_turn-no_fitting_opus_benchmark_r1/seed3/run_20260919_161616"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/domino_high_friction_turn-no_fitting_opus_benchmark_r1/seed3/run_20260919_161616"
     },
     {
       "domain": "Domino",
@@ -328,7 +328,7 @@
       "levels": 2,
       "steps": 424,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/domino_high_friction_turn-no_fitting_opus_benchmark_r1/seed4/run_20260919_161616"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/domino_high_friction_turn-no_fitting_opus_benchmark_r1/seed4/run_20260919_161616"
     },
     {
       "domain": "Domino",
@@ -339,7 +339,7 @@
       "levels": 2,
       "steps": 337,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/domino_high_friction_turn-no_uncertainty_opus_benchmark_r2/seed0/run_20260918_153934"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/domino_high_friction_turn-no_uncertainty_opus_benchmark_r2/seed0/run_20260918_153934"
     },
     {
       "domain": "Domino",
@@ -350,7 +350,7 @@
       "levels": 2,
       "steps": 299,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/domino_high_friction_turn-no_uncertainty_opus_benchmark_r2/seed1/run_20260918_162807"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/domino_high_friction_turn-no_uncertainty_opus_benchmark_r2/seed1/run_20260918_162807"
     },
     {
       "domain": "Domino",
@@ -361,7 +361,7 @@
       "levels": 2,
       "steps": 342,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/domino_high_friction_turn-no_uncertainty_opus_benchmark_r2/seed2/run_20260918_162807"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/domino_high_friction_turn-no_uncertainty_opus_benchmark_r2/seed2/run_20260918_162807"
     },
     {
       "domain": "Domino",
@@ -372,7 +372,7 @@
       "levels": 2,
       "steps": 352,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/domino_high_friction_turn-no_uncertainty_opus_benchmark_r2/seed3/run_20260919_161655"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/domino_high_friction_turn-no_uncertainty_opus_benchmark_r2/seed3/run_20260919_161655"
     },
     {
       "domain": "Domino",
@@ -383,7 +383,7 @@
       "levels": 2,
       "steps": 765,
       "resets": 1,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/domino_high_friction_turn-no_uncertainty_opus_benchmark_r2/seed4/run_20260919_161655"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/domino_high_friction_turn-no_uncertainty_opus_benchmark_r2/seed4/run_20260919_161655"
     },
     {
       "domain": "Bridge (4-span)",
@@ -394,7 +394,7 @@
       "levels": 2,
       "steps": 3302,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual/bridge-mb_opus_span_transfer_r2/seed0/run_20260916_190710"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/bridge-mb_opus_span_transfer_r2/seed0/run_20260916_190710"
     },
     {
       "domain": "Bridge (4-span)",
@@ -405,7 +405,7 @@
       "levels": 2,
       "steps": 3665,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual/bridge_span_transfer-mb_opus_span_transfer_r3/seed1/run_20260917_135634"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/bridge_span_transfer-mb_opus_span_transfer_r3/seed1/run_20260917_135634"
     },
     {
       "domain": "Bridge (4-span)",
@@ -416,7 +416,7 @@
       "levels": 2,
       "steps": 4590,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual/bridge_span_transfer-mb_opus_span_transfer_r3/seed2/run_20260917_135632"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/bridge_span_transfer-mb_opus_span_transfer_r3/seed2/run_20260917_135632"
     },
     {
       "domain": "Bridge (4-span)",
@@ -427,7 +427,7 @@
       "levels": 2,
       "steps": 4086,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual/bridge-mb_opus_benchmark_r2/seed3/run_20260919_124955"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/bridge-mb_opus_benchmark_r2/seed3/run_20260919_124955"
     },
     {
       "domain": "Bridge (4-span)",
@@ -438,7 +438,7 @@
       "levels": 2,
       "steps": 3333,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual/bridge-mb_opus_benchmark_r2/seed4/run_20260919_124955"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/bridge-mb_opus_benchmark_r2/seed4/run_20260919_124955"
     },
     {
       "domain": "Bridge (4-span)",
@@ -449,7 +449,7 @@
       "levels": 2,
       "steps": 4292,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/bridge-mf_opus_span_transfer_r2/seed0/run_20260916_190651"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/bridge-mf_opus_span_transfer_r2/seed0/run_20260916_190651"
     },
     {
       "domain": "Bridge (4-span)",
@@ -460,7 +460,7 @@
       "levels": 2,
       "steps": 7585,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/bridge_span_transfer-mf_opus_span_transfer_r2/seed1/run_20260917_110833"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/bridge_span_transfer-mf_opus_span_transfer_r2/seed1/run_20260917_110833"
     },
     {
       "domain": "Bridge (4-span)",
@@ -471,7 +471,7 @@
       "levels": 2,
       "steps": 6525,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/bridge_span_transfer-mf_opus_span_transfer_r2/seed2/run_20260917_110833"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/bridge_span_transfer-mf_opus_span_transfer_r2/seed2/run_20260917_110833"
     },
     {
       "domain": "Bridge (4-span)",
@@ -482,7 +482,7 @@
       "levels": 2,
       "steps": 3495,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/bridge-mf_opus_benchmark_r2/seed3/run_20260919_161614"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/bridge-mf_opus_benchmark_r2/seed3/run_20260919_161614"
     },
     {
       "domain": "Bridge (4-span)",
@@ -493,7 +493,7 @@
       "levels": 2,
       "steps": 4677,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/bridge-mf_opus_benchmark_r2/seed4/run_20260919_161614"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/bridge-mf_opus_benchmark_r2/seed4/run_20260919_161614"
     },
     {
       "domain": "Bridge (4-span)",
@@ -504,7 +504,7 @@
       "levels": 2,
       "steps": 20015,
       "resets": 6,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/bridge-mf_scene_package_opus_benchmark_r1/seed0/run_20260919_040840"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/bridge-mf_scene_package_opus_benchmark_r1/seed0/run_20260919_040840"
     },
     {
       "domain": "Bridge (4-span)",
@@ -515,7 +515,7 @@
       "levels": 2,
       "steps": 3736,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/bridge-mf_scene_package_opus_benchmark_r1/seed1/run_20260919_040839"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/bridge-mf_scene_package_opus_benchmark_r1/seed1/run_20260919_040839"
     },
     {
       "domain": "Bridge (4-span)",
@@ -526,7 +526,7 @@
       "levels": 2,
       "steps": 3380,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/bridge-mf_scene_package_opus_benchmark_r1/seed2/run_20260919_040839"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/bridge-mf_scene_package_opus_benchmark_r1/seed2/run_20260919_040839"
     },
     {
       "domain": "Bridge (4-span)",
@@ -537,7 +537,7 @@
       "levels": 2,
       "steps": 7916,
       "resets": 1,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/bridge-mf_scene_package_opus_benchmark_r1/seed3/run_20260919_161613"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/bridge-mf_scene_package_opus_benchmark_r1/seed3/run_20260919_161613"
     },
     {
       "domain": "Bridge (4-span)",
@@ -548,7 +548,7 @@
       "levels": 2,
       "steps": 2644,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/bridge-mf_scene_package_opus_benchmark_r1/seed4/run_20260919_161613"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/bridge-mf_scene_package_opus_benchmark_r1/seed4/run_20260919_161613"
     },
     {
       "domain": "Bridge (4-span)",
@@ -559,7 +559,7 @@
       "levels": 2,
       "steps": 4575,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/bridge-standalone_opus_benchmark_r2/seed0/run_20260918_144453"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/bridge-standalone_opus_benchmark_r2/seed0/run_20260918_144453"
     },
     {
       "domain": "Bridge (4-span)",
@@ -570,7 +570,7 @@
       "levels": 2,
       "steps": 5246,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/bridge-standalone_opus_benchmark_r2/seed1/run_20260918_162542"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/bridge-standalone_opus_benchmark_r2/seed1/run_20260918_162542"
     },
     {
       "domain": "Bridge (4-span)",
@@ -581,7 +581,7 @@
       "levels": 2,
       "steps": 3210,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/bridge-standalone_opus_benchmark_r2/seed2/run_20260918_162514"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/bridge-standalone_opus_benchmark_r2/seed2/run_20260918_162514"
     },
     {
       "domain": "Bridge (4-span)",
@@ -592,7 +592,7 @@
       "levels": 2,
       "steps": 7477,
       "resets": 2,
-      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/bridge-standalone_opus_benchmark_r2/seed3/run_20260919_161614"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/bridge-standalone_opus_benchmark_r2/seed3/run_20260919_161614"
     },
     {
       "domain": "Bridge (4-span)",
@@ -603,7 +603,7 @@
       "levels": 2,
       "steps": 3487,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/bridge-standalone_opus_benchmark_r2/seed4/run_20260919_161614"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/bridge-standalone_opus_benchmark_r2/seed4/run_20260919_161614"
     },
     {
       "domain": "Bridge (4-span)",
@@ -614,7 +614,7 @@
       "levels": 2,
       "steps": 2633,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_oracle_dynamics/bridge-oracle_dynamics_opus_benchmark_r2/seed0/run_20260919_120029"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/bridge-oracle_dynamics_opus_benchmark_r2/seed0/run_20260919_120029"
     },
     {
       "domain": "Bridge (4-span)",
@@ -625,7 +625,7 @@
       "levels": 2,
       "steps": 3303,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_oracle_dynamics/bridge-oracle_dynamics_opus_benchmark_r2/seed1/run_20260919_120029"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/bridge-oracle_dynamics_opus_benchmark_r2/seed1/run_20260919_120029"
     },
     {
       "domain": "Bridge (4-span)",
@@ -636,7 +636,7 @@
       "levels": 2,
       "steps": 3275,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_oracle_dynamics/bridge-oracle_dynamics_opus_benchmark_r2/seed2/run_20260919_120029"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/bridge-oracle_dynamics_opus_benchmark_r2/seed2/run_20260919_120029"
     },
     {
       "domain": "Bridge (4-span)",
@@ -647,7 +647,7 @@
       "levels": 2,
       "steps": 2976,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_oracle_dynamics/bridge-oracle_dynamics_opus_benchmark_r2/seed3/run_20260919_161614"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/bridge-oracle_dynamics_opus_benchmark_r2/seed3/run_20260919_161614"
     },
     {
       "domain": "Bridge (4-span)",
@@ -658,7 +658,7 @@
       "levels": 2,
       "steps": 3837,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_oracle_dynamics/bridge-oracle_dynamics_opus_benchmark_r2/seed4/run_20260919_161614"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/bridge-oracle_dynamics_opus_benchmark_r2/seed4/run_20260919_161614"
     },
     {
       "domain": "Bridge (4-span)",
@@ -669,7 +669,7 @@
       "levels": 2,
       "steps": 3518,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/bridge-no_fitting_opus_benchmark_r1/seed0/run_20260918_091719"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/bridge-no_fitting_opus_benchmark_r1/seed0/run_20260918_091719"
     },
     {
       "domain": "Bridge (4-span)",
@@ -680,7 +680,7 @@
       "levels": 2,
       "steps": 2925,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/bridge-no_fitting_opus_benchmark_r1/seed1/run_20260918_091719"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/bridge-no_fitting_opus_benchmark_r1/seed1/run_20260918_091719"
     },
     {
       "domain": "Bridge (4-span)",
@@ -691,7 +691,7 @@
       "levels": 2,
       "steps": 3743,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/bridge-no_fitting_opus_benchmark_r1/seed2/run_20260918_091719"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/bridge-no_fitting_opus_benchmark_r1/seed2/run_20260918_091719"
     },
     {
       "domain": "Bridge (4-span)",
@@ -702,7 +702,7 @@
       "levels": 2,
       "steps": 4276,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/bridge-no_fitting_opus_benchmark_r1/seed3/run_20260919_161617"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/bridge-no_fitting_opus_benchmark_r1/seed3/run_20260919_161617"
     },
     {
       "domain": "Bridge (4-span)",
@@ -713,7 +713,7 @@
       "levels": 2,
       "steps": 3957,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/bridge-no_fitting_opus_benchmark_r1/seed4/run_20260919_161617"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/bridge-no_fitting_opus_benchmark_r1/seed4/run_20260919_161617"
     },
     {
       "domain": "Bridge (4-span)",
@@ -724,7 +724,7 @@
       "levels": 2,
       "steps": 4181,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/bridge-no_uncertainty_opus_benchmark_r2/seed0/run_20260918_153933"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/bridge-no_uncertainty_opus_benchmark_r2/seed0/run_20260918_153933"
     },
     {
       "domain": "Bridge (4-span)",
@@ -735,7 +735,7 @@
       "levels": 2,
       "steps": 4576,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/bridge-no_uncertainty_opus_benchmark_r2/seed1/run_20260918_162811"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/bridge-no_uncertainty_opus_benchmark_r2/seed1/run_20260918_162811"
     },
     {
       "domain": "Bridge (4-span)",
@@ -746,7 +746,7 @@
       "levels": 2,
       "steps": 5883,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/bridge-no_uncertainty_opus_benchmark_r2/seed2/run_20260918_162811"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/bridge-no_uncertainty_opus_benchmark_r2/seed2/run_20260918_162811"
     },
     {
       "domain": "Bridge (4-span)",
@@ -757,7 +757,7 @@
       "levels": 2,
       "steps": 3512,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/bridge-no_uncertainty_opus_benchmark_r2/seed3/run_20260919_161652"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/bridge-no_uncertainty_opus_benchmark_r2/seed3/run_20260919_161652"
     },
     {
       "domain": "Bridge (4-span)",
@@ -768,7 +768,7 @@
       "levels": 2,
       "steps": 3660,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/bridge-no_uncertainty_opus_benchmark_r2/seed4/run_20260919_161652"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/bridge-no_uncertainty_opus_benchmark_r2/seed4/run_20260919_161652"
     },
     {
       "domain": "Balloons (composition)",
@@ -779,7 +779,7 @@
       "levels": 3,
       "steps": 682,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual/balloons-mb_opus_compose_r2/seed0/run_20260917_082044"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/balloons-mb_opus_compose_r2/seed0/run_20260917_082044"
     },
     {
       "domain": "Balloons (composition)",
@@ -790,7 +790,7 @@
       "levels": 3,
       "steps": 823,
       "resets": 2,
-      "source": "/home/ycliang/predicators/logs/agent_continual/balloons-mb_opus_compose_r2/seed1/run_20260917_082044"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/balloons-mb_opus_compose_r2/seed1/run_20260917_082044"
     },
     {
       "domain": "Balloons (composition)",
@@ -801,7 +801,7 @@
       "levels": 3,
       "steps": 1427,
       "resets": 2,
-      "source": "/home/ycliang/predicators/logs/agent_continual/balloons-mb_opus_benchmark_r2/seed2/run_20260920_060152"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/balloons-mb_opus_benchmark_r2/seed2/run_20260920_060152"
     },
     {
       "domain": "Balloons (composition)",
@@ -812,7 +812,7 @@
       "levels": 3,
       "steps": 634,
       "resets": 1,
-      "source": "/home/ycliang/predicators/logs/agent_continual/balloons-mb_opus_benchmark_r2/seed3/run_20260919_124956"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/balloons-mb_opus_benchmark_r2/seed3/run_20260919_124956"
     },
     {
       "domain": "Balloons (composition)",
@@ -823,7 +823,7 @@
       "levels": 3,
       "steps": 669,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual/balloons-mb_opus_benchmark_r2/seed4/run_20260919_124956"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/balloons-mb_opus_benchmark_r2/seed4/run_20260919_124956"
     },
     {
       "domain": "Balloons (composition)",
@@ -834,7 +834,7 @@
       "levels": 3,
       "steps": 652,
       "resets": 1,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/balloons-mf_opus_compose_r2/seed0/run_20260917_082019"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/balloons-mf_opus_compose_r2/seed0/run_20260917_082019"
     },
     {
       "domain": "Balloons (composition)",
@@ -845,7 +845,7 @@
       "levels": 3,
       "steps": 628,
       "resets": 1,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/balloons-mf_opus_compose_r2/seed1/run_20260917_082025"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/balloons-mf_opus_compose_r2/seed1/run_20260917_082025"
     },
     {
       "domain": "Balloons (composition)",
@@ -856,7 +856,7 @@
       "levels": 3,
       "steps": 918,
       "resets": 1,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/balloons-mf_opus_compose_r2/seed2/run_20260917_082020"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/balloons-mf_opus_compose_r2/seed2/run_20260917_082020"
     },
     {
       "domain": "Balloons (composition)",
@@ -867,7 +867,7 @@
       "levels": 3,
       "steps": 730,
       "resets": 2,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/balloons-mf_opus_benchmark_r2/seed3/run_20260919_161610"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/balloons-mf_opus_benchmark_r2/seed3/run_20260919_161610"
     },
     {
       "domain": "Balloons (composition)",
@@ -878,7 +878,7 @@
       "levels": 3,
       "steps": 608,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/balloons-mf_opus_benchmark_r2/seed4/run_20260919_161614"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/balloons-mf_opus_benchmark_r2/seed4/run_20260919_161614"
     },
     {
       "domain": "Balloons (composition)",
@@ -889,7 +889,7 @@
       "levels": 3,
       "steps": 813,
       "resets": 2,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/balloons-mf_scene_package_opus_benchmark_r1/seed0/run_20260919_040841"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/balloons-mf_scene_package_opus_benchmark_r1/seed0/run_20260919_040841"
     },
     {
       "domain": "Balloons (composition)",
@@ -900,7 +900,7 @@
       "levels": 3,
       "steps": 634,
       "resets": 1,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/balloons-mf_scene_package_opus_benchmark_r1/seed1/run_20260919_040840"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/balloons-mf_scene_package_opus_benchmark_r1/seed1/run_20260919_040840"
     },
     {
       "domain": "Balloons (composition)",
@@ -911,7 +911,7 @@
       "levels": 3,
       "steps": 1010,
       "resets": 1,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/balloons-mf_scene_package_opus_benchmark_r1/seed2/run_20260919_040840"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/balloons-mf_scene_package_opus_benchmark_r1/seed2/run_20260919_040840"
     },
     {
       "domain": "Balloons (composition)",
@@ -922,7 +922,7 @@
       "levels": 3,
       "steps": 663,
       "resets": 1,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/balloons-mf_scene_package_opus_benchmark_r1/seed3/run_20260919_161613"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/balloons-mf_scene_package_opus_benchmark_r1/seed3/run_20260919_161613"
     },
     {
       "domain": "Balloons (composition)",
@@ -933,7 +933,7 @@
       "levels": 3,
       "steps": 1025,
       "resets": 2,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/balloons-mf_scene_package_opus_benchmark_r1/seed4/run_20260919_161613"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/balloons-mf_scene_package_opus_benchmark_r1/seed4/run_20260919_161613"
     },
     {
       "domain": "Balloons (composition)",
@@ -944,7 +944,7 @@
       "levels": 3,
       "steps": 897,
       "resets": 1,
-      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/balloons-standalone_opus_benchmark_r2/seed0/run_20260918_143351"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/balloons-standalone_opus_benchmark_r2/seed0/run_20260918_143351"
     },
     {
       "domain": "Balloons (composition)",
@@ -955,7 +955,7 @@
       "levels": 3,
       "steps": 749,
       "resets": 2,
-      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/balloons-standalone_opus_benchmark_r2/seed1/run_20260918_162516"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/balloons-standalone_opus_benchmark_r2/seed1/run_20260918_162516"
     },
     {
       "domain": "Balloons (composition)",
@@ -966,7 +966,7 @@
       "levels": 3,
       "steps": 1773,
       "resets": 4,
-      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/balloons-standalone_opus_benchmark_r2/seed2/run_20260918_162542"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/balloons-standalone_opus_benchmark_r2/seed2/run_20260918_162542"
     },
     {
       "domain": "Balloons (composition)",
@@ -977,7 +977,7 @@
       "levels": 3,
       "steps": 928,
       "resets": 3,
-      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/balloons-standalone_opus_benchmark_r2/seed3/run_20260919_161612"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/balloons-standalone_opus_benchmark_r2/seed3/run_20260919_161612"
     },
     {
       "domain": "Balloons (composition)",
@@ -988,7 +988,7 @@
       "levels": 3,
       "steps": 939,
       "resets": 2,
-      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/balloons-standalone_opus_benchmark_r2/seed4/run_20260919_161612"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/balloons-standalone_opus_benchmark_r2/seed4/run_20260919_161612"
     },
     {
       "domain": "Balloons (composition)",
@@ -999,7 +999,7 @@
       "levels": 3,
       "steps": 385,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_oracle_dynamics/balloons-oracle_dynamics_opus_benchmark_r1/seed0/run_20260918_091701"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/balloons-oracle_dynamics_opus_benchmark_r1/seed0/run_20260918_091701"
     },
     {
       "domain": "Balloons (composition)",
@@ -1010,7 +1010,7 @@
       "levels": 3,
       "steps": 624,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_oracle_dynamics/balloons-oracle_dynamics_opus_benchmark_r1/seed1/run_20260918_091701"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/balloons-oracle_dynamics_opus_benchmark_r1/seed1/run_20260918_091701"
     },
     {
       "domain": "Balloons (composition)",
@@ -1021,7 +1021,7 @@
       "levels": 3,
       "steps": 460,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_oracle_dynamics/balloons-oracle_dynamics_opus_benchmark_r1/seed2/run_20260918_091701"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/balloons-oracle_dynamics_opus_benchmark_r1/seed2/run_20260918_091701"
     },
     {
       "domain": "Balloons (composition)",
@@ -1032,7 +1032,7 @@
       "levels": 3,
       "steps": 600,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_oracle_dynamics/balloons-oracle_dynamics_opus_benchmark_r2/seed3/run_20260919_161753"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/balloons-oracle_dynamics_opus_benchmark_r2/seed3/run_20260919_161753"
     },
     {
       "domain": "Balloons (composition)",
@@ -1043,7 +1043,7 @@
       "levels": 3,
       "steps": 1563,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_oracle_dynamics/balloons-oracle_dynamics_opus_benchmark_r2/seed4/run_20260919_161611"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/balloons-oracle_dynamics_opus_benchmark_r2/seed4/run_20260919_161611"
     },
     {
       "domain": "Balloons (composition)",
@@ -1054,7 +1054,7 @@
       "levels": 3,
       "steps": 669,
       "resets": 2,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/balloons-no_fitting_opus_benchmark_r1/seed0/run_20260918_091719"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/balloons-no_fitting_opus_benchmark_r1/seed0/run_20260918_091719"
     },
     {
       "domain": "Balloons (composition)",
@@ -1065,7 +1065,7 @@
       "levels": 3,
       "steps": 630,
       "resets": 1,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/balloons-no_fitting_opus_benchmark_r1/seed1/run_20260918_091719"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/balloons-no_fitting_opus_benchmark_r1/seed1/run_20260918_091719"
     },
     {
       "domain": "Balloons (composition)",
@@ -1076,7 +1076,7 @@
       "levels": 3,
       "steps": 1726,
       "resets": 4,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/balloons-no_fitting_opus_benchmark_r1/seed2/run_20260918_091719"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/balloons-no_fitting_opus_benchmark_r1/seed2/run_20260918_091719"
     },
     {
       "domain": "Balloons (composition)",
@@ -1087,7 +1087,7 @@
       "levels": 3,
       "steps": 605,
       "resets": 2,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/balloons-no_fitting_opus_benchmark_r1/seed3/run_20260919_161609"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/balloons-no_fitting_opus_benchmark_r1/seed3/run_20260919_161609"
     },
     {
       "domain": "Balloons (composition)",
@@ -1098,7 +1098,7 @@
       "levels": 3,
       "steps": 1585,
       "resets": 3,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/balloons-no_fitting_opus_benchmark_r1/seed4/run_20260919_161609"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/balloons-no_fitting_opus_benchmark_r1/seed4/run_20260919_161609"
     },
     {
       "domain": "Balloons (composition)",
@@ -1109,7 +1109,7 @@
       "levels": 3,
       "steps": 829,
       "resets": 2,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/balloons-no_uncertainty_opus_benchmark_r2/seed0/run_20260918_153933"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/balloons-no_uncertainty_opus_benchmark_r2/seed0/run_20260918_153933"
     },
     {
       "domain": "Balloons (composition)",
@@ -1120,7 +1120,7 @@
       "levels": 3,
       "steps": 441,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/balloons-no_uncertainty_opus_benchmark_r2/seed1/run_20260918_162527"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/balloons-no_uncertainty_opus_benchmark_r2/seed1/run_20260918_162527"
     },
     {
       "domain": "Balloons (composition)",
@@ -1131,7 +1131,7 @@
       "levels": 3,
       "steps": 952,
       "resets": 3,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/balloons-no_uncertainty_opus_benchmark_r2/seed2/run_20260918_162534"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/balloons-no_uncertainty_opus_benchmark_r2/seed2/run_20260918_162534"
     },
     {
       "domain": "Balloons (composition)",
@@ -1142,7 +1142,7 @@
       "levels": 3,
       "steps": 778,
       "resets": 1,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/balloons-no_uncertainty_opus_benchmark_r2/seed3/run_20260919_161653"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/balloons-no_uncertainty_opus_benchmark_r2/seed3/run_20260919_161653"
     },
     {
       "domain": "Balloons (composition)",
@@ -1153,7 +1153,7 @@
       "levels": 3,
       "steps": 519,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/balloons-no_uncertainty_opus_benchmark_r2/seed4/run_20260919_161653"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/balloons-no_uncertainty_opus_benchmark_r2/seed4/run_20260919_161653"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1164,7 +1164,7 @@
       "levels": 2,
       "steps": 1324,
       "resets": 1,
-      "source": "/home/ycliang/predicators/logs/agent_continual/boil-mb_opus_gate_preflight_two_jug_tight_r1/seed0/run_20260917_073118"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/boil-mb_opus_gate_preflight_two_jug_tight_r1/seed0/run_20260917_073118"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1175,7 +1175,7 @@
       "levels": 2,
       "steps": 1282,
       "resets": 1,
-      "source": "/home/ycliang/predicators/logs/agent_continual/boil-mb_opus_gate_preflight_two_jug_tight_r1/seed1/run_20260917_082805"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/boil-mb_opus_gate_preflight_two_jug_tight_r1/seed1/run_20260917_082805"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1186,7 +1186,7 @@
       "levels": 2,
       "steps": 1219,
       "resets": 1,
-      "source": "/home/ycliang/predicators/logs/agent_continual/boil-mb_opus_benchmark_r2/seed2/run_20260920_055954"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/boil-mb_opus_benchmark_r2/seed2/run_20260920_055954"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1197,7 +1197,7 @@
       "levels": 2,
       "steps": 1428,
       "resets": 1,
-      "source": "/home/ycliang/predicators/logs/agent_continual/boil-mb_opus_benchmark_r2/seed3/run_20260919_124957"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/boil-mb_opus_benchmark_r2/seed3/run_20260919_124957"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1208,7 +1208,7 @@
       "levels": 2,
       "steps": 1402,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual/boil-mb_opus_benchmark_r2/seed4/run_20260919_124957"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/boil-mb_opus_benchmark_r2/seed4/run_20260919_124957"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1219,7 +1219,7 @@
       "levels": 2,
       "steps": 2182,
       "resets": 1,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/boil-mf_opus_two_jug_tight_r1/seed0/run_20260917_073117"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/boil-mf_opus_two_jug_tight_r1/seed0/run_20260917_073117"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1230,7 +1230,7 @@
       "levels": 2,
       "steps": 977,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/boil-mf_opus_two_jug_tight_r1/seed1/run_20260917_082806"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/boil-mf_opus_two_jug_tight_r1/seed1/run_20260917_082806"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1241,7 +1241,7 @@
       "levels": 2,
       "steps": 1650,
       "resets": 1,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/boil-mf_opus_two_jug_tight_r1/seed2/run_20260917_082806"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/boil-mf_opus_two_jug_tight_r1/seed2/run_20260917_082806"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1252,7 +1252,7 @@
       "levels": 2,
       "steps": 1440,
       "resets": 1,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/boil-mf_opus_benchmark_r2/seed3/run_20260919_161614"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/boil-mf_opus_benchmark_r2/seed3/run_20260919_161614"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1263,7 +1263,7 @@
       "levels": 2,
       "steps": 1086,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/boil-mf_opus_benchmark_r2/seed4/run_20260919_161614"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/boil-mf_opus_benchmark_r2/seed4/run_20260919_161614"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1274,7 +1274,7 @@
       "levels": 2,
       "steps": 1044,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/boil-mf_scene_package_opus_benchmark_r1/seed0/run_20260919_040839"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/boil-mf_scene_package_opus_benchmark_r1/seed0/run_20260919_040839"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1285,7 +1285,7 @@
       "levels": 2,
       "steps": 1424,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/boil-mf_scene_package_opus_benchmark_r1/seed1/run_20260919_040839"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/boil-mf_scene_package_opus_benchmark_r1/seed1/run_20260919_040839"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1296,7 +1296,7 @@
       "levels": 2,
       "steps": 1576,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/boil-mf_scene_package_opus_benchmark_r1/seed2/run_20260919_040847"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/boil-mf_scene_package_opus_benchmark_r1/seed2/run_20260919_040847"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1307,7 +1307,7 @@
       "levels": 2,
       "steps": 2782,
       "resets": 1,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/boil-mf_scene_package_opus_benchmark_r1/seed3/run_20260919_161613"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/boil-mf_scene_package_opus_benchmark_r1/seed3/run_20260919_161613"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1318,7 +1318,7 @@
       "levels": 2,
       "steps": 2249,
       "resets": 1,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/boil-mf_scene_package_opus_benchmark_r1/seed4/run_20260919_161612"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/boil-mf_scene_package_opus_benchmark_r1/seed4/run_20260919_161612"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1329,7 +1329,7 @@
       "levels": 2,
       "steps": 1489,
       "resets": 1,
-      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/boil-standalone_opus_benchmark_r2/seed0/run_20260918_153946"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/boil-standalone_opus_benchmark_r2/seed0/run_20260918_153946"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1340,7 +1340,7 @@
       "levels": 2,
       "steps": 2590,
       "resets": 2,
-      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/boil-standalone_opus_benchmark_r2/seed1/run_20260918_162515"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/boil-standalone_opus_benchmark_r2/seed1/run_20260918_162515"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1351,7 +1351,7 @@
       "levels": 2,
       "steps": 1927,
       "resets": 2,
-      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/boil-standalone_opus_benchmark_r2/seed2/run_20260918_162516"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/boil-standalone_opus_benchmark_r2/seed2/run_20260918_162516"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1362,7 +1362,7 @@
       "levels": 2,
       "steps": 1098,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/boil-standalone_opus_benchmark_r2/seed3/run_20260920_033253"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/boil-standalone_opus_benchmark_r2/seed3/run_20260920_033253"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1373,7 +1373,7 @@
       "levels": 2,
       "steps": 1394,
       "resets": 1,
-      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/boil-standalone_opus_benchmark_r2/seed4/run_20260919_161614"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/boil-standalone_opus_benchmark_r2/seed4/run_20260919_161614"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1384,7 +1384,7 @@
       "levels": 2,
       "steps": 756,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_oracle_dynamics/boil-oracle_dynamics_opus_benchmark_r1/seed0/run_20260918_091710"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/boil-oracle_dynamics_opus_benchmark_r1/seed0/run_20260918_091710"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1395,7 +1395,7 @@
       "levels": 2,
       "steps": 775,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_oracle_dynamics/boil-oracle_dynamics_opus_benchmark_r1/seed1/run_20260918_091746"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/boil-oracle_dynamics_opus_benchmark_r1/seed1/run_20260918_091746"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1406,7 +1406,7 @@
       "levels": 2,
       "steps": 770,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_oracle_dynamics/boil-oracle_dynamics_opus_benchmark_r1/seed2/run_20260918_091745"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/boil-oracle_dynamics_opus_benchmark_r1/seed2/run_20260918_091745"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1417,7 +1417,7 @@
       "levels": 2,
       "steps": 742,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_oracle_dynamics/boil-oracle_dynamics_opus_benchmark_r2/seed3/run_20260919_161614"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/boil-oracle_dynamics_opus_benchmark_r2/seed3/run_20260919_161614"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1428,7 +1428,7 @@
       "levels": 2,
       "steps": 781,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_oracle_dynamics/boil-oracle_dynamics_opus_benchmark_r2/seed4/run_20260919_161609"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/boil-oracle_dynamics_opus_benchmark_r2/seed4/run_20260919_161609"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1439,7 +1439,7 @@
       "levels": 2,
       "steps": 744,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/boil-no_fitting_opus_benchmark_r1/seed0/run_20260918_091719"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/boil-no_fitting_opus_benchmark_r1/seed0/run_20260918_091719"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1450,7 +1450,7 @@
       "levels": 2,
       "steps": 938,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/boil-no_fitting_opus_benchmark_r1/seed1/run_20260918_091719"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/boil-no_fitting_opus_benchmark_r1/seed1/run_20260918_091719"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1461,7 +1461,7 @@
       "levels": 2,
       "steps": 1196,
       "resets": 1,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/boil-no_fitting_opus_benchmark_r1/seed2/run_20260918_091719"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/boil-no_fitting_opus_benchmark_r1/seed2/run_20260918_091719"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1472,7 +1472,7 @@
       "levels": 2,
       "steps": 759,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/boil-no_fitting_opus_benchmark_r1/seed3/run_20260919_161617"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/boil-no_fitting_opus_benchmark_r1/seed3/run_20260919_161617"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1483,7 +1483,7 @@
       "levels": 2,
       "steps": 1301,
       "resets": 1,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/boil-no_fitting_opus_benchmark_r1/seed4/run_20260919_161617"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/boil-no_fitting_opus_benchmark_r1/seed4/run_20260919_161617"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1494,7 +1494,7 @@
       "levels": 2,
       "steps": 844,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/boil-no_uncertainty_opus_benchmark_r2/seed0/run_20260918_153933"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/boil-no_uncertainty_opus_benchmark_r2/seed0/run_20260918_153933"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1505,7 +1505,7 @@
       "levels": 2,
       "steps": 1589,
       "resets": 1,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/boil-no_uncertainty_opus_benchmark_r2/seed1/run_20260918_162806"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/boil-no_uncertainty_opus_benchmark_r2/seed1/run_20260918_162806"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1516,7 +1516,7 @@
       "levels": 2,
       "steps": 1483,
       "resets": 1,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/boil-no_uncertainty_opus_benchmark_r2/seed2/run_20260918_162806"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/boil-no_uncertainty_opus_benchmark_r2/seed2/run_20260918_162806"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1527,7 +1527,7 @@
       "levels": 2,
       "steps": 1513,
       "resets": 1,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/boil-no_uncertainty_opus_benchmark_r2/seed3/run_20260919_161651"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/boil-no_uncertainty_opus_benchmark_r2/seed3/run_20260919_161651"
     },
     {
       "domain": "Boil (2-jug)",
@@ -1538,392 +1538,392 @@
       "levels": 2,
       "steps": 958,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/boil-no_uncertainty_opus_benchmark_r2/seed4/run_20260919_161651"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/boil-no_uncertainty_opus_benchmark_r2/seed4/run_20260919_161651"
     },
     {
-      "domain": "Fan (maze)",
+      "domain": "Fan (ramp transfer)",
+      "arm": "oracle_dynamics",
+      "source_arm": "oracle_dynamics",
+      "seed": 0,
+      "won": 2,
+      "levels": 2,
+      "steps": 3280,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_fan_prompt_r2/seed0/run_20260922_055537"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "oracle_dynamics",
+      "source_arm": "oracle_dynamics",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 2863,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_fan_prompt_r2/seed1/run_20260922_055538"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "oracle_dynamics",
+      "source_arm": "oracle_dynamics",
+      "seed": 2,
+      "won": 2,
+      "levels": 2,
+      "steps": 3350,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_fan_prompt_r2/seed2/run_20260922_055536"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "oracle_dynamics",
+      "source_arm": "oracle_dynamics",
+      "seed": 3,
+      "won": 2,
+      "levels": 2,
+      "steps": 3009,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_fan_prompt_r2/seed3/run_20260922_055536"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "oracle_dynamics",
+      "source_arm": "oracle_dynamics",
+      "seed": 4,
+      "won": 2,
+      "levels": 2,
+      "steps": 968,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_fan_prompt_r2/seed4/run_20260922_055541"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
       "arm": "MB",
       "source_arm": "MB",
       "seed": 0,
       "won": 2,
       "levels": 2,
-      "steps": 486,
+      "steps": 2743,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual/fan_maze-mb_opus_gate_r1/seed0/run_20260916_140340"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_skill_repair_r1/seed0/run_20260921_090823"
     },
     {
-      "domain": "Fan (maze)",
+      "domain": "Fan (ramp transfer)",
       "arm": "MB",
       "source_arm": "MB",
       "seed": 1,
       "won": 2,
       "levels": 2,
-      "steps": 475,
+      "steps": 1564,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual/fan_maze-mb_opus_gate_r1/seed1/run_20260917_082017"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_skill_repair_r1/seed1/run_20260921_090827"
     },
     {
-      "domain": "Fan (maze)",
+      "domain": "Fan (ramp transfer)",
       "arm": "MB",
       "source_arm": "MB",
       "seed": 2,
       "won": 2,
       "levels": 2,
-      "steps": 565,
+      "steps": 3003,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual/fan_maze-mb_opus_gate_r1/seed2/run_20260917_082020"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_skill_repair_r1/seed2/run_20260921_090827"
     },
     {
-      "domain": "Fan (maze)",
+      "domain": "Fan (ramp transfer)",
       "arm": "MB",
-      "source_arm": "MB_r2",
+      "source_arm": "MB",
       "seed": 3,
       "won": 2,
       "levels": 2,
-      "steps": 1320,
+      "steps": 2333,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual/fan-mb_opus_benchmark_r2/seed3/run_20260919_124957"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_skill_repair_r1/seed3/run_20260921_090824"
     },
     {
-      "domain": "Fan (maze)",
+      "domain": "Fan (ramp transfer)",
       "arm": "MB",
-      "source_arm": "MB_r2",
+      "source_arm": "MB",
       "seed": 4,
       "won": 2,
       "levels": 2,
-      "steps": 1368,
+      "steps": 2731,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual/fan-mb_opus_benchmark_r2/seed4/run_20260919_124957"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual/fan_ramp-mb_opus_ramp_skill_repair_r1/seed4/run_20260921_090824"
     },
     {
-      "domain": "Fan (maze)",
+      "domain": "Fan (ramp transfer)",
       "arm": "MF",
       "source_arm": "MF",
       "seed": 0,
       "won": 2,
       "levels": 2,
-      "steps": 1201,
+      "steps": 5363,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/fan_maze-mf_opus_r1/seed0/run_20260916_140338"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_skill_repair_r1/seed0/run_20260921_121409"
     },
     {
-      "domain": "Fan (maze)",
+      "domain": "Fan (ramp transfer)",
       "arm": "MF",
       "source_arm": "MF",
       "seed": 1,
-      "won": 2,
+      "won": 0,
       "levels": 2,
-      "steps": 1777,
-      "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/fan_maze-mf_opus_r1/seed1/run_20260917_082016"
+      "steps": 1852,
+      "resets": 3,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_skill_repair_r1/seed1/run_20260921_121409"
     },
     {
-      "domain": "Fan (maze)",
+      "domain": "Fan (ramp transfer)",
       "arm": "MF",
       "source_arm": "MF",
       "seed": 2,
       "won": 2,
       "levels": 2,
-      "steps": 1621,
+      "steps": 2722,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/fan_maze-mf_opus_r1/seed2/run_20260917_082016"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_skill_repair_r1/seed2/run_20260921_121409"
     },
     {
-      "domain": "Fan (maze)",
+      "domain": "Fan (ramp transfer)",
       "arm": "MF",
       "source_arm": "MF",
       "seed": 3,
-      "won": 2,
+      "won": 0,
       "levels": 2,
-      "steps": 967,
-      "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/fan-mf_opus_benchmark_r2/seed3/run_20260919_161614"
+      "steps": 3232,
+      "resets": 16,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_skill_repair_r1/seed3/run_20260921_121409"
     },
     {
-      "domain": "Fan (maze)",
+      "domain": "Fan (ramp transfer)",
       "arm": "MF",
       "source_arm": "MF",
       "seed": 4,
       "won": 2,
       "levels": 2,
-      "steps": 2418,
+      "steps": 1209,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/fan-mf_opus_benchmark_r2/seed4/run_20260919_161614"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_opus_ramp_skill_repair_r1/seed4/run_20260921_121409"
     },
     {
-      "domain": "Fan (maze)",
+      "domain": "Fan (ramp transfer)",
       "arm": "mf_scene_package",
       "source_arm": "mf_scene_package",
       "seed": 0,
-      "won": 2,
+      "won": 1,
       "levels": 2,
-      "steps": 1352,
+      "steps": 1645,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/fan-mf_scene_package_opus_benchmark_r1/seed0/run_20260919_040847"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_scene_package_opus_ramp_skill_repair_r1/seed0/run_20260921_121409"
     },
     {
-      "domain": "Fan (maze)",
+      "domain": "Fan (ramp transfer)",
       "arm": "mf_scene_package",
       "source_arm": "mf_scene_package",
-      "seed": 1,
-      "won": 2,
-      "levels": 2,
-      "steps": 1271,
-      "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/fan-mf_scene_package_opus_benchmark_r1/seed1/run_20260919_040929"
-    },
-    {
-      "domain": "Fan (maze)",
-      "arm": "mf_scene_package",
-      "source_arm": "mf_scene_package",
-      "seed": 2,
-      "won": 2,
-      "levels": 2,
-      "steps": 1956,
-      "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/fan-mf_scene_package_opus_benchmark_r1/seed2/run_20260919_040929"
-    },
-    {
-      "domain": "Fan (maze)",
-      "arm": "mf_scene_package",
-      "source_arm": "mf_scene_package",
-      "seed": 3,
-      "won": 2,
-      "levels": 2,
-      "steps": 1566,
-      "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/fan-mf_scene_package_opus_benchmark_r1/seed3/run_20260919_161612"
-    },
-    {
-      "domain": "Fan (maze)",
-      "arm": "mf_scene_package",
-      "source_arm": "mf_scene_package",
-      "seed": 4,
-      "won": 2,
-      "levels": 2,
-      "steps": 1551,
-      "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_model_free/fan-mf_scene_package_opus_benchmark_r1/seed4/run_20260919_161612"
-    },
-    {
-      "domain": "Fan (maze)",
-      "arm": "standalone",
-      "source_arm": "standalone",
-      "seed": 0,
-      "won": 2,
-      "levels": 2,
-      "steps": 1782,
-      "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/fan-standalone_opus_benchmark_r2/seed0/run_20260918_153933"
-    },
-    {
-      "domain": "Fan (maze)",
-      "arm": "standalone",
-      "source_arm": "standalone",
       "seed": 1,
       "won": 1,
       "levels": 2,
-      "steps": 4358,
-      "resets": 2,
-      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/fan-standalone_opus_benchmark_r2/seed1/run_20260918_162531"
+      "steps": 7268,
+      "resets": 1,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_scene_package_opus_ramp_skill_repair_r1/seed1/run_20260921_121409"
     },
     {
-      "domain": "Fan (maze)",
+      "domain": "Fan (ramp transfer)",
+      "arm": "mf_scene_package",
+      "source_arm": "mf_scene_package",
+      "seed": 2,
+      "won": 1,
+      "levels": 2,
+      "steps": 1755,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_scene_package_opus_ramp_skill_repair_r1/seed2/run_20260921_121626"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "mf_scene_package",
+      "source_arm": "mf_scene_package",
+      "seed": 3,
+      "won": 1,
+      "levels": 2,
+      "steps": 2570,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_scene_package_opus_ramp_skill_repair_r1/seed3/run_20260921_121408"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "mf_scene_package",
+      "source_arm": "mf_scene_package",
+      "seed": 4,
+      "won": 1,
+      "levels": 2,
+      "steps": 2974,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_model_free/fan_ramp-mf_scene_package_opus_ramp_skill_repair_r1/seed4/run_20260921_121408"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "standalone",
+      "source_arm": "standalone",
+      "seed": 0,
+      "won": 1,
+      "levels": 2,
+      "steps": 3236,
+      "resets": 0,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_ramp-standalone_opus_ramp_skill_repair_r1/seed0/run_20260921_121408"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "standalone",
+      "source_arm": "standalone",
+      "seed": 1,
+      "won": 2,
+      "levels": 2,
+      "steps": 8825,
+      "resets": 9,
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_ramp-standalone_opus_ramp_skill_repair_r1/seed1/run_20260921_121408"
+    },
+    {
+      "domain": "Fan (ramp transfer)",
       "arm": "standalone",
       "source_arm": "standalone",
       "seed": 2,
       "won": 2,
       "levels": 2,
-      "steps": 1128,
+      "steps": 1250,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/fan-standalone_opus_benchmark_r2/seed2/run_20260918_162531"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_ramp-standalone_opus_ramp_skill_repair_r1/seed2/run_20260921_121409"
     },
     {
-      "domain": "Fan (maze)",
+      "domain": "Fan (ramp transfer)",
       "arm": "standalone",
       "source_arm": "standalone",
       "seed": 3,
       "won": 2,
       "levels": 2,
-      "steps": 1098,
+      "steps": 1676,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/fan-standalone_opus_benchmark_r2/seed3/run_20260919_161614"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_ramp-standalone_opus_ramp_skill_repair_r1/seed3/run_20260921_121409"
     },
     {
-      "domain": "Fan (maze)",
+      "domain": "Fan (ramp transfer)",
       "arm": "standalone",
       "source_arm": "standalone",
       "seed": 4,
-      "won": 2,
+      "won": 1,
       "levels": 2,
-      "steps": 1885,
+      "steps": 2203,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_program_world_model/fan-standalone_opus_benchmark_r2/seed4/run_20260919_161614"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_program_world_model/fan_ramp-standalone_opus_ramp_skill_repair_r1/seed4/run_20260921_121408"
     },
     {
-      "domain": "Fan (maze)",
-      "arm": "oracle_dynamics",
-      "source_arm": "oracle_dynamics",
-      "seed": 0,
-      "won": 2,
-      "levels": 2,
-      "steps": 1253,
-      "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_benchmark_r1/seed0/run_20260918_091745"
-    },
-    {
-      "domain": "Fan (maze)",
-      "arm": "oracle_dynamics",
-      "source_arm": "oracle_dynamics",
-      "seed": 1,
-      "won": 2,
-      "levels": 2,
-      "steps": 1408,
-      "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_benchmark_r1/seed1/run_20260918_091745"
-    },
-    {
-      "domain": "Fan (maze)",
-      "arm": "oracle_dynamics",
-      "source_arm": "oracle_dynamics",
-      "seed": 2,
-      "won": 2,
-      "levels": 2,
-      "steps": 1047,
-      "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_benchmark_r1/seed2/run_20260918_091746"
-    },
-    {
-      "domain": "Fan (maze)",
-      "arm": "oracle_dynamics",
-      "source_arm": "oracle_dynamics_r2",
-      "seed": 3,
-      "won": 2,
-      "levels": 2,
-      "steps": 1653,
-      "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_benchmark_r2/seed3/run_20260919_161609"
-    },
-    {
-      "domain": "Fan (maze)",
-      "arm": "oracle_dynamics",
-      "source_arm": "oracle_dynamics_r2",
-      "seed": 4,
-      "won": 2,
-      "levels": 2,
-      "steps": 459,
-      "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_oracle_dynamics/fan-oracle_dynamics_opus_benchmark_r2/seed4/run_20260919_161610"
-    },
-    {
-      "domain": "Fan (maze)",
+      "domain": "Fan (ramp transfer)",
       "arm": "no_fitting",
       "source_arm": "no_fitting",
       "seed": 0,
       "won": 2,
       "levels": 2,
-      "steps": 1251,
+      "steps": 4428,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/fan-no_fitting_opus_benchmark_r1/seed0/run_20260918_091719"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_ramp-no_fitting_opus_ramp_skill_repair_r1/seed0/run_20260921_121408"
     },
     {
-      "domain": "Fan (maze)",
+      "domain": "Fan (ramp transfer)",
       "arm": "no_fitting",
       "source_arm": "no_fitting",
       "seed": 1,
       "won": 2,
       "levels": 2,
-      "steps": 1348,
+      "steps": 1693,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/fan-no_fitting_opus_benchmark_r1/seed1/run_20260918_091719"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_ramp-no_fitting_opus_ramp_skill_repair_r1/seed1/run_20260921_121408"
     },
     {
-      "domain": "Fan (maze)",
+      "domain": "Fan (ramp transfer)",
       "arm": "no_fitting",
       "source_arm": "no_fitting",
       "seed": 2,
       "won": 2,
       "levels": 2,
-      "steps": 1509,
+      "steps": 2015,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/fan-no_fitting_opus_benchmark_r1/seed2/run_20260918_091719"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_ramp-no_fitting_opus_ramp_skill_repair_r1/seed2/run_20260921_121408"
     },
     {
-      "domain": "Fan (maze)",
+      "domain": "Fan (ramp transfer)",
       "arm": "no_fitting",
       "source_arm": "no_fitting",
       "seed": 3,
       "won": 2,
       "levels": 2,
-      "steps": 1471,
+      "steps": 882,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/fan-no_fitting_opus_benchmark_r1/seed3/run_20260919_161617"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_ramp-no_fitting_opus_ramp_skill_repair_r1/seed3/run_20260921_121424"
     },
     {
-      "domain": "Fan (maze)",
+      "domain": "Fan (ramp transfer)",
       "arm": "no_fitting",
       "source_arm": "no_fitting",
       "seed": 4,
       "won": 2,
       "levels": 2,
-      "steps": 440,
+      "steps": 3163,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_fitting/fan-no_fitting_opus_benchmark_r1/seed4/run_20260919_161616"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_fitting/fan_ramp-no_fitting_opus_ramp_skill_repair_r1/seed4/run_20260921_121424"
     },
     {
-      "domain": "Fan (maze)",
+      "domain": "Fan (ramp transfer)",
       "arm": "no_uncertainty",
       "source_arm": "no_uncertainty",
       "seed": 0,
       "won": 2,
       "levels": 2,
-      "steps": 605,
+      "steps": 2094,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/fan-no_uncertainty_opus_benchmark_r2/seed0/run_20260918_153940"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_ramp-no_uncertainty_opus_ramp_skill_repair_r1/seed0/run_20260921_121414"
     },
     {
-      "domain": "Fan (maze)",
+      "domain": "Fan (ramp transfer)",
       "arm": "no_uncertainty",
       "source_arm": "no_uncertainty",
       "seed": 1,
       "won": 2,
       "levels": 2,
-      "steps": 771,
+      "steps": 3917,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/fan-no_uncertainty_opus_benchmark_r2/seed1/run_20260918_162807"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_ramp-no_uncertainty_opus_ramp_skill_repair_r1/seed1/run_20260921_121408"
     },
     {
-      "domain": "Fan (maze)",
+      "domain": "Fan (ramp transfer)",
       "arm": "no_uncertainty",
       "source_arm": "no_uncertainty",
       "seed": 2,
       "won": 2,
       "levels": 2,
-      "steps": 647,
+      "steps": 916,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/fan-no_uncertainty_opus_benchmark_r2/seed2/run_20260918_162807"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_ramp-no_uncertainty_opus_ramp_skill_repair_r1/seed2/run_20260921_121408"
     },
     {
-      "domain": "Fan (maze)",
+      "domain": "Fan (ramp transfer)",
       "arm": "no_uncertainty",
       "source_arm": "no_uncertainty",
       "seed": 3,
       "won": 2,
       "levels": 2,
-      "steps": 934,
+      "steps": 988,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/fan-no_uncertainty_opus_benchmark_r2/seed3/run_20260919_161655"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_ramp-no_uncertainty_opus_ramp_skill_repair_r1/seed3/run_20260921_121408"
     },
     {
-      "domain": "Fan (maze)",
+      "domain": "Fan (ramp transfer)",
       "arm": "no_uncertainty",
       "source_arm": "no_uncertainty",
       "seed": 4,
       "won": 2,
       "levels": 2,
-      "steps": 815,
+      "steps": 1342,
       "resets": 0,
-      "source": "/home/ycliang/predicators/logs/agent_continual_no_uncertainty/fan-no_uncertainty_opus_benchmark_r2/seed4/run_20260919_161655"
+      "source": "/orcd/home/002/ycliang/predicators/logs/agent_continual_no_uncertainty/fan_ramp-no_uncertainty_opus_ramp_skill_repair_r1/seed4/run_20260921_121408"
     }
   ],
   "summary": [
@@ -2320,7 +2320,7 @@
       ]
     },
     {
-      "domain": "Fan (maze)",
+      "domain": "Fan (ramp transfer)",
       "arm": "oracle_dynamics",
       "metric": "solve",
       "mean": 100.0,
@@ -2334,7 +2334,7 @@
       ]
     },
     {
-      "domain": "Fan (maze)",
+      "domain": "Fan (ramp transfer)",
       "arm": "MB",
       "metric": "solve",
       "mean": 100.0,
@@ -2348,49 +2348,49 @@
       ]
     },
     {
-      "domain": "Fan (maze)",
+      "domain": "Fan (ramp transfer)",
       "arm": "MF",
       "metric": "solve",
-      "mean": 100.0,
-      "n": 5,
-      "values": [
-        100,
-        100,
-        100,
-        100,
-        100
-      ]
-    },
-    {
-      "domain": "Fan (maze)",
-      "arm": "mf_scene_package",
-      "metric": "solve",
-      "mean": 100.0,
-      "n": 5,
-      "values": [
-        100,
-        100,
-        100,
-        100,
-        100
-      ]
-    },
-    {
-      "domain": "Fan (maze)",
-      "arm": "standalone",
-      "metric": "solve",
-      "mean": 80.0,
+      "mean": 60.0,
       "n": 5,
       "values": [
         100,
         0,
         100,
-        100,
+        0,
         100
       ]
     },
     {
-      "domain": "Fan (maze)",
+      "domain": "Fan (ramp transfer)",
+      "arm": "mf_scene_package",
+      "metric": "solve",
+      "mean": 0.0,
+      "n": 5,
+      "values": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "domain": "Fan (ramp transfer)",
+      "arm": "standalone",
+      "metric": "solve",
+      "mean": 60.0,
+      "n": 5,
+      "values": [
+        0,
+        100,
+        100,
+        100,
+        0
+      ]
+    },
+    {
+      "domain": "Fan (ramp transfer)",
       "arm": "no_fitting",
       "metric": "solve",
       "mean": 100.0,
@@ -2404,7 +2404,7 @@
       ]
     },
     {
-      "domain": "Fan (maze)",
+      "domain": "Fan (ramp transfer)",
       "arm": "no_uncertainty",
       "metric": "solve",
       "mean": 100.0,

@@ -104,7 +104,7 @@ def report_text(original: str, rows: List[Row], plot: Dict[str, Any],
         details.append("")
     prefix = original.split("## Averages across seeds", 1)[0]
     prefix = re.sub(r"^# Opus benchmark sweep:.*\n",
-                    "# Opus benchmark sweep: eleven agents and r2 cohorts\n",
+                    "# Opus benchmark sweep: twelve agents and r2 cohorts\n",
                     prefix,
                     count=1)
     empiric_note = (
@@ -122,7 +122,7 @@ def report_text(original: str, rows: List[Row], plot: Dict[str, Any],
         "and skill preflight off.",
         "All agents are Claude Opus with the composite skill library.\n"
         "Preflight settings differ across historical cohorts: some selected "
-        "EMPIRIC Boil, Domino, Balloons, and Fan runs had preflight enabled; "
+        "EMPIRIC Boil, Domino, and Balloons runs had preflight enabled; "
         "the selected Bridge reruns, EMPIRIC r2 replacements, and newer "
         "comparison arms used preflight off.\n"
         "This is not a matched preflight ablation.")
@@ -132,7 +132,7 @@ def report_text(original: str, rows: List[Row], plot: Dict[str, Any],
         r"This is not a matched preflight ablation\.",
         "All agents are Claude Opus with the composite skill library.\n"
         "Preflight settings differ across historical cohorts: some selected "
-        "EMPIRIC Boil, Domino, Balloons, and Fan runs had preflight enabled; "
+        "EMPIRIC Boil, Domino, and Balloons runs had preflight enabled; "
         "the selected Bridge reruns, EMPIRIC r2 replacements, and newer "
         "comparison arms used preflight off.\n"
         "This is not a matched preflight ablation.",
@@ -143,12 +143,15 @@ def report_text(original: str, rows: List[Row], plot: Dict[str, Any],
     pilot_note = (
         "Oracle dynamics combines r2 seeds 0-4 for Domino and Bridge "
         "with r1 seeds 0-2 and r2 seeds 3-4 for the other domains.\n"
+        "Fan instead uses the fresh five-seed prompt-aligned Oracle cohort; "
+        "earlier Fan Oracle results are excluded rather than pooled.\n"
         "The " + validation_link + " also shows the two Oracle "
         "rounds side by side.\n\n")
     if validation_link in prefix:
         prefix = re.sub(
             r"(?:Oracle dynamics r2 is a separate entry.*?\n)?"
             r"(?:Oracle dynamics combines.*?\n)?"
+            r"(?:Fan instead uses.*?\n)?"
             r"(?:Only finished Domino and Bridge r2 runs.*?\n)?"
             r"(?:The r2 entry includes.*?\n)?"
             r"The \[Oracle repair pilot\].*?\n\n",
@@ -160,19 +163,21 @@ def report_text(original: str, rows: List[Row], plot: Dict[str, Any],
     prefix = re.sub(
         r"^Compiled .*?$",
         f"Compiled {stamp} from {len(rows)} finished scorecards on "
-        "the five benchmark settings fixed on September 18 "
-        "plus separate Fan exposed-transfer, inertial, "
-        "and ramp development cohorts.",
+        "the current benchmark settings and archived Fan development cohorts.",
         prefix,
         count=1,
         flags=re.MULTILINE)
-    direct_done = sum(r["arm"] == "mf_scene_package" for r in rows)
+    direct_done = sum(
+        r["arm"] == "mf_scene_package" and r["domain"] in plot["PAPER_DOMAINS"]
+        for r in rows)
     pending = "; ".join(direct_pending) or "none"
     no_unc_done = any(r["arm"] == "no_uncertainty" and r["seed"] == 2
                       and r["domain"] == "Balloons (composition)"
                       for r in rows)
     no_unc_status = "finished" if no_unc_done else "unfinished"
-    oracle_r2_done = sum(r["arm"] == "oracle_dynamics" for r in rows)
+    oracle_r2_done = sum(
+        r["arm"] == "oracle_dynamics" and r["domain"] in plot["PAPER_DOMAINS"]
+        for r in rows)
     empiric_done = sum(
         r["arm"] == "MB" and r["domain"] in plot["PAPER_DOMAINS"]
         for r in rows)
@@ -182,19 +187,25 @@ def report_text(original: str, rows: List[Row], plot: Dict[str, Any],
         for arm in ("MB", "MF")
     }
     expected = {
-        arm: sum(len(dirs[arm]) for _, dirs in plot["DOMAINS"])
+        arm: sum(
+            len(dirs[arm]) for domain, dirs in plot["DOMAINS"]
+            if domain in plot["PAPER_DOMAINS"])
         for arm in plot["ARMS"]
     }
     variant_status = ""
+    assets_done = sum(r["arm"] == "from_assets" for r in rows)
     for domain in plot["FAN_VARIANTS"]:
         counts = []
-        for arm, label in (("MB", "EMPIRIC"), ("MF", "Direct agent")):
+        planned = dict(plot["DOMAINS"])[domain]
+        for arm, label in zip(plot["ARMS"], plot["LABELS"]):
+            if not planned[arm]:
+                continue
             group = [
                 r for r in rows if r["domain"] == domain and r["arm"] == arm
             ]
             wins = sum(r["won"] == r["levels"] for r in group)
-            counts.append(
-                f"{label} {wins}/{len(group)} solved, {len(group)}/5 finished")
+            counts.append(f"{label} {wins}/{len(group)} solved, "
+                          f"{len(group)}/{len(planned[arm])} finished")
         variant_status += f"- {domain}: " + "; ".join(counts) + ".\n"
     status = (
         "## Status at this snapshot\n\n"
@@ -202,7 +213,9 @@ def report_text(original: str, rows: List[Row], plot: Dict[str, Any],
         f"{expected['oracle_dynamics']} seeds finished across five domains.\n"
         f"- EMPIRIC: {empiric_done}/25 seeds finished "
         "(five selected seeds per domain; Boil and Balloons seed 2 and "
-        "seeds 3-4 use r2).\n"
+        "seeds 3-4 outside Fan use r2; Fan uses the repaired-skill cohort).\n"
+        f"- EMPIRIC from assets: {assets_done}/10 seeds finished "
+        "(two per domain; Fan uses the ramp variant, not the maze).\n"
         f"- Fan transfer pilot: EMPIRIC {transfer_done['MB']}/2 and "
         f"Direct agent {transfer_done['MF']}/2 seeds finished "
         "(separate from the five-domain totals above).\n"
@@ -221,6 +234,21 @@ def report_text(original: str, rows: List[Row], plot: Dict[str, Any],
         "The local monitor checks every minute and updates this report "
         "and its figure when finished results change.\n"
         "Its heartbeat and update log are in `logs/benchmark_monitor/`.\n\n")
+    assets_note = (
+        "## EMPIRIC from assets development\n\n"
+        "EMPIRIC from assets builds its own scene and mechanisms while "
+        "retaining harness fitting and uncertainty.\n"
+        "It is a separate magenta entry, with two seeds planned each for "
+        "Domino, Bridge, Balloons, Boil and Fan ramp.\n"
+        "Cancelled Fan maze pilots are excluded; the Fan maze and inertial "
+        "columns have no results for this agent.\n"
+        "Only finished scorecards enter the bars and curves; empty entries "
+        "are pending or untested, not zero solve rates.\n"
+        "These development runs are excluded from paper figures.\n"
+        "See [implementation and launch notes](../amps/empiric-from-assets.md)."
+        "\n\n")
+    if "## EMPIRIC from assets development" not in prefix:
+        prefix += assets_note
     prefix = re.sub(
         r"## Status at this snapshot\n.*?(?=## Figure and plotting method)",
         lambda _: status,
@@ -278,8 +306,55 @@ def report_text(original: str, rows: List[Row], plot: Dict[str, Any],
             "task illustrations, cohort provenance, and failure analysis.\n"
             "Both columns are excluded from paper figures "
             "and data selection.\n\n")
+    inertial_note = (
+        "Five seeds each of Oracle dynamics, Direct + scene, Standalone sim., "
+        "No harness fitting, and No explicit uncertainty were also launched "
+        "on the frozen no-ramp Fan inertial configuration on September 21.\n"
+        "Their finished results are included in the Fan inertial column; "
+        "these runs do not use the candidate shared push-skill repair.\n")
+    if "were also launched on the frozen no-ramp Fan inertial" not in prefix:
+        prefix = prefix.replace(
+            "## Fan inertial and ramp development\n\n",
+            "## Fan inertial and ramp development\n\n" + inertial_note)
+    prefix = prefix.replace(
+        "The Fan inertial and Fan ramp columns include screening seeds 0-1 "
+        "and fresh confirmation seeds 2-4 for EMPIRIC and Direct agent.",
+        "The Fan inertial column includes screening seeds 0-1 and fresh "
+        "confirmation seeds 2-4 for EMPIRIC and Direct agent.")
+    prefix = prefix.replace(
+        "Ramp confirmation is a separate prospective test of the frozen "
+        "ramp candidate; pooled development results are not independent "
+        "confirmation.",
+        "The Fan ramp column now uses only the matched repaired-skill "
+        "cohort for the six non-Oracle methods and the fresh prompt-aligned "
+        "five-seed cohort for Oracle dynamics.\n"
+        "Earlier ramp results are replaced, not pooled; pending new seeds "
+        "never fall back to old results.")
+    prefix = prefix.replace(
+        "with five seeds planned for each of the seven methods.",
+        "with nine Oracle dynamics seeds (0-8) and five seeds for each "
+        "of the other six methods.")
+    prefix = prefix.replace(
+        "with seven Oracle dynamics seeds (0-6) and five seeds for each "
+        "of the other six methods.",
+        "with nine Oracle dynamics seeds (0-8) and five seeds for each "
+        "of the other six methods.")
+    prefix = prefix.replace(
+        "Both columns are excluded from paper figures and data selection.",
+        "The ramp setting is now the default Fan in both figures.\n"
+        "The old maze, exposed-transfer, and inertial settings remain "
+        "archived in these tables but are excluded from both figures.")
+    prefix = prefix.replace("Fan inertial column",
+                            "archived Fan inertial cohort")
+    prefix = prefix.replace("Fan ramp column", "Fan column")
+    prefix = prefix.replace("Fan maze test", "Fan ramp test")
     average_intro = original.split("## Averages across seeds",
                                    1)[1].split("| Domain |", 1)[0]
+    prefix = prefix.replace(
+        "with eleven Oracle dynamics seeds (0-10) and five seeds for each "
+        "of the other six methods.",
+        "with five prompt-aligned Oracle dynamics seeds and five seeds for "
+        "each of the other six methods.")
     average_intro = average_intro.replace(
         "The last column gives how many of the three seeds have finished; "
         "rows with fewer than three are provisional.",

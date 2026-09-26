@@ -1,0 +1,118 @@
+<?xml version="1.0"?>
+<!-- Complete DIY bench fan: the SPS-3010 PSU base, the mount + RS-555 motor
+     chassis clipped on top (from fan_dcmotor_proxy.urdf), plus the printed
+     3-blade propeller on a continuous spin joint about the motor shaft. -->
+<robot name="fan_dcmotor_articulated">
+  <link name="psu_link">
+    <inertial>
+      <origin xyz="0.035 0.001368 -0.060114" rpy="0 0 0"/>
+      <mass value="1.1"/>
+      <inertia ixx="3.5e-03" ixy="0" ixz="0" iyy="1.3e-03" iyz="0" izz="3.0e-03"/>
+    </inertial>
+    <visual name="psu_visual">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="fan_dcmotor_psu.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="psu_cream">
+        <color rgba="0.09 0.09 0.10 1.0"/>
+      </material>
+    </visual>
+    <collision name="psu_collision">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="fan_dcmotor_psu.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="mount_link">
+    <inertial>
+      <origin xyz="0.030 0.020 0.0" rpy="0 0 0"/>
+      <mass value="0.15"/>
+      <inertia ixx="1.4e-04" ixy="0" ixz="0" iyy="1.0e-04" iyz="0" izz="1.8e-04"/>
+    </inertial>
+    <visual name="mount_visual">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="fan_dcmotor_mount.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="printed_grey">
+        <color rgba="0.30 0.30 0.32 1.0"/>
+      </material>
+    </visual>
+    <collision name="mount_collision">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="fan_dcmotor_mount.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="motor_link">
+    <inertial>
+      <origin xyz="0 0 0.0285" rpy="0 0 0"/>
+      <mass value="0.30"/>
+      <inertia ixx="4.0e-05" ixy="0" ixz="0" iyy="4.0e-05" iyz="0" izz="1.2e-05"/>
+    </inertial>
+    <visual name="motor_visual">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="fan_dcmotor_motor.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="motor_silver">
+        <color rgba="0.60 0.60 0.62 1.0"/>
+      </material>
+    </visual>
+    <collision name="motor_collision">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="fan_dcmotor_motor.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="propeller_link">
+    <inertial>
+      <origin xyz="0 0 0.003" rpy="0 0 0"/>
+      <mass value="0.01"/>
+      <inertia ixx="3.0e-06" ixy="0" ixz="0" iyy="3.0e-06" iyz="0" izz="6.0e-06"/>
+    </inertial>
+    <visual name="propeller_visual">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="fan_dcmotor_propeller.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="printed_white">
+        <color rgba="0.92 0.92 0.92 1.0"/>
+      </material>
+    </visual>
+    <collision name="propeller_collision">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="fan_dcmotor_propeller.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="bracket_clip" type="fixed">
+    <parent link="psu_link"/>
+    <child link="mount_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <joint name="motor_seat" type="fixed">
+    <parent link="mount_link"/>
+    <child link="motor_link"/>
+    <origin xyz="0.034943186 0.0720 -0.005402590" rpy="-1.5707963267948966 0 0"/>
+  </joint>
+
+  <!-- The shaft enters the propeller hub by 3 mm along local +z. -->
+  <joint name="fan_spin" type="continuous">
+    <parent link="motor_link"/>
+    <child link="propeller_link"/>
+    <origin xyz="0 0 0.070" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <dynamics damping="0.00002"/>
+  </joint>
+</robot>
