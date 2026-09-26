@@ -1,7 +1,7 @@
 """The LLM agent arms of the continual protocol (docs/protocol/design.md).
 
 Both arms mix :class:`ContinualPlayMixin` (the play loop) in front of
-the phased approach class that holds their machinery:
+the approach class that holds their machinery:
 
 * ``AgentContinualApproach`` (``agent_continual``) is C1's learner
   (hybrid simulator synthesis, parameter fit, predicate invention) on
@@ -14,7 +14,7 @@ the phased approach class that holds their machinery:
   reloads the files, deploys the fit and installs the invented
   predicates.
 * ``AgentContinualModelFreeApproach`` (``agent_continual_model_free``)
-  is the model-free baseline on ``AgentModelFreeApproach``: the same env
+  is the model-free baseline on ``AgentBaseApproach``: the same env
   and skill tools, sandbox and journal, but no belief model, no ``sim``
   and no ``run_python``. What it knows comes from the recorded data and
   the real environment.
@@ -43,8 +43,7 @@ from predicators.agent_sdk.tools.exploration import ProbeSurface
 from predicators.agent_sdk.tools.sandbox_guard import \
     _screen_text_for_sandbox_escape
 from predicators.agent_sdk.tools.synthesis import create_synthesis_tools
-from predicators.approaches.agent_model_free_approach import \
-    AgentModelFreeApproach
+from predicators.approaches.agent_base_approach import AgentBaseApproach
 from predicators.approaches.agent_sim_learning_approach import \
     count_residual_hits, residual_hint_from_hits, \
     resolve_kept_predicate_names
@@ -681,8 +680,7 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         fingerprint = tuple(len(t.actions) for t in bench.trajectories)
         if fingerprint != bench.fingerprint:
             # New data invalidates the memoized whole fits and
-            # explainability verdicts, as the phased learn hook does
-            # when its data arrives (the caches key trajectories by
+            # explainability verdicts (the caches key trajectories by
             # segment lengths, so a grown episode must not answer from
             # its shorter self).
             bench.fingerprint = fingerprint
@@ -816,14 +814,14 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
 
 
 class AgentContinualModelFreeApproach(ContinualPlayMixin, ScenePackageMixin,
-                                      AgentModelFreeApproach):
+                                      AgentBaseApproach):
     """The model-free baseline of the continual protocol: the env and skill
     tools, the sandbox and the journal, and nothing else.
 
     No belief model, no ``sim``, no ``run_python`` and no learning
     session; the agent's own code in the sandbox reads the recorded
-    data. Run with ``agent_planner_use_simulator`` off, as the phased
-    ``agent_model_free`` arm is, so no simulator is built at all.
+    data. No simulator is built at all (see
+    :meth:`_create_planner_option_model`).
     """
 
     _save_suffix = "AgentContinualModelFree"

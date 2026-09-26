@@ -32,8 +32,7 @@ from predicators.agent_sdk.tools import SYNTHESIS_TOOL_NAMES, \
     _SnapshotTarget, evaluate_states_with, finalize_versioned_snapshot, \
     make_write_snapshot_hook
 from predicators.agent_sdk.tools.digests import render_trajectory_digest
-from predicators.approaches.agent_model_free_approach import \
-    AgentModelFreeApproach
+from predicators.approaches.agent_base_approach import AgentBaseApproach
 from predicators.approaches.synthesis_validation import \
     build_candidate_option_model, carry_over_params
 from predicators.code_sim_learning.active_experiment import laplace_ensemble, \
@@ -175,7 +174,7 @@ def residual_hint_from_hits(hits: Dict[Tuple[str, str], int],
     return {t: sorted(fs) for t, fs in out.items()}
 
 
-class AgentSimLearningApproach(AgentModelFreeApproach):
+class AgentSimLearningApproach(AgentBaseApproach):
     """The agent-written simulator, its parameters and their belief.
 
     Loads the simulator the agent writes, deploys its parameters (the
@@ -518,7 +517,7 @@ class AgentSimLearningApproach(AgentModelFreeApproach):
     # ── Learning ────────────────────────────────────────────────
 
     # ── Checkpointing ────────────────────────────────────────────
-    # The base checkpoint (AgentModelFreeApproach.save/load) persists
+    # The base checkpoint (AgentBaseApproach.save/load) persists
     # the datasets + cycle counter. This approach's real state is split
     # between plain fitted values (pickled below) and the sandbox
     # artifacts the agent wrote (simulator.py / predicates.py / ...),

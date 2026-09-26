@@ -20,7 +20,7 @@ class SessionConfig:
     """Agent session construction: model, budgets, and sandbox choice.
 
     Consumed by the three session managers and by
-    ``AgentSessionMixin._ensure_agent_session``, which builds one
+    ``AgentBaseApproach._ensure_agent_session``, which builds one
     instance per session and passes it to whichever manager it
     constructs.
     """

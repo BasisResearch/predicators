@@ -70,8 +70,8 @@ def list_session_tool_names(
     Args:
         mcp_filter: Subset of ``ALL_TOOL_NAMES`` to keep. ``None`` (the
             default) lists every MCP tool.
-        extra_mcp_tools: Synthesis tools supplied for the session
-            (e.g. by ``_build_synthesis_mcp_tools``). Their names are
+        extra_mcp_tools: Dynamic tools the approach attached for the
+            session (``ToolContext.extra_mcp_tools``). Their names are
             read off each tool's ``name`` attribute.
         include_builtin: Whether to include the Claude built-in tools
             (``Bash``, ``Read``, ``Write``, …).

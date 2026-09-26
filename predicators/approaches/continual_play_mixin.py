@@ -29,14 +29,13 @@ A reset starts a new episode on the same level without ending the round.
 A level can span several rounds if the agent returns before settling it.
 
 Why a mixin. The arms' model and session machinery live in the
-approach classes below them (``AgentModelFreeApproach`` and its
+approach classes below them (``AgentBaseApproach`` and its
 ``AgentSimPredicateInventionApproach`` descendant), where the simulator
 loading, the parameter belief, predicate invention, the sandbox and the
 session managers are implemented. An arm keeps that class as its base
-and mixes this loop in front of it, the way ``AgentSessionMixin`` adds
-its concerns. The mixin has no base class of its own, so there is no
-diamond, and what it needs from its host is declared below as the host
-contract.
+and mixes this loop in front of it. The mixin has no base class of its
+own, so there is no diamond, and what it needs from its host is
+declared below as the host contract.
 
 The harness never chooses for the agent: whether to act, reset, model
 or give up is decided inside the conversation; the loop only services
@@ -105,7 +104,7 @@ class ContinualPlayMixin:
     """
 
     # -- Host contract -------------------------------------------------
-    # The host is an AgentModelFreeApproach (or a descendant); these
+    # The host is an AgentBaseApproach (or a descendant); these
     # declare what the loop reads and calls on it, so a typo fails
     # type-checking instead of surfacing at run time.
     if TYPE_CHECKING:

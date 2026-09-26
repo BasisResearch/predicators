@@ -14,7 +14,7 @@ from typing import Any, Iterable, List, Optional, Set, cast
 from predicators.agent_sdk.tools import ALL_TOOL_NAMES, BUILTIN_TOOLS, \
     MCP_SERVER_NAME, SYNTHESIS_TOOL_NAMES, ToolContext, create_mcp_tools, \
     create_synthesis_tools, get_allowed_tool_list, list_session_tool_names
-from predicators.approaches.agent_session_mixin import AgentSessionMixin
+from predicators.approaches.agent_base_approach import AgentBaseApproach
 
 
 def _required_names(names: Optional[List[str]]) -> List[str]:
@@ -129,18 +129,25 @@ def test_list_session_tool_names_filters_and_combines() -> None:
     }
 
 
+class _Approach(AgentBaseApproach):  # pylint: disable=abstract-method
+    """The smallest concrete agent approach, for the base's tool hooks."""
+
+    @classmethod
+    def get_name(cls) -> str:
+        return "test_agent"
+
+
 def test_synthesis_tool_names_default_is_empty() -> None:
     """No synthesis MCP filter by default — approaches with no synthesis phase
     get an empty allowlist for free."""
-    obj = AgentSessionMixin()
+    obj = object.__new__(_Approach)
     assert not obj._get_synthesis_tool_names()
 
 
 def test_solve_and_synthesis_tool_names_are_independent() -> None:
     """Subclasses can declare disjoint solve / synthesis tool sets."""
 
-    # pylint: disable=abstract-method
-    class _Approach(AgentSessionMixin):
+    class _Arm(_Approach):  # pylint: disable=abstract-method
 
         def _get_solve_tool_names(self) -> Optional[List[str]]:
             return ["run_python", "skills_execute_plan"]
@@ -148,7 +155,7 @@ def test_solve_and_synthesis_tool_names_are_independent() -> None:
         def _get_synthesis_tool_names(self) -> Optional[List[str]]:
             return ["run_python"]
 
-    obj = _Approach()
+    obj = object.__new__(_Arm)
     assert obj._get_solve_tool_names() == ["run_python", "skills_execute_plan"]
     assert obj._get_synthesis_tool_names() == ["run_python"]
 

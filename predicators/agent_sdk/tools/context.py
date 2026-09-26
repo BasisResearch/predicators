@@ -145,10 +145,10 @@ class ToolContext:
     # label output by phase (e.g. attempt-log headers) can attribute
     # entries to the learning cycle instead of "pre-test phase".
     learn_cycle_index: Optional[int] = None
-    # Managed by AgentSessionMixin: populated from
-    # `_build_synthesis_mcp_tools` at session-open, reset to [] for
-    # solve sessions. Approaches should not write to this directly —
-    # override the builder hook instead.
+    # Dynamic SdkMcpTool instances the approach attaches for a session
+    # (the play tools, a round's run_python);
+    # AgentBaseApproach._ensure_agent_session checks their names
+    # against the declared tool list.
     extra_mcp_tools: list = field(default_factory=list)
     # Extra Claude Agent SDK ``HookMatcher`` instances applied to the
     # next session that's started. Read once at session start, then

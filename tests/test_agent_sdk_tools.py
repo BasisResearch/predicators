@@ -25,7 +25,7 @@ from predicators.settings import CFG
 
 _CFG_OVERRIDES = {
     "env": "pybullet_domino",
-    "approach": "agent_model_free",
+    "approach": "agent_continual_model_free",
     "seed": 0,
     "use_gui": False,
     "domino_restricted_push": True,
