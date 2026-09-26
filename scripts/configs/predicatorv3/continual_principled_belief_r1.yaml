@@ -1,0 +1,44 @@
+# The paper's seven arms rerun on the principled joint belief
+# (principled-belief branch, Sept 26, 2026): five benchmark settings,
+# five seeds, current environments (the Balloons chute aligned with the
+# rack since Sept 19, the ramp Fan, Boil's Place fix). Every arm but No
+# uncertainty carries 16 joint draws (continual_common.yaml). Launch
+# from a frozen worktree with --partition mit_preemptable --requeue
+# --accounts b,c,d (account a's organization blocks Claude Code; dat is
+# backup only). Seeds 0-1 go first; override START_SEED and NUM_SEEDS in
+# a second launch for seeds 2-4.
+includes:
+  - continual_common.yaml
+  - envs/continual.yaml
+  - approaches/continual.yaml
+START_SEED: 0
+NUM_SEEDS: 2
+FLAGS:
+  continual_skill_preflight: false
+  continual_validation_audit: false
+ENVS:
+  balloons:
+    SKIP: false
+  bridge:
+    SKIP: false
+  boil:
+    SKIP: false
+  fan:
+    SKIP: false
+  domino_high_friction_turn:
+    SKIP: false
+APPROACHES:
+  mb_opus_joint_r1:
+    EXTENDS: mb_opus
+  mf_opus_joint_r1:
+    EXTENDS: mf_opus
+  mf_scene_package_opus_joint_r1:
+    EXTENDS: mf_scene_package_opus
+  standalone_opus_joint_r1:
+    EXTENDS: standalone_opus
+  oracle_dynamics_opus_joint_r1:
+    EXTENDS: oracle_dynamics_opus
+  no_fitting_opus_joint_r1:
+    EXTENDS: no_fitting_opus
+  no_uncertainty_opus_joint_r1:
+    EXTENDS: no_uncertainty_opus

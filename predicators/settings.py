@@ -211,6 +211,37 @@ class GlobalSettings:
     continual_belief_window = 8
     continual_belief_sigmas = 3.0
     continual_belief_draws = 16
+    # The joint belief (docs/uncertainty/principled-belief.md; paper
+    # Section 3.2 and Appendix B.3): the parameter factor is a generalized
+    # posterior of the rollout fit's own loss, with its temperature
+    # estimated from the misfit, approximated by independent posteriors
+    # along lines through the MAP (code_sim_learning/parameter_belief.py).
+    # Rehearsal estimates and monitoring average over belief_joint_draws
+    # joint draws: a parameter draw, a state draw from the execution-time
+    # belief, the program memory that parameter draw implies, and a
+    # planner seed. 0 keeps the legacy uncertainty path (interval widths,
+    # margin sweeps, ensembles).
+    belief_joint_draws = 0
+    # A line is traced outward until its negative log posterior rises by
+    # this much (12.5 = five standard deviations of a Gaussian), with at
+    # most belief_line_max_evals objective passes per parameter.
+    belief_line_cutoff = 12.5
+    belief_line_max_evals = 24
+    # sim.refine scores up to this many proposals on the common joint
+    # draws and returns the best with its estimate on fresh draws.
+    belief_refine_candidates = 8
+    # Experiment scoring: sensor-noise samples of each joint draw's final
+    # observation (the rollouts themselves use the K joint draws).
+    belief_info_noise_samples = 64
+    # The frames a rehearsal's episode prefix is scored on: the observed
+    # frames ("observed", paper Appendix B.4) or the state factor's mean
+    # at each step ("smoothed"), which keeps observation noise from
+    # reading as motion in trajectory rules such as Domino's cascade.
+    belief_prefix_frames = "observed"
+    # The state factor's constant per-step probability that an object
+    # starts to move (Bayesian online change-point detection over the
+    # last continual_belief_window frames).
+    continual_belief_motion_hazard = 0.02
     # Slack (in reward units) below a task's ``early_stop_min_reward`` bar
     # that still counts as solved for early stopping. Only tasks that set
     # ``EnvironmentTask.early_stop_min_reward`` are affected (e.g. domino

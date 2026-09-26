@@ -13,6 +13,8 @@ the scorecard, the recordings and the resume path (section 6.6).
 """
 from __future__ import annotations
 
+import copy
+import hashlib
 import logging
 import os
 import time
@@ -27,7 +29,7 @@ from predicators.approaches import ApproachFailure, ApproachTimeout, \
     BaseApproach
 from predicators.envs import BaseEnv
 from predicators.observation_belief import BeliefFrame, atom_fractions, \
-    likely_atoms, smooth_frames
+    belief_draw, change_point_belief, likely_atoms, smooth_frames
 from predicators.observation_noise import ObservationNoise, noise_or_none, \
     step_rng
 from predicators.run import paths
@@ -40,7 +42,7 @@ from predicators.run.scorecard import EpisodeRecord, LevelCard, RunCard
 from predicators.settings import CFG
 from predicators.structs import Action, Dataset, EnvironmentTask, \
     EpisodeEvaluation, GroundAtom, ParameterizedOption, Predicate, State, \
-    Task, _Option
+    Task, _Option, step_option_labels
 
 LEVEL_ORDERS = ("train_then_test", "train_only", "test_only")
 
@@ -265,6 +267,48 @@ class ProtocolSession:
         """
         return self._run.observation()
 
+    def joint_draws(
+            self,
+            num: int,
+            fresh: bool = False) -> List[Tuple[Dict[str, float], State]]:
+        """``num`` joint draws of the belief at the current decision point.
+
+        Free. Each draw pairs one draw of the parameter belief with a
+        state draw carrying the memory those parameters imply (see
+        :meth:`ContinualRun.joint_draws`); the draws are fixed per
+        decision point, so candidates compared there share them.
+        ``fresh`` draws new parameters and states instead, fixed per
+        decision point as well, for an estimate the selection of a
+        candidate on the common draws does not bias.
+        """
+        return self._run.joint_draws(num, fresh=fresh)
+
+    def joint_atom_fractions(self, num: int) -> Dict[GroundAtom, float]:
+        """The fraction of ``num`` joint draws at the current decision point on
+        which each atom holds.
+
+        Free.
+        """
+        runner, lv = self._run._require_level()  # pylint: disable=protected-access
+        rng = step_rng(
+            CFG.seed,
+            lv.index,
+            self._run._episode_index(),  # pylint: disable=protected-access
+            runner.num_steps,
+            (3, ))
+        return self._run.joint_atom_fractions(num, rng)
+
+    def episode_prefix(self,
+                       smoothed: bool = False
+                       ) -> Tuple[List[State], List[Any]]:
+        """The current episode's frames and step labels so far.
+
+        Free. The frames are the agent's observed views, or with
+        ``smoothed`` the state factor's mean at each step; the labels
+        name each recorded action's option (None for a primitive step).
+        """
+        return self._run.episode_prefix(smoothed)
+
     def observe_truth(self) -> ProtocolObservation:
         """The current observation with the true state as its frame.
 
@@ -482,6 +526,14 @@ class ContinualRun:
         self._model_state_key: Optional[Any] = None
         self._model_state_tracker: Optional[Any] = None
         self._model_state_count = 0
+        # The joint belief's per-draw memory: one tracker per parameter
+        # draw, rebuilt when the level, episode, model or belief changes.
+        self._draw_trackers: List[Optional[Any]] = []
+        self._draw_tracker_key: Optional[Any] = None
+        self._draw_tracker_count = 0
+        # The state factor's mean per (level, episode) and step, for the
+        # smoothed episode prefix a rehearsal is scored on.
+        self._prefix_cache: Dict[Tuple[int, int], Dict[int, State]] = {}
         # The execution-time belief (observation_belief.py) rides on a
         # declared channel only: with exact observations the frame is
         # the belief, and an undeclared channel is the agent's problem.
@@ -660,9 +712,164 @@ class ContinualRun:
             self._observed(s, lv.index, episode["episode"], offset + k)
             for k, s in enumerate(states)
         ]
-        belief = smooth_frames(frames, self._noise, window,
-                               float(CFG.continual_belief_sigmas))
+        if int(CFG.belief_joint_draws) > 0:
+            belief = change_point_belief(
+                frames, self._noise, window,
+                float(CFG.continual_belief_motion_hazard))
+        else:
+            belief = smooth_frames(frames, self._noise, window,
+                                   float(CFG.continual_belief_sigmas))
         return replace(belief, frame=self._execution_frame(belief.frame))
+
+    def joint_draws(
+        self,
+        num: int,
+        rng: Optional[np.random.Generator] = None,
+        fresh: bool = False,
+    ) -> List[Tuple[Dict[str, float], State]]:
+        """``num`` joint draws ``(theta_i, x_t_i)`` of the belief.
+
+        ``theta_i`` is draw ``i`` of the approach's parameter belief
+        (the empty dict when it has none, which leaves the deployed
+        values); ``x_t_i`` is a draw of the state factor (the observed
+        frame when the channel is exact) whose ``latent`` is the memory
+        a tracker bound to ``theta_i`` built over the observed episode
+        prefix. The default generator is keyed by the decision point, so
+        repeated calls there return the same draws. ``fresh`` samples
+        new parameter draws from the belief (and new states), with their
+        own trackers.
+        """
+        runner, lv = self._require_level()
+        if rng is None:
+            rng = step_rng(CFG.seed, lv.index, self._episode_index(),
+                           runner.num_steps, (4, ) if fresh else (2, ))
+        belief = self.belief()
+        if belief is None:
+            frame = self._execution_frame(
+                self._observed(runner.observation(), lv.index,
+                               self._episode_index(), runner.num_steps))
+        params_belief = self._approach.parameter_belief()
+        count = max(int(num), 1)
+        params: List[Dict[str, float]] = []
+        if params_belief is not None:
+            params = (params_belief.sample(rng, count)
+                      if fresh else params_belief.draw_dicts())
+        if not params:
+            params = [{}]
+        trackers = (self._fresh_draw_trackers(params) if fresh else
+                    self._joint_draw_trackers(params_belief, params))
+        draws: List[Tuple[Dict[str, float], State]] = []
+        for i in range(count):
+            theta = dict(params[i % len(params)])
+            state = (belief_draw(belief, rng)
+                     if belief is not None else frame.copy())
+            tracker = trackers[i % len(trackers)] if trackers else None
+            if tracker is not None and not tracker.failed:
+                state.latent = copy.deepcopy(tracker.latent)
+            draws.append((theta, state))
+        return draws
+
+    def _joint_draw_trackers(
+            self, params_belief: Optional[Any],
+            params: List[Dict[str, float]]) -> List[Optional[Any]]:
+        """One memory tracker per parameter draw, advanced over the observed
+        prefix of the current episode (see :meth:`_execution_frame`)."""
+        revision = self._approach.model_state_revision()
+        if revision is None or not self._level_episodes:
+            return []
+        _, lv = self._require_level()
+        episode = self._level_episodes[-1]
+        digest = None
+        if params_belief is not None:
+            draws = np.ascontiguousarray(params_belief.draws)
+            digest = hashlib.sha256(
+                repr(params_belief.names).encode() +
+                draws.tobytes()).hexdigest()
+        key = (lv.index, episode["episode"], revision, digest)
+        if key != self._draw_tracker_key:
+            self._draw_tracker_key = key
+            self._draw_trackers = [
+                self._approach.make_latent_tracker(params=theta)
+                for theta in params
+            ]
+            self._draw_tracker_count = 0
+        states, actions = episode["states"], episode["actions"]
+        for index in range(self._draw_tracker_count, len(states)):
+            observed = self._observed(states[index], lv.index,
+                                      episode["episode"], index)
+            for tracker in self._draw_trackers:
+                if tracker is not None:
+                    tracker.attach(observed,
+                                   None if index == 0 else actions[index - 1])
+        self._draw_tracker_count = len(states)
+        return self._draw_trackers
+
+    def episode_prefix(self,
+                       smoothed: bool = False
+                       ) -> Tuple[List[State], List[Any]]:
+        """The current episode's frames and step labels (see
+        :meth:`ProtocolSession.episode_prefix`)."""
+        _, lv = self._require_level()
+        if not self._level_episodes:
+            return [], []
+        episode = self._level_episodes[-1]
+        states, actions = episode["states"], episode["actions"]
+        frames = [
+            self._observed(state, lv.index, episode["episode"], k)
+            for k, state in enumerate(states)
+        ]
+        if smoothed and self._noise is not None:
+            window = max(int(CFG.continual_belief_window), 1)
+            cache = self._prefix_cache.setdefault(
+                (lv.index, episode["episode"]), {})
+            smooth: List[State] = []
+            for k in range(len(frames)):
+                if k not in cache:
+                    cache[k] = change_point_belief(
+                        frames[max(0, k - window + 1):k + 1],
+                        self._noise, window,
+                        float(CFG.continual_belief_motion_hazard)).frame
+                smooth.append(cache[k])
+            frames = smooth
+        return frames, list(step_option_labels(actions))
+
+    def _fresh_draw_trackers(
+            self, params: List[Dict[str, float]]) -> List[Optional[Any]]:
+        """Trackers for fresh parameter draws, built over the observed prefix
+        now (not cached)."""
+        if self._approach.model_state_revision() is None or \
+                not self._level_episodes:
+            return []
+        _, lv = self._require_level()
+        episode = self._level_episodes[-1]
+        trackers = [
+            self._approach.make_latent_tracker(params=theta)
+            for theta in params
+        ]
+        states, actions = episode["states"], episode["actions"]
+        for index, state in enumerate(states):
+            observed = self._observed(state, lv.index, episode["episode"],
+                                      index)
+            for tracker in trackers:
+                if tracker is not None:
+                    tracker.attach(observed,
+                                   None if index == 0 else actions[index - 1])
+        return trackers
+
+    def joint_atom_fractions(
+            self, num: int,
+            rng: np.random.Generator) -> Dict[GroundAtom, float]:
+        """The fraction of ``num`` joint draws on which each atom holds, each
+        draw read under its own parameters and memory; atoms that hold on no
+        draw are absent."""
+        counts: Dict[GroundAtom, int] = {}
+        draws = self.joint_draws(num, rng)
+        for theta, state in draws:
+            with self._approach.joint_draw_scope(theta):
+                atoms = utils.abstract(state, self._predicates)
+            for atom in atoms:
+                counts[atom] = counts.get(atom, 0) + 1
+        return {atom: n / len(draws) for atom, n in counts.items()}
 
     def _execution_frame(self, state: State) -> State:
         """Attach inferred memory without altering recorded or true frames.
@@ -867,15 +1074,26 @@ class ContinualRun:
             point_atoms = runner.abstract(belief.frame)
             missing = set(expected) - point_atoms
             present = set(expected_absent or set()) & point_atoms
-        if (belief is not None and CFG.continual_uncertainty_decisions
-                and (expected or expected_absent)):
+        joint = (int(CFG.belief_joint_draws) > 0
+                 and CFG.continual_uncertainty_decisions)
+        if (belief is not None or joint) and \
+                CFG.continual_uncertainty_decisions and \
+                (expected or expected_absent):
             # The likelihood test: an expected atom is missing when it
             # holds on fewer than half the draws of the belief, so a
-            # frame's own noise never reads as a divergence.
-            fractions = atom_fractions(
-                belief, self._predicates, int(CFG.continual_belief_draws),
-                step_rng(CFG.seed, lv.index, self._episode_index(),
-                         runner.num_steps, (1, )))
+            # frame's own noise never reads as a divergence. Under the
+            # joint belief each draw also carries its own parameters and
+            # memory (paper Section 3.4).
+            monitor_rng = step_rng(CFG.seed, lv.index, self._episode_index(),
+                                   runner.num_steps, (1, ))
+            if joint:
+                fractions = self.joint_atom_fractions(
+                    int(CFG.belief_joint_draws), monitor_rng)
+            else:
+                assert belief is not None
+                fractions = atom_fractions(belief, self._predicates,
+                                           int(CFG.continual_belief_draws),
+                                           monitor_rng)
             likely = likely_atoms(fractions)
             missing = set(expected) - likely
             present = set(expected_absent or set()) & likely

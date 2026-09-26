@@ -4,8 +4,9 @@ docs/uncertainty/design.md 3.3 and 3.6)."""
 import numpy as np
 import pytest
 
-from predicators.observation_belief import atom_fractions, belief_draw, \
-    describe_fractions, likely_atoms, smooth_frames, uncertain_atoms
+from predicators.observation_belief import _truncated_normal, atom_fractions, \
+    belief_draw, change_point_belief, describe_fractions, likely_atoms, \
+    smooth_frames, uncertain_atoms
 from predicators.observation_noise import ObservationNoise
 from predicators.structs import GroundAtom, Object, Predicate, State, Type
 
@@ -113,3 +114,108 @@ def test_draws_and_atom_fractions_follow_the_spread():
     text = describe_fractions(fractions, unsure + [GroundAtom(near, [_b1])])
     assert text.startswith("NearHalf(b0:block) 0.") and text.endswith(
         "NearHalf(b1:block) 0.00")
+
+
+def _scene_frames(b0_xs, scale=1.0, yaw=0.0):
+    """Frames of b0 moving through ``b0_xs`` with b1 parked across the
+    table, in units of ``scale`` (1 = metres)."""
+    return [
+        State({
+            _b0: np.array([x * scale, yaw, 1.0], dtype=float),
+            _b1: np.array([1.0 * scale, yaw, 0.0], dtype=float),
+            _r: np.array([0.3], dtype=float),
+        }) for x in b0_xs
+    ]
+
+
+def test_change_point_weights_concentrate_on_the_whole_rest():
+    """A resting object puts its run-length mass on the longest run, and its
+    mixture mean and spread approach the plain mean and sigma / sqrt(n)."""
+    rng = np.random.default_rng(3)
+    noise = ObservationNoise(position=0.01, orientation=0.0)
+    rest = [0.5 + rng.normal(0.0, 0.01) for _ in range(8)]
+    belief = change_point_belief(_scene_frames(rest),
+                                 noise,
+                                 window=8,
+                                 hazard=0.02)
+    weights = belief.run_weights["b0"]
+    assert weights.shape == (8, )
+    assert weights.sum() == pytest.approx(1.0)
+    assert weights[-1] > 0.8
+    assert belief.frames_used["b0"] == 8
+    assert belief.frame.get(_b0, "x") == pytest.approx(np.mean(rest), abs=1e-3)
+    assert belief.spread[("b0", "x")] == pytest.approx(0.01 / np.sqrt(8),
+                                                       rel=0.35)
+    assert ("r", "x") not in belief.spread
+    assert belief.frame.get(_b0, "lit") == 1.0
+
+
+def test_change_point_jump_moves_the_mass_to_the_latest_frame():
+    """A jump after a rest leaves only the latest frame in the run."""
+    rng = np.random.default_rng(4)
+    noise = ObservationNoise(position=0.01, orientation=0.0)
+    xs = [0.5 + rng.normal(0.0, 0.01) for _ in range(6)] + [0.65]
+    belief = change_point_belief(_scene_frames(xs),
+                                 noise,
+                                 window=8,
+                                 hazard=0.02)
+    weights = belief.run_weights["b0"]
+    assert weights[0] > 0.95
+    assert belief.frames_used["b0"] == 1
+    assert belief.frame.get(_b0, "x") == pytest.approx(0.65, abs=1e-3)
+    assert belief.spread[("b0", "x")] == pytest.approx(0.01, rel=0.1)
+
+
+def test_change_point_weights_do_not_depend_on_units():
+    """Rescaling a feature, its noise and hence its range leaves the run-
+    length weights unchanged."""
+    rng = np.random.default_rng(5)
+    xs = [0.5 + rng.normal(0.0, 0.01) for _ in range(5)] + \
+        [0.53 + rng.normal(0.0, 0.01) for _ in range(3)]
+    metres = change_point_belief(_scene_frames(xs),
+                                 ObservationNoise(position=0.01,
+                                                  orientation=0.0),
+                                 window=8,
+                                 hazard=0.05)
+    millimetres = change_point_belief(_scene_frames(xs, scale=1000.0),
+                                      ObservationNoise(position=10.0,
+                                                       orientation=0.0),
+                                      window=8,
+                                      hazard=0.05)
+    assert np.allclose(metres.run_weights["b0"], millimetres.run_weights["b0"])
+
+
+def test_change_point_draws_follow_the_mixture_and_stay_in_range():
+    """Draws pick a run length, then a value around that run's mean; they stay
+    inside the recorded range and angles stay wrapped."""
+    noise = ObservationNoise(position=0.01, orientation=0.1)
+    frames = _scene_frames([0.5] * 6, yaw=3.1)
+    belief = change_point_belief(frames, noise, window=8, hazard=0.02)
+    rng = np.random.default_rng(6)
+    xs, yaws = [], []
+    for _ in range(4000):
+        draw = belief_draw(belief, rng)
+        xs.append(draw.get(_b0, "x"))
+        yaws.append(draw.get(_b0, "yaw"))
+        assert draw.get(_r, "x") == 0.3
+    lo, hi = belief.ranges[("b0", "x")]
+    assert min(xs) >= lo and max(xs) <= hi
+    assert np.mean(xs) == pytest.approx(0.5, abs=1e-3)
+    assert np.std(xs) == pytest.approx(belief.spread[("b0", "x")], rel=0.1)
+    assert all(-np.pi <= y <= np.pi for y in yaws)
+    # The yaw draws straddle the wrap at pi without averaging to zero.
+    assert np.mean(np.cos(yaws)) < -0.9
+
+
+def test_draws_at_a_range_end_follow_the_truncated_posterior():
+    """With the mean at the range's upper end, draws fill the half below it
+    with the half-normal's density; none pile up on the end itself."""
+    rng = np.random.default_rng(0)
+    values = np.array(
+        [_truncated_normal(1.0, 0.1, 0.0, 1.0, rng) for _ in range(4000)])
+    assert values.max() < 1.0 and values.min() >= 0.0
+    assert values.mean() == pytest.approx(1.0 - 0.1 * np.sqrt(2 / np.pi),
+                                          abs=0.005)
+    assert np.mean(values > 0.999) < 0.02
+    # A range the Gaussian puts no resolvable mass on: the nearer end.
+    assert _truncated_normal(5.0, 0.1, 0.0, 1.0, rng) == 1.0

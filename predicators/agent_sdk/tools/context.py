@@ -3,7 +3,7 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, FrozenSet, Iterator, List, Optional, \
-    Set
+    Set, Tuple
 
 from predicators import utils
 from predicators.option_model import _OptionModelBase
@@ -138,6 +138,21 @@ class ToolContext:
     # when the run carries one, so sim.run(belief_draws=K) draws from
     # the belief the agent was shown.
     current_belief: Optional[Any] = None
+    # The joint belief (belief_joint_draws > 0): K joint draws
+    # (theta_i, x_t_i) at the current decision point, each state carrying
+    # the memory its parameters imply, and the fraction of those draws on
+    # which each atom holds. Continual MB sessions install both.
+    joint_draws_provider: Optional[Callable[..., List[Tuple[Dict[str, float],
+                                                            State]]]] = None
+    joint_fractions_provider: Optional[Callable[[], Dict[Any, float]]] = None
+    # Which parameter names the env applies (the rest are rule parameters,
+    # read through joint_draw_scope), the scope itself, and the current
+    # episode's recorded frames and step labels for scoring a rehearsal
+    # on the episode so far.
+    physical_param_names_provider: Optional[Callable[[], Set[str]]] = None
+    joint_draw_scope: Optional[Callable[[Dict[str, float]], Any]] = None
+    episode_prefix_provider: Optional[Callable[[], Tuple[List[State],
+                                                         List[Any]]]] = None
     skill_factory_context: Dict[str, Any] = field(default_factory=dict)
     proposals_disabled: bool = False  # set True during test-time solving
     log_dir: Optional[str] = None

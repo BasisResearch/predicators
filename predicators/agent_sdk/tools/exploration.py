@@ -168,23 +168,69 @@ def belief_probe_blurb(synthesis_probe: bool,
         task_desc = ("`sim.task(task_idx=None)` describes a task - goal, "
                      "objects, initial atoms and state (current task by "
                      "default) - without touching the current state; ")
-    belief_desc = (
-        "under a declared observation-noise channel "
-        "belief_draws=K rolls the plan from K draws of where the "
-        "objects may really be (the belief the last observation "
-        "showed) and `sim.belief()` lists that belief with the atoms "
-        "it is unsure about; " if surface.uncertainty else "")
-    probes_desc = (
-        "`sim.suggest_probes(sketch_text, max_draws=20, top_k=3)` rolls "
-        "your sketch forward on your own parameters and, per `-> "
-        "{subgoals}`-annotated step with continuous params, ranks "
-        "feasible alternatives by the learned model's ensemble "
-        "disagreement on those atoms (advice only: what you submit "
-        "runs as written); " if surface.uncertainty else "")
-    keep_working = "edit/fit/think" if surface.fit else "think/plan"
-    return (f"{sim_desc}, `BeliefProbe()` "
-            "(extra independent instances). BeliefProbe API: "
-            f"{reset_desc}{task_desc}"
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.settings import CFG
+    joint = bool(surface.uncertainty) and int(CFG.belief_joint_draws) > 0
+    if joint:
+        belief_desc = ("`sim.belief()` lists the state belief with the atoms "
+                       "it is unsure about; ")
+        probes_desc = (
+            "`sim.suggest_probes(plan_text, max_draws=8, top_k=3)` rolls "
+            "your plan out on the joint draws of the belief and, per `-> "
+            "{subgoals}`-annotated step with continuous params, ranks "
+            "feasible alternatives by the information a noisy reading of "
+            "the subgoals carries about the parameters (advice only: what "
+            "you execute runs as written); ")
+        run_desc = (
+            "`sim.run(plan_text, render=True, draws=None, contacts=False, "
+            "physics_sweep=False, seed=None)` rehearses an option plan "
+            "FROM THE CURRENT STATE (same grammar as submit_plan) on the "
+            f"{int(CFG.belief_joint_draws)} joint draws of the belief - a "
+            "parameter draw, a state draw and the memory those parameters "
+            "imply, each on a fresh env with its own planner seed - and "
+            "reports the success estimate P-hat with its standard error, "
+            "scored by the TASK EVALUATOR on the episode so far followed "
+            "by each draw's rollout (reaching the goal atoms is NOT the "
+            "same as being scored a solve), each draw's outcome and the "
+            "parameter ranges on which draws fail, then a step-by-step "
+            "rollout from the belief mean at the most likely parameters "
+            "with contacts and saved per-step scene-image paths (view them "
+            "with the Read tool), which advances the state; `-> "
+            "{subgoals}` annotations are CHECKED in that rollout; draws=0 "
+            "runs only the rollout from the current state (pass "
+            "render=False inside tight sweep loops); physics_sweep=True "
+            "stress-tests the plan at the ends of each parameter's 95% "
+            "interval (it locates failure boundaries and carries no "
+            f"probability); {belief_desc}"
+            "contacts=True with draws=0 reports, per ")
+        refine_desc = (
+            "`sim.refine(sketch_text, timeout=60, require_goal=False, "
+            "require_solved=False)` runs "
+            "backtracking parameter search from the belief mean (same "
+            "grammar as submit_plan"
+            f"{_region_syntax_blurb()}; "
+            "success = each step establishes its `-> {subgoals}` "
+            "annotation), scores up to "
+            f"{int(CFG.belief_refine_candidates)} successful proposals on "
+            "the common joint draws, and returns the best with its P-hat "
+            "on fresh draws, an estimate its selection does not bias; the "
+            "result reports per-step sample counts and the deepest "
+            "near-miss.")
+    else:
+        belief_desc = (
+            "under a declared observation-noise channel "
+            "belief_draws=K rolls the plan from K draws of where the "
+            "objects may really be (the belief the last observation "
+            "showed) and `sim.belief()` lists that belief with the atoms "
+            "it is unsure about; " if surface.uncertainty else "")
+        probes_desc = (
+            "`sim.suggest_probes(sketch_text, max_draws=20, top_k=3)` rolls "
+            "your sketch forward on your own parameters and, per `-> "
+            "{subgoals}`-annotated step with continuous params, ranks "
+            "feasible alternatives by the learned model's ensemble "
+            "disagreement on those atoms (advice only: what you submit "
+            "runs as written); " if surface.uncertainty else "")
+        run_desc = (
             "`sim.run(plan_text, render=True, trials=1, solved=False, "
             "contacts=False)` executes an option "
             "plan FROM THE CURRENT "
@@ -206,7 +252,27 @@ def belief_probe_blurb(synthesis_probe: bool,
             "TASK EVALUATOR (per-trial solved/reward) - reaching the goal "
             "atoms is NOT the same as being scored a solve, so check this "
             f"BEFORE submitting; {belief_desc}"
-            "contacts=True (single run) reports, per "
+            "contacts=True (single run) reports, per ")
+        refine_desc = (
+            "`sim.refine(sketch_text, timeout=60, require_goal=False, "
+            "require_solved=False)` runs "
+            "backtracking parameter search FROM THE CURRENT STATE (same "
+            "grammar as submit_plan"
+            f"{_region_syntax_blurb()}; "
+            "success = each step establishes its `-> {subgoals}` "
+            "annotation, and the result's Verdict line states what it "
+            "certifies) - refine a plan SUFFIX from a snapshot so the "
+            "budget goes to the step that matters; the result reports "
+            "best-found params even on timeout, per-step sample counts, and "
+            "the deepest near-miss. require_solved=True (only from an "
+            "unmodified reset() state) additionally requires the task "
+            "evaluator to score the final rollout solved=True, rejecting "
+            "goal-reaching-but-unscored candidates during the search.")
+    keep_working = "edit/fit/think" if surface.fit else "think/plan"
+    return (f"{sim_desc}, `BeliefProbe()` "
+            "(extra independent instances). BeliefProbe API: "
+            f"{reset_desc}{task_desc}"
+            f"{run_desc}"
             "step, which robot links touched which objects and which "
             "object pairs touched, with action spans - use it to verify "
             "WHAT caused motion (e.g. an intended push vs. the arm "
@@ -239,20 +305,7 @@ def belief_probe_blurb(synthesis_probe: bool,
             "`sim.restore(id)` bank and rewind states (use to re-try "
             "different actions from one setup, or resume after a fixed "
             f"plan prefix without re-running it); {probes_desc}"
-            "`sim.refine(sketch_text, timeout=60, require_goal=False, "
-            "require_solved=False)` runs "
-            "backtracking parameter search FROM THE CURRENT STATE (same "
-            "grammar as submit_plan"
-            f"{_region_syntax_blurb()}; "
-            "success = each step establishes its `-> {subgoals}` "
-            "annotation, and the result's Verdict line states what it "
-            "certifies) - refine a plan SUFFIX from a snapshot so the "
-            "budget goes to the step that matters; the result reports "
-            "best-found params even on timeout, per-step sample counts, and "
-            "the deepest near-miss. require_solved=True (only from an "
-            "unmodified reset() state) additionally requires the task "
-            "evaluator to score the final rollout solved=True, rejecting "
-            "goal-reaching-but-unscored candidates during the search.")
+            f"{refine_desc}")
 
 
 def _build_exploration_tools(ctx: ToolContext, _text_result: Callable,

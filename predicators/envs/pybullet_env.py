@@ -62,6 +62,7 @@ from predicators.pybullet_helpers.real_robot_bridge import \
     GripperJointLayout, gripper_joint_layout_from_robot
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot, \
     create_single_arm_pybullet_robot, get_robot_home_ee_position
+from predicators.pybullet_helpers.settle import settle_bodies
 from predicators.settings import CFG
 from predicators.structs import Action, Array, EnvironmentTask, Mask, Object, \
     Observation, State, Video
@@ -1586,6 +1587,41 @@ class PyBulletEnv(BaseEnv):
         """Where the finger joints sit in an action array, and what open /
         closed finger values look like."""
         return gripper_joint_layout_from_robot(self._pybullet_robot)
+
+    def settle_state(self, state: State) -> State:
+        """``state`` after a quasi-static settle in this engine.
+
+        A rollout from a draw of the state belief starts here: the
+        draw's independent pose noise can put bodies inside one another,
+        leave a resting body hovering or tilted, or stretch an
+        attachment, and the first engine step would resolve that with an
+        impulse. Bodies the static world holds up settle onto their
+        supports and attachments; the others keep their drawn poses (see
+        :mod:`predicators.pybullet_helpers.settle`). The objects take the
+        engine's features after the settle; the robot, virtual objects
+        and the latent block keep the draw's.
+        """
+        self._set_state(state)
+        # _set_state binds the state's objects to this engine's bodies.
+        physical: Dict[str, Object] = {}
+        for obj in self._objects:
+            if obj.type.name == "robot" or \
+                    obj.type.name in self._VIRTUAL_OBJECT_TYPES:
+                continue
+            if getattr(obj, "id", None) is not None:
+                physical[obj.name] = obj
+        settle_bodies(self._physics_client_id,
+                      [obj.id for obj in physical.values()],
+                      [self._pybullet_robot.robot_id])
+        placed = self._get_state()
+        settled = state.copy()
+        for obj in state:
+            body = physical.get(obj.name)
+            if body is None:
+                continue
+            for feat in obj.type.feature_names:
+                settled.set(obj, feat, placed.get(body, feat))
+        return settled
 
     def _set_state(self, state: State) -> None:
         """State -> PyBullet: write the requested State into the simulator.

@@ -436,6 +436,29 @@ def test_golden_continual_system(model_based, noise, repair):
     utils.reset_config({})
 
 
+def test_golden_continual_system_joint_belief():
+    """EMPIRIC's prompt as the experiments run it (16 joint draws): one
+    rehearsal over the joint draws replaces the trial, solved and belief-draw
+    flags, which the prompt no longer offers."""
+    utils.reset_config({
+        "continual_obs_noise_position": 0.01,
+        "continual_obs_noise_orientation": 0.02,
+        "agent_model_repair": True,
+        "belief_joint_draws": 16,
+    })
+    tools = ["run_python"] + list(CONTINUAL_TOOL_NAMES)
+    contract = play_prompts.build_model_contract(partially_observable=True)
+    text = play_prompts.build_play_system_prompt(tools,
+                                                 model_contract=contract)
+    _check_golden("continual_system_mb_joint", text)
+    assert "__" not in text.replace("__init__", "")
+    assert render("play_system", "final_rehearsal_joint") in text
+    assert "scores up to 8 proposals on the joint draws" in text
+    for legacy in ("trials>=2", "solved=True", "belief_draws"):
+        assert legacy not in text
+    utils.reset_config({})
+
+
 @pytest.mark.parametrize("kind", ["first", "level", "continue", "resumed"])
 def test_golden_continual_query(kind):
     """Each round kind keeps live state separate from persistent
@@ -525,6 +548,9 @@ def test_golden_continual_system_ablation(arm):
         })
     if arm == "no_uncertainty":
         flags["continual_obs_noise_declared"] = False
+    # As the experiments run them: every arm but No uncertainty carries
+    # the joint belief (continual_common.yaml, approaches/continual.yaml).
+    flags["belief_joint_draws"] = 0 if arm == "no_uncertainty" else 16
     utils.reset_config(flags)
     tools = ["run_python"] + list(CONTINUAL_TOOL_NAMES)
     frozen = arm in ("scene_only", "oracle_dynamics", "zero_shot")
@@ -563,13 +589,16 @@ def test_golden_continual_system_ablation(arm):
         oracle = object.__new__(AgentContinualOracleDynamicsApproach)
         # pylint: disable=protected-access
         assert oracle._play_prompt_options() == options
-        shared = render("play_system", "rehearsal_reliability")
+        shared = render("play_system",
+                        "rehearsal_reliability",
+                        state_rehearsal=render("play_system",
+                                               "state_rehearsal_joint"))
         assert shared in text
         assert shared in play_prompts.build_play_system_prompt(tools)
         restriction = ("do not fit, edit, or substitute a hand-built "
                        "dynamics model")
         assert restriction in text
-        assert render("play_system", "robustness_oracle") in text
+        assert render("play_system", "robustness_oracle_joint") in text
         assert "checks replay verdicts across" not in text
     elif frozen or arm == "no_uncertainty":
         heading = "### State estimates, timing, and execution discrepancies"
@@ -604,3 +633,4 @@ def test_golden_continual_system_ablation(arm):
         assert "tests physical-parameter uncertainty" not in text
         assert "margin across models" not in text
         assert "what uncertainty could change" not in text
+    utils.reset_config({})

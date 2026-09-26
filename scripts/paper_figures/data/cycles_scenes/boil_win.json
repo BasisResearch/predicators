@@ -2,15 +2,16 @@
   "generated_by": "scripts/render_egl_scenes.py; do not edit manually",
   "metadata": {
     "domain": "Boil",
-    "source_recording": "/home/ycliang/predicators/logs/agent_continual/boil-agent_continual_noise_p12_r07/seed0/run_20260908_063739/L02/episodes.pkl",
-    "source_sha256": "b81b1a211aef31f910a0f30a7a75628e0ea5178dff7ff63e2f02694547474a54",
-    "scorecard_sha256": "ecfbf0e455fb2a5f080e97bf6d2ca5dce14fa0a6b1ab7162be6ad750a8ad8dc7",
-    "source_condition": "Noisy",
-    "renderer_checkout": "/home/ycliang/predicators-balloons-visuals-r1",
-    "renderer_commit": "a698a777507e0c78138d6c68e26a129d2c762563",
-    "backend": "tiny",
-    "physics_steps_after_restore": 0,
-    "frame": "win"
+    "source_recording": "boil-mb_opus_gate_preflight_two_jug_tight_r1/seed1/run_20260917_082805/L02/episodes.pkl",
+    "source_sha256": "599cef34f0de0c4a252b176de634d0bfddaaad135762719d99aeaa2b0fe0e093",
+    "scorecard_sha256": "bef37fc71111c707caa5c882cafd82a9be47557a505e6248a5ee99e3cae76f3c",
+    "level": "L02",
+    "frame": "win",
+    "display_notes": [
+      "liquid drawn no higher than the rim",
+      "test jug drawn in its training red"
+    ],
+    "physics_steps_after_restore": 0
   },
   "camera": {
     "view": [
@@ -64,7 +65,7 @@
         1.0,
         1.0
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/plane.obj",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/plane.obj",
       "position": [
         0.0,
         0.0,
@@ -94,7 +95,7 @@
         1.0,
         1.0
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/base_link.dae",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/base_link.dae",
       "position": [
         0.75,
         0.6535999774932861,
@@ -124,7 +125,7 @@
         1.0,
         1.0
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/r_wheel_link.STL",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/r_wheel_link.STL",
       "position": [
         0.9373800158500671,
         0.6548913717269897,
@@ -154,7 +155,7 @@
         1.0,
         1.0
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/l_wheel_link.STL",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/l_wheel_link.STL",
       "position": [
         0.5626199841499329,
         0.6548913717269897,
@@ -184,7 +185,7 @@
         1.0,
         1.0
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/torso_lift_link.dae",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/torso_lift_link.dae",
       "position": [
         0.75,
         0.566724956035614,
@@ -214,7 +215,7 @@
         1.0,
         1.0
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/head_pan_link.dae",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/head_pan_link.dae",
       "position": [
         0.75,
         0.6198499798774719,
@@ -244,7 +245,7 @@
         1.0,
         1.0
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/head_tilt_link.dae",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/head_tilt_link.dae",
       "position": [
         0.75,
         0.7623800039291382,
@@ -274,17 +275,17 @@
         1.0,
         1.0
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/shoulder_pan_link.dae",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/shoulder_pan_link.dae",
       "position": [
         0.75,
-        0.6862499713897705,
+        0.6862500309944153,
         0.8246099948883057
       ],
       "quaternion_xyzw": [
-        -2.2467644878871373e-17,
-        -2.0796233806979374e-17,
-        0.7338771224021912,
-        0.6792823672294617
+        -2.522647089274803e-17,
+        -1.7346568052194353e-17,
+        0.8239905834197998,
+        0.5666034817695618
       ],
       "rgba": [
         1.0,
@@ -304,17 +305,17 @@
         1.0,
         1.0
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/shoulder_lift_link.dae",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/shoulder_lift_link.dae",
       "position": [
-        0.7409733533859253,
-        0.8029012680053711,
+        0.7081232070922852,
+        0.7954989671707153,
         0.8846099972724915
       ],
       "quaternion_xyzw": [
-        0.24591384828090668,
-        -0.22761990129947662,
-        0.691448986530304,
-        0.6400108337402344
+        0.28268852829933167,
+        -0.1943860948085785,
+        0.7739815711975098,
+        0.5322158336639404
       ],
       "rgba": [
         0.0860000029206276,
@@ -334,17 +335,17 @@
         1.0,
         1.0
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/upperarm_roll_link.dae",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/upperarm_roll_link.dae",
       "position": [
-        0.7278716564178467,
-        0.9722145199775696,
-        1.0228936672210693
+        0.6481901407241821,
+        0.9518536925315857,
+        1.0257560014724731
       ],
       "quaternion_xyzw": [
-        0.33547577261924744,
-        -0.12572279572486877,
-        0.7170119881629944,
-        0.5979495048522949
+        0.22078996896743774,
+        -0.2805313169956207,
+        0.7470848560333252,
+        0.5607300400733948
       ],
       "rgba": [
         1.0,
@@ -364,17 +365,17 @@
         1.0,
         1.0
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/elbow_flex_link.dae",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/elbow_flex_link.dae",
       "position": [
-        0.719914972782135,
-        1.0750395059585571,
-        1.1068741083145142
+        0.6117923855781555,
+        1.0468089580535889,
+        1.111474871635437
       ],
       "quaternion_xyzw": [
-        -0.40830400586128235,
-        0.4263681471347809,
-        0.678187370300293,
-        0.4376755654811859
+        -0.5025126934051514,
+        0.3140172064304352,
+        0.5952855348587036,
+        0.542686939239502
       ],
       "rgba": [
         0.0860000029206276,
@@ -394,17 +395,17 @@
         1.0,
         1.0
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/forearm_roll_link.dae",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/forearm_roll_link.dae",
       "position": [
-        0.6640741229057312,
-        1.1233983039855957,
-        0.924248218536377
+        0.6303214430809021,
+        1.11191987991333,
+        0.9264714121818542
       ],
       "quaternion_xyzw": [
-        -0.5243710875511169,
-        0.1937759667634964,
-        0.7772893309593201,
-        0.2886296808719635
+        -0.3468720018863678,
+        0.4559217691421509,
+        0.4950830340385437,
+        0.6532288193702698
       ],
       "rgba": [
         1.0,
@@ -424,17 +425,17 @@
         1.0,
         1.0
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/wrist_flex_link.dae",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/wrist_flex_link.dae",
       "position": [
-        0.6287838816642761,
-        1.1539602279663086,
-        0.8088323473930359
+        0.6420314908027649,
+        1.1530686616897583,
+        0.8095530867576599
       ],
       "quaternion_xyzw": [
-        0.6651743650436401,
-        -0.2460779994726181,
-        -0.6608229279518127,
-        -0.24556423723697662
+        -0.42812734842300415,
+        0.5631598234176636,
+        0.42677175998687744,
+        0.5634037256240845
       ],
       "rgba": [
         0.0860000029206276,
@@ -454,17 +455,17 @@
         1.0,
         1.0
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/wrist_roll_link.dae",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/wrist_roll_link.dae",
       "position": [
-        0.6295480132102966,
-        1.1535695791244507,
-        0.6703349947929382
+        0.6422299742698669,
+        1.152885913848877,
+        0.6710533499717712
       ],
       "quaternion_xyzw": [
-        0.500634491443634,
-        0.49795034527778625,
-        -0.49928638339042664,
-        0.502119243144989
+        0.4974605441093445,
+        0.5018627643585205,
+        -0.497410386800766,
+        0.5032392144203186
       ],
       "rgba": [
         1.0,
@@ -484,17 +485,17 @@
         1.0,
         1.0
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/gripper_link.dae",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/gripper_link.dae",
       "position": [
-        0.6304664015769958,
-        1.1531000137329102,
-        0.5038881897926331
+        0.6424686312675476,
+        1.152666449546814,
+        0.5046036839485168
       ],
       "quaternion_xyzw": [
-        0.500634491443634,
-        0.49795034527778625,
-        -0.49928638339042664,
-        0.502119243144989
+        0.4974605441093445,
+        0.5018627643585205,
+        -0.497410386800766,
+        0.5032392144203186
       ],
       "rgba": [
         1.0,
@@ -514,17 +515,17 @@
         1.0,
         1.0
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/r_gripper_finger_link.STL",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/r_gripper_finger_link.STL",
       "position": [
-        0.7471237182617188,
-        1.1531182527542114,
-        0.5045318007469177
+        0.7597931623458862,
+        1.1538667678833008,
+        0.5047702193260193
       ],
       "quaternion_xyzw": [
-        0.500634491443634,
-        0.49795034527778625,
-        -0.49928638339042664,
-        0.502119243144989
+        0.4974605441093445,
+        0.5018627643585205,
+        -0.497410386800766,
+        0.5032392144203186
       ],
       "rgba": [
         0.35600000619888306,
@@ -544,17 +545,17 @@
         1.0,
         1.0
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/l_gripper_finger_link.STL",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/l_gripper_finger_link.STL",
       "position": [
-        0.5182847380638123,
-        1.1530824899673462,
-        0.5032692551612854
+        0.5337352752685547,
+        1.151553750038147,
+        0.5044492483139038
       ],
       "quaternion_xyzw": [
-        0.500634491443634,
-        0.49795034527778625,
-        -0.49928638339042664,
-        0.502119243144989
+        0.4974605441093445,
+        0.5018627643585205,
+        -0.497410386800766,
+        0.5032392144203186
       ],
       "rgba": [
         0.35600000619888306,
@@ -574,7 +575,7 @@
         1.0,
         1.0
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/bellows_link.STL",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/bellows_link.STL",
       "position": [
         0.75,
         0.566724956035614,
@@ -604,7 +605,7 @@
         1.0,
         1.0
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/estop_link.STL",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/estop_link.STL",
       "position": [
         0.5110799670219421,
         0.528950035572052,
@@ -634,7 +635,7 @@
         1.0,
         1.0
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/laser_link.STL",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/laser_link.STL",
       "position": [
         0.75,
         0.8885999917984009,
@@ -664,7 +665,7 @@
         1.0,
         1.0
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/torso_fixed_link.dae",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/torso_fixed_link.dae",
       "position": [
         0.75,
         0.5667250156402588,
@@ -876,20 +877,20 @@
       ],
       "mesh": "",
       "position": [
-        0.6238182187080383,
-        1.2948848009109497,
-        0.4100932776927948
+        0.44779255986213684,
+        1.2048906087875366,
+        0.40998929738998413
       ],
       "quaternion_xyzw": [
         0.0,
         0.0,
-        -0.6850887537002563,
-        0.7284595966339111
+        -0.6804224848747253,
+        0.7328200936317444
       ],
       "rgba": [
+        0.95,
         0.05,
-        0.04,
-        0.6,
+        0.1,
         1.0
       ]
     },
@@ -906,20 +907,20 @@
       ],
       "mesh": "",
       "position": [
-        0.5838934779167175,
-        1.2924325466156006,
-        0.46009328961372375
+        0.40790238976478577,
+        1.2019286155700684,
+        0.4599893093109131
       ],
       "quaternion_xyzw": [
         0.0,
         0.0,
-        -0.6850887537002563,
-        0.7284595966339111
+        -0.6804224848747253,
+        0.7328200936317444
       ],
       "rgba": [
+        0.95,
         0.05,
-        0.04,
-        0.6,
+        0.1,
         1.0
       ]
     },
@@ -936,20 +937,20 @@
       ],
       "mesh": "",
       "position": [
-        0.6637429594993591,
-        1.2973370552062988,
-        0.46009328961372375
+        0.4876827299594879,
+        1.2078526020050049,
+        0.4599893093109131
       ],
       "quaternion_xyzw": [
         0.0,
         0.0,
-        -0.6850887537002563,
-        0.7284595966339111
+        -0.6804224848747253,
+        0.7328200936317444
       ],
       "rgba": [
+        0.95,
         0.05,
-        0.04,
-        0.6,
+        0.1,
         1.0
       ]
     },
@@ -966,20 +967,20 @@
       ],
       "mesh": "",
       "position": [
-        0.6213659644126892,
-        1.3348095417022705,
-        0.46009328961372375
+        0.4448305368423462,
+        1.2447807788848877,
+        0.4599893093109131
       ],
       "quaternion_xyzw": [
         0.0,
         0.0,
-        -0.6850887537002563,
-        0.7284595966339111
+        -0.6804224848747253,
+        0.7328200936317444
       ],
       "rgba": [
+        0.95,
         0.05,
-        0.04,
-        0.6,
+        0.1,
         1.0
       ]
     },
@@ -996,20 +997,20 @@
       ],
       "mesh": "",
       "position": [
-        0.6262704730033875,
-        1.254960060119629,
-        0.46009328961372375
+        0.4507545828819275,
+        1.1650004386901855,
+        0.4599893093109131
       ],
       "quaternion_xyzw": [
         0.0,
         0.0,
-        -0.6850887537002563,
-        0.7284595966339111
+        -0.6804224848747253,
+        0.7328200936317444
       ],
       "rgba": [
+        0.95,
         0.05,
-        0.04,
-        0.6,
+        0.1,
         1.0
       ]
     },
@@ -1026,20 +1027,20 @@
       ],
       "mesh": "",
       "position": [
-        0.6287227869033813,
-        1.215035319328308,
-        0.46009328961372375
+        0.45371660590171814,
+        1.1251102685928345,
+        0.4599893093109131
       ],
       "quaternion_xyzw": [
         0.0,
         0.0,
-        -0.6850887537002563,
-        0.7284595966339111
+        -0.6804224848747253,
+        0.7328200936317444
       ],
       "rgba": [
+        0.95,
         0.05,
-        0.04,
-        0.6,
+        0.1,
         1.0
       ]
     },
@@ -1056,20 +1057,20 @@
       ],
       "mesh": "",
       "position": [
-        10.0,
-        10.0,
-        -0.05000000074505806
+        0.6283707618713379,
+        1.321329951286316,
+        0.41009023785591125
       ],
       "quaternion_xyzw": [
         0.0,
         0.0,
-        0.0,
-        1.0
+        -0.7146778106689453,
+        0.6994538307189941
       ],
       "rgba": [
-        0.6,
         0.4,
         0.05,
+        0.6,
         1.0
       ]
     },
@@ -1086,20 +1087,20 @@
       ],
       "mesh": "",
       "position": [
-        10.0,
-        9.960000038146973,
-        0.0
+        0.5883800387382507,
+        1.3221911191940308,
+        0.4600902497768402
       ],
       "quaternion_xyzw": [
         0.0,
         0.0,
-        0.0,
-        1.0
+        -0.7146778106689453,
+        0.6994538307189941
       ],
       "rgba": [
-        0.6,
         0.4,
         0.05,
+        0.6,
         1.0
       ]
     },
@@ -1116,20 +1117,20 @@
       ],
       "mesh": "",
       "position": [
-        10.0,
-        10.039999961853027,
-        0.0
+        0.668361485004425,
+        1.320468783378601,
+        0.4600902497768402
       ],
       "quaternion_xyzw": [
         0.0,
         0.0,
-        0.0,
-        1.0
+        -0.7146778106689453,
+        0.6994538307189941
       ],
       "rgba": [
-        0.6,
         0.4,
         0.05,
+        0.6,
         1.0
       ]
     },
@@ -1146,20 +1147,20 @@
       ],
       "mesh": "",
       "position": [
-        9.960000038146973,
-        10.0,
-        0.0
+        0.6292319297790527,
+        1.3613207340240479,
+        0.4600902497768402
       ],
       "quaternion_xyzw": [
         0.0,
         0.0,
-        0.0,
-        1.0
+        -0.7146778106689453,
+        0.6994538307189941
       ],
       "rgba": [
-        0.6,
         0.4,
         0.05,
+        0.6,
         1.0
       ]
     },
@@ -1176,20 +1177,20 @@
       ],
       "mesh": "",
       "position": [
-        10.039999961853027,
-        10.0,
-        0.0
+        0.627509593963623,
+        1.281339168548584,
+        0.4600902497768402
       ],
       "quaternion_xyzw": [
         0.0,
         0.0,
-        0.0,
-        1.0
+        -0.7146778106689453,
+        0.6994538307189941
       ],
       "rgba": [
-        0.6,
         0.4,
         0.05,
+        0.6,
         1.0
       ]
     },
@@ -1206,20 +1207,20 @@
       ],
       "mesh": "",
       "position": [
-        10.079999923706055,
-        10.0,
-        0.0
+        0.626648485660553,
+        1.2413485050201416,
+        0.4600902497768402
       ],
       "quaternion_xyzw": [
         0.0,
         0.0,
-        0.0,
-        1.0
+        -0.7146778106689453,
+        0.6994538307189941
       ],
       "rgba": [
-        0.6,
         0.4,
         0.05,
+        0.6,
         1.0
       ]
     },
@@ -1294,7 +1295,7 @@
         0.1,
         0.1
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-2.obj",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-2.obj",
       "position": [
         0.625,
         1.149999976158142,
@@ -1324,7 +1325,7 @@
         0.1,
         0.1
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-8.obj",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-8.obj",
       "position": [
         0.625,
         1.149999976158142,
@@ -1354,7 +1355,7 @@
         0.1,
         0.1
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-13.obj",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-13.obj",
       "position": [
         0.625,
         1.149999976158142,
@@ -1384,7 +1385,7 @@
         0.1,
         0.1
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-9.obj",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-9.obj",
       "position": [
         0.625,
         1.149999976158142,
@@ -1414,7 +1415,7 @@
         0.1,
         0.1
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-5.obj",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-5.obj",
       "position": [
         0.625,
         1.149999976158142,
@@ -1444,7 +1445,7 @@
         0.1,
         0.1
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-6.obj",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-6.obj",
       "position": [
         0.625,
         1.149999976158142,
@@ -1474,7 +1475,7 @@
         0.1,
         0.1
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-11.obj",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-11.obj",
       "position": [
         0.625,
         1.149999976158142,
@@ -1504,7 +1505,7 @@
         0.1,
         0.1
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-12.obj",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-12.obj",
       "position": [
         0.625,
         1.149999976158142,
@@ -1534,7 +1535,7 @@
         0.1,
         0.1
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-7.obj",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-7.obj",
       "position": [
         0.625,
         1.149999976158142,
@@ -1564,7 +1565,7 @@
         0.1,
         0.1
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-10.obj",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-10.obj",
       "position": [
         0.625,
         1.149999976158142,
@@ -1594,7 +1595,7 @@
         0.1,
         0.1
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-14.obj",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-14.obj",
       "position": [
         0.625,
         1.149999976158142,
@@ -1624,7 +1625,7 @@
         0.2,
         0.2
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/faucet/1488/textured_objs/original-1.obj",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/faucet/1488/textured_objs/original-1.obj",
       "position": [
         1.0499999523162842,
         1.600000023841858,
@@ -1654,7 +1655,7 @@
         0.2,
         0.2
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/faucet/1488/textured_objs/original-2.obj",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/faucet/1488/textured_objs/original-2.obj",
       "position": [
         1.0499999523162842,
         1.600000023841858,
@@ -1684,7 +1685,7 @@
         0.2,
         0.2
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/faucet/1488/textured_objs/original-3.obj",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/faucet/1488/textured_objs/original-3.obj",
       "position": [
         1.0499999523162842,
         1.600000023841858,
@@ -1744,7 +1745,7 @@
         0.1,
         0.1
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-2.obj",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-2.obj",
       "position": [
         1.0499999523162842,
         1.149999976158142,
@@ -1774,7 +1775,7 @@
         0.1,
         0.1
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-8.obj",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-8.obj",
       "position": [
         1.0499999523162842,
         1.149999976158142,
@@ -1804,7 +1805,7 @@
         0.1,
         0.1
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-13.obj",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-13.obj",
       "position": [
         1.0499999523162842,
         1.149999976158142,
@@ -1834,7 +1835,7 @@
         0.1,
         0.1
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-9.obj",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-9.obj",
       "position": [
         1.0499999523162842,
         1.149999976158142,
@@ -1864,7 +1865,7 @@
         0.1,
         0.1
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-5.obj",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-5.obj",
       "position": [
         1.0499999523162842,
         1.149999976158142,
@@ -1894,7 +1895,7 @@
         0.1,
         0.1
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-6.obj",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-6.obj",
       "position": [
         1.0499999523162842,
         1.149999976158142,
@@ -1924,7 +1925,7 @@
         0.1,
         0.1
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-11.obj",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-11.obj",
       "position": [
         1.0499999523162842,
         1.149999976158142,
@@ -1954,7 +1955,7 @@
         0.1,
         0.1
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-12.obj",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-12.obj",
       "position": [
         1.0499999523162842,
         1.149999976158142,
@@ -1984,7 +1985,7 @@
         0.1,
         0.1
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-7.obj",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-7.obj",
       "position": [
         1.0499999523162842,
         1.149999976158142,
@@ -2014,7 +2015,7 @@
         0.1,
         0.1
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-10.obj",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-10.obj",
       "position": [
         1.0499999523162842,
         1.149999976158142,
@@ -2044,7 +2045,7 @@
         0.1,
         0.1
       ],
-      "mesh": "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-14.obj",
+      "mesh": "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-14.obj",
       "position": [
         1.0499999523162842,
         1.149999976158142,
@@ -2072,19 +2073,19 @@
       "dimensions": [
         0.06,
         0.06,
-        0.10200000000000006
+        0.1
       ],
       "mesh": "",
       "position": [
-        0.6238182187080383,
-        1.2948848009109497,
-        0.4710932672023773
+        0.44779255986213684,
+        1.2048906087875366,
+        0.4699893295764923
       ],
       "quaternion_xyzw": [
         0.0,
         0.0,
-        -0.6850887537002563,
-        0.7284595966339111
+        -0.6804224848747253,
+        0.7328200936317444
       ],
       "rgba": [
         0.0,
@@ -2095,6 +2096,36 @@
     },
     {
       "body": 15,
+      "link": -1,
+      "index": 0,
+      "name": "",
+      "kind": 3,
+      "dimensions": [
+        0.06,
+        0.06,
+        0.1
+      ],
+      "mesh": "",
+      "position": [
+        0.6283707618713379,
+        1.321329951286316,
+        0.47009024024009705
+      ],
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        -0.7146778106689453,
+        0.6994538307189941
+      ],
+      "rgba": [
+        0.0,
+        0.0,
+        1.0,
+        0.9
+      ]
+    },
+    {
+      "body": 16,
       "link": -1,
       "index": 0,
       "name": "",
@@ -2125,40 +2156,40 @@
     }
   ],
   "mesh_sha256": {
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/plane.obj": "0cc3ec11a128956c6888a3ef8a79edaa279cd70e0df7ab96f7749e24f55067f5",
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/base_link.dae": "5bce2661b072f9402f4af89b40b107271054e3c7705e2f9f23ffaf286e4a3b7c",
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/r_wheel_link.STL": "e805e07d57faa72b957229538aec68ed935f656c599b9556530ddc6f45874aa5",
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/l_wheel_link.STL": "f00a69358c8af5c74cfd49d8990707e22e8318370209fe32dbf98610dcf05a6b",
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/torso_lift_link.dae": "45f38616be359918c6dd5a73bde21672d40730aed3c251084e09d1d79bcd2c7d",
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/head_pan_link.dae": "1b4df542a4ad3d32e7a119a9d6fc397bc6c691643d47408a0b4bc3048342d218",
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/head_tilt_link.dae": "8acf75c4beaa7fb1d67331942e611ecc2ca2896e076bc16b26196499987d5fef",
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/shoulder_pan_link.dae": "8c54f5ca312504a4938214e23d70779f5a3e53c20700401006fedbc7e7c896ad",
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/shoulder_lift_link.dae": "230f01402296c58c01cbf833b57ff92a987ca3684020b94f9a04b55c38c022ee",
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/upperarm_roll_link.dae": "6a1ccacd7efc0f0f7f63ae010cb689b930dfcb7d2e761916791cce286a7a55c4",
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/elbow_flex_link.dae": "2073fb649284297a5ef95926c808db5ac22fe0119018be9fb1d2ec46c337a2b6",
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/forearm_roll_link.dae": "0556b2360bba65612e6179292d71fd1785b3ec5936c580f478e7644b70bbccdb",
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/wrist_flex_link.dae": "da0776b66c8840bba6e78b65d9af51efa33b5876eafa033ddeb08ee3aacff401",
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/wrist_roll_link.dae": "3df20e834a404da01a25bfee84c655036b64461a75533ef0e8aaa4c04134ae90",
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/gripper_link.dae": "756a8fbc9a1cc34a01d07cf041d357f642252f0c3b0dd7f61d1fd12c98a03f73",
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/r_gripper_finger_link.STL": "0f10460121e2bcacaa63a409cc1ea30f78fb96fe4d2ddaa2b616aac3e300ffbd",
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/l_gripper_finger_link.STL": "aca440e0444fd8bcbbade739ea27ed3755d23bf823eb4d900bec00ee1c3b709c",
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/bellows_link.STL": "90902856fe2d931ca099558378e89c2de22048075bc05def4fd5af311c398f29",
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/estop_link.STL": "08ee8f343d047983477a5c57292ec6b4a4d317e9a999c8fbfd45b3249c8226fe",
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/laser_link.STL": "285e57045df959a58c14d0b26c1a24203bd213acd17554f5b07bc526dfbc0747",
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/fetch_description/robots/../meshes/torso_fixed_link.dae": "6721289f9f4dc4789cd587b97763009f498ee47fb37275d0cdaffd3d3562c350",
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-2.obj": "aaecbe7198e50801642511e2126f4c3290b512af015cbdf7bfe381c79d61e858",
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-8.obj": "4ca1e52061772f88e55c3a01088d304f1e34c7b1bdc649a281d42aab408612e5",
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-13.obj": "80d8243bdff85b7659f39fe5810f9cc71a32887545218c586e762b5d208e9d00",
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-9.obj": "2bd89ddcd2819bebe1d40543f08d3ff731ba6919fde49cbcf9844b19b97814c3",
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-5.obj": "53c91d0577e1f1ae3a831e11c3b96764df97082074855b645c992ae01ee3d456",
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-6.obj": "a26960408271b24a178c4e5c23517e4086e568c806c66927cbc6488e8cbdf9f5",
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-11.obj": "2be3b81336eeff74bb06708174c035b7063f47fc6e2aef3180da782c9bef5a5d",
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-12.obj": "98169e5bd4f39d75b4e1bbadd18b32aaadb88253861061abd3dcf7fdd612e25f",
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-7.obj": "f9099621b8b34e4ec814b15db135c5ba83952e9bd5af7ec819071926297bf7d5",
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-10.obj": "7287668f31b047ce2ad35b43ccff1308a62cfd3707a279e0b81745cf25321913",
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-14.obj": "bca5cc0851290e09559f53cdd849066551bd39cac849f40a15fbaf40dfa27ddd",
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/faucet/1488/textured_objs/original-1.obj": "c24df28a03cd819c9b69a4495bc3ccae6a02644719a5e316cec07a318f62cdd7",
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/faucet/1488/textured_objs/original-2.obj": "aea149f5d2468cb3f5687c0dcfafe294acf58071a0b7a307c69250cf2eb9a08e",
-    "/home/ycliang/predicators-balloons-visuals-r1/predicators/envs/assets/urdf/partnet_mobility/faucet/1488/textured_objs/original-3.obj": "e871814b28588ba0f9313a7c1ad4cc51640aa78955faf0ad2791477fb189c91c"
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/plane.obj": "0cc3ec11a128956c6888a3ef8a79edaa279cd70e0df7ab96f7749e24f55067f5",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/base_link.dae": "5bce2661b072f9402f4af89b40b107271054e3c7705e2f9f23ffaf286e4a3b7c",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/r_wheel_link.STL": "e805e07d57faa72b957229538aec68ed935f656c599b9556530ddc6f45874aa5",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/l_wheel_link.STL": "f00a69358c8af5c74cfd49d8990707e22e8318370209fe32dbf98610dcf05a6b",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/torso_lift_link.dae": "45f38616be359918c6dd5a73bde21672d40730aed3c251084e09d1d79bcd2c7d",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/head_pan_link.dae": "1b4df542a4ad3d32e7a119a9d6fc397bc6c691643d47408a0b4bc3048342d218",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/head_tilt_link.dae": "8acf75c4beaa7fb1d67331942e611ecc2ca2896e076bc16b26196499987d5fef",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/shoulder_pan_link.dae": "8c54f5ca312504a4938214e23d70779f5a3e53c20700401006fedbc7e7c896ad",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/shoulder_lift_link.dae": "230f01402296c58c01cbf833b57ff92a987ca3684020b94f9a04b55c38c022ee",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/upperarm_roll_link.dae": "6a1ccacd7efc0f0f7f63ae010cb689b930dfcb7d2e761916791cce286a7a55c4",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/elbow_flex_link.dae": "2073fb649284297a5ef95926c808db5ac22fe0119018be9fb1d2ec46c337a2b6",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/forearm_roll_link.dae": "0556b2360bba65612e6179292d71fd1785b3ec5936c580f478e7644b70bbccdb",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/wrist_flex_link.dae": "da0776b66c8840bba6e78b65d9af51efa33b5876eafa033ddeb08ee3aacff401",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/wrist_roll_link.dae": "3df20e834a404da01a25bfee84c655036b64461a75533ef0e8aaa4c04134ae90",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/gripper_link.dae": "756a8fbc9a1cc34a01d07cf041d357f642252f0c3b0dd7f61d1fd12c98a03f73",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/r_gripper_finger_link.STL": "0f10460121e2bcacaa63a409cc1ea30f78fb96fe4d2ddaa2b616aac3e300ffbd",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/l_gripper_finger_link.STL": "aca440e0444fd8bcbbade739ea27ed3755d23bf823eb4d900bec00ee1c3b709c",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/bellows_link.STL": "90902856fe2d931ca099558378e89c2de22048075bc05def4fd5af311c398f29",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/estop_link.STL": "08ee8f343d047983477a5c57292ec6b4a4d317e9a999c8fbfd45b3249c8226fe",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/laser_link.STL": "285e57045df959a58c14d0b26c1a24203bd213acd17554f5b07bc526dfbc0747",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/fetch_description/robots/../meshes/torso_fixed_link.dae": "6721289f9f4dc4789cd587b97763009f498ee47fb37275d0cdaffd3d3562c350",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-2.obj": "aaecbe7198e50801642511e2126f4c3290b512af015cbdf7bfe381c79d61e858",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-8.obj": "4ca1e52061772f88e55c3a01088d304f1e34c7b1bdc649a281d42aab408612e5",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-13.obj": "80d8243bdff85b7659f39fe5810f9cc71a32887545218c586e762b5d208e9d00",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-9.obj": "2bd89ddcd2819bebe1d40543f08d3ff731ba6919fde49cbcf9844b19b97814c3",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-5.obj": "53c91d0577e1f1ae3a831e11c3b96764df97082074855b645c992ae01ee3d456",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-6.obj": "a26960408271b24a178c4e5c23517e4086e568c806c66927cbc6488e8cbdf9f5",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-11.obj": "2be3b81336eeff74bb06708174c035b7063f47fc6e2aef3180da782c9bef5a5d",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-12.obj": "98169e5bd4f39d75b4e1bbadd18b32aaadb88253861061abd3dcf7fdd612e25f",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-7.obj": "f9099621b8b34e4ec814b15db135c5ba83952e9bd5af7ec819071926297bf7d5",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-10.obj": "7287668f31b047ce2ad35b43ccff1308a62cfd3707a279e0b81745cf25321913",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/switch/102812/textured_objs/original-14.obj": "bca5cc0851290e09559f53cdd849066551bd39cac849f40a15fbaf40dfa27ddd",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/faucet/1488/textured_objs/original-1.obj": "c24df28a03cd819c9b69a4495bc3ccae6a02644719a5e316cec07a318f62cdd7",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/faucet/1488/textured_objs/original-2.obj": "aea149f5d2468cb3f5687c0dcfafe294acf58071a0b7a307c69250cf2eb9a08e",
+    "/orcd/home/002/ycliang/predicators/predicators/envs/assets/urdf/partnet_mobility/faucet/1488/textured_objs/original-3.obj": "e871814b28588ba0f9313a7c1ad4cc51640aa78955faf0ad2791477fb189c91c"
   }
 }

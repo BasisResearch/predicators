@@ -234,6 +234,10 @@ def test_ablation_play_tools(tmp_path: Any, monkeypatch: Any, arm: str,
             assert "belief_draws" not in tool_description
             assert "suggest_probes" not in tool_description
             assert "physics_sweep=True" not in tool_description
+        elif int(utils.CFG.belief_joint_draws) > 0:
+            # The joint belief's rehearsal replaces belief_draws.
+            assert "joint draws of the belief" in tool_description
+            assert "belief_draws" not in tool_description
         else:
             assert "belief_draws" in tool_description
         assert "step applied" in _call(agent,

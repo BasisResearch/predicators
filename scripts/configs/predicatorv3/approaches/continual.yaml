@@ -161,6 +161,7 @@ APPROACHES:
       agent_explorer_info_seeking_noise_aware: false
       code_sim_learning_interval_belief: false
       code_sim_learning_carry_posterior: false
+      belief_joint_draws: 0
       # Nothing about the observation noise is declared to this arm: no
       # noise section, no [noise] line, and the harness fit models none
       # of it (Sept 18, 2026).

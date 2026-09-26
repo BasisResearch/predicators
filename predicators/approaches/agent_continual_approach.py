@@ -327,6 +327,13 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
             return obs.frame
 
         ctx.current_observation_provider = current_observation
+        if int(CFG.belief_joint_draws) > 0 and \
+                CFG.continual_uncertainty_decisions:
+            ctx.joint_draws_provider = session.joint_draws
+            ctx.joint_fractions_provider = lambda: session.joint_atom_fractions(
+                int(CFG.belief_joint_draws))
+            ctx.episode_prefix_provider = lambda: session.episode_prefix(
+                smoothed=CFG.belief_prefix_frames == "smoothed")
         ctx.skill_gate = (self._make_skill_gate(session, paths.simulator_file,
                                                 trajectories)
                           if CFG.continual_require_model_on_test else None)

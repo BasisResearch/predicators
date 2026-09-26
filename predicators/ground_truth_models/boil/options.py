@@ -216,12 +216,16 @@ class PyBulletBoilGroundTruthOptionFactory(_BoilLegacyOptionsMixin,
         # The jug is grasped by its handle, jug_handle_offset from its
         # centre along its yaw. Compensating the held offset makes the
         # target the jug's centre, as the public skill reference states,
-        # so a jug placed at the faucet outlet is under the faucet.
+        # so a jug placed at the faucet outlet is under the faucet. The
+        # retreat lifts straight up from the release: close to the base
+        # the arm's wrist sits at its limit, and an upright lift slid the
+        # open fingers along the handle, dragging the jug 3-8 cm.
         Place = create_place_skill(
             name="Place",
             types=[robot_type],
             config=config,
             compensate_held_offset=True,
+            retreat_from_release_point=True,
         )
 
         # ---------------------------------------------------------------

@@ -398,6 +398,16 @@ class Phase:
     # closer to the previous one than the finger span) must be rejected
     # at planning time, not discovered by toppling the neighbor.
     check_release_clearance: bool = False
+    # For an incremental-IK lift clear of whatever it just released: a
+    # step whose commanded orientation needs a joint past its limit is
+    # solved for the position alone (the gripper ends a few degrees off
+    # the commanded orientation) instead of letting the action's clip to
+    # the limits pin that joint and push the end effector sideways. A
+    # Fetch that has set a jug down close to its base holds the wrist
+    # flex within 0.02 rad of its limit; each 5 cm of upright lift then
+    # slid the open fingers 2-3 cm along the jug's handle into its body,
+    # dragging the jug 3-8 cm off its placement (boil, 2026-09-25).
+    relax_orientation_at_joint_limits: bool = False
     # For CHANGE_FINGERS phases whose target depends on the CURRENT finger
     # value (e.g. a grasp-relative release width of "current + slack"):
     # freeze the target at its first evaluation for the rest of the phase.
@@ -2404,6 +2414,8 @@ class PhaseSkill:
             # _maybe_drive_base; keep incremental IK arm-only so the base
             # doesn't drift during contact phases (e.g. a switch push).
             move_base=False,
+            relax_orientation_at_joint_limits=(
+                phase.relax_orientation_at_joint_limits),
         )
 
     def _execute_fingers(self, phase: Phase, state: State, memory: Dict,

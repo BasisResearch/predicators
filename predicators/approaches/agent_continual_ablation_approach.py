@@ -60,6 +60,9 @@ class AgentContinualNoUncertaintyApproach(AgentContinualApproach):
             "agent_sim_learn_declared_params_only",
             "code_sim_learning_rollout_noise_filter",
             "continual_belief_frame",
+            # Point estimates only: no joint belief over parameters and
+            # state.
+            "belief_joint_draws",
             # The arm is not told about the observation noise.
             "continual_obs_noise_declared",
         )

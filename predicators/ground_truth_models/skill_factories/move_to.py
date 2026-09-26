@@ -166,6 +166,7 @@ def make_move_to_phase(
     on_blocked: str = "fail",
     disturbance_abort_tol: Optional[float] = None,
     allow_approach_detour: bool = False,
+    relax_orientation_at_joint_limits: bool = False,
 ) -> Phase:
     """Create a MOVE_TO_POSE phase for use in a ``PhaseSkill``.
 
@@ -228,6 +229,10 @@ def make_move_to_phase(
         step_norm_fn: A parameter-dependent EE step clamp (metres per
             step from the option's params), see ``Phase.step_norm_fn``:
             a gentle stroke whose speed is a skill parameter.
+        relax_orientation_at_joint_limits: Solve an incremental-IK step
+            whose commanded orientation needs a joint past its limit for
+            the position alone (see
+            ``Phase.relax_orientation_at_joint_limits``).
 
     Returns:
         A ``Phase`` that can be included in a ``PhaseSkill``.
@@ -302,4 +307,5 @@ def make_move_to_phase(
         step_norm_fn=step_norm_fn,
         on_blocked=on_blocked,
         disturbance_abort_tol=disturbance_abort_tol,
+        relax_orientation_at_joint_limits=relax_orientation_at_joint_limits,
     )

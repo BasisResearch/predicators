@@ -95,8 +95,7 @@ Recorded features carry the same noise.
    __SIM_FIRST_ROUND__
    A skill that fails in `sim` reports the controller's diagnostic; the real environment withholds it.
    Rehearse uncertain parameters and poses where supported.
-   Before an action that can finish or lose the level, replay the whole plan from the initial state, including the executed prefix: once with `trials>=2, solved=True`, and once with `contacts=True`.
-   Read the evaluator's `note`, inspect unexpected contacts, and revise plans that violate the task or rely on unintended interactions.
+   __FINAL_REHEARSAL__
 4. Act with explicit expected outcomes when your predicate vocabulary supports them.
    Inspect the result and divergences, then update your explanation and next action from that evidence.
 
@@ -157,8 +156,7 @@ Rehearse at the current state estimate and the declared parameter values.
    `sim` runs the real skill controllers on the model, so whether a grasp pose is reachable, a path is collision-free or a lift holds is checkable before acting.
    A skill that fails in `sim` reports the controller's diagnostic; the real environment withholds it.
    Rehearse plausible starting poses and declared parameter ranges where supported.
-   Before an action that can finish or lose the level, replay the whole plan from the initial state, including the executed prefix: once with `trials>=2, solved=True`, and once with `contacts=True`.
-   Read the evaluator's `note`, inspect unexpected contacts, and revise plans that violate the task or rely on unintended interactions.
+   __FINAL_REHEARSAL__
 4. Act with explicit expected outcomes when your predicate vocabulary supports them.
    Inspect the result and divergences, then update your plan, predicates and journal from that evidence; the model itself does not change.
 
@@ -205,8 +203,7 @@ Stage the current robot configuration and available inferred model memory before
 Check units, timestep, coordinates, forces, object-specific behavior, and missing interactions against observations and the documented APIs; do not guess the time represented by an action.
 Verify that staged scene edits affect the simulated contacts and geometry as intended.
 
-Rehearse plausible starting states with `belief_draws` and controller variability with repeated `trials`, using separate calls as required by the API.
-Use parameter sweeps only when the model has a supported uncertainty range; they cannot detect an omitted mechanism or an incorrect scene.
+__STATE_REHEARSAL__
 Compare predicted switch or contact times, total skill duration, intermediate motion, and maximum excursion, not just endpoint success.
 Prefer plans with a safe continuation across plausible state and timing variation; a recoverable undershoot can be preferable to a precise nominal prediction near an irreversible failure.
 
@@ -330,7 +327,7 @@ __AFTER_EDIT_LINE__
 __FIT_ROWS__
 | Load predicates | `sim.predicates()` reloads and installs the current definitions and reports their behavior on recorded episodes. Call it after editing predicates. |
 | Choose a start | `sim.reset()` uses the current level's initial state; `sim.reset(current=True)` uses the latest real observation and available model-memory estimate. `sim.reset(task_idx=i, mods={...})` stages a chosen task and feature modifications. |
-| Refine and rehearse | `sim.refine(plan, require_goal=True)` searches skill parameters; run the refined plan continuously with `sim.run(plan, solved=True)`. |
+| Refine and rehearse | __REFINE_CELL__ |
 __ROBUSTNESS_ROW__
 | Inspect and branch | `sim.render(label, annotations=[...])` visualizes a staged scene; `sim.snapshot()` and `sim.restore()` preserve branches. |
 
@@ -400,7 +397,7 @@ __FIXED_LINE__
 | Check recorded behavior | `sim.validate()` replays recordings under the fixed model and `sim.residuals()` locates its errors; use them to learn where the model is reliable, not to change it. |
 | Load predicates | `sim.predicates()` reloads and installs the current definitions and reports their behavior on recorded episodes. Call it after editing predicates. |
 | Choose a start | `sim.reset()` uses the current level's initial state; `sim.reset(current=True)` uses the latest real observation and available model-memory estimate. `sim.reset(task_idx=i, mods={...})` stages a chosen task and feature modifications. |
-| Refine and rehearse | `sim.refine(plan, require_goal=True)` searches skill parameters; run the refined plan continuously with `sim.run(plan, solved=True)`. |
+| Refine and rehearse | __REFINE_CELL__ |
 __ROBUSTNESS_ROW__
 | Inspect and branch | `sim.render(label, annotations=[...])` visualizes a staged scene; `sim.snapshot()` and `sim.restore()` preserve branches. |
 
@@ -548,3 +545,32 @@ Build a task-relevant predictive model, not a source-code replica: it must predi
 - The supplied dynamics model runs inside `sim`; there is no `./simulator.py` to read or write. `./predicates.py`: your predicate definitions, whose contract the predicate API reference below specifies.
 - `./probe_ext.py`: optional helper definitions loaded beside `sim` at the start of each round; use it to preserve reusable analysis code.
 - `./predicates_versions/`: snapshots of predicate-file writes; reports identify the version they score.
+
+<!-- section: final_rehearsal_legacy -->
+Before an action that can finish or lose the level, replay the whole plan from the initial state, including the executed prefix: once with `trials>=2, solved=True`, and once with `contacts=True`.
+Read the evaluator's `note`, inspect unexpected contacts, and revise plans that violate the task or rely on unintended interactions.
+
+<!-- section: final_rehearsal_joint -->
+Before an action that can finish or lose the level, rehearse it with `sim.run(plan)`: it reports the success estimate P-hat over the joint draws of the belief, each scored by the task evaluator on the episode so far followed by that draw's rollout, the parameter ranges on which draws fail, and a step-by-step rollout from the belief mean with contacts.
+Act once you judge P-hat high enough for what the action risks; otherwise revise the plan or gather information first.
+Inspect unexpected contacts, and revise plans that violate the task or rely on unintended interactions.
+
+<!-- section: state_rehearsal_legacy -->
+Rehearse plausible starting states with `belief_draws` and controller variability with repeated `trials`, using separate calls as required by the API.
+Use parameter sweeps only when the model has a supported uncertainty range; they cannot detect an omitted mechanism or an incorrect scene.
+
+<!-- section: state_rehearsal_joint -->
+`sim.run(plan)` covers plausible starting states, controller variability and any uncertain parameter values, with the model memory those values imply, in one estimate.
+Use `sim.run(plan, physics_sweep=True)` only when the model has a supported uncertainty range: it stress-tests each parameter at the ends of its 95% interval, locates failure boundaries but carries no probability, and cannot detect an omitted mechanism or an incorrect scene.
+
+<!-- section: refine_cell_legacy -->
+`sim.refine(plan, require_goal=True)` searches skill parameters; run the refined plan continuously with `sim.run(plan, solved=True)`.
+
+<!-- section: refine_cell_joint -->
+`sim.refine(plan, require_goal=True)` searches skill parameters from the belief mean, scores up to __REFINE_CANDIDATES__ proposals on the joint draws, and returns the best with its P-hat on fresh draws; `sim.run(plan)` rehearses a plan on the joint draws, and `sim.run(plan, draws=0)` runs it once from the belief mean.
+
+<!-- section: robustness_joint -->
+| Check robustness | `sim.run(plan)` reports P-hat over the joint draws of the belief: parameters, starting state and model memory. `sim.run(plan, physics_sweep=True)` stress-tests the ends of each parameter's interval. With declared observation noise, `sim.belief()` reports the pose belief. These checks are conditional on the model. |
+
+<!-- section: robustness_oracle_joint -->
+| Check robustness | Physical parameters are supplied and fixed; do not request `physics_sweep=True` or invent parameter ranges. `sim.run(plan)` reports P-hat over draws of the state belief, with controller variability. With declared observation noise, `sim.belief()` reports the pose belief. These checks remain conditional on scene and state reconstruction. |

@@ -1,4 +1,4 @@
-"""Export Figure 1's Domino, Fan and Balloons scenes from successful runs.
+"""Export Figure 1's start and win scenes from successful runs.
 
 Display-only adjustments, which export_stripe_scenes.py shares and each
 scene's metadata records:
@@ -8,11 +8,22 @@ scene's metadata records:
 - Balloons draws its burst height as a red cap over the chute. The
   environment pictures that height as a translucent plate over the whole
   table, but balloons only rise with the box, inside the chute.
+- Boil liquid is drawn no higher than the jug rim. The environment lets
+  water rise above the rim before it overflows, which reads as an
+  upturned jug. Its spill puddle, which restoring a state omits, is
+  drawn from the recorded spilled level.
+
+Figure 1 alone also draws Boil's cyan test jug in the red that the same
+jug has in training, because the renderer's ambient response for jug
+cavities washes cyan out. The Boil stripe keeps the recorded cyan.
 """
 import argparse
 import hashlib
 import json
 import pickle
+import re
+import shlex
+import sys
 from pathlib import Path
 from typing import Any, Dict, Tuple
 from unittest.mock import patch
@@ -85,9 +96,18 @@ ROWS: Tuple[Dict[str, Any], ...] = (
          flags=dict(balloons_scene="chute",
                     balloons_require_jam_decoy=False,
                     balloons_goal_dwell_steps=25)),
+    # A row without flags restores its run's settings from the launch
+    # command. Its test level has two jugs, as in the Boil stripe.
+    dict(domain="Boil",
+         run="boil-mb_opus_gate_preflight_two_jug_tight_r1/seed1/"
+         "run_20260917_082805",
+         level="L02"),
 )
 # The Balloons burst height, drawn as an opaque red cap.
 CHUTE_CAP_RGBA = (0.80, 0.16, 0.14, 1.0)
+# Boil's first jug is red in training and cyan in the test task.
+BOIL_TEST_JUG_RGBA = (0.05, 0.95, 0.95, 1.0)
+BOIL_TRAINING_JUG_RGBA = (0.95, 0.05, 0.10, 1.0)
 
 
 def _migrate_fan_layout(env: PyBulletFanEnv, state: State,
@@ -149,6 +169,59 @@ def _cap_chute(env: Any, scene: Dict[str, Any]) -> None:
                    rgba=list(CHUTE_CAP_RGBA))
 
 
+def _load_run_config(run: Path) -> None:
+    """Restore the flags of a trusted local run from its launch command."""
+    info = re.sub(r"\x1b\[[0-9;]*m", "", (run / "info.log").read_text())
+    command = next(
+        line.split("Running command: ", 1)[1] for line in info.splitlines()
+        if "Running command:" in line)
+    argv = sys.argv
+    try:
+        sys.argv = shlex.split(command)[1:]
+        utils.reset_config(utils.parse_args())
+    finally:
+        sys.argv = argv
+
+
+def _cap_liquid_at_rim(env: Any, state: State) -> State:
+    """Draw Boil liquid no higher than the jug rim."""
+    # The liquid starts at the jug's inner bottom, _LIQUID_OFFSET_BELOW_JUG
+    # below the jug origin; the rim is half the jug height above it.
+    rim = (
+        env.jug_height / 2 + env._LIQUID_OFFSET_BELOW_JUG  # pylint: disable=protected-access
+    ) * env.water_height_to_level_ratio
+    for jug in state.get_objects(env._jug_type):  # pylint: disable=protected-access
+        state.set(jug, "water_volume", min(state.get(jug, "water_volume"),
+                                           rim))
+    return state
+
+
+def _restore_spill(env: Any, state: State) -> None:
+    """Draw the recorded spill puddle, which restoring a state omits.
+
+    The environment builds its puddle only while stepping, so a restored
+    state with spilled water would otherwise render a dry table.
+    """
+    faucet = env._faucet  # pylint: disable=protected-access
+    spilled = state.get(faucet, "spilled_level")
+    if spilled > 0:
+        faucet._spilled_level = spilled  # pylint: disable=protected-access
+        env._spilled_water_id = env._create_spilled_water_block(  # pylint: disable=protected-access
+            spilled, state)
+
+
+def _redraw_test_jug(scene: Dict[str, Any]) -> None:
+    """Draw Boil's cyan test jug in the red it has in training."""
+    notes = scene["metadata"]["display_notes"]
+    for shape in scene["shapes"]:
+        if shape["name"] == "cup" and all(
+                abs(a - b) < 1e-3
+                for a, b in zip(shape["rgba"], BOIL_TEST_JUG_RGBA)):
+            shape["rgba"] = list(BOIL_TRAINING_JUG_RGBA)
+            if "test jug drawn in its training red" not in notes:
+                notes.append("test jug drawn in its training red")
+
+
 def _export_row(row: Dict[str, Any]) -> None:
     """Export the start and win scenes of one row's winning episode."""
     source = LOGS / row["run"] / row["level"] / "episodes.pkl"
@@ -158,16 +231,20 @@ def _export_row(row: Dict[str, Any]) -> None:
     episodes = pickle.loads(source_bytes)  # Trusted local experiment record.
     episode = next(ep for ep in episodes if ep["end"] == "win")
     width, height = row.get("resolution", (900, 900))
-    flags = dict(row["flags"],
-                 env=row["env"],
-                 seed=0,
-                 num_train_tasks=1,
-                 num_test_tasks=1,
-                 partially_observable=True,
-                 pybullet_camera_width=width,
-                 pybullet_camera_height=height)
-    utils.reset_config(flags)
-    env: Any = create_new_env(row["env"], do_cache=False, use_gui=False)
+    if "flags" in row:
+        flags = dict(row["flags"],
+                     env=row["env"],
+                     seed=0,
+                     num_train_tasks=1,
+                     num_test_tasks=1,
+                     partially_observable=True,
+                     pybullet_camera_width=width,
+                     pybullet_camera_height=height)
+        utils.reset_config(flags)
+    else:
+        _load_run_config(LOGS / row["run"])
+        CFG.pybullet_camera_width, CFG.pybullet_camera_height = width, height
+    env: Any = create_new_env(CFG.env, do_cache=False, use_gui=False)
     try:
         current_initial = env.reset("test", 0)
         output = ROOT / "data/cycles_scenes"
@@ -182,8 +259,13 @@ def _export_row(row: Dict[str, Any]) -> None:
             elif row["domain"] == "Balloons":
                 state = _migrate_balloons_layout(env, state)
                 notes += ["centered current chute layout", "chute cap"]
+            elif row["domain"] == "Boil":
+                state = _cap_liquid_at_rim(env, state)
+                notes.append("liquid drawn no higher than the rim")
             env._set_state(state)  # pylint: disable=protected-access
             env._current_observation = state  # pylint: disable=protected-access
+            if row["domain"] == "Boil":
+                _restore_spill(env, state)
             if row["domain"] == "Balloons":
                 # The environment draws the strings of tied balloons only
                 # when it renders an image.
@@ -211,6 +293,8 @@ def _export_row(row: Dict[str, Any]) -> None:
             assert scene_signature(client) == before
             if row["domain"] == "Balloons":
                 _cap_chute(env, scene)
+            elif row["domain"] == "Boil":
+                _redraw_test_jug(scene)
             destination = output / f'{row["domain"].lower()}_{frame}.json'
             destination.write_text(json.dumps(scene, indent=2) + "\n")
             print(f'Exported {row["domain"]} {frame}', flush=True)

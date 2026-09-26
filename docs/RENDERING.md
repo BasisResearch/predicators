@@ -83,14 +83,18 @@ uv run --no-project --python 3.11 \
 Add `--dry-run` to inspect the selected scene list without invoking Blender.
 Renderer logs are temporary unless `--log-dir` is supplied.
 
-The renderer preserves recorded transforms and authored mesh normals, uses flat normals on planar compound boxes, and records hashes and settings in `scripts/paper_figures/data/cycles-render-manifest.json` and beside each rendered PNG.
-The saturated-blue Boil jug has a local ambient material response so its deep interior remains readable under the shared studio lighting.
+The renderer preserves recorded transforms and authored mesh normals, merges the boxes of each Boil jug into one solid with flat faces and sharp edges, and records hashes and settings in `scripts/paper_figures/data/cycles-render-manifest.json` and beside each rendered PNG.
+Boil jugs have a local ambient material response so their deep interiors remain readable under the shared studio lighting.
 Commit the scene JSON, rendered PNGs, PNG sidecars, and render manifest.
 Do not commit transient renderer logs or the temporary Figma assets.
 
 The Bridge selection behind Figure 2's act panel and Figure 1's lift illustration, with its steps, labels, source hashes, and display crops, is recorded in `scripts/paper_figures/data/trajectories/figure3.json`, which `import_figure3_trajectories.py` writes.
-The selected Domino, Fan and Balloons runs and their environment settings are declared in `scripts/paper_figures/export_static_scenes.py`; `--domains` re-exports a subset.
+The selected Domino, Fan, Balloons and Boil runs are declared in `scripts/paper_figures/export_static_scenes.py`; `--domains` re-exports a subset.
+Domino, Fan and Balloons declare their environment settings there, and Boil restores its run's settings from the launch command in `info.log`.
+Boil shows the two-jug test episode of the run behind its trajectory stripe, so its final frame matches the stripe's last frame.
 Balloons draws its ceiling, the height at which balloons burst, as a red cap over the chute instead of the environment's translucent plate over the table, and draws the strings of tied balloons, which the environment otherwise draws only when it renders an image.
+Boil draws water no higher than the jug rim and redraws the spill puddle that restoring a state omits.
+Figure 1 also draws the test task's cyan jug in the red that the same jug has in training, since the ambient response washes cyan out; the Boil stripe keeps the recorded cyan.
 Update those declarations before re-exporting when new data should replace an existing figure panel.
 
 The Bridge crop constants in `scripts/paper_figures/build_figures.py` reproduce the tighter framing used by the earlier figures.

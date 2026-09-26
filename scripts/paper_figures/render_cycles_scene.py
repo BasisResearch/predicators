@@ -295,13 +295,10 @@ def union_compound_boxes() -> None:
             modifier.object = other
             bpy.ops.object.modifier_apply(modifier=modifier.name)
             bpy.data.objects.remove(other, do_unlink=True)
-        bevel = target.modifiers.new('Submillimeter visual edge finish',
-                                     'BEVEL')
-        bevel.width = .0003
-        bevel.segments = 3
-        # Boolean unions may create large n-gons. Flat normals keep their
-        # internal triangulation from appearing as diagonal lines on the jug.
-        bevel.harden_normals = False
+        # The union leaves vertices along the edges where its boxes met. A
+        # bevel around them folds triangles of the n-gons it builds, which
+        # then shade as a diagonal across a jug's side, so merged boxes keep
+        # sharp edges. The 0.3 mm bevel they had was under a pixel here.
         for face in target.data.polygons:
             face.use_smooth = False
 

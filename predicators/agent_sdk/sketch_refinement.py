@@ -1041,12 +1041,14 @@ def suggest_probes(
     option_model: _OptionModelBase,
     *,
     predicates: Set[Predicate],
-    info_scorer: InfoScorer,
+    info_scorer: Optional[InfoScorer],
     rng: np.random.Generator,
     max_draws: int = 20,
     top_k: int = 3,
     parameterized_samplers: Optional[Dict[str, ParameterizedSampler]] = None,
     on_rollout: Optional[Callable[[], None]] = None,
+    plan_scorer: Optional[Callable[[List[_Option], Set[GroundAtom]],
+                                   Tuple[float, Dict[str, float]]]] = None,
 ) -> Tuple[List[StepProbeSuggestion], List[str]]:
     """Rank alternative parameters by ensemble disagreement, as a suggestion.
 
@@ -1062,7 +1064,26 @@ def suggest_probes(
     at the first step whose nominal parameters do not establish their
     subgoal (a note says so): later suggestions would be conditioned on
     a prefix the model already refutes.
+
+    ``plan_scorer`` replaces ``info_scorer``: it scores a candidate from
+    the executed prefix plus the candidate option (so it can roll the
+    whole prefix out again, for instance on each joint draw of the
+    belief), returning the score and its per-atom parts. The point
+    model still decides feasibility.
     """
+    assert info_scorer is not None or plan_scorer is not None
+    prefix: List[_Option] = []
+
+    def _score(option: _Option, nxt: State,
+               atoms: Set[GroundAtom]) -> Tuple[float, Dict[str, float]]:
+        if plan_scorer is not None:
+            return plan_scorer(prefix + [option], atoms)
+        assert info_scorer is not None
+        return float(info_scorer(nxt, atoms)), {
+            str(a): float(info_scorer(nxt, {a}))
+            for a in sorted(atoms, key=str)
+        }
+
     ctx = _RefineContext(task=task,
                          sketch=sketch,
                          option_model=option_model,
@@ -1118,14 +1139,12 @@ def suggest_probes(
             nominal_ok = (nominal_next is not None and atoms.issubset(
                 utils.abstract(nominal_next, predicates)))
             if nominal_ok and atoms and nominal_next is not None:
-                nominal_score = float(info_scorer(nominal_next, atoms))
-                nominal_per_atom = {
-                    str(a): float(info_scorer(nominal_next, {a}))
-                    for a in sorted(atoms, key=str)
-                }
+                nominal_score, nominal_per_atom = _score(
+                    nominal, nominal_next, atoms)
         candidates: List[Tuple[List[float], float, Dict[str, float]]] = []
         n_draws = 0
         best_next: Optional[State] = None
+        best_option: Optional[_Option] = None
         if has_params and atoms:
             for _ in range(max_draws):
                 grounded = ground_step(
@@ -1135,15 +1154,12 @@ def suggest_probes(
                 if nxt is None or not atoms.issubset(
                         utils.abstract(nxt, predicates)):
                     continue
-                score = float(info_scorer(nxt, atoms))
-                per_atom = {
-                    str(a): float(info_scorer(nxt, {a}))
-                    for a in sorted(atoms, key=str)
-                }
+                score, per_atom = _score(grounded, nxt, atoms)
                 candidates.append(
                     (grounded.params.astype(float).tolist(), score, per_atom))
                 if best_next is None:
                     best_next = nxt
+                    best_option = grounded
             candidates.sort(key=lambda c: c[1], reverse=True)
             suggestions.append(
                 StepProbeSuggestion(
@@ -1172,8 +1188,11 @@ def suggest_probes(
                 break
             assert nominal_next is not None
             state = nominal_next
+            prefix.append(nominal)
         elif best_next is not None:
             state = best_next
+            assert best_option is not None
+            prefix.append(best_option)
         else:
             notes.append(
                 f"step {idx} ({step.option.name}): no proposal and no "

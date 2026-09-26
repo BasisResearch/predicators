@@ -25,6 +25,18 @@ from predicators.agent_sdk.tools.snapshots import _ArtifactSnapshotter
 _TRIM_BORDERLINE_FACTOR = 1.5
 
 
+def _format_parameter_belief(belief: Any) -> List[str]:
+    """The ``sim.fit`` report's section on the joint belief's q(theta)."""
+    return [
+        f"Parameter belief q(theta) ({belief.num_draws} draws; temperature "
+        f"lambda = {belief.noise_scale:.3g}): the posterior of this fit's "
+        "replay loss, with independent factors along lines through the most "
+        "likely values. Each rehearsal draw pairs one parameter draw with a "
+        "draw of the current state.",
+        *belief.describe(),
+    ]
+
+
 def _trim_cause_note(traj_rms: Sequence[float], threshold: float) -> List[str]:
     """Advice for trimmed segments, split by how far past the cutoff they
     scored.
@@ -580,13 +592,15 @@ def create_synthesis_tools(
                 applied_physical=dict(applied),
                 coverage=(outcome.num_survivors, len(rollouts)),
                 # Physics-margin points for the capture gate, restored
-                # when this fit is deployed as the cycle's model.
-                sigma_points=physics_sigma_points(
+                # when this fit is deployed as the cycle's model; the
+                # joint belief replaces them with its own draws.
+                sigma_points=(physics_sigma_points(
                     applied,
                     ident_report,
                     physical_specs,
-                    num_points=CFG.
-                    agent_plan_validation_physics_margin_points))
+                    num_points=CFG.agent_plan_validation_physics_margin_points)
+                              if outcome.belief is None else []),
+                belief=outcome.belief)
             if hasattr(approach, "_record_sysid_diagnostics"):
                 approach._record_sysid_diagnostics(  # pylint: disable=protected-access
                     ident_report, physical_names, outcome.num_survivors,
@@ -677,6 +691,22 @@ def create_synthesis_tools(
             lines.append(f"  {name:<28} [{kind:<8}] {init_val:.4f} -> "
                          f"{fit_val:.4f}  (delta={delta:+.4f}, {ppct:+.1f}%)")
 
+        if outcome.belief is not None:
+            lines.extend(["", *_format_parameter_belief(outcome.belief), ""])
+            if exploratory:
+                lines.append(
+                    "EXPLORATORY subset fit: nothing was applied or recorded "
+                    "- the deployed parameters and belief are unchanged. "
+                    "Parameters whose beliefs disagree between individually "
+                    "explainable trajectories indicate heterogeneous data, "
+                    "not a parameter value.")
+            else:
+                lines.append(
+                    "Applied to the planning base env: the most likely value "
+                    "of every parameter. sim.run, sim.refine, experiment "
+                    "scores and execution monitoring draw the parameters "
+                    "from this belief.")
+            return "\n".join(lines)
         interval_belief = CFG.code_sim_learning_interval_belief
         if interval_belief:
             ident_heading = (
