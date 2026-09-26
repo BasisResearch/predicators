@@ -24,7 +24,7 @@ env's registered GT simulator.
 
 from __future__ import annotations
 
-from typing import Any, ClassVar, List, Set
+from typing import Any, ClassVar, Dict, List, Set
 
 import pybullet as p
 
@@ -135,19 +135,30 @@ class BalloonsResidualEnv(PyBulletBalloonsBaseEnv):
         balloons = self._active_balloons(state)
         clips = self._active_clips(state)
         commands: List[Any] = []
-        stacked = sum(1 for b in balloons if self._tied.get(b.name, False))
+        clip_of = [
+            self._balloon_clips.get(b.name, i) for i, b in enumerate(balloons)
+        ]
+        tiers = len({
+            clip_of[i]
+            for i, b in enumerate(balloons) if self._tied.get(b.name, False)
+        })
+        new_tiers: Dict[int, int] = {}
         ceiling_underside = self.ceiling_z - self.ceiling_half_extents[2]
         for index, balloon in enumerate(balloons):
             name = balloon.name
             if not self._tied.get(name, False):
-                if index >= len(clips) or not self._is_clip_on(clips[index]):
+                clip = clip_of[index]
+                if clip >= len(clips) or not self._is_clip_on(clips[clip]):
                     continue
                 self._tied[name] = True
-                offset = self._attach_offset(index, len(balloons))
-                seat = (box_top[0] + offset, box_top[1],
-                        box_top[2] + self.balloon_radius + self.string_length +
-                        2 * self.balloon_radius * stacked)
-                stacked += 1
+                if clip not in new_tiers:
+                    new_tiers[clip] = tiers
+                    tiers += 1
+                bundle = [i for i, c in enumerate(clip_of) if c == clip]
+                dx, dy, dz = self.bundle_seat(index, len(balloons),
+                                              bundle.index(index), len(bundle),
+                                              new_tiers[clip])
+                seat = (box_top[0] + dx, box_top[1] + dy, box_top[2] + dz)
                 p.resetBasePositionAndOrientation(
                     balloon.id,
                     seat, (0.0, 0.0, 0.0, 1.0),

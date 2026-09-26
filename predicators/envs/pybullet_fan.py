@@ -545,7 +545,8 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
             num_pos_x=CFG.fan_train_num_pos_x,
             num_pos_y=CFG.fan_train_num_pos_y,
             possible_num_walls_per_task=CFG.fan_train_num_walls_per_task,
-            rng=self._train_rng)
+            rng=self._train_rng,
+            task_generation=CFG.fan_train_task_generation)
 
     def _generate_test_tasks(self) -> List[EnvironmentTask]:
         return self._make_tasks(
@@ -553,12 +554,21 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
             num_pos_x=CFG.fan_test_num_pos_x,
             num_pos_y=CFG.fan_test_num_pos_y,
             possible_num_walls_per_task=CFG.fan_test_num_walls_per_task,
-            rng=self._test_rng)
+            rng=self._test_rng,
+            task_generation=CFG.fan_test_task_generation)
 
     def _make_tasks(  # pylint: disable=redefined-outer-name
-            self, num_tasks: int, num_pos_x: int, num_pos_y: int,
+            self,
+            num_tasks: int,
+            num_pos_x: int,
+            num_pos_y: int,
             possible_num_walls_per_task: List[int],
-            rng: np.random.Generator) -> List[EnvironmentTask]:
+            rng: np.random.Generator,
+            task_generation: str = "uniform") -> List[EnvironmentTask]:
+        if task_generation not in ("uniform", "maze"):
+            raise ValueError(
+                f"Unknown fan task generation {task_generation!r}; "
+                "expected 'uniform' or 'maze'")
         # Generate grid coordinates for this specific configuration
         x_coords, y_coords = self._generate_grid_coordinates(
             num_pos_x, num_pos_y)
@@ -594,7 +604,10 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
             max_attempts = 100  # Prevent infinite loop
             for attempt in range(max_attempts):
                 # Sample the number of walls for this task
-                num_walls_per_task = rng.choice(possible_num_walls_per_task)
+                # int(): a list flag parsed from the command line can
+                # carry floats ("[16, 20, 24]" -> [16, 20.0, 24.0]).
+                num_walls_per_task = int(
+                    rng.choice(possible_num_walls_per_task))
                 available_pos = grid_pos.copy()
 
                 # Robot
@@ -671,6 +684,24 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
                         if blocking_pos is not None:
                             wall_positions.append(blocking_pos)
                             # Safely remove the blocking position
+                elif task_generation == "maze":
+                    layout = self._sample_maze_layout(num_pos_x, num_pos_y,
+                                                      int(num_walls_per_task),
+                                                      rng)
+                    if layout is None:
+                        continue
+                    ball_idx, tar_idx, wall_idxs = layout
+                    ball_pos = (x_coords[ball_idx[0]], y_coords[ball_idx[1]])
+                    tar_pos = (x_coords[tar_idx[0]], y_coords[tar_idx[1]])
+                    target_dict = {
+                        "x": tar_pos[0],
+                        "y": tar_pos[1],
+                        "z": self.table_height,
+                        "rot": 0.0,
+                        "is_hit": 0.0,
+                    }
+                    wall_positions = [(x_coords[j], y_coords[i])
+                                      for j, i in sorted(wall_idxs)]
                 else:
                     # Uniform random placement (the default for all grids)
                     # Target
@@ -896,6 +927,173 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
             return rng.choice(between_positions)
         return tuple(rng.choice(available_pos)) if available_pos else None
 
+    # ── Maze generation ───────────────────────────────────────────
+    #
+    # Grid cells are (column, row) index pairs. A "segment" is a straight
+    # cardinal run: the ball needs one fan activation per segment, so the
+    # minimum segment count of a route is the number of fan switchings
+    # the task demands, and the natural difficulty measure of a layout.
+
+    _CARDINAL_DIRS: ClassVar[Tuple[Tuple[int, int],
+                                   ...]] = ((1, 0), (-1, 0), (0, 1), (0, -1))
+
+    @classmethod
+    def _free_cells_connected(cls, walls: Set[Tuple[int, int]], num_pos_x: int,
+                              num_pos_y: int) -> bool:
+        """Whether every non-wall cell can reach every other one cardinally."""
+        free = [(j, i) for i in range(num_pos_y) for j in range(num_pos_x)
+                if (j, i) not in walls]
+        if not free:
+            return False
+        seen = {free[0]}
+        queue = deque([free[0]])
+        while queue:
+            cx, cy = queue.popleft()
+            for dx, dy in cls._CARDINAL_DIRS:
+                nxt = (cx + dx, cy + dy)
+                if (0 <= nxt[0] < num_pos_x and 0 <= nxt[1] < num_pos_y
+                        and nxt not in walls and nxt not in seen):
+                    seen.add(nxt)
+                    queue.append(nxt)
+        return len(seen) == len(free)
+
+    @classmethod
+    def _min_segment_path(cls, start: Tuple[int, int], goal: Tuple[int, int],
+                          walls: Set[Tuple[int, int]], num_pos_x: int,
+                          num_pos_y: int) -> Optional[List[Tuple[int, int]]]:
+        """A cardinal route from ``start`` to ``goal`` with the fewest straight
+        segments, or None when the goal is unreachable.
+
+        A 0-1 breadth-first search over (cell, heading): continuing in
+        the current heading is free, turning (or starting) costs one
+        segment. Among routes with equal segment counts the one found
+        first is returned, so the result is deterministic.
+        """
+        if start == goal:
+            return [start]
+        best: Dict[Tuple[Tuple[int, int], int], int] = {}
+        parent: Dict[Tuple[Tuple[int, int], int],
+                     Optional[Tuple[Tuple[int, int], int]]] = {}
+        dq: deque = deque()
+        for d_idx in range(len(cls._CARDINAL_DIRS)):
+            node = (start, d_idx)
+            best[node] = 1
+            parent[node] = None
+            dq.append(node)
+        goal_node: Optional[Tuple[Tuple[int, int], int]] = None
+        while dq:
+            node = dq.popleft()
+            cell, d_idx = node
+            cost = best[node]
+            if cell == goal:
+                goal_node = node
+                break
+            for n_idx, (dx, dy) in enumerate(cls._CARDINAL_DIRS):
+                nxt_cell = (cell[0] + dx, cell[1] + dy)
+                if not (0 <= nxt_cell[0] < num_pos_x
+                        and 0 <= nxt_cell[1] < num_pos_y):
+                    continue
+                if nxt_cell in walls:
+                    continue
+                nxt_cost = cost + (0 if n_idx == d_idx else 1)
+                nxt = (nxt_cell, n_idx)
+                if nxt_cost < best.get(nxt, np.inf):
+                    best[nxt] = nxt_cost
+                    parent[nxt] = node
+                    if n_idx == d_idx:
+                        dq.appendleft(nxt)
+                    else:
+                        dq.append(nxt)
+        if goal_node is None:
+            return None
+        path: List[Tuple[int, int]] = []
+        cur: Optional[Tuple[Tuple[int, int], int]] = goal_node
+        while cur is not None:
+            path.append(cur[0])
+            cur = parent[cur]
+        path.reverse()
+        # The four start nodes share a cell; drop the duplicate start
+        # that a zero-cost first step never introduces but a turn does.
+        deduped = [path[0]]
+        for cell in path[1:]:
+            if cell != deduped[-1]:
+                deduped.append(cell)
+        return deduped
+
+    @staticmethod
+    def _count_segments(path: Sequence[Tuple[int, int]]) -> int:
+        """Number of straight cardinal runs in a cell path."""
+        if len(path) < 2:
+            return 0
+        segments = 1
+        prev = (path[1][0] - path[0][0], path[1][1] - path[0][1])
+        for a, b in zip(path[1:], path[2:]):
+            cur = (b[0] - a[0], b[1] - a[1])
+            if cur != prev:
+                segments += 1
+                prev = cur
+        return segments
+
+    def _sample_maze_layout(
+        self, num_pos_x: int, num_pos_y: int, num_walls: int,
+        rng: np.random.Generator
+    ) -> Optional[Tuple[Tuple[int, int], Tuple[int, int], Set[Tuple[int,
+                                                                    int]]]]:
+        """Sample ``(ball, target, walls)`` grid cells for a maze task.
+
+        Walls go down as straight segments of up to
+        ``fan_maze_max_segment_len`` cells, each accepted only if the
+        free cells stay cardinally connected, until ``num_walls`` cells
+        are placed. The ball/target pair is then drawn from the free
+        cells until one needs at least ``fan_maze_min_segments`` fan
+        runs and at least ``fan_maze_min_path_len`` cells. Returns None
+        when either stage fails, so the caller can resample.
+        """
+        walls: Set[Tuple[int, int]] = set()
+        max_len = max(1, int(CFG.fan_maze_max_segment_len))
+        placement_tries = 0
+        while len(walls) < num_walls and placement_tries < 50 * max(
+                1, num_walls):
+            placement_tries += 1
+            remaining = num_walls - len(walls)
+            lo = min(2, remaining)
+            hi = min(max_len, remaining)
+            length = int(rng.integers(lo, hi + 1))
+            horizontal = bool(rng.integers(0, 2))
+            j0 = int(rng.integers(0, num_pos_x))
+            i0 = int(rng.integers(0, num_pos_y))
+            cells = [(j0 + k, i0) if horizontal else (j0, i0 + k)
+                     for k in range(length)]
+            if any(not (0 <= j < num_pos_x and 0 <= i < num_pos_y) or (
+                    j, i) in walls for j, i in cells):
+                continue
+            candidate = walls | set(cells)
+            if not self._free_cells_connected(candidate, num_pos_x, num_pos_y):
+                continue
+            walls = candidate
+        if len(walls) < num_walls:
+            return None
+        free = [(j, i) for i in range(num_pos_y) for j in range(num_pos_x)
+                if (j, i) not in walls]
+        if len(free) < 2:
+            return None
+        min_segments = int(CFG.fan_maze_min_segments)
+        min_path_len = int(CFG.fan_maze_min_path_len)
+        for _ in range(128):
+            picks = rng.choice(len(free), size=2, replace=False)
+            ball = free[int(picks[0])]
+            target = free[int(picks[1])]
+            path = self._min_segment_path(ball, target, walls, num_pos_x,
+                                          num_pos_y)
+            if path is None:
+                continue
+            if self._count_segments(path) < min_segments:
+                continue
+            if len(path) - 1 < min_path_len:
+                continue
+            return ball, target, walls
+        return None
+
     def _has_valid_path(self, start_pos: Tuple[int,
                                                int], target_pos: Tuple[int,
                                                                        int],
@@ -947,7 +1145,7 @@ if __name__ == "__main__":
     _rng = np.random.default_rng(CFG.seed)
     _tasks = env._make_tasks(  # pylint: disable=protected-access
         10, CFG.fan_train_num_pos_x, CFG.fan_train_num_pos_y,
-        CFG.fan_train_num_walls_per_task, _rng)
+        CFG.fan_train_num_walls_per_task, _rng, CFG.fan_train_task_generation)
 
     for _task in _tasks:
         env._set_state(_task.init)  # pylint: disable=protected-access

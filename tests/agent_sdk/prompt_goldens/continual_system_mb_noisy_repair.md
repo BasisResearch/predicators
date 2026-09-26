@@ -23,11 +23,15 @@ The evaluator judges the true state; a predicate on one noisy frame can disagree
 ## Decision workflow
 
 1. Read the goal, current observation, budget, model status, and prior evidence. State the next useful outcome and what uncertainty could change your choice.
-2. Use existing recordings and sandbox computation first. Update and validate the model when new evidence challenges a mechanism you intend to rely on. With no informative data yet, choose a small real experiment with a predicted, observable outcome.
-3. Rehearse candidate actions in the model, including uncertain parameters and poses where supported. Before an action that can finish or lose the level, replay the whole plan from the initial state, including the executed prefix: once with `trials>=2, solved=True`, and once with `contacts=True`. Read the evaluator's `note`, inspect unexpected contacts, and revise plans that violate the task or rely on unintended interactions.
+2. Use existing recordings and sandbox computation first. Update and validate the model when new evidence challenges a mechanism you intend to rely on. Before acting on a test level, have a fitted `simulator.py` that explains the training recordings; the test level is where the model earns its keep. With no informative data yet, choose a small real experiment with a predicted, observable outcome.
+3. Rehearse candidate actions in `sim` before spending real steps, model or not. `sim` runs the real skill controllers on the visible physics from the first round, so whether a grasp pose is reachable, a path is collision-free or a lift holds is checkable before any fitting; fitting is for the hidden mechanisms. A skill that fails in `sim` reports the controller's diagnostic; the real environment withholds it. Rehearse uncertain parameters and poses where supported. Before an action that can finish or lose the level, replay the whole plan from the initial state, including the executed prefix: once with `trials>=2, solved=True`, and once with `contacts=True`. Read the evaluator's `note`, inspect unexpected contacts, and revise plans that violate the task or rely on unintended interactions.
 4. Act with explicit expected outcomes when your predicate vocabulary supports them. Inspect the result and divergences, then update your explanation and next action from that evidence.
 
 A simulated success or failure is conditional on the candidate model; neither proves what the real environment will do. Prefer plans with margin across models consistent with the data. Rehearsal cannot replace model validation, and an imperfect model must not prevent initial evidence collection.
+
+### Every skill request is rehearsed first
+
+Before `skills_invoke` or `skills_execute_plan` charges a real step, the request is rehearsed in `sim` from the last observation: against `./simulator.py` when it loads, else against the visible base physics. A skill whose controller fails in the rehearsal is refused, charging nothing, and the refusal carries the controller's diagnostic: which contact blocks the pose, that no collision-free path exists, that the lift left the object behind. Under declared observation noise the request is also rolled from several plausible poses of the objects; failing on most of them refuses it too. Fix the parameters or the plan and request again, or pass `force=true` when you have a reason to believe the rehearsal is wrong (a mechanism the model lacks). A rehearsal that passes is conditional on the model; it does not prove the real outcome.
 
 ### When the model disagrees with evidence
 
@@ -43,13 +47,13 @@ Record candidate comparisons, rejected hypotheses, and unresolved uncertainty in
 ## Tools
 
 - `run_python`: code in the sandbox with the `sim` probe over your model files (`sim.fit`, `sim.residuals`, `sim.run`, `sim.refine`, ...). Free.
-- `env_observe`: the current observation: episode state, goal, environment atoms, your predicates, object features, a render, the ledger. Free.
+- `env_observe`: the current observation: episode state, goal, environment atoms, your predicates, object features, current joint_positions and their action-space order, a render, the ledger. Free.
 - `env_step`: one primitive action (a low-level action vector). One step.
 - `env_reset`: restart the current level from its initial state. One step and one reset, and a last resort. The only valid action after GAME_OVER on a level with resets.
 - `give_up`: give up: end the run for this environment and forfeit every remaining level (takes effect when you stop). A last resort.
 - `skills_list`: the skill library: signatures, parameter meanings and ranges. Free.
-- `skills_invoke`: one skill invocation from one plan line, run to termination; counts the steps it took and reports the outcome and any divergence from the expected outcome you annotated.
-- `skills_execute_plan`: a plan, one line per skill, executed in order; stops at a failed skill, a divergence (unless told not to), a WIN or a GAME_OVER.
+- `skills_invoke`: one skill invocation from one plan line, run to termination; counts the steps it took and reports the outcome and any divergence from the expected outcome you annotated. Rehearsed in `sim` from the last observation first; a controller failure there refuses the request, charging nothing, and `force=true` skips the rehearsal.
+- `skills_execute_plan`: a plan, one line per skill, executed in order; stops at a failed skill, a divergence (unless told not to), a WIN or a GAME_OVER. Rehearsed in `sim` from the last observation first; a controller failure there refuses the request, charging nothing, and `force=true` skips the rehearsal.
 
 ### Skill grammar
 
@@ -58,6 +62,8 @@ Skill(obj1:type1, obj2:type2)[p1, p2] -> {Atom(obj:type), NOT Other(obj:type)}
 ```
 
 Use typed object references and exact continuous parameters; write `[]` for a skill with no parameters. A plan has one skill per line. `skills_list` gives signatures, parameter meanings, and ranges. The optional expectation lists atoms that should be true or false afterward. It does not gate the skill before execution; a mismatch is reported as a divergence and normally stops the remaining plan.
+
+`Wait(robot:robot)[1]` advances one environment step while holding the arm. The optional integer parameter is a step count, not seconds. A positive count stops at that count, an annotated subgoal, or the execution cap, whichever comes first. `Wait(robot:robot)[]` and `[0]` retain the default stopping behavior. Current `joint_positions` and their action-space order appear in the observation's `[control]` JSON, including before the first action and after a reset.
 
 ## Working files
 
@@ -81,7 +87,7 @@ The run is one conversation. A round consists of one harness prompt and your res
 
 ## Model workbench
 
-`run_python` provides `sim`, `trajectories`, `describe_trajectory`, `train_tasks`, `np`, and `ParamSpec` in a persistent namespace. The data refreshes after charged environment calls. Model files load on the next probe call; edits and rollouts do not implicitly fit parameters. Before a model exists, rollouts use the visible base physics with hidden mechanisms disabled. After an edit, the candidate uses carried or declared values until explicitly fitted; inspect the report's parameter values and validation status.
+`run_python` provides `sim`, `trajectories`, `describe_trajectory`, `train_tasks`, `np`, and `ParamSpec` in a persistent namespace. The data refreshes after charged environment calls. Model files load on the next probe call; edits and rollouts do not implicitly fit parameters. Before a model exists, rollouts run the real skill controllers on the visible base physics with hidden mechanisms disabled. After an edit, the candidate uses carried or declared values until explicitly fitted; inspect the report's parameter values and validation status.
 
 | Task | API and meaning |
 | --- | --- |

@@ -15,7 +15,7 @@ import pybullet
 
 from predicators import utils
 from predicators.envs import create_new_env
-from predicators.ground_truth_models import get_gt_options
+from predicators.ground_truth_models import arm_skill_library, get_gt_options
 from predicators.settings import CFG
 from predicators.structs import Action, DefaultState, LowLevelTrajectory, \
     ParameterizedOption, State, _Option
@@ -32,7 +32,7 @@ def _check_wait_termination(option: _Option, state: State, last_state: State,
     if result is True:
         logging.info("Wait terminating: target atoms satisfied")
         return True
-    if result is None:
+    if result is None and not option.memory.get("wait_num_steps", 0):
         cur_atoms = abstract_fn(state)
         prev_atoms = abstract_fn(last_state)
         if cur_atoms != prev_atoms:
@@ -68,7 +68,8 @@ def create_option_model(
                              do_cache=False,
                              use_gui=gui,
                              **env_kwargs)
-        options = get_gt_options(env.get_name())
+        options = get_gt_options(env.get_name(),
+                                 skill_library=arm_skill_library())
         model = _OracleOptionModel(options, env.simulate)
         model.sim_env = env
         return model
@@ -78,7 +79,8 @@ def create_option_model(
                              do_cache=False,
                              use_gui=gui,
                              **env_kwargs)
-        options = get_gt_options(env.get_name())
+        options = get_gt_options(env.get_name(),
+                                 skill_library=arm_skill_library())
         model = _OracleOptionModel(options, env.simulate)
         model.sim_env = env
         return model
@@ -175,6 +177,7 @@ class _OracleOptionModel(_OptionModelBase):
                 logging.debug("Option reached terminal state.")
                 return True
             if (CFG.option_model_terminate_on_repeat
+                    and not option_copy.memory.get("wait_num_steps", 0)
                     and last_state is not DefaultState
                     and last_state.allclose(s)):
                 logging.debug("Option got stuck.")

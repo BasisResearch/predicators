@@ -8,7 +8,7 @@ In particular there is no ApplyGlue skill: the glue bottle is picked
 and moved with the same generic skills as every other object.
 """
 
-from typing import ClassVar, Dict, Sequence, Set, Tuple
+from typing import ClassVar, Dict, Optional, Sequence, Set, Tuple
 from typing import Type as TypingType
 
 import numpy as np
@@ -82,6 +82,14 @@ class PyBulletBridgeGroundTruthOptionFactory(GroundTruthOptionFactory):
     @classmethod
     def get_env_names(cls) -> Set[str]:
         return {"pybullet_bridge"}
+
+    @classmethod
+    def get_primitive_skill_context(
+            cls, env_name: str,
+            types: Dict[str, Type]) -> Optional[Tuple[SkillConfig, Type]]:
+        del env_name  # unused
+        pybullet_robot = shared_skill_robot(cls.env_cls)
+        return cls._build_skill_config(pybullet_robot), types["robot"]
 
     @classmethod
     def get_options(cls, env_name: str, types: Dict[str, Type],

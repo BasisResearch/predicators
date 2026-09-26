@@ -91,8 +91,6 @@ class PyBulletIceRinkGroundTruthOptionFactory(GroundTruthOptionFactory):
             transport_z=cls._transport_z,
             simulator=simulator,
             # A Wait ends once the tiles have stopped sliding.
-            wait_quiescence_eps=1e-4,
-            wait_quiescence_steps=10,
         )
 
     @classmethod

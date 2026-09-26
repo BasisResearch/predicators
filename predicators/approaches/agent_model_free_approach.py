@@ -343,28 +343,7 @@ and update before doing anything else.**"""
         return "\n".join(sections)
 
     def _get_sandbox_reference_files(self) -> Dict[str, str]:
-        files: Dict[str, str] = {
-            "skill_factories/base.py":
-            "predicators/ground_truth_models/skill_factories/base.py",
-            "skill_factories/__init__.py":
-            "predicators/ground_truth_models/skill_factories/__init__.py",
-            "skill_factories/pick.py":
-            "predicators/ground_truth_models/skill_factories/pick.py",
-            "skill_factories/move_to.py":
-            "predicators/ground_truth_models/skill_factories/move_to.py",
-            "skill_factories/place.py":
-            "predicators/ground_truth_models/skill_factories/place.py",
-            "skill_factories/push.py":
-            "predicators/ground_truth_models/skill_factories/push.py",
-            "skill_factories/pour.py":
-            "predicators/ground_truth_models/skill_factories/pour.py",
-            "skill_factories/wait.py":
-            "predicators/ground_truth_models/skill_factories/wait.py",
-        }
-        options_path = _get_gt_options_module_path(CFG.env)
-        if options_path:
-            files["options.py"] = options_path
-        return files
+        return {"skills.md": "predicators/agent_sdk/prompts/public_skills.md"}
 
     def _get_solve_tool_names(self) -> Optional[List[str]]:
         # Type / option digests are static per session, so the solve
@@ -1132,10 +1111,8 @@ Output ONLY the option plan lines at the end, after any analysis."""
         # allowlist) must not leak in and invented ones must appear.
         self._tool_context.predicates = self._get_all_predicates()
         self._tool_context.options = self._initial_options
-        self._tool_context.show_option_source = True
-        ref_root = "/sandbox" if CFG.agent_sdk_use_docker_sandbox else "."
-        self._tool_context.gt_options_ref_path = \
-            f"{ref_root}/reference/options.py"
+        self._tool_context.show_option_source = False
+        self._tool_context.gt_options_ref_path = None
         self._tool_context.train_tasks = self._train_tasks
         self._tool_context.offline_trajectories = \
             self._offline_dataset.trajectories

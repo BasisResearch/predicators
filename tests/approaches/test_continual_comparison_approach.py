@@ -1,0 +1,494 @@
+"""Continual comparison contracts exercised through real play tools."""
+import shlex
+import sys
+from typing import Any, Iterator, Set
+
+import pybullet as p
+import pytest
+
+from predicators import utils
+from predicators.agent_sdk.belief_probe import BeliefProbe
+from predicators.approaches import create_approach
+from predicators.envs import create_new_env
+from predicators.envs.pybullet_env import PyBulletEnv
+from predicators.ground_truth_models import get_gt_options
+from predicators.run.continual import ContinualRun
+from predicators.run.level_players import create_level_player
+from predicators.structs import Dataset
+from scripts.cluster_utils import config_to_cmd_flags, generate_run_configs
+from tests.approaches.test_agent_continual_approach import _call, _config, \
+    _result
+
+CONFIG = "predicatorv3/protocol_continual_comparisons_noisy_r1.yaml"
+
+
+@pytest.fixture(autouse=True)
+def _dispose_test_physics_clients(monkeypatch: Any) -> Iterator[None]:
+    """Release worlds created by a case, including evicted skill simulators."""
+    # pylint: disable=import-outside-toplevel,protected-access
+    from predicators import envs
+    from predicators.ground_truth_models.skill_factories.base import \
+        clear_shared_simulator_cache
+    owned: Set[int] = set()
+    original = p.connect
+
+    def connect(*args: Any, **kwargs: Any) -> int:
+        client = original(*args, **kwargs)
+        if client >= 0:
+            owned.add(client)
+        return client
+
+    monkeypatch.setattr(p, "connect", connect)
+    try:
+        yield
+    finally:
+        clear_shared_simulator_cache()
+        for name, env in list(envs._MOST_RECENT_ENV_INSTANCE.items()):
+            if getattr(env, "_physics_client_id", None) in owned:
+                del envs._MOST_RECENT_ENV_INSTANCE[name]
+        for client in owned:
+            if p.isConnected(client):
+                p.disconnect(client)
+        assert all(not p.isConnected(client) for client in owned)
+
+
+def test_comparison_config_matches_existing_domains(monkeypatch: Any) -> None:
+    """Only six requested arms, same domain settings and paired seeds."""
+    old = list(
+        generate_run_configs(
+            "predicatorv3/protocol_continual_noisy_sweep_r1.yaml", False))
+    new = list(generate_run_configs(CONFIG, False))
+    assert len(new) == 90
+    assert len({c.approach for c in new}) == 6
+    for cfg in new:
+        monkeypatch.setattr(
+            sys, "argv",
+            ["predicators/main.py", *shlex.split(config_to_cmd_flags(cfg))])
+        parsed = utils.parse_args()
+        assert parsed["env"] == cfg.env
+        assert parsed["approach"] == cfg.approach
+        assert cfg.approach not in ("agent_continual",
+                                    "agent_continual_model_free")
+        reference = next(c for c in old if c.env == cfg.env)
+        keys = [
+            k for k in reference.flags
+            if k.startswith(("continual_obs_noise_", "balloons_", "boil_",
+                             "domino_"))
+        ]
+        keys += [
+            "num_train_tasks", "num_test_tasks", "continual_steps_per_level",
+            "continual_levels"
+        ]
+        for key in keys:
+            assert cfg.flags[key] == reference.flags[key], (cfg.env, key)
+
+
+@pytest.mark.parametrize("domain",
+                         ["boil", "bridge", "fan", "domino", "balloons"])
+@pytest.mark.parametrize(
+    "arm", ["no_fitting", "no_uncertainty", "oracle_scene", "oracle_dynamics"])
+def test_ablation_play_tools(tmp_path: Any, monkeypatch: Any, arm: str,
+                             domain: str) -> None:
+    """Real noisy observations retain means; tools enforce arm restrictions."""
+    cfg = next(c for c in generate_run_configs(CONFIG, False)
+               if c.env == f"pybullet_{domain}" and c.approach.endswith(arm))
+    _config(
+        tmp_path, **{
+            **{k: v
+               for k, v in cfg.flags.items() if k != "log"}, "continual_render":
+            False,
+            "continual_make_video": False,
+            "continual_runs_dir": str(tmp_path / "runs"),
+            "env": cfg.env,
+            "approach": cfg.approach
+        })
+    env = create_new_env(cfg.env, do_cache=False, use_gui=False)
+    agent: Any = create_approach(cfg.approach, env.predicates,
+                                 get_gt_options(env.get_name()), env.types,
+                                 env.action_space,
+                                 [t.task for t in env.get_train_tasks()])
+
+    def query(*_args: Any, **_kwargs: Any) -> Any:
+        ctx = agent._tool_context  # pylint: disable=protected-access
+        observation = _call(agent, "env_observe")
+        assert "[noise]" in observation
+        assert "[objects]" in observation
+        prompt = agent._play_system_prompt()  # pylint: disable=protected-access
+        if arm == "no_uncertainty":
+            assert "[belief]" not in observation
+            assert "[atoms under the belief]" not in observation
+            assert "Point-estimate comparison" in prompt
+            session = agent._play_session  # pylint: disable=protected-access
+            obs = session.observe()
+            assert obs.belief is not None
+            assert obs.frame.allclose(obs.belief.frame)
+            probe = BeliefProbe(ctx)
+            with pytest.raises(ValueError, match="Explicit uncertainty"):
+                probe.belief()
+            with pytest.raises(ValueError, match="Disagreement"):
+                probe.suggest_probes("")
+            with pytest.raises(ValueError, match="Explicit uncertainty"):
+                probe.run("", physics_sweep=True)
+            with pytest.raises(ValueError, match="Explicit uncertainty"):
+                probe.run("", belief_draws=2)
+            # Numerical fitting remains installed even before any data.
+            assert ctx.probe_fit_provider is not None
+        elif arm in {"oracle_scene", "oracle_dynamics"}:
+            heading = ("Oracle scene reconstruction comparison" if arm
+                       == "oracle_scene" else "Oracle dynamics comparison")
+            assert heading in prompt
+            assert "unavailable" in BeliefProbe(ctx).fit()
+        else:
+            assert "No numerical parameter fitting" in prompt
+            assert "parameter estimation is disabled" in BeliefProbe(ctx).fit()
+        assert "step applied" in _call(agent,
+                                       "env_step",
+                                       action=[0.0] *
+                                       env.action_space.shape[0])
+        assert "Give-up recorded" in _call(agent, "give_up", note="audit")
+        return _result()
+
+    monkeypatch.setattr(agent, "_query_agent_sync", query)
+    agent.prepare_for_continual(Dataset([]))
+    card = ContinualRun(env, agent, create_level_player(env, agent)).run()
+    assert card.total_steps == 1
+    assert card.total_resets == 0
+
+
+def _configure_domain_comparison(tmp_path: Any, domain: str,
+                                 approach: str) -> str:
+    """Use the cohort's real domain settings with local test outputs."""
+    config = ("predicatorv3/protocol_continual_bridge_span_comparisons_r1.yaml"
+              if domain == "bridge" else CONFIG)
+    cfg = next(c for c in generate_run_configs(config, False)
+               if c.env == f"pybullet_{domain}" and c.approach == approach)
+    _config(
+        tmp_path, **{
+            **{k: v
+               for k, v in cfg.flags.items() if k != "log"}, "continual_render":
+            False,
+            "continual_make_video": False,
+            "continual_runs_dir": str(tmp_path / "runs"),
+            "env": cfg.env,
+            "approach": cfg.approach
+        })
+    return cfg.env
+
+
+@pytest.mark.parametrize("domain",
+                         ["boil", "bridge", "fan", "domino", "balloons"])
+@pytest.mark.parametrize("backend", ["program", "pybullet"])
+def test_standalone_model_is_live_without_engine(tmp_path: Any,
+                                                 monkeypatch: Any, domain: str,
+                                                 backend: str) -> None:
+    """Agent-owned predictions work without a supplied physical scene."""
+    from pathlib import Path  # pylint: disable=import-outside-toplevel
+
+    from predicators.code_sim_learning.program_world_model import \
+        ProgramOptionModel  # pylint: disable=import-outside-toplevel
+    env_name = _configure_domain_comparison(
+        tmp_path, domain, "agent_continual_program_world_model")
+    env = create_new_env(env_name, do_cache=False, use_gui=False)
+    options = get_gt_options(env.get_name())
+    agent: Any = create_approach("agent_continual_program_world_model",
+                                 env.predicates, options, env.types,
+                                 env.action_space,
+                                 [t.task for t in env.get_train_tasks()])
+    calls = []
+
+    def query(*_args: Any, **_kwargs: Any) -> Any:
+        ctx = agent._tool_context  # pylint: disable=protected-access
+        refs = agent._get_sandbox_reference_files()  # pylint: disable=protected-access
+        assert not any(k.startswith("base_sim/") for k in refs)
+        path = Path(agent._resolve_synthesis_paths().base) / "world_model.py"  # pylint: disable=protected-access
+        code = ('LATENT_FEATURES = {}\n'
+                'def initial_latent(obs, rng):\n    return {}\n'
+                'def transition(obs, latent, option, rng):\n'
+                '    return obs.copy(), dict(latent), COUNT\n')
+        if backend == "pybullet":
+            code = '''import pybullet as physics
+LATENT_FEATURES = {}
+def initial_latent(obs, rng):
+    return {}
+def transition(obs, latent, option, rng):
+    client = physics.connect(physics.DIRECT)
+    try:
+        physics.setGravity(0, 0, -10, physicsClientId=client)
+        physics.setTimeStep(0.1, physicsClientId=client)
+        body = physics.createMultiBody(baseMass=1, basePosition=[0, 0, 1],
+                                       physicsClientId=client)
+        for _ in range(COUNT):
+            physics.stepSimulation(physicsClientId=client)
+        position, _ = physics.getBasePositionAndOrientation(
+            body, physicsClientId=client)
+        return obs.copy(), {"fall_height": position[2]}, COUNT
+    finally:
+        physics.disconnect(client)
+'''
+        prompt = agent._play_system_prompt()  # pylint: disable=protected-access
+        assert "You may use PyBullet" in prompt
+        assert "Do not import an environment or a physics engine" not in prompt
+        path.parent.mkdir(parents=True, exist_ok=True)
+        for count in (2, 3):
+            path.write_text(code.replace("COUNT", str(count)),
+                            encoding="utf-8")
+            model = ctx.probe_option_model_provider()
+            assert isinstance(model, ProgramOptionModel)
+            assert getattr(model, "sim_env", None) is None
+            calls.append(model)
+        assert calls[0] is not calls[1]
+        probe = BeliefProbe(ctx).reset(current=True)
+        wait = next(option for option in options if option.name == "Wait")
+        current = ctx.current_observation
+        objects = [
+            next(obj for obj in current if obj.is_instance(t))
+            for t in wait.types
+        ]
+        import numpy as np  # pylint: disable=import-outside-toplevel
+        params = np.zeros(wait.params_space.shape, dtype=np.float32)
+        grounded = wait.ground(objects, params)
+        assert isinstance(env, PyBulletEnv)
+        client = env._physics_client_id  # pylint: disable=protected-access
+
+        def live_bodies() -> Any:
+            return [(p.getBasePositionAndOrientation(body,
+                                                     physicsClientId=client),
+                     p.getBaseVelocity(body, physicsClientId=client))
+                    for body in (p.getBodyUniqueId(i, physicsClientId=client)
+                                 for i in range(p.getNumBodies(client)))]
+
+        before = live_bodies()
+        predicted, steps = calls[-1].get_next_state_and_num_actions(
+            current, grounded)
+        assert steps == 3
+        if backend == "pybullet":
+            assert predicted.latent is not None
+            assert 0 < predicted.latent["fall_height"] < 1
+        plan = ("Wait(" + ", ".join(str(obj) for obj in objects) + ")[" +
+                ", ".join(str(float(value)) for value in params) + "]")
+        result = probe.run(plan, render=False)
+        assert result is not None
+        assert live_bodies() == before
+        for kwargs in ({
+                "solved": True
+        }, {
+                "contacts": True
+        }, {
+                "physics_sweep": True
+        }):
+            with pytest.raises(ValueError, match="Engine diagnostics"):
+                probe.run(plan, **kwargs)
+
+        assert ctx.probe_fit_provider is None
+        assert ctx.probe_score_provider is not None
+        assert "step applied" in _call(agent,
+                                       "env_step",
+                                       action=[0.0] *
+                                       env.action_space.shape[0])
+        assert len(agent._program_trajectories[-1].actions) == 1  # pylint: disable=protected-access
+        assert "Give-up recorded" in _call(agent, "give_up", note="audit")
+        return _result()
+
+    monkeypatch.setattr(agent, "_query_agent_sync", query)
+    agent.prepare_for_continual(Dataset([]))
+    card = ContinualRun(env, agent, create_level_player(env, agent)).run()
+    assert card.total_steps == 1
+    assert isinstance(agent._option_model, ProgramOptionModel)  # pylint: disable=protected-access
+
+
+@pytest.mark.parametrize("domain",
+                         ["boil", "bridge", "fan", "domino", "balloons"])
+def test_zero_shot_seals_before_first_charge(tmp_path: Any, monkeypatch: Any,
+                                             domain: str) -> None:
+    """Missing models and later edits cannot take steps, even after resume."""
+    from pathlib import Path  # pylint: disable=import-outside-toplevel
+    env_name = _configure_domain_comparison(tmp_path, domain,
+                                            "agent_continual_zero_shot")
+    env = create_new_env(env_name, do_cache=False, use_gui=False)
+    agent: Any = create_approach("agent_continual_zero_shot", env.predicates,
+                                 get_gt_options(env.get_name()), env.types,
+                                 env.action_space,
+                                 [t.task for t in env.get_train_tasks()])
+    code = ('class Model(BaseSimulator):\n'
+            '    AGENT_PARAM_SPECS = []\n'
+            '    RESIDUAL_FEATURES = {}\n'
+            '    def _domain_specific_step(self):\n        pass\n'
+            'RESIDUAL_ENV = Model\n')
+
+    def query(*_args: Any, **_kwargs: Any) -> Any:
+        action = [0.0] * env.action_space.shape[0]
+        result = _call(agent, "env_step", action=action)
+        assert "step applied" not in result
+        path = Path(agent._resolve_synthesis_paths().simulator_file)  # pylint: disable=protected-access
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(code, encoding="utf-8")
+        assert "step applied" in _call(agent, "env_step", action=action)
+        saved = agent._extra_save_state()  # pylint: disable=protected-access
+        assert saved["frozen_model_source"] == code
+        ctx = agent._tool_context  # pylint: disable=protected-access
+        assert "unavailable" in BeliefProbe(ctx).validate(params={"test": 2.0})
+        path.write_text(code + "# edited after action\n", encoding="utf-8")
+        assert "Dynamics are frozen" in _call(agent, "env_step", action=action)
+        ctx = agent._tool_context  # pylint: disable=protected-access
+        assert "unavailable" in BeliefProbe(ctx).fit()
+        agent._load_extra_save_state(saved)  # pylint: disable=protected-access
+        assert path.read_text(encoding="utf-8") == code
+        assert "step applied" in _call(agent, "env_step", action=action)
+        assert "Give-up recorded" in _call(agent, "give_up", note="audit")
+        return _result()
+
+    monkeypatch.setattr(agent, "_query_agent_sync", query)
+    agent.prepare_for_continual(Dataset([]))
+    card = ContinualRun(env, agent, create_level_player(env, agent)).run()
+    assert card.total_steps == 2
+    assert card.total_resets == 0
+
+
+def test_program_current_memory_replays_after_edits_and_reset(
+        tmp_path: Any, monkeypatch: Any) -> None:
+    """Current-state rehearsals carry skill history using the latest model."""
+    from pathlib import Path  # pylint: disable=import-outside-toplevel
+    _config(tmp_path,
+            approach="agent_continual_program_world_model",
+            max_num_steps_option_rollout=2)
+    env = create_new_env("pybullet_boil", do_cache=False, use_gui=False)
+    agent: Any = create_approach("agent_continual_program_world_model",
+                                 env.predicates,
+                                 get_gt_options(env.get_name()), env.types,
+                                 env.action_space,
+                                 [t.task for t in env.get_train_tasks()])
+
+    def query(*_args: Any, **_kwargs: Any) -> Any:
+        # pylint: disable=protected-access
+        ctx = agent._tool_context
+        path = Path(agent._resolve_synthesis_paths().base) / "world_model.py"
+        code = ('LATENT_FEATURES = {}\n'
+                'def initial_latent(obs, rng):\n    return {"count": 0}\n'
+                'def transition(obs, latent, option, rng):\n'
+                '    option.memory["audit_touched"] = True\n'
+                '    return obs.copy(), {"count": latent["count"] + INC}, 2\n')
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(code.replace("INC", "1"), encoding="utf-8")
+        robot = next(o for o in ctx.current_observation
+                     if o.type.name == "robot")
+
+        def check_memory(expected: int) -> None:
+            probe = BeliefProbe(ctx).reset(current=True)
+            assert probe._state is not None
+            assert probe._state.latent == {"count": expected}
+            episodes = agent._play_session.level_episodes()
+            assert all("audit_touched" not in action.get_option().memory
+                       for ep in episodes for action in ep["actions"]
+                       if action.has_option())
+
+        for expected in (1, 2):
+            _call(agent, "skills_invoke", skill=f"Wait({robot})[]")
+            check_memory(expected)
+        path.write_text(code.replace("INC", "3"), encoding="utf-8")
+        check_memory(6)
+        saved = agent._extra_save_state()
+        agent._load_extra_save_state(saved)
+        check_memory(6)
+        _call(agent, "env_reset", note="memory audit")
+        check_memory(0)
+        _call(agent, "env_step", action=[0.0] * env.action_space.shape[0])
+        with pytest.raises(ValueError, match="primitive actions"):
+            BeliefProbe(ctx).reset(current=True)
+        _call(agent, "give_up", note="audit")
+        return _result()
+
+    monkeypatch.setattr(agent, "_query_agent_sync", query)
+    agent.prepare_for_continual(Dataset([]))
+    card = ContinualRun(env, agent, create_level_player(env, agent)).run()
+    # Two two-step skills, one charged reset, and one primitive action.
+    assert card.total_steps == 6
+    assert card.total_resets == 1
+
+
+def _program_resume_stage(directory: str, stage: int) -> None:
+    """Drive one actual process of the standalone preemption audit."""
+    # pylint: disable=import-outside-toplevel,protected-access
+    from pathlib import Path
+
+    from predicators.run.checkpoints import maybe_auto_resume
+    from predicators.run.continual import run_continual
+    from tests.approaches.test_agent_continual_approach import _Killed
+    root = Path(directory)
+    _config(root,
+            approach="agent_continual_program_world_model",
+            max_num_steps_option_rollout=2,
+            auto_resume=stage == 2,
+            continual_make_video=False)
+    env = create_new_env("pybullet_boil", do_cache=False, use_gui=False)
+    agent: Any = create_approach("agent_continual_program_world_model",
+                                 env.predicates,
+                                 get_gt_options(env.get_name()), env.types,
+                                 env.action_space,
+                                 [t.task for t in env.get_train_tasks()])
+    if stage == 2:
+        maybe_auto_resume(agent)
+
+    def query(*_args: Any, **_kwargs: Any) -> Any:
+        ctx = agent._tool_context
+        path = Path(agent._resolve_synthesis_paths().base) / "world_model.py"
+        robot = next(o for o in ctx.current_observation
+                     if o.type.name == "robot")
+        if stage == 1:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                'LATENT_FEATURES = {}\n'
+                'def initial_latent(obs, rng):\n'
+                '    return {"count": 0}\n'
+                'def transition(obs, latent, option, rng):\n'
+                '    return obs.copy(), '
+                '{"count": latent["count"] + 1}, 2\n',
+                encoding="utf-8")
+            for _ in range(2):
+                _call(agent, "skills_invoke", skill=f"Wait({robot})[]")
+            _call(agent, "env_reset", note="new episode before preemption")
+            _call(agent, "skills_invoke", skill=f"Wait({robot})[]")
+            agent.save(0)
+            raise _Killed()
+        assert path.is_file()
+        probe = BeliefProbe(ctx).reset(current=True)
+        assert probe._state is not None
+        assert probe._state.latent == {"count": 1}
+        episodes = agent._play_session.level_episodes()
+        assert [len(ep["actions"]) for ep in episodes] == [4, 2]
+        _call(agent, "skills_invoke", skill=f"Wait({robot})[]")
+        probe = BeliefProbe(ctx).reset(current=True)
+        assert probe._state is not None
+        assert probe._state.latent == {"count": 2}
+        path.write_text(path.read_text().replace('+ 1', '+ 3'),
+                        encoding="utf-8")
+        probe = BeliefProbe(ctx).reset(current=True)
+        assert probe._state is not None
+        assert probe._state.latent == {"count": 6}
+        _call(agent, "give_up", note="resume audit complete")
+        return _result()
+
+    agent._query_agent_sync = query
+    if stage == 1:
+        with pytest.raises(_Killed):
+            run_continual(env, agent)
+    else:
+        card = run_continual(env, agent)
+        assert card.total_steps == 9 and card.total_resets == 1
+        assert card.levels[0].resumes == 1
+        assert card.levels[0].harness_resets == 0
+        assert card.end_reason == "agent_ended"
+
+
+def test_program_fresh_process_resume(tmp_path: Any) -> None:
+    """Resume skill identity and memory in an independent interpreter."""
+    import subprocess  # pylint: disable=import-outside-toplevel
+    for stage in (1, 2):
+        code = ('from tests.approaches.test_continual_comparison_approach '
+                'import _program_resume_stage\n'
+                f'_program_resume_stage({str(tmp_path)!r}, {stage})\n')
+        result = subprocess.run([sys.executable, "-c", code],
+                                check=False,
+                                capture_output=True,
+                                text=True,
+                                timeout=180)
+        assert result.returncode == 0, result.stdout + result.stderr

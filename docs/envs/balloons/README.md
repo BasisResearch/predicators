@@ -18,13 +18,13 @@ Individual [jam](visuals/hatch-jam.mp4) and [passage](visuals/hatch-pass.mp4) cl
 
 - Each balloon colour's lift, which fades linearly with height, so a box with enough balloons rises to the height where the pull matches its weight and hangs there.
   On the base simulator an opened clip frees nothing: the balloon stays in the rack and the box stays put.
-- The release itself (an open clip's balloon flies to the end of its string above the box, later balloons stacking above earlier ones), the mass of each box material, and the air's drag.
+- The release itself (an open clip's balloons fly to the end of their strings above the box, a bundle side by side at one tier, later bundles stacking a tier above earlier ones), the mass of each box material, and the air's drag.
 - A freed balloon that reaches the ceiling bursts: the level is lost, and a freed balloon cannot be clipped back.
 
 ## What the agent controls
 
 `Release(robot, clip)[approach, contact_z]` (the shared push skill on the clip's toggle) and `Wait(robot)`.
-The observation carries the box's pose, colour and speed, every balloon's pose, colour, tied and popped flags, every clip's pose and latched state, and the band's heights.
+The observation carries the box's pose, colour and speed, every balloon's pose, colour, clip index, tied and popped flags, every clip's pose and latched state, and the band's heights.
 
 ## Train and test
 
@@ -35,7 +35,16 @@ Test levels also contain a witnessed losing release sequence with an in-band ana
 Other subsets and orders may win too; uniqueness is not claimed.
 The generator checks every simulation frame, requires sustained rest before classifying off-target failure, and keeps timeouts unresolved.
 A jam label additionally requires the same sequence to win in a diagnostic replay without box-wall collisions.
-The oracle plans with `Needed` and `Holds` helpers and a derived `AllNeededTied`.
+The oracle plans over clips with `Needed` and `Holds` helpers and a derived `AllNeededOpen`.
+
+## Bundle test levels
+
+`balloons_test_bundle_sizes` (for example `[2, 2, 2, 2]`) ties the test rack's balloons into bundles, one clip per bundle, racked in a row behind the clip; every balloon's `clip` feature names its clip.
+One cut frees the whole bundle, so no cut is a small trim and every first cut is an unseen union launched from the table.
+The generator accepts a bundle level only when the reference wins with two or more settled cuts and does not start with the weakest bundle, every winning union is a colour multiset no train rack on the same box held, a decoy bundle rests in the band by the analytic law yet bursts when cut first, every winning order starts with the same clip, and, when the draws allow it, a tempting bundle rests below the band above the reference's first cut with an analytic in-band continuation that loses (the generator prefers such a level and falls back to one without, recorded as `bundle_tempting_clip` -1).
+Of the three readings of the rest heights (weakest first, the bundle that rests in band, the highest safe bundle then add) the first two always lose and the third loses on a level with a tempting bundle; the winning order is found by rolling the ascent forward.
+A rack larger than the palette repeats colours.
+The metrics record `bundle_decoy_clip`, `bundle_tempting_clip`, `bundle_reference_cuts` and `bundle_reference_first_clip`.
 
 ## What the model must predict
 

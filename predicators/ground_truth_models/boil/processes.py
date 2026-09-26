@@ -36,10 +36,10 @@ def _place_on_burner_sampler(state: State, goal: Set[GroundAtom],
     if not CFG.boil_use_skill_factories:
         return np.array([], dtype=np.float32)
     del goal, rng
-    # objs = [robot, jug, burner]
+    # objs = [robot, jug, burner]. Place targets the jug's centre.
     burner = objs[2]
     x = state.get(burner, "x")
-    y = state.get(burner, "y") - PyBulletBoilEnv.jug_handle_offset
+    y = state.get(burner, "y")
     return np.array([x, y, _BOIL_DROP_Z, -1.57], dtype=np.float32)
 
 
@@ -49,11 +49,14 @@ def _place_under_faucet_sampler(state: State, goal: Set[GroundAtom],
     if not CFG.boil_use_skill_factories:
         return np.array([], dtype=np.float32)
     del goal, rng
-    # objs = [robot, jug, faucet]
+    # objs = [robot, jug, faucet]. Place targets the jug's centre, so aim
+    # at the faucet outlet (PyBulletBoilEnv._faucet_outlet_xy).
     faucet = objs[2]
-    x = state.get(faucet, "x")
-    y = (state.get(faucet, "y") - PyBulletBoilEnv.jug_handle_offset -
-         PyBulletBoilEnv.faucet_x_len)
+    rot = state.get(faucet, "rot")
+    dx, dy = (PyBulletBoilEnv.faucet_outlet_local_dx,
+              PyBulletBoilEnv.faucet_outlet_local_dy)
+    x = state.get(faucet, "x") + np.cos(rot) * dx - np.sin(rot) * dy
+    y = state.get(faucet, "y") + np.sin(rot) * dx + np.cos(rot) * dy
     return np.array([x, y, _BOIL_DROP_Z, -1.57], dtype=np.float32)
 
 

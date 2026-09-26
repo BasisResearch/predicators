@@ -35,7 +35,6 @@ HAPPINESS_SPEED = 0.05
 MAX_JUG_WATER_CAPACITY = 1.3
 WATER_FILLED_HEIGHT = 0.8
 MAX_WATER_SPILL_WIDTH = 0.3
-FAUCET_ALIGN_THRESHOLD = 0.1
 BURNER_ALIGN_THRESHOLD = 0.05
 FAUCET_X_LEN = 0.15
 _WATER_HEIGHT_TO_LEVEL_RATIO = 10
@@ -187,7 +186,9 @@ def _build_param_specs() -> List[ParamSpec]:
         ParamSpec("water_filled_height", WATER_FILLED_HEIGHT, lo=0.0),
         ParamSpec("max_water_spill_width", MAX_WATER_SPILL_WIDTH, lo=0.0),
         ParamSpec("faucet_x_len", FAUCET_X_LEN, lo=0.0),
-        ParamSpec("faucet_align_threshold", FAUCET_ALIGN_THRESHOLD, lo=0.0),
+        ParamSpec("faucet_align_threshold",
+                  CFG.boil_faucet_align_threshold,
+                  lo=0.0),
         ParamSpec("burner_align_threshold", BURNER_ALIGN_THRESHOLD, lo=0.0),
     ]
 

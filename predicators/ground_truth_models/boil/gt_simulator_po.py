@@ -55,7 +55,6 @@ from predicators.structs import State
 # CFG.boil_water_fill_speed * water_height_to_level_ratio).
 HEATING_SPEED = 0.03
 MAX_JUG_WATER_CAPACITY = 1.3
-FAUCET_ALIGN_THRESHOLD = 0.1
 BURNER_ALIGN_THRESHOLD = 0.05
 FAUCET_X_LEN = 0.15
 _WATER_HEIGHT_TO_LEVEL_RATIO = 10
@@ -194,7 +193,9 @@ def _build_param_specs() -> List[ParamSpec]:
         ParamSpec("heating_speed", HEATING_SPEED, lo=0.0),
         ParamSpec("max_jug_water_capacity", MAX_JUG_WATER_CAPACITY, lo=0.0),
         ParamSpec("faucet_x_len", FAUCET_X_LEN, lo=0.0),
-        ParamSpec("faucet_align_threshold", FAUCET_ALIGN_THRESHOLD, lo=0.0),
+        ParamSpec("faucet_align_threshold",
+                  CFG.boil_faucet_align_threshold,
+                  lo=0.0),
         ParamSpec("burner_align_threshold", BURNER_ALIGN_THRESHOLD, lo=0.0),
     ]
 

@@ -27,8 +27,6 @@ import numpy as np
 from predicators import utils
 from predicators.envs.base_env import BaseEnv
 from predicators.envs.pybullet_env import PyBulletEnv
-from predicators.ground_truth_models.skill_factories.wait import \
-    note_external_state_change
 from predicators.pybullet_helpers.real_robot_bridge import execute_chunks, \
     make_real_robot, reset_arm, reset_env
 from predicators.pybullet_helpers.real_robot_recorder import episode_stamp, \
@@ -510,11 +508,6 @@ class RealRobotExecutor:
                                       settle_s=self._settle_s)
         for observation in observations:
             obs = self._corrector.absorb(observation)
-        # The correction moved objects, but the scene did not move. Options
-        # that judge the scene settled have to be told, or every look would
-        # read as motion and they would never see it come to rest.
-        if isinstance(obs, State):
-            note_external_state_change(action.get_option(), obs)
         return obs
 
     def after_episode(self, completed: bool) -> None:

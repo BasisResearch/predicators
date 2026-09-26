@@ -1,7 +1,7 @@
 """Ground-truth options for the boil environment."""
 
 from dataclasses import replace
-from typing import ClassVar, Dict, Sequence, Set, Tuple
+from typing import ClassVar, Dict, Optional, Sequence, Set, Tuple
 from typing import Type as TypingType
 
 import numpy as np
@@ -47,32 +47,25 @@ class PyBulletBoilGroundTruthOptionFactory(_BoilLegacyOptionsMixin,
         return cls._get_options_legacy(env_name, types, predicates,
                                        action_space)
 
+    @classmethod
+    def get_primitive_skill_context(
+            cls, env_name: str,
+            types: Dict[str, Type]) -> Optional[Tuple[SkillConfig, Type]]:
+        del env_name  # unused
+        return cls._build_skill_config(), types["robot"]
+
     # ------------------------------------------------------------------
     # Skill-factory path
     # ------------------------------------------------------------------
 
     @classmethod
-    def _get_options_skill_factories(
-            cls, env_name: str, types: Dict[str,
-                                            Type], predicates: Dict[str,
-                                                                    Predicate],
-            action_space: Box) -> Set[ParameterizedOption]:
-        """Skill-factory-based option implementations for the boil env."""
-        del env_name, action_space, predicates  # unused
-
+    def _build_skill_config(cls) -> SkillConfig:
+        """The shared skill configuration of the boil env."""
         pybullet_robot = shared_skill_robot(PyBulletBoilEnv)
-
-        robot_type = types["robot"]
-        switch_type = types["switch"]
-        jug_type = types["jug"]
-        burner_type = types["burner"]
-        faucet_type = types["faucet"]
-
         env_cls = cls.env_cls
-
         simulator = shared_skill_simulator(env_cls) \
             if CFG.skill_phase_use_motion_planning else None
-        config = SkillConfig(
+        return SkillConfig(
             robot=pybullet_robot,
             open_fingers_joint=pybullet_robot.open_fingers,
             closed_fingers_joint=pybullet_robot.closed_fingers,
@@ -96,9 +89,28 @@ class PyBulletBoilGroundTruthOptionFactory(_BoilLegacyOptionsMixin,
             simulator=simulator,
         )
 
+    @classmethod
+    def _get_options_skill_factories(
+            cls, env_name: str, types: Dict[str,
+                                            Type], predicates: Dict[str,
+                                                                    Predicate],
+            action_space: Box) -> Set[ParameterizedOption]:
+        """Skill-factory-based option implementations for the boil env."""
+        del env_name, action_space, predicates  # unused
+
+        robot_type = types["robot"]
+        jug_type = types["jug"]
+        burner_type = types["burner"]
+        faucet_type = types["faucet"]
+
+        env_cls = cls.env_cls
+        config = cls._build_skill_config()
+
         # ---------------------------------------------------------------
         # Helper: find the switch object associated with a faucet/burner.
-        # The env sets obj.switch_id in _set_state.
+        # Resolved by name through the env, from the state the skill runs
+        # on: the grounding's Object instances belong to the caller's
+        # view and carry none of the env's simulator attributes.
         # ---------------------------------------------------------------
         def _get_switch_pose(
             state: State,
@@ -108,11 +120,11 @@ class PyBulletBoilGroundTruthOptionFactory(_BoilLegacyOptionsMixin,
         ) -> Tuple[float, float, float, float]:
             del params, config
             _, obj = objects
-            switch = next((s for s in state.get_objects(switch_type)
-                           if s.id == obj.switch_id), None)
-            if switch is None:
+            try:
+                switch = env_cls.get_switch(state, obj)
+            except KeyError as e:
                 raise utils.OptionExecutionFailure(
-                    f"No switch found for {obj} (switch_id={obj.switch_id})")
+                    f"No switch found for {obj}: {e}") from e
             return (state.get(switch, "x"), state.get(switch, "y"),
                     state.get(switch, "z"), state.get(switch, "rot"))
 
@@ -201,10 +213,15 @@ class PyBulletBoilGroundTruthOptionFactory(_BoilLegacyOptionsMixin,
         # ---------------------------------------------------------------
         # Place option (unified – only needs the robot)
         # ---------------------------------------------------------------
+        # The jug is grasped by its handle, jug_handle_offset from its
+        # centre along its yaw. Compensating the held offset makes the
+        # target the jug's centre, as the public skill reference states,
+        # so a jug placed at the faucet outlet is under the faucet.
         Place = create_place_skill(
             name="Place",
             types=[robot_type],
             config=config,
+            compensate_held_offset=True,
         )
 
         # ---------------------------------------------------------------

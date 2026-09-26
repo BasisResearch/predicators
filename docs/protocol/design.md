@@ -161,6 +161,8 @@ The oracle's step counts per level become a reference column in the table, along
 - Level resets only. There is no way to return to a previous level.
 - No resets on test levels by default (`continual_allow_test_resets`, off): a test level is one shot.
   Train levels always allow resets.
+- Optionally, a model before acting (`continual_require_model_on_test`, off): on a test level the model arm's `skills_invoke` and `skills_execute_plan` refuse, charging nothing, until the sandbox's `simulator.py` loads and declares `RESIDUAL_FEATURES`, which is what the round's end needs to deploy it; fitting stays the agent's call.
+  Train levels are never gated, and the model-free arm has nothing to gate.
 - No skipping, for now. A level that is never won ends the run for that env, and later levels are recorded as not attempted.
 - The run ends when the last level is won, when the step cap is hit, when the agent ends it, or when the wall-clock cap expires.
 - The table covers all envs in the suite, whether or not the agent was run on them.

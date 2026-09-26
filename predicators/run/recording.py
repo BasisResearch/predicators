@@ -26,12 +26,15 @@ import json
 import os
 import pickle
 import time
+from dataclasses import replace
+from functools import lru_cache
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import imageio
 import numpy as np
 
-from predicators.structs import Action, State
+from predicators.structs import Action, Object, ParameterizedOption, State, \
+    Type, _Option
 from predicators.utils import PyBulletState
 
 ACTIONS_FILENAME = "actions.jsonl"
@@ -76,6 +79,15 @@ def portable_simulator_state(sim_state: Any) -> Any:
         return None
 
 
+@lru_cache(maxsize=128)
+def _public_type(typ: Type) -> Type:
+    """Retain observable schema and inheritance without simulator
+    attributes."""
+    return replace(typ,
+                   sim_features=(),
+                   parent=_public_type(typ.parent) if typ.parent else None)
+
+
 def sanitize_state(state: State) -> State:
     """A copy carrying the observable ``data`` and, for a PyBullet state, the
     robot's joint data; no live handles, no privileged values.
@@ -86,7 +98,10 @@ def sanitize_state(state: State) -> State:
     env fall back to IK for the arm and fail on the fingers, which is
     what the model arm's base-sim predictions hit after a resume.
     """
-    data = {o: np.array(v, copy=True) for o, v in state.data.items()}
+    data = {
+        Object(o.name, _public_type(o.type)): np.array(v, copy=True)
+        for o, v in state.data.items()
+    }
     sim_state = portable_simulator_state(
         getattr(state, "simulator_state", None))
     if sim_state is None:
@@ -105,6 +120,8 @@ class LevelRecording:
     """Writer and reader for one level's recording directory."""
 
     def __init__(self, level_dir: str) -> None:
+        self._last_option: Optional[_Option] = None
+        self._option_start = 0
         self._dir = level_dir
         os.makedirs(level_dir, exist_ok=True)
         os.makedirs(self.renders_dir, exist_ok=True)
@@ -148,6 +165,7 @@ class LevelRecording:
 
     def begin_episode(self, episode: int, by: str) -> None:
         """Mark an episode boundary in the action log."""
+        self._last_option = None
         self._write_action_line({
             "event": "reset",
             "ep": episode,
@@ -157,9 +175,17 @@ class LevelRecording:
 
     def append_step(self, episode: int, step: int, action: Action) -> None:
         """Log one applied primitive action."""
+        option = action.get_option() if action.has_option() else None
+        if option is not self._last_option:
+            self._option_start = step
+            self._last_option = option
         self._write_action_line({
-            "ep": episode,
-            "i": step,
+            "skill":
+            skill_record(action, self._option_start),
+            "ep":
+            episode,
+            "i":
+            step,
             "a": [float(v) for v in action.arr],
         })
 
@@ -210,8 +236,14 @@ class LevelRecording:
 
     def read_current_episode(self) -> Tuple[int, List[np.ndarray]]:
         """The last episode's index and its applied action arrays."""
+        episode, records = self.read_current_action_records()
+        return episode, [np.array(r["arr"], dtype=np.float32) for r in records]
+
+    def read_current_action_records(self) -> Tuple[int, List[Dict[str, Any]]]:
+        """Read action values and portable skill identity, including log
+        tails."""
         episode = 0
-        actions: List[np.ndarray] = []
+        actions: List[Dict[str, Any]] = []
         if not os.path.isfile(self.actions_path):
             return episode, actions
         with open(self.actions_path, "r", encoding="utf-8") as f:
@@ -224,7 +256,10 @@ class LevelRecording:
                     episode = int(rec["ep"])
                     actions = []
                 else:
-                    actions.append(np.array(rec["a"], dtype=np.float32))
+                    actions.append({
+                        "arr": rec["a"],
+                        "skill": rec.get("skill")
+                    })
         return episode, actions
 
     def read_episodes(self) -> List[Dict[str, Any]]:
@@ -255,19 +290,72 @@ class LevelRecording:
         self._actions_file.flush()
 
 
+def skill_record(action: Action, start: int) -> Optional[Dict[str, Any]]:
+    """Portable skill arguments and invocation boundary; no execution
+    memory."""
+    if not action.has_option():
+        return None
+    option = action.get_option()
+    return {
+        "name": option.name,
+        "objects": [o.name for o in option.objects],
+        "params": [float(v) for v in option.params],
+        "start": start
+    }
+
+
+def serialize_actions(actions: Sequence[Action]) -> List[Dict[str, Any]]:
+    """Retain distinct consecutive invocations of the same grounded skill."""
+    previous = None
+    start = 0
+    records = []
+    for index, action in enumerate(actions):
+        option = action.get_option() if action.has_option() else None
+        if option is not previous:
+            start = index
+            previous = option
+        records.append({
+            "arr": np.array(action.arr, copy=True),
+            "option": option_label(action),
+            "skill": skill_record(action, start)
+        })
+    return records
+
+
+def restore_actions(records: Sequence[Dict[str, Any]], state: State,
+                    skills: Sequence[ParameterizedOption]) -> List[Action]:
+    """Reattach skill labels without executing policies or hidden memory.
+
+    Old recordings without structured skill metadata remain primitive
+    actions: rounded display labels cannot recover exact parameters or
+    distinguish consecutive identical invocations reliably.
+    """
+    by_name = {s.name: s for s in skills}
+    objects = {o.name: o for o in state}
+    grounded: Dict[int, _Option] = {}
+    actions = []
+    for record in records:
+        action = Action(np.array(record["arr"], dtype=np.float32))
+        metadata = record.get("skill")
+        if metadata is not None:
+            start = int(metadata["start"])
+            if start not in grounded:
+                grounded[start] = by_name[metadata["name"]].ground(
+                    [objects[n] for n in metadata["objects"]],
+                    np.array(metadata["params"], dtype=np.float32))
+            action.set_option(grounded[start])
+        actions.append(action)
+    return actions
+
+
 def _sanitize_episode(ep: Dict[str, Any]) -> Dict[str, Any]:
     states: Sequence[State] = ep["states"]
     actions: Sequence[Action] = ep["actions"]
     return {
-        "episode":
-        ep["episode"],
-        "end":
-        ep.get("end", "in_progress"),
+        "episode": ep["episode"],
+        "end": ep.get("end", "in_progress"),
         "states": [sanitize_state(s) for s in states],
-        "actions": [{
-            "arr": np.array(a.arr, copy=True),
-            "option": option_label(a)
-        } for a in actions],
+        "actions": serialize_actions(actions),
     }
 
 

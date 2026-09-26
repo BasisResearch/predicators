@@ -56,6 +56,17 @@ PRIMITIVE_TOOL_NAMES = [
 ]
 ALL_CONTINUAL_TOOL_NAMES = list(
     dict.fromkeys(CONTINUAL_TOOL_NAMES + PRIMITIVE_TOOL_NAMES))
+# The tools that drive the robot below the skill library.
+RAW_CONTROL_TOOL_NAMES = ("env_step", "env_run_policy")
+
+
+def play_tool_names(names: Sequence[str]) -> List[str]:
+    """A skill agent's tool list under ``CFG.continual_raw_control``: the given
+    names, minus the raw-control tools when the flag is off."""
+    if CFG.continual_raw_control:
+        return list(names)
+    return [n for n in names if n not in RAW_CONTROL_TOOL_NAMES]
+
 
 GRAMMAR = (
     "One skill per line: `Skill(obj:type, ...)[p1, p2] -> {Atom(obj:type), "
@@ -203,7 +214,7 @@ def format_observation(obs: "ProtocolObservation",
     lines.append("[atoms] " + (", ".join(env_origin) or note or "(none)"))
     if invented:
         lines.append("[your predicates] " + ", ".join(invented))
-    if obs.belief is not None:
+    if obs.belief is not None and CFG.continual_uncertainty_decisions:
         try:
             fractions = atom_fractions(
                 obs.belief, set(ctx.predicates),
@@ -224,7 +235,8 @@ def format_observation(obs: "ProtocolObservation",
     if with_state:
         lines.append("[objects]")
         lines.append(obs.frame.dict_str(indent=2, num_decimal_points=4))
-        if obs.belief is not None and obs.belief.frames_used:
+        if (obs.belief is not None and obs.belief.frames_used
+                and CFG.continual_uncertainty_decisions):
             lines.append("[belief] each object smoothed over the frames it "
                          "rested through (value+-spread):")
             for obj in sorted(obs.frame, key=lambda o: o.name):
@@ -340,6 +352,32 @@ def build_continual_tools(
         except EpisodeOver:
             return ""
 
+    def _gated() -> Optional[Dict[str, Any]]:
+        """The arm's skill gate, when it installed one: a refusal that charges
+        nothing, or None when the skill may run."""
+        if ctx.skill_gate is None:
+            return None
+        reason = ctx.skill_gate()
+        if reason is None:
+            return None
+        return _error_result(reason + " Nothing was charged." + _footer())
+
+    def _preflight(plan_text: str,
+                   args: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """The arm's skill preflight, when it installed one: the request
+        rehearsed in its sim from the last real observation.
+
+        A refusal charges nothing and carries the sim's diagnostic;
+        ``force`` on the request skips the rehearsal.
+        """
+        if ctx.skill_preflight is None or bool(args.get("force", False)):
+            return None
+        reason = ctx.skill_preflight(plan_text)
+        if reason is None:
+            return None
+        return _error_result(reason + " Nothing was charged; pass "
+                             "force=true to run it anyway." + _footer())
+
     def _resets_allowed() -> bool:
         try:
             return session.resets_allowed
@@ -388,6 +426,8 @@ def build_continual_tools(
         def attempted() -> None:
             state.charged_calls += 1
 
+        if ctx.before_real_action is not None:
+            ctx.before_real_action()
         observer = observer or ExecutionObserver()
         observer.on_attempt = attempted
         await session.executor.execute(request, progress, observer)
@@ -417,11 +457,15 @@ def build_continual_tools(
                                   with_state=with_state,
                                   render_path=render,
                                   env_predicates=env_predicates)
-        if "env_run_policy" in wanted:
-            # The same numeric observation is available to direct action
-            # selection and to the agent's policy, including proprioception.
-            text = "[control] " + json.dumps(primitive_observation(session)) + \
-                "\n" + text
+        control = primitive_observation(session)
+        if "env_run_policy" not in wanted:
+            # Skill agents need current proprioception too, including before
+            # the first action and after reset. Avoid repeating object data.
+            control = {
+                k: control[k]
+                for k in ("joint_positions", "action_space")
+            }
+        text = "[control] " + json.dumps(control) + "\n" + text
         return text
 
     def _level_task() -> Task:
@@ -431,7 +475,8 @@ def build_continual_tools(
     @tool("env_observe",
           "The current observation: episode state, level and goal, the "
           "environment's atoms, your predicates' atoms, every object's "
-          "features, a render of the scene, and the ledger. Free.", {
+          "features, current robot joint positions and action-space order, "
+          "a render of the scene, and the ledger. Free.", {
               "type": "object",
               "properties": {},
           })
@@ -611,7 +656,10 @@ def build_continual_tools(
         "skills_invoke",
         "Invoke ONE skill from one plan line and run it to termination. "
         "Counts the steps it took. Annotate the expected outcome with "
-        "`-> {atoms}` so a divergence is recorded.", {
+        "`-> {atoms}` so a divergence is recorded. The model arm first "
+        "rehearses the line in `sim` from the last observation: a skill "
+        "whose controller fails there is refused, charging nothing, with "
+        "the controller's diagnostic.", {
             "type": "object",
             "properties": {
                 "skill": {
@@ -621,6 +669,13 @@ def build_continual_tools(
                 "note": {
                     "type": "string",
                     "description": "what this invocation tests (recorded)"
+                },
+                "force": {
+                    "type":
+                    "boolean",
+                    "description":
+                    "run the skill even when its rehearsal in `sim` "
+                    "fails (default false)"
                 }
             },
             "required": ["skill"],
@@ -629,6 +684,9 @@ def build_continual_tools(
         ended = _ended()
         if ended is not None:
             return ended
+        gated = _gated()
+        if gated is not None:
+            return gated
         try:
             parsed = parse_plan_lines(str(args.get("skill", "")), ctx,
                                       _level_task())
@@ -639,6 +697,9 @@ def build_continual_tools(
             return _error_result("skills_invoke takes exactly one line; use "
                                  "skills_execute_plan for several." +
                                  _footer())
+        refused = _preflight(str(args.get("skill", "")), args)
+        if refused is not None:
+            return refused
         option, expected, absent = parsed[0]
         try:
             progress = ExecutionProgress()
@@ -659,7 +720,10 @@ def build_continual_tools(
         "Execute a plan: one skill per line, in order. Stops at a failed "
         "skill, at a divergence from an annotated expected outcome "
         "(unless stop_on_divergence is false), at WIN or at GAME_OVER. "
-        "Counts the steps taken.", {
+        "Counts the steps taken. The model arm first rehearses the plan "
+        "in `sim` from the last observation: a plan whose controller "
+        "fails there is refused, charging nothing, with the controller's "
+        "diagnostic.", {
             "type": "object",
             "properties": {
                 "plan": {
@@ -673,6 +737,13 @@ def build_continual_tools(
                 "note": {
                     "type": "string",
                     "description": "what this plan tests (recorded)"
+                },
+                "force": {
+                    "type":
+                    "boolean",
+                    "description":
+                    "run the plan even when its rehearsal in `sim` "
+                    "fails (default false)"
                 }
             },
             "required": ["plan"],
@@ -681,11 +752,17 @@ def build_continual_tools(
         ended = _ended()
         if ended is not None:
             return ended
+        gated = _gated()
+        if gated is not None:
+            return gated
         try:
             parsed = parse_plan_lines(str(args.get("plan", "")), ctx,
                                       _level_task())
         except ValueError as e:
             return _error_result(f"Could not parse the plan: {e}" + _footer())
+        refused = _preflight(str(args.get("plan", "")), args)
+        if refused is not None:
+            return refused
         stop = bool(args.get("stop_on_divergence", True))
         note = str(args.get("note", ""))
         progress = ExecutionProgress()

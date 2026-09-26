@@ -83,6 +83,45 @@ class GlobalSettings:
     # per-episode GAME_OVER (tests of that path, ablations); the phased
     # loop's `horizon` is not read here.
     continual_episode_horizon: Optional[int] = None
+    # Whether the skill-using continual agents (agent_continual and
+    # agent_continual_model_free) also get raw joint control: the
+    # env_step tool (one action vector of the env's action space) and
+    # the env_run_policy tool where an arm offers it. True keeps that
+    # side door open; False makes the comparison skills against skills,
+    # so a broken or missing skill cannot be worked around by one arm
+    # driving the joints by hand (the Sept 16, 2026 Boil pilots). The
+    # raw-control-only agent (agent_continual_minimal) is unaffected.
+    continual_raw_control = True
+    # Whether the model arm (agent_continual) must have a deployable
+    # ./simulator.py before it may invoke a skill on a TEST level. On,
+    # skills_invoke and skills_execute_plan refuse on a test level,
+    # charging nothing, until the sandbox's simulator.py loads and
+    # declares RESIDUAL_FEATURES (what the round's end needs to deploy
+    # it; fitting stays the agent's call). Train levels stay free for
+    # evidence collection, and env_step is not gated
+    # (continual_raw_control governs that). Off keeps modelling
+    # advisory. The model-free arm has no model and is never gated.
+    continual_require_model_on_test = False
+    # Whether the model arm rehearses every skills_invoke /
+    # skills_execute_plan request in its sim before real steps are
+    # charged: the candidate ./simulator.py when one loads, else the
+    # visible base physics with hidden mechanisms disabled, rolled from
+    # the last real observation. The sim runs the real skill
+    # controllers, so a controller failure there (a grasp pose in
+    # contact, no collision-free path, a lift that leaves the object
+    # behind) refuses the request, charging nothing, and returns the
+    # controller's diagnostic, which the real env withholds.
+    # force=true on the request runs it anyway. Bridge seed 2 of the
+    # Sept 17, 2026 Sonnet pilots spent 79 failed real picks, most of
+    # them on a knocked-over leg, that the base physics refuses. On
+    # every level; the model-free arm has no sim.
+    continual_skill_preflight = True
+    # Belief draws per preflight when observation noise is declared and
+    # continual_uncertainty_decisions is on: the request is also rolled
+    # from this many plausible poses of the objects, and a request that
+    # fails on more than half of them is refused too. 0 disables the
+    # draws (the point rehearsal still runs).
+    continual_skill_preflight_draws = 4
     # Active wall-clock cap per env run, in hours (6.5).
     continual_wall_clock_hours = 48.0
     # One directory per run (predicators/run/paths.py):
@@ -156,6 +195,8 @@ class GlobalSettings:
     # certifies a placement over where its target may really be. Off,
     # or an exact channel: the raw frame, the hard atom check and no
     # belief draws.
+    # Keep point-state smoothing when explicit uncertainty decisions are off.
+    continual_uncertainty_decisions = True
     continual_belief_frame = False
     continual_belief_window = 8
     continual_belief_sigmas = 3.0
@@ -633,6 +674,16 @@ class GlobalSettings:
     # release (see create_place_skill's settle_preload_force). 0 keeps
     # the first-touch behavior. Read by envs whose place skill enables
     # the settle stroke (currently pybullet_bridge).
+    # Which skill library get_gt_options builds for the PyBullet
+    # continual envs. "composite" (the default) is each env's own
+    # factory-built skills (PickJug, SwitchFaucetOn, Push, Release, ...),
+    # task knowledge included. "primitive" is the domain-general library
+    # of predicators/ground_truth_models/skill_factories/primitives.py -
+    # MoveTo, MoveLinear, MoveUntilContact, Gripper, Wait - identical in
+    # every env that implements GroundTruthOptionFactory.
+    # get_primitive_skill_context, with the grasp points, push strokes
+    # and release moments left to the agent.
+    skill_library = "composite"
     skill_place_settle_preload_force = 0.0
 
     # coffee env parameters
@@ -1053,10 +1104,30 @@ class GlobalSettings:
     fan_use_kinematic = False
     fan_train_num_pos_x = 3
     fan_train_num_pos_y = 3
-    fan_test_num_pos_x = 6  # can do 9
+    # The historical 6 x 6 uniform test split. The loc bounds in
+    # pybullet_fan.py admit at most 10 x 9 cells at the 8 cm pitch, which
+    # fills the arena up to the fan rows; the maze split in
+    # scripts/configs/predicatorv3/envs/all.yaml uses that full grid.
+    fan_test_num_pos_x = 6
     fan_test_num_pos_y = 6
     fan_train_num_walls_per_task = [1]
-    fan_test_num_walls_per_task = [2, 3]  # can do 4
+    # Under "maze" generation this is the number of wall cells; the walls
+    # are laid as straight segments (see fan_maze_max_segment_len).
+    fan_test_num_walls_per_task = [2, 3]
+    # How ball, target and walls are laid out, per split:
+    #   "uniform": ball, target and walls at uniformly random cells, kept
+    #       only if a cardinal path exists (the historical generator);
+    #   "maze": walls laid as straight segments that keep the free cells
+    #       connected, then a ball/target pair whose best route needs at
+    #       least fan_maze_min_segments straight runs (one per fan
+    #       activation) and at least fan_maze_min_path_len cells.
+    # Both default to the historical uniform generator; the Sept 16, 2026
+    # Fan maze configs opt into "maze" for the test split explicitly.
+    fan_train_task_generation = "uniform"
+    fan_test_task_generation = "uniform"
+    fan_maze_min_segments = 4
+    fan_maze_min_path_len = 10
+    fan_maze_max_segment_len = 4
     # When True, 3x3 grids use curated task generation: ball on an edge
     # cell, target axis-aligned two cells away, and a single wall placed
     # to block the direct path. When False, all grid sizes use uniform
@@ -1105,6 +1176,11 @@ class GlobalSettings:
     boil_num_burner_train = [1]
     boil_num_burner_test = [1]
     boil_water_fill_speed = 0.002
+    # JugAtFaucet: max distance (m) between the jug centre and the faucet
+    # outlet for water to enter the jug. The burner uses 0.05. At 0.1 a
+    # jug visibly beside the spout still filled, and an agent that found
+    # such a rim point in training carried it to the test and spilled.
+    boil_faucet_align_threshold = 0.05
     # For the mobile_fetch robot: park the base (x-aligned to each reach
     # target, a stand-off in front in y) before reaching, so the arm reaches
     # straight forward at a comfortable distance instead of sideways over the
@@ -1333,9 +1409,27 @@ class GlobalSettings:
     # with the lifts and box masses.
     balloons_drag = 2.2
     # Half the band's height.
+    # Match the scene and sampling controls used in the frozen MB/MF sweep.
+    balloons_scene = "chute"
+    balloons_task_generation = "validated"
+    balloons_hatch_box_half_extents = [0.10, 0.035, 0.018]
+    balloons_hatch_attach_span = 0.09
+    balloons_hatch_half_gap = 0.085
+    balloons_hatch_offset_x = 0.012
+    balloons_hatch_z = 0.57
+    balloons_hatch_half_thickness = 0.008
+    balloons_hatch_panel_half_width = 0.16
+    balloons_hatch_half_depth = 0.16
     balloons_band_half = 0.025
     # The box is at rest below this speed (m/s).
+    balloons_goal_dwell_steps = 25
     balloons_settle_speed = 0.01
+    # The level is won only after the box has hung at rest inside the band
+    # for this many consecutive environment steps. A single-frame check
+    # (dwell 1) lets a swinging box win at a turning point whose peak
+    # pokes into the band while its rest height lies outside it; the
+    # compose_r1 pilots on Sept 16, 2026 won a train level that way.
+    balloons_goal_dwell_steps = 25
     # The push skill's approach and contact-height parameters that open
     # a clip, for the oracle's and the generator's probes.
     balloons_push_approach = 0.07
@@ -1356,6 +1450,18 @@ class GlobalSettings:
     # on their frozen generator when comparing agent changes.
     balloons_require_jam_decoy = False
     balloons_contact_height_tol = 0.02
+    # Every test level is a composition level (pybullet_balloons module
+    # doc): the answer composes measured lifts instead of repeating a
+    # rest height training showed, and the weakest-first release bursts.
+    # The old single-rest-height generator was removed on Sept 17, 2026;
+    # compare only cohorts generated by the same code.
+    # Bundle test levels (pybullet_balloons module doc): the test rack ties
+    # its balloons into bundles of these sizes, one clip per bundle, so a
+    # clip frees several balloons at once and there is no single weak
+    # balloon to trim with. Empty keeps one clip per balloon. A rack larger
+    # than the palette repeats colours. Every size should be two or more:
+    # a single reintroduces a safe, training-measured first cut.
+    balloons_test_bundle_sizes: List[int] = []
 
     # crane env
     # Cable lengths and crate colours per split. Test levels bring a
@@ -1391,13 +1497,17 @@ class GlobalSettings:
     # parameters for random options approach
     random_options_max_tries = 100
 
-    # Max steps an any-atom-change Wait may run without seeing a change
-    # before it bails out (see option_policy_to_policy). Infinite by
-    # default (legacy behavior); envs whose plans interleave work with
-    # exogenous delays (e.g. bridge) should set a finite cap, because
-    # the awaited change can complete during the PREVIOUS option and
-    # strand the Wait until the horizon.
-    wait_option_max_steps = float("inf")
+    # Step cap on a single Wait in every domain (see
+    # option_policy_to_policy and wait_rollout_step_cap). A Wait ends at
+    # its requested count, its annotated target atoms, an atom change, or
+    # this cap, whichever comes first; reaching the cap is a normal stop,
+    # not a failure. The Wait skill never inspects the physical scene, so
+    # an agent that needs a longer wait asks for it explicitly with
+    # ``Wait(robot)[n]`` and chains waits. 200 covers the longest wait
+    # any agent issued in the September 2026 noisy sweep (a 200-step
+    # fan wait) and the bridge cure tail (cure_threshold 25 plus ~60
+    # steps of cure-start stagger, previously capped at 120).
+    wait_option_max_steps = 200
 
     # option model parameters
     option_model_terminate_on_repeat = True
@@ -1787,6 +1897,10 @@ class GlobalSettings:
     cnn_refinement_estimator_crop = False  # True
     cnn_refinement_estimator_crop_bounds = (320, 400, 100, 650)
     cnn_refinement_estimator_downsample = 2
+
+    # Span counts for train/test task distributions; the body pool is their max.
+    bridge_train_span_blocks = 3
+    bridge_test_span_blocks = 3
 
     # bridge policy parameters
     bridge_policy = "learned_ldl"  # default bridge policy

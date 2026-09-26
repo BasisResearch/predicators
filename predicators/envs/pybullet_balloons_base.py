@@ -126,6 +126,14 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
     # How far above the box's top a freed balloon's string holds it;
     # later balloons stack above earlier ones.
     string_length: ClassVar[float] = 0.04
+    # A bundle: several balloons tied to one clip, racked in a row behind
+    # it, this far apart along y. Every balloon's ``clip`` feature names
+    # the clip that frees it. Freed, a bundle's balloons hang side by side
+    # at one tier (this far apart along y, clear of the chute walls), and
+    # bundles freed later hang a tier higher, so the stack grows by one
+    # balloon height per bundle. Unequal lifts in a bundle tilt the box.
+    bundle_y_gap: ClassVar[float] = 0.08
+    cluster_gap: ClassVar[float] = 0.065
     popped_color: ClassVar[Tuple[float, float, float,
                                  float]] = (0.45, 0.45, 0.45, 1.0)
 
@@ -182,7 +190,29 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
         if n_balloons <= 1:
             return 0.0
         frac = index / (n_balloons - 1)  # 0..1
-        return float(cls.attach_span * (2.0 * frac - 1.0))
+        span = (float(CFG.balloons_hatch_attach_span)
+                if CFG.balloons_scene == "hatch" else cls.attach_span)
+        return float(span * (2.0 * frac - 1.0))
+
+    @classmethod
+    def bundle_seat(cls, index: int, n_balloons: int, member: int,
+                    bundle_size: int, tier: int) -> Tuple[float, float, float]:
+        """Where a freed balloon hangs relative to the box top's centre: (x
+        offset, y offset, height).
+
+        A lone balloon attaches by rack position (``_attach_offset``,
+        along x); a bundle's ``member`` of ``bundle_size`` hangs in a
+        cluster spread along y, centred on the box; ``tier`` counts the
+        bundles freed before it.
+        """
+        dx = dy = 0.0
+        if bundle_size <= 1:
+            dx = cls._attach_offset(index, n_balloons)
+        else:
+            dy = (member - (bundle_size - 1) / 2.0) * cls.cluster_gap
+        dz = (cls.balloon_radius + cls.string_length +
+              2 * cls.balloon_radius * tier)
+        return float(dx), float(dy), float(dz)
 
     # The band: a translucent slab beside the box's column. Its ``lo``
     # and ``hi`` are heights of the box's centre.
@@ -217,7 +247,8 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
     _robot_type = Type("robot",
                        ["x", "y", "z", "fingers", "roll", "tilt", "wrist"])
     _box_type = Type("box", ["x", "y", "z", "color", "speed"])
-    _balloon_type = Type("balloon", ["x", "y", "z", "color", "tied", "popped"])
+    _balloon_type = Type("balloon",
+                         ["x", "y", "z", "color", "clip", "tied", "popped"])
     _clip_type = Type("clip", ["x", "y", "z", "rot", "is_on"],
                       sim_features=["id", "joint_id"])
     _band_type = Type("band", ["x", "y", "lo", "hi"])
@@ -236,20 +267,51 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
     def _max_balloons(cls) -> int:
         return max(
             list(CFG.balloons_num_balloons_train) +
-            list(CFG.balloons_num_balloons_test))
+            list(CFG.balloons_num_balloons_test) +
+            [sum(int(s) for s in CFG.balloons_test_bundle_sizes)])
+
+    @classmethod
+    def box_half_extents(cls) -> Tuple[float, float, float]:
+        """Visible payload geometry for the selected scene."""
+        if CFG.balloons_scene == "hatch":
+            x, y, z = CFG.balloons_hatch_box_half_extents
+            return float(x), float(y), float(z)
+        return cls.box_half, cls.box_half, cls.box_half
+
+    @classmethod
+    def obstacle_geometry(cls) -> List[Tuple[Pose3D, Pose3D]]:
+        """Visible obstacle half extents and centres; no hidden physics."""
+        if CFG.balloons_scene == "hatch":
+            half = (float(CFG.balloons_hatch_panel_half_width),
+                    float(CFG.balloons_hatch_half_depth),
+                    float(CFG.balloons_hatch_half_thickness))
+            center_x = cls.box_xy[0] + CFG.balloons_hatch_offset_x
+            return [
+                (half,
+                 (center_x + sign * (CFG.balloons_hatch_half_gap + half[0]),
+                  cls.box_xy[1], float(CFG.balloons_hatch_z)))
+                for sign in (-1.0, 1.0)
+            ]
+        half = (cls.chute_wall_half_thickness, cls.chute_wall_half_depth,
+                (cls.chute_z_hi - cls.chute_z_lo) / 2.0)
+        z = (cls.chute_z_lo + cls.chute_z_hi) / 2.0
+        return [(half, (cls.box_xy[0] + sign * (cls.chute_half_gap + half[0]),
+                        cls.box_xy[1], z)) for sign in (-1.0, 1.0)]
 
     @classmethod
     def box_top_point(cls, state: State,
                       box: Object) -> Tuple[float, float, float]:
         """The centre of the box's top face, where strings are tied."""
         return (state.get(box, "x"), state.get(box, "y"),
-                state.get(box, "z") + cls.box_half)
+                state.get(box, "z") + cls.box_half_extents()[2])
 
     @classmethod
     def rack_xs(cls, count: int) -> List[float]:
-        """x of each rack place, left to right."""
+        """x of each rack place, left to right; a rack of more than three clips
+        closes up to stay on the table."""
+        gap = cls.rack_x_gap if count <= 3 else 0.44 / (count - 1)
         return [
-            cls.rack_center_x + (i - (count - 1) / 2) * cls.rack_x_gap
+            cls.rack_center_x + (i - (count - 1) / 2) * gap
             for i in range(count)
         ]
 
@@ -258,6 +320,18 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
     # =========================================================================
     def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
         self._param_overrides: Dict[str, float] = {}
+        if CFG.balloons_scene not in {"chute", "hatch"}:
+            raise ValueError(f"Unknown balloons scene: {CFG.balloons_scene}")
+        if CFG.balloons_scene == "hatch":
+            # Rotation is task-relevant and must survive noisy observations,
+            # saved recordings and simulator reconstruction in both arms.
+            self._box_type = Type(
+                "box",
+                list(self._box_type.feature_names) + ["roll", "pitch", "yaw"])
+            self._balloon_type = Type(
+                "balloon",
+                list(self._balloon_type.feature_names) +
+                ["roll", "pitch", "yaw"])
         self._robot = Object("robot", self._robot_type)
         self._box = Object("box", self._box_type)
         self._balloons: List[Object] = [
@@ -271,11 +345,17 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
         self._band = Object("band", self._band_type)
         self._box_color: int = 0
         self._balloon_colors: Dict[str, int] = {}
+        self._balloon_clips: Dict[str, int] = {}
         self._tied: Dict[str, bool] = {}
         self._popped: Dict[str, bool] = {}
         self._band_lo: float = 0.0
         self._band_hi: float = 0.0
         super().__init__(use_gui, **kwargs)
+        if CFG.balloons_scene == "hatch":
+            # Preserve construction, then make recorded contacts repeatable.
+            p.setPhysicsEngineParameter(
+                deterministicOverlappingPairs=1,
+                physicsClientId=self._physics_client_id)
 
     @property
     def types(self) -> Set[Type]:
@@ -359,7 +439,7 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
                                            physics_client_id=physics_client_id)
         bodies["box_id"] = create_pybullet_block(
             color=cls.BOX_PALETTE[0][1],
-            half_extents=(cls.box_half, cls.box_half, cls.box_half),
+            half_extents=cls.box_half_extents(),
             mass=cls.box_base_mass,
             friction=cls.box_friction,
             physics_client_id=physics_client_id)
@@ -415,10 +495,7 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
         # collide only with the box. Centred on the box's column, one on
         # each side of the slot.
         chute_ids = []
-        wall_half = (cls.chute_wall_half_thickness, cls.chute_wall_half_depth,
-                     (cls.chute_z_hi - cls.chute_z_lo) / 2.0)
-        wall_z = (cls.chute_z_lo + cls.chute_z_hi) / 2.0
-        for sign in (-1.0, 1.0):
+        for wall_half, wall_position in cls.obstacle_geometry():
             wall_col = p.createCollisionShape(
                 p.GEOM_BOX,
                 halfExtents=wall_half,
@@ -427,13 +504,11 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
                                            halfExtents=wall_half,
                                            rgbaColor=cls.chute_color,
                                            physicsClientId=physics_client_id)
-            wall_x = cls.box_xy[0] + sign * (cls.chute_half_gap +
-                                             cls.chute_wall_half_thickness)
             chute_ids.append(
                 p.createMultiBody(baseMass=0.0,
                                   baseCollisionShapeIndex=wall_col,
                                   baseVisualShapeIndex=wall_vis,
-                                  basePosition=(wall_x, cls.box_xy[1], wall_z),
+                                  basePosition=wall_position,
                                   physicsClientId=physics_client_id))
         bodies["chute_ids"] = chute_ids
         band_visual = p.createVisualShape(p.GEOM_BOX,
@@ -536,6 +611,26 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
         return sorted((o for o in state if o.type.name == "clip"),
                       key=lambda o: o.name)
 
+    @classmethod
+    def clip_index(cls, state: State, balloon: Object) -> int:
+        """The index of the clip that frees ``balloon`` (its ``clip``
+        feature)."""
+        return int(round(state.get(balloon, "clip")))
+
+    def bundles(self, state: State) -> List[List[int]]:
+        """The balloon indices each active clip frees, by clip index."""
+        balloons = self._active_balloons(state)
+        out: List[List[int]] = [[] for _ in self._active_clips(state)]
+        for i, balloon in enumerate(balloons):
+            clip = self.clip_index(state, balloon)
+            if 0 <= clip < len(out):
+                out[clip].append(i)
+        return out
+
+    def is_bundled(self, state: State) -> bool:
+        """Whether some clip frees more than one balloon."""
+        return any(len(bundle) > 1 for bundle in self.bundles(state))
+
     def _speed(self, obj: Object) -> float:
         (vx, vy,
          vz), _ = p.getBaseVelocity(obj.id,
@@ -562,6 +657,8 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
         if obj.type.name == "balloon":
             if feature == "color":
                 return float(self._balloon_colors.get(obj.name, 0))
+            if feature == "clip":
+                return float(self._balloon_clips.get(obj.name, 0))
             if feature == "tied":
                 return float(self._tied.get(obj.name, False))
             if feature == "popped":
@@ -586,22 +683,26 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
                             rgbaColor=self.BOX_PALETTE[self._box_color][1],
                             physicsClientId=self._physics_client_id)
         balloons = self._active_balloons(state)
+        clips = self._active_clips(state)
         self._balloon_colors = {}
+        self._balloon_clips = {}
         self._tied = {}
         self._popped = {}
         for balloon in balloons:
             self._balloon_colors[balloon.name] = int(
                 round(state.get(balloon, "color")))
+            self._balloon_clips[balloon.name] = self.clip_index(state, balloon)
             self._tied[balloon.name] = state.get(balloon, "tied") > 0.5
             self._popped[balloon.name] = state.get(balloon, "popped") > 0.5
             self._paint_balloon(balloon)
-        for clip in self._active_clips(state):
+        for clip in clips:
             self._set_clip_on(clip, state.get(clip, "is_on") > 0.5)
         oov_x, oov_y = self._out_of_view_xy
         for i in range(len(balloons), len(self._balloons)):
             update_object(self._balloons[i].id,
                           position=(oov_x, oov_y, 0.2 * i),
                           physics_client_id=self._physics_client_id)
+        for i in range(len(clips), len(self._clips)):
             update_object(self._clips[i].id,
                           position=(oov_x, oov_y + 1.0, 0.2 * i),
                           physics_client_id=self._physics_client_id)

@@ -1,0 +1,18 @@
+# Bridge span transfer, round 2: Opus MB (gated) and MF on a three-span
+# training row and a four-span test row with the Sept 16 four-span repairs
+# (envs/continual.yaml: bridge_span_transfer). Seed 0 ran from the pilot
+# worktree on Sept 16 (MB 2/2 in 3302 steps, MF 2/2 in 4292); the work was
+# ported to the main tree on Sept 17. Set START_SEED / NUM_SEEDS for more.
+# python scripts/engaging/launch.py -c predicatorv3/continual_bridge_span_transfer_r2.yaml --partition mit_preemptable --accounts b,c
+includes:
+  - continual_common.yaml
+  - envs/continual.yaml
+  - approaches/continual.yaml
+ENVS:
+  bridge_span_transfer:
+    SKIP: false
+APPROACHES:
+  mb_opus_span_transfer_r2:
+    EXTENDS: mb_opus
+  mf_opus_span_transfer_r2:
+    EXTENDS: mf_opus

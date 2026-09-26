@@ -1,14 +1,17 @@
 """Helper predicates exposing the balloons' lift law to the oracle planner.
 
-Which balloons hang the box in the band is the thing the domain hides;
+Which clips hang the box in the band is the thing the domain hides;
 the oracle receives it as helper predicates, which agent approaches
 never see:
 
-* ``Needed(?balloon, ?band)`` - the balloon is in the unique subset
-  whose lift, by the analytic law, hangs the box inside the band;
-* ``Holds(?clip, ?balloon)`` - the clip is the one in front of the
-  balloon, the one that frees it;
-* ``AllNeededTied(?band)`` (derived) - every needed balloon is freed.
+* ``Needed(?clip, ?band)`` - the clip is in the reference subset whose
+  balloons, by the witnessed rollouts, hang the box inside the band;
+* ``Holds(?clip, ?balloon)`` - the clip is the one that frees the
+  balloon (its ``clip`` feature; a bundle shares one clip);
+* ``AllNeededOpen(?band)`` (derived) - every needed clip is open.
+
+The helpers are over clips, not balloons, so one Release frees a whole
+bundle without the planner having to know how many balloons it holds.
 """
 
 from __future__ import annotations
@@ -27,22 +30,21 @@ def _index(obj: Object) -> int:
 
 
 def _needed_holds(state: State, objects: Sequence[Object]) -> bool:
-    balloon, _ = objects
+    clip, _ = objects
     subset = probe_env().solution_subset(state)
-    return subset is not None and _index(balloon) in subset
+    return subset is not None and _index(clip) in subset
 
 
 def _holds_holds(state: State, objects: Sequence[Object]) -> bool:
-    del state
     clip, balloon = objects
-    return _index(clip) == _index(balloon)
+    return _index(clip) == PyBulletBalloonsEnv.clip_index(state, balloon)
 
 
 def _named(atoms: Iterable[GroundAtom], name: str) -> List[GroundAtom]:
     return [a for a in atoms if a.predicate.name == name]
 
 
-def _all_needed_tied_holds(atoms: Set[GroundAtom],
+def _all_needed_open_holds(atoms: Set[GroundAtom],
                            objects: Sequence[Object]) -> bool:
     band, = objects
     needed = [
@@ -50,8 +52,8 @@ def _all_needed_tied_holds(atoms: Set[GroundAtom],
     ]
     if not needed:
         return False
-    tied = {a.objects[0] for a in _named(atoms, "Tied")}
-    return all(b in tied for b in needed)
+    on = {a.objects[0] for a in _named(atoms, "ClipOn")}
+    return all(c in on for c in needed)
 
 
 def _never(state: State, objects: Sequence[Object]) -> bool:
@@ -74,16 +76,16 @@ class PyBulletBalloonsGroundTruthPredicateFactory(GroundTruthPredicateFactory):
         clip_type = types["clip"]
         band_type = types["band"]
         Needed = Predicate(
-            "Needed", [balloon_type, band_type],
+            "Needed", [clip_type, band_type],
             _needed_holds,
             natural_language_assertion=lambda os:
-            f"balloon {os[0]} is one of those that hang the box in {os[1]}")
+            f"clip {os[0]} frees balloons that hang the box in {os[1]}")
         Holds = Predicate("Holds", [clip_type, balloon_type],
                           _holds_holds,
                           natural_language_assertion=lambda os:
                           f"clip {os[0]} holds balloon {os[1]}")
-        Tied = Predicate("Tied", [balloon_type], _never)
-        AllNeededTied = DerivedPredicate("AllNeededTied", [band_type],
-                                         _all_needed_tied_holds,
-                                         auxiliary_predicates={Needed, Tied})
-        return {Needed, Holds, AllNeededTied}
+        ClipOn = Predicate("ClipOn", [clip_type], _never)
+        AllNeededOpen = DerivedPredicate("AllNeededOpen", [band_type],
+                                         _all_needed_open_holds,
+                                         auxiliary_predicates={Needed, ClipOn})
+        return {Needed, Holds, AllNeededOpen}

@@ -11,8 +11,8 @@ from predicators.approaches import create_approach
 from predicators.approaches.base_approach import BaseApproach
 from predicators.datasets import create_dataset
 from predicators.envs import BaseEnv, create_new_env
-from predicators.ground_truth_models import get_gt_options, \
-    parse_config_included_options
+from predicators.ground_truth_models import arm_skill_library, \
+    get_gt_options, parse_config_included_options
 from predicators.perception import create_perceiver
 from predicators.pybullet_helpers.real_robot_executor import attach_real_robot
 from predicators.settings import CFG
@@ -73,9 +73,11 @@ def select_predicates(env: BaseEnv) -> Set[Predicate]:
 
 
 def _options(env: BaseEnv) -> Set:
-    if CFG.option_learner == "no_learning":
-        return get_gt_options(env.get_name())
-    return parse_config_included_options(env)
+    if CFG.option_learner != "no_learning":
+        return parse_config_included_options(env)
+    # CFG.skill_library is the agent arms' interface; the other
+    # approaches keep the composite skills (arm_skill_library).
+    return get_gt_options(env.get_name(), skill_library=arm_skill_library())
 
 
 def setup_approach(env: BaseEnv, preds: Set[Predicate],

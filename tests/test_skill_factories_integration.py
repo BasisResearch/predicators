@@ -24,18 +24,22 @@ NOTE on pybullet_control_mode:
 from __future__ import annotations
 
 import functools
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
 import pytest
 
 from predicators import utils
+from predicators.datasets import create_dataset
 from predicators.envs import _MOST_RECENT_ENV_INSTANCE
 from predicators.envs.pybullet_boil import PyBulletBoilEnv
 from predicators.envs.pybullet_coffee import PyBulletCoffeeEnv
 from predicators.envs.pybullet_fan import PyBulletFanEnv
 from predicators.envs.pybullet_grow import PyBulletGrowEnv
 from predicators.ground_truth_models import get_gt_options
+from predicators.run.setup import _options as setup_options
+from predicators.structs import Object
 
 _GUI_ON = False  # Set True for visual debugging
 
@@ -195,20 +199,22 @@ class _ExposedFanEnv(_ExposedEnvMixin, PyBulletFanEnv):  # type: ignore[misc]
 # that call utils.reset_config with "position" mode.
 # ---------------------------------------------------------------------------
 
+_BOIL_CONFIG = {
+    "env": "pybullet_boil",
+    "use_gui": _GUI_ON,
+    "pybullet_control_mode": "reset",
+    "pybullet_robot": "fetch",
+    "boil_use_skill_factories": True,
+    "boil_num_jugs_train": [1],
+    "boil_num_jugs_test": [1],
+    "boil_num_burner_train": [1],
+    "boil_num_burner_test": [1],
+}
+
 
 @pytest.fixture(scope="module", name="boil_env")
 def _create_boil_env():
-    utils.reset_config({
-        "env": "pybullet_boil",
-        "use_gui": _GUI_ON,
-        "pybullet_control_mode": "reset",
-        "pybullet_robot": "fetch",
-        "boil_use_skill_factories": True,
-        "boil_num_jugs_train": [1],
-        "boil_num_jugs_test": [1],
-        "boil_num_burner_train": [1],
-        "boil_num_burner_test": [1],
-    })
+    utils.reset_config(_BOIL_CONFIG)
     return _ExposedBoilEnv(use_gui=_GUI_ON)
 
 
@@ -389,6 +395,40 @@ def test_place_jug_boil_on_burner(boil_env):
 
     assert result.get(jug, "is_held") < 0.5, "Jug should no longer be held"
     assert result.get(robot, "fingers") > 0.015, "Fingers should be open"
+    # Place targets the jug's centre, not the handle the gripper holds
+    # (jug_handle_offset away along the jug's yaw).
+    assert abs(result.get(jug, "x") - bx) < 0.02
+    assert abs(result.get(jug, "y") - by) < 0.02
+
+
+def test_place_jug_boil_under_faucet(boil_env):
+    """A jug placed at the faucet outlet is under the faucet: the fill check,
+    not the handle pose, decides where the water goes."""
+    env = boil_env
+    jug = env._jugs[0]
+    robot = env._robot
+    faucet = env._faucet
+    state = env.get_train_tasks()[0].init.copy()
+    state.set(jug, "x", env.x_mid)
+    state.set(jug, "y", env.y_mid)
+    state.set(jug, "z", env.jug_init_z)
+    state.set(jug, "rot", 0.0)
+    state.set(jug, "is_held", 0.0)
+    state.set(jug, "water_volume", 0.0)
+    state.set(jug, "heat_level", 0.0)
+    env.set_state(state)
+    env.execute_option(env.PickJug.ground([robot, jug], _PICK_PARAMS))
+    ox, oy = env._faucet_outlet_xy(state, faucet)
+    release_z = max(env.table_height + env.jug_handle_height, 0.5)
+    # Handle toward the robot (yaw -pi/2, the oracle's choice): the outlet
+    # sits at the arm's reach limit, so a handle pointing away is out of
+    # reach once the held offset is compensated.
+    result = env.execute_option(
+        env.Place.ground([robot], [ox, oy, release_z, -1.57]))
+    assert result.get(jug, "is_held") < 0.5
+    assert np.hypot(result.get(jug, "x") - ox, result.get(jug, "y") - oy) \
+        < 0.03
+    assert env._JugAtFaucet_holds(result, [jug, faucet])
 
 
 def test_place_jug_boil_outside(boil_env):
@@ -447,6 +487,75 @@ def test_pick_place_full_cycle_boil(boil_env):
 
     s3 = env.execute_option(env.PickJug.ground([robot, jug], _PICK_PARAMS))
     assert s3.get(jug, "is_held") > 0.5, "Should be held after second pick"
+
+
+def test_primitive_library_picks_jug_boil(boil_env):
+    """Under skill_library=primitive the domain-general skills pick the jug
+    with no jug knowledge in the controller: MoveTo above the handle, open the
+    Gripper, MoveTo down to the handle, close the Gripper (the env's pinch rule
+    attaches the jug), MoveLinear straight up."""
+    env = boil_env
+    jug = env._jugs[0]
+    robot = env._robot
+
+    state = env.get_train_tasks()[0].init.copy()
+    state.set(jug, "x", env.x_mid)
+    state.set(jug, "y", env.y_mid)
+    state.set(jug, "z", env.jug_init_z)
+    state.set(jug, "rot", 0.0)
+    state.set(jug, "is_held", 0.0)
+    state.set(jug, "water_volume", 0.0)
+    state.set(jug, "heat_level", 0.0)
+    env.set_state(state)
+
+    utils.update_config({"skill_library": "primitive"})
+    try:
+        opts = {o.name: o for o in get_gt_options(env.get_name())}
+        assert sorted(opts) == [
+            "Gripper", "MoveLinear", "MoveTo", "MoveUntilContact", "Wait"
+        ]
+        # Env-internal probes can still ask for the composite controllers.
+        composite = {
+            o.name
+            for o in get_gt_options(env.get_name(), skill_library="composite")
+        }
+        assert "PickJug" in composite and "Gripper" not in composite
+        cur = env.get_state()
+        tilt = cur.get(robot, "tilt")
+        # The handle grasp pose the composite PickJug computes internally,
+        # here supplied by the caller as plain world coordinates.
+        gx = env.x_mid + PyBulletBoilEnv.jug_handle_offset
+        gy = env.y_mid
+        gz = PyBulletBoilEnv.table_height + PyBulletBoilEnv.jug_handle_height
+        above_z = PyBulletBoilEnv.z_ub - 0.35
+        open_w = PyBulletBoilEnv.open_fingers
+        closed_w = PyBulletBoilEnv.closed_fingers
+
+        def run(name, params):
+            return env.execute_option(opts[name].ground([robot], list(params)))
+
+        after = run("MoveTo", [gx, gy, above_z, 0.0, tilt])
+        assert np.allclose([
+            after.get(robot, "x"),
+            after.get(robot, "y"),
+            after.get(robot, "z")
+        ], [gx, gy, above_z],
+                           atol=0.02)
+        after = run("Gripper", [open_w, 20.0])
+        assert after.get(robot, "fingers") > 0.5 * (open_w + closed_w)
+        assert after.get(jug, "is_held") < 0.5
+        run("MoveTo", [gx, gy, gz, 0.0, tilt])
+        after = run("Gripper", [closed_w, 20.0])
+        assert after.get(jug, "is_held") > 0.5, "Gripper close did not grasp"
+        jug_z_before = after.get(jug, "z")
+        after = run("MoveLinear", [0.0, 0.0, 0.05, 0.01])
+        assert after.get(jug, "is_held") > 0.5, "Jug dropped during the lift"
+        assert after.get(jug, "z") > jug_z_before + 0.03
+        # Opening releases it and the jug comes to rest again.
+        after = run("Gripper", [open_w, 20.0])
+        assert after.get(jug, "is_held") < 0.5
+    finally:
+        utils.update_config({"skill_library": "composite"})
 
 
 def test_place_skill_not_terminal_before_pick_boil(boil_env):
@@ -790,6 +899,75 @@ def test_push_switch_skill_initiable_boil(boil_env):
     cur = env.get_state()
     option = env.SwitchFaucetOn.ground([robot, faucet], _PUSH_PARAMS)
     assert option.initiable(cur)
+
+
+def test_switch_lookup_by_name_not_caller_instance_boil(boil_env):
+    """Switch skills find their switch in the state by name, so a grounding
+    over another view's Object instances runs.
+
+    The continual harness parses the agent's skill line against its
+    observed frame, whose objects carry none of the env's simulator
+    attributes (a recording's public view rebuilds them without
+    sim_features; a fresh per-episode env never wrote on them). The old
+    lookup read ``switch_id`` off the caller's instance and raised
+    AttributeError on every SwitchFaucetOn / SwitchBurnerOn.
+    """
+    env = boil_env
+    state = env.get_train_tasks()[0].init.copy()
+
+    def public(obj: Object) -> Object:
+        return Object(obj.name, replace(obj.type, sim_features=()))
+
+    robot = public(env._robot)
+    faucet = public(env._faucet)
+    burner = public(env._burners[0])
+    assert not hasattr(faucet, "switch_id")
+    faucet_switch = env._faucet_switch
+    burner_switch = env._burner_switches[0]
+
+    for opt, objs, switch, on in [
+        (env.SwitchFaucetOn, [robot, faucet], faucet_switch, 0.0),
+        (env.SwitchFaucetOff, [robot, faucet], faucet_switch, 1.0),
+        (env.SwitchBurnerOn, [robot, burner], burner_switch, 0.0),
+        (env.SwitchBurnerOff, [robot, burner], burner_switch, 1.0),
+    ]:
+        start = state.copy()
+        start.set(switch, "is_on", on)
+        env.set_state(start)
+        option = opt.ground(objs, _PUSH_PARAMS)
+        result = env.execute_option(option)
+        assert option.terminal(result)
+
+    assert PyBulletBoilEnv.get_switch(state, faucet) == faucet_switch
+    assert PyBulletBoilEnv.get_switch(state, burner) == burner_switch
+
+    # A fresh env instance (test_fresh_env_per_episode) runs the same
+    # grounding on its own observation. It is built from the current CFG,
+    # which the other module fixtures have replaced by now; the default
+    # jug counts would give it a different body layout from the shared
+    # tasks, so restore the fixture's config first.
+    utils.reset_config(_BOIL_CONFIG)
+    fresh = env.make_fresh_test_instance()
+    assert fresh is not None
+    try:
+        fresh.reset("train", 0)
+        option = env.SwitchFaucetOn.ground([robot, faucet], _PUSH_PARAMS)
+        result = fresh.execute_option(option)
+        assert option.terminal(result)
+    finally:
+        fresh.dispose()
+        _MOST_RECENT_ENV_INSTANCE[env.get_name()] = env
+
+    # A state without the switch fails the skill, not the lookup.
+    no_switch = utils.PyBulletState(
+        {o: state[o]
+         for o in state if o.name != "faucet_switch"},
+        simulator_state=state.simulator_state)
+    env.set_state(no_switch)
+    option = env.SwitchFaucetOn.ground([robot, faucet], _PUSH_PARAMS)
+    with pytest.raises(utils.OptionExecutionFailure, match="faucet_switch"):
+        env.execute_option(option)
+    env.set_state(state)
 
 
 # ===========================================================================
@@ -1651,3 +1829,56 @@ def test_human_option_control_scripted_domino_solves_task():
     )
 
     assert solved, ("Scripted domino2.txt plan should solve the 1st test task")
+
+
+def test_offline_dataset_under_primitive_library_uses_composite_oracle(
+        boil_env, tmp_path):
+    """The offline-dataset step builds the demonstrator oracle even with no
+    demos requested; under skill_library=primitive it must plan with the
+    composite skills the ground-truth process factory indexes by name (every
+    Sept 16, 2026 primitive pilot crashed here with KeyError)."""
+    env = boil_env
+    utils.update_config({
+        # The demonstrator oracle reads CFG.env, which an earlier test in
+        # this module may have pointed at another environment.
+        "env": env.get_name(),
+        "skill_library": "primitive",
+        "offline_data_method": "demo",
+        "demonstrator": "oracle",
+        "max_initial_demos": 0,
+        "load_data": False,
+        "data_dir": str(tmp_path),
+    })
+    try:
+        train_tasks = [t.task for t in env.get_train_tasks()]
+        learner_options = get_gt_options(env.get_name())
+        assert {o.name
+                for o in learner_options} == {
+                    "Gripper", "MoveLinear", "MoveTo", "MoveUntilContact",
+                    "Wait"
+                }
+        dataset = create_dataset(env, train_tasks, learner_options,
+                                 env.predicates)
+        assert len(dataset.trajectories) == 0
+    finally:
+        utils.update_config({"skill_library": "composite"})
+
+
+def test_setup_options_follow_the_arm(boil_env):
+    """skill_library=primitive is the agent arms' interface; the oracle and the
+    other NSRT or process planners keep the composite skills."""
+    env = boil_env
+    primitive = {"Gripper", "MoveLinear", "MoveTo", "MoveUntilContact", "Wait"}
+    utils.update_config({"skill_library": "primitive", "approach": "oracle"})
+    try:
+        names = {o.name for o in setup_options(env)}
+        assert "PickJug" in names and not names & (primitive - {"Wait"})
+        utils.update_config({"approach": "agent_continual"})
+        assert {o.name for o in setup_options(env)} == primitive
+        utils.update_config({"approach": "agent_continual_model_free"})
+        assert {o.name for o in setup_options(env)} == primitive
+    finally:
+        utils.update_config({
+            "skill_library": "composite",
+            "approach": "oracle"
+        })

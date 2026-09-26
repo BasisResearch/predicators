@@ -94,8 +94,6 @@ class PyBulletLauncherGroundTruthOptionFactory(GroundTruthOptionFactory):
             # the depth parameter means what it says.
             move_to_pose_tol=2.5e-5,
             # A Wait ends once the ball and the blocks have settled.
-            wait_quiescence_eps=1e-4,
-            wait_quiescence_steps=10,
             # Fingers first at the handle: knuckles-first would put the
             # hand's whole width along the rail, reaching the ball.
             extra={"push_ee_yaw_offset": 0.0},

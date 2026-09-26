@@ -76,7 +76,7 @@ def evaluate_states_with(evaluator: Any,
     note_fn = getattr(evaluator, "verdict_note", None)
     note = note_fn(states, step_options, sim_env=sim_env) if note_fn else ""
     return {
-        "terminated": evaluator.terminated(states[-1]),
+        "terminated": evaluator.terminated_trajectory(states),
         "reward": evaluator.reward(states, step_options, sim_env=sim_env),
         "solved": evaluator.solved(states, step_options, sim_env=sim_env),
         "legitimate": ok,

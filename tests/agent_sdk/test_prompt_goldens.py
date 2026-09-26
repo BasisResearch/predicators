@@ -120,13 +120,20 @@ def _check_golden(name: str, text: str) -> None:
 
 
 def test_templates_use_plain_dashes_and_declared_sections() -> None:
-    """Templates contain no em dashes, and every section is named once."""
+    """Templates contain no em dashes, and every section is named once.
+
+    A file without section markers is a reference document handed to the
+    agent verbatim (``public_skills.md``), not a template; it still
+    keeps to plain dashes.
+    """
     paths = sorted(glob.glob(os.path.join(_PROMPTS_DIR, "*.md")))
     assert paths
     for path in paths:
         with open(path, "r", encoding="utf-8") as f:
             text = f.read()
         assert "—" not in text, path
+        if "<!-- section:" not in text:
+            continue
         name = os.path.splitext(os.path.basename(path))[0]
         assert load_sections(name)
 

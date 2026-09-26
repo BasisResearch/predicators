@@ -229,9 +229,10 @@ def test_option_model_and_execution_agree_on_failing_place_params(caplog):
     also fail.
 
     The original bug: refinement said the plan was feasible, but
-    execution hit a cup collision. With state-derived BiRRT seeds and
-    post-BiRRT planning-sim restoration, the two paths now share enough
-    determinism that they should agree.
+    execution hit a cup collision. Place now targets the jug's centre
+    and checks the held jug's clearance at the drop pose, so the option
+    model rejects these parameters at Place itself, before the
+    SwitchBurnerOn that used to collide with the placed jug.
     """
     from predicators.option_model import _OracleOptionModel
 
@@ -256,7 +257,6 @@ def test_option_model_and_execution_agree_on_failing_place_params(caplog):
     options = {o.name: o for o in get_gt_options(env.get_name())}
 
     jug = env._jugs[0]
-    burner = env._burners[0]
     robot = env._robot
 
     # Build an option model around the env.
@@ -280,23 +280,13 @@ def test_option_model_and_execution_agree_on_failing_place_params(caplog):
         options["Place"].ground([robot],
                                 np.array([0.5313, 1.2899, 0.5659, 2.5974],
                                          dtype=np.float32)))
-    assert na > 0, "Place should succeed under option_model"
-
-    # Now ask option_model to roll out SwitchBurnerOn with the failing
-    # params. If the fix is working, both option_model and execution see
-    # the same geometric collision → option_model returns 0 actions,
-    # refinement would backtrack.
-    _, na = option_model.get_next_state_and_num_actions(
-        state, options["SwitchBurnerOn"].ground([robot, burner],
-                                                np.array([0.0413, 0.1016],
-                                                         dtype=np.float32)))
-
     fail_reason = option_model.last_execution_failure
     assert na == 0, (
-        f"option_model should also see the SwitchBurnerOn collision for "
-        f"this Place pose. Instead it returned {na} actions, which would "
-        f"have lied to the refinement step. fail_reason={fail_reason!r}")
+        f"option_model should reject a Place whose held jug touches the "
+        f"burner switch. Instead it returned {na} actions, which would "
+        f"have lied to the refinement step.")
     assert fail_reason is not None
     assert "BiRRT collision" in fail_reason, (
         f"Expected BiRRT-collision failure under option_model, got: "
         f"{fail_reason!r}")
+    assert "burner_switch" in fail_reason, fail_reason

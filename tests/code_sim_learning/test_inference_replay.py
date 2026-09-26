@@ -37,12 +37,22 @@ class _MovingModel(BalloonsResidualEnv):
 
 
 class _MetadataModel(_MovingModel):
-    """A candidate environment that writes its own object metadata."""
+    """A candidate environment that writes its own object metadata.
+
+    A public (sanitized) state is rebound to this world's own objects on
+    restoration, so the metadata lives on ``self._objects``, never on
+    the caller's Object instances. ``marked`` records the objects each
+    instance wrote on, since the candidate world is disposed after the
+    replay.
+    """
+
+    marked: ClassVar[List[Any]] = []
 
     def _set_state(self, state):
         super()._set_state(state)
-        for obj in state:
+        for obj in self._objects:
             obj.sim_data["replay_marker"] = "candidate"
+        type(self).marked = list(self._objects)
 
 
 class _GroupedModel(_MovingModel):
@@ -232,11 +242,21 @@ def test_candidate_joint_state_must_be_consistent(moving_env):
 
 
 def test_candidate_owns_object_metadata(moving_env):
-    """A candidate's restore hook cannot modify its input or source world."""
+    """A candidate's restore hook cannot modify its input or source world.
+
+    The marker lands on the candidate's own objects; the captured output
+    is public, so no engine metadata reaches the caller either.
+    """
     initial = capture_replay_state(moving_env)
+    _MetadataModel.marked = []
     output, = replay_candidate(_MetadataModel, initial, [], {})
-    assert all(obj.sim_data["replay_marker"] == "candidate"
-               for obj in output.state if obj.type.name != "robot")
+    marked = _MetadataModel.marked
+    assert marked and all(obj.sim_data["replay_marker"] == "candidate"
+                          for obj in marked)
+    assert not any(obj is other for obj in marked
+                   for other in list(initial.state) + moving_env._objects)
+    assert all(not obj.type.sim_features and not obj.sim_data
+               for obj in output.state)
     assert all("replay_marker" not in obj.sim_data for obj in initial.state)
     assert all("replay_marker" not in obj.sim_data
                for obj in moving_env._objects)

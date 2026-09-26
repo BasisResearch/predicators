@@ -55,3 +55,13 @@ Supplied environment predicates and invented predicates remain distinct even if 
 A classifier can accept a keyword argument named exactly `latent` to read inferred model memory, for example `lambda state, objs, latent=None: (latent or {}).get(objs[0].name, {}).get("charge", 0.0) >= params["done"]`.
 `sim.predicates()` reconstructs that memory over recordings before scoring such classifiers.
 Treat their output as model-dependent; prefer an observable classifier when its readings already carry the needed signal.
+
+<!-- section: no_numerical_fitting -->
+### No numerical parameter fitting
+
+Set and revise parameter point estimates and plausible ranges yourself from recorded experience.
+The harness uses each declaration's `init_value` and `[lo, hi]` directly.
+`sim.fit`, fitted residuals, and automatic parameter sweeps are disabled.
+Do not implement an optimizer or a numerical parameter search in sandbox code.
+Use qualitative checks against recordings and model rollouts to revise the declarations.
+Uncertainty-aware planning over your declared ranges remains available.
