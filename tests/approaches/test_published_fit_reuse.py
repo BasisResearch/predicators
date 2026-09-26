@@ -79,7 +79,6 @@ def test_reused_physics_fit_restores_the_margin_gate_state(
     (applying resets them), so the capture gate's margin sweep survives the
     skip of the harness refit."""
     utils.reset_config({
-        "agent_sim_learn_oracle_sim_params": False,
         "agent_explorer_info_seeking": False,
     })
     sim_file = tmp_path / "simulator.py"
@@ -94,7 +93,6 @@ def test_reused_physics_fit_restores_the_margin_gate_state(
     # and make the identity assert below unreachable for mypy.
     setattr(approach, "_last_fit_result", None)
     approach._fit_sse = float("inf")
-    approach._cycle_applied_physical = {}
     approach._identified_physical_sigma_points = []
     approach._rng = np.random.default_rng(0)
     applied_calls = []
@@ -127,7 +125,6 @@ def test_reused_physics_fit_restores_the_margin_gate_state(
     assert approach._last_fit_result is fit
     assert approach._fit_sse == 0.5
     assert applied_calls == [{"mu": 0.7}]
-    assert approach._cycle_applied_physical == {"mu": 0.7}
     assert approach._identified_physical_sigma_points == sigma
 
 
@@ -147,7 +144,7 @@ def test_publish_without_a_fit_result_never_deploys(tmp_path: Any) -> None:
 def test_unfitted_deployment_carries_values_and_clears_evidence(
         tmp_path: Any, monkeypatch: Any, has_data: bool) -> None:
     """Edits retain compatible values, initialize new specs, and retire the old
-    model's posterior without calling any fitting backend."""
+    model's posterior."""
     utils.reset_config({"agent_sim_learn_param_uncertainty": False})
     sim_file = tmp_path / "simulator.py"
     sim_file.write_text("before", encoding="utf-8")
@@ -161,8 +158,6 @@ def test_unfitted_deployment_carries_values_and_clears_evidence(
     setattr(approach, "_last_fit_result", old_fit)
     approach._identified_physical_params = {"mu": .7, "removed": 9.}
     approach._identified_physical_sigma_points = [{"mu": .6}]
-    approach._cycle_applied_physical = dict(
-        approach._identified_physical_params)
     approach._physical_param_specs = [ParamSpec("mu", .5, 0., 1.)]
     specs = [
         ParamSpec("k", 1., 0., 2.),
@@ -179,20 +174,11 @@ def test_unfitted_deployment_carries_values_and_clears_evidence(
         approach._identified_physical_params = dict(params)
         approach._identified_physical_sigma_points = []
 
-    def forbidden(*_args, **_kwargs):
-        pytest.fail("Deployment must not fit")
-
     monkeypatch.setattr(approach, "_apply_identified_physical_params", apply)
-    monkeypatch.setattr(approach, "_fit_parameters_joint_rollout", forbidden)
-    monkeypatch.setattr(approach, "_fit_parameters_recurrent", forbidden)
-    monkeypatch.setattr(
-        "predicators.approaches.agent_sim_learning_approach"
-        ".fit_rule_parameters", forbidden)
     triples: Any = [(None, None, None)] if has_data else []
     approach._fit_params_after_synthesis([], specs, triples, {})
     assert approach._fitted_params == {"k": 1.5, "bounded": 2., "new": .25}
     assert applied == [{"mu": .7}]
-    assert approach._cycle_applied_physical == {"mu": .7}
     assert not approach._identified_physical_sigma_points
     assert approach._last_fit_result is None
     assert approach._fit_sse == float("inf")

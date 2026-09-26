@@ -20,7 +20,6 @@ from predicators.agent_sdk.tools import ToolContext, _ParamsView, \
     create_mcp_tools
 from predicators.approaches.agent_sim_learning_approach import \
     AgentSimLearningApproach
-from predicators.code_sim_learning.fit_space import FitResult
 from predicators.option_model import _OptionModelBase
 from predicators.structs import Object, State, Task, Type
 
@@ -83,7 +82,7 @@ def test_probe_reset_requires_task_idx_during_synthesis() -> None:
     assert sim._state is not None
 
 
-def test_candidate_probe_model_provider_glue(tmp_path, monkeypatch) -> None:
+def test_candidate_probe_model_provider_glue(tmp_path) -> None:
     """The provider gates on a loadable simulator.py, caches by content hash,
     rebuilds on change, and NEVER fits: the candidate runs at carried-over.
 
@@ -92,36 +91,19 @@ def test_candidate_probe_model_provider_glue(tmp_path, monkeypatch) -> None:
     runs at the fitted values (status fitted).
 
     Exercises the real ``_make_candidate_probe_model_provider`` and the
-    real file loader; only the fit/build layer below
-    ``build_candidate_option_model`` is stubbed (its body is the shared
-    ``evaluate_plan_refinement`` path).
+    real file loader; only the option-model build layer below
+    ``build_candidate_option_model`` is stubbed.
     """
     approach = object.__new__(AgentSimLearningApproach)
     approach._fitted_params = {}
     approach._latent_init = None
     approach._tool_context = ToolContext()
-    fit_calls = {"n": 0}
-
-    def _fake_fit(rules, specs, triples, features):
-        del rules, triples, features
-        fit_calls["n"] += 1
-        names = [s.name for s in specs]
-        return FitResult(names=names,
-                         samples=np.array([[s.init_value for s in specs]]),
-                         log_probs=np.array([0.0])), 0.0
-
-    monkeypatch.setattr(
-        "predicators.approaches.synthesis_validation.fit_rule_parameters",
-        _fake_fit)
     setattr(approach, "_build_combined_simulator", lambda learned: learned)
     setattr(approach, "_build_option_model", lambda sim: ("model", sim))
 
     simulator_file = str(tmp_path / "simulator.py")
-    provider = approach._make_candidate_probe_model_provider(
-        simulator_file,
-        trajectories=[],
-        base_pred_triples=[],
-        inferred_hint={"thing": ["x"]})
+    provider = approach._make_candidate_probe_model_provider(simulator_file,
+                                                             trajectories=[])
 
     # No file yet: hard error, never a fallback model.
     with pytest.raises(RuntimeError, match="no candidate simulator yet"):
@@ -142,7 +124,6 @@ def test_candidate_probe_model_provider_glue(tmp_path, monkeypatch) -> None:
         f.write(valid)
     model = provider()
     # No implicit fit: declared init value, and the status says so.
-    assert fit_calls["n"] == 0
     assert approach._fitted_params == {"k": 1.0}
     status = approach._tool_context.probe_param_status
     assert status is not None and status.startswith("UNFITTED")
@@ -159,7 +140,6 @@ def test_candidate_probe_model_provider_glue(tmp_path, monkeypatch) -> None:
     assert approach._fitted_params == {"k": 1.7}
     assert approach._tool_context.probe_param_status == \
         "fitted (cycle_000_vers_002)"
-    assert fit_calls["n"] == 0
 
     # A rejected fit remains unvalidated through rebuild and cache reuse.
     approach._publish_probe_fit({"k": 1.0},
@@ -179,7 +159,6 @@ def test_candidate_probe_model_provider_glue(tmp_path, monkeypatch) -> None:
     provider()
     assert approach._tool_context.probe_param_status.startswith("PARTIAL FIT")
     assert "2/3" in approach._tool_context.probe_param_status
-    assert fit_calls["n"] == 0
 
     # Changed content: rebuilt UNFITTED, carrying the last fit's value
     # for a param that still exists inside its box.

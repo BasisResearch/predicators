@@ -208,7 +208,7 @@ VALIDATE_SANDBOX_SCRIPT = (_VALIDATE_SANDBOX_TEMPLATE.replace(
 # this vetoes the interpreter's own import and open events, so a script
 # cannot reach the hidden predicators modules, their source, or the
 # harness's run artifacts through computed paths or ``importlib``. Still
-# best effort: OS-level isolation (the docker sandbox) is the hard line.
+# best effort: it is not OS-level isolation.
 # ---------------------------------------------------------------------------
 
 PYGUARD_DIRNAME = os.path.join(".claude", "pyguard")

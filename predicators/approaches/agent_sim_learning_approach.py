@@ -1,26 +1,17 @@
-"""Agent sim-learning approach: learns a simulator program online.
+"""The model half of the EMPIRIC arms: the agent's simulator program, its
+fitted parameters and the belief over them.
 
-Extends AgentModelBasedApproach to learn residual dynamics via an
-agent-synthesized step-level simulator with parameterized process
-rules. Parameters are fitted by Levenberg-Marquardt (fitting.py).
-
-The approach creates a base oracle (PyBullet with process
-dynamics disabled) and composes it with the learned step-level
-dynamics into a single simulator function, plugged into a standard
-_OracleOptionModel for true per-step interleaving.
-
-Example command::
-
-    python predicators/main.py --env pybullet_boil \
-        --approach agent_sim_learning --seed 0 \
-        --num_train_tasks 10 --num_test_tasks 5 \
-        --num_online_learning_cycles 5 --explorer agent_model_free
+The agent writes a simulator (a subclass of the base env, or residual
+rules over it); the harness loads it, fits or deploys its parameters,
+keeps their uncertainty, and composes it with a base oracle (PyBullet
+with process dynamics disabled) into the option model plans are
+rehearsed in. The continual arms (``agent_continual_approach``) drive
+all of it from their play rounds.
 """
 
 import copy
 import dataclasses
 import hashlib
-import inspect
 import logging
 import math
 import os
@@ -29,7 +20,6 @@ from contextlib import contextmanager
 from typing import Any, Callable, Collection, ContextManager, Dict, \
     FrozenSet, Iterator, List, Optional, Sequence, Set, Tuple
 
-import dill as pkl
 import numpy as np
 import pybullet
 from gym.spaces import Box
@@ -37,16 +27,13 @@ from gym.spaces import Box
 from predicators import utils
 from predicators.agent_sdk import learn_prompts
 from predicators.agent_sdk.fit_status import format_fit_status
-from predicators.agent_sdk.session_base import AgentSessionFatalError, \
-    max_session_log_number, query_fatal_error
+from predicators.agent_sdk.session_base import max_session_log_number
 from predicators.agent_sdk.tools import SYNTHESIS_TOOL_NAMES, \
-    _SnapshotTarget, create_synthesis_tools, evaluate_states_with, \
-    finalize_versioned_snapshot, make_write_snapshot_hook
-from predicators.agent_sdk.tools.digests import render_options_digest, \
-    render_trajectory_digest, render_types_digest
-from predicators.approaches.agent_model_based_approach import \
-    AgentModelBasedApproach
-from predicators.approaches.sampler_learning_mixin import SamplerLearningMixin
+    _SnapshotTarget, evaluate_states_with, finalize_versioned_snapshot, \
+    make_write_snapshot_hook
+from predicators.agent_sdk.tools.digests import render_trajectory_digest
+from predicators.approaches.agent_model_free_approach import \
+    AgentModelFreeApproach
 from predicators.approaches.synthesis_validation import \
     build_candidate_option_model, carry_over_params
 from predicators.code_sim_learning.active_experiment import laplace_ensemble, \
@@ -57,18 +44,14 @@ from predicators.code_sim_learning.evidence import LaplaceEvidence
 from predicators.code_sim_learning.fit_space import FitResult, ParamSpec, \
     declared_interval_fit_result, declared_interval_report
 from predicators.code_sim_learning.fitting import FIT_NOISE_SIGMA, \
-    compute_sse, compute_sse_recurrent, fit_rule_parameters, \
-    fit_rule_parameters_latent, log_param_changes, log_sse_breakdown
-from predicators.code_sim_learning.identifiability import Verdict, \
-    format_identifiability, physics_sigma_points
+    compute_sse, compute_sse_recurrent, log_sse_breakdown
+from predicators.code_sim_learning.identifiability import physics_sigma_points
 from predicators.code_sim_learning.latent_tracker import LatentTracker, \
     make_latent_tracker, make_subclass_latent_tracker
 from predicators.code_sim_learning.model_state import has_model_state
-from predicators.code_sim_learning.orchestrator import \
-    prior_parameter_belief, run_rollout_sysid
+from predicators.code_sim_learning.orchestrator import prior_parameter_belief
 from predicators.code_sim_learning.parameter_belief import BeliefConfig, \
     ParameterBelief, stable_seed
-from predicators.code_sim_learning.physical_sysid import fit_params_rollout
 from predicators.code_sim_learning.rollout_env import RolloutTrajectory, \
     dispose_env, physical_param_anchors
 from predicators.code_sim_learning.rollout_objective import compute_rollout_sse
@@ -80,13 +63,12 @@ from predicators.code_sim_learning.utils import LearnedSimulator, \
     observation_view, read_latent_init, read_physical_param_specs, \
     read_residual_env, read_simulator_components, stamp_physical_spec_scales
 from predicators.envs import create_new_env
-from predicators.ground_truth_models import get_gt_simulator
 from predicators.observation_noise import ObservationNoise
 from predicators.option_model import _OptionModelBase, _OracleOptionModel
 from predicators.settings import CFG
-from predicators.structs import Action, Dataset, DerivedPredicate, \
-    GroundAtom, InteractionResult, LowLevelTrajectory, ParameterizedOption, \
-    Predicate, State, Task, Type, step_option_labels
+from predicators.structs import Action, DerivedPredicate, GroundAtom, \
+    LowLevelTrajectory, ParameterizedOption, Predicate, State, Task, Type, \
+    step_option_labels
 
 logger = logging.getLogger(__name__)
 
@@ -193,23 +175,13 @@ def residual_hint_from_hits(hits: Dict[Tuple[str, str], int],
     return {t: sorted(fs) for t, fs in out.items()}
 
 
-class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
-    """Bilevel planning with a learned step-level simulator.
+class AgentSimLearningApproach(AgentModelFreeApproach):
+    """The agent-written simulator, its parameters and their belief.
 
-    During online learning:
-    1. Collect trajectories (inherited from AgentModelBasedApproach)
-    2. Segment into option-level transitions
-    3. Synthesize parameterized residual rules via Claude agent
-    4. Fit rule parameters via Levenberg-Marquardt
-    5. Compose with base oracle into a combined simulator
-    6. Build _OracleOptionModel with the combined simulator
-
-    During solving:
-    - Uses the learned model for plan validation in backtracking
-      refinement.
-
-    Per-skill sampler learning (mode resolution, synthesis session
-    plumbing, loading) lives in :class:`SamplerLearningMixin`.
+    Loads the simulator the agent writes, deploys its parameters (the
+    agent's published ``sim.fit`` or its declared values), keeps the
+    belief over them, and composes it with the base oracle into the
+    ``_OracleOptionModel`` the probe rehearses plans in.
     """
 
     # Allowlist of env predicate names surfaced to the agent; None keeps
@@ -342,7 +314,6 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # (consumed in the next learn-phase prompt).
         self._current_simulator_version: Optional[str] = None
         self._current_predicates_version: Optional[str] = None
-        self._init_sampler_learning_state()
         # Partial-observability latent block: loaded from a simulator's
         # LATENT_INIT export (None ⇒ no latent state). When the loaded
         # rules use the recurrent 5-arg signature, fitting, the combined
@@ -391,33 +362,6 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         # declaration/data signature); values are
         # orchestrator._FitComputation bundles.
         self._sysid_fit_cache: Dict[Tuple, Any] = {}
-        # Final per-cycle fit history for the cross-cycle consistency
-        # check: name -> (map_value, posterior_std_fit_space, scale).
-        # Mutually-incompatible confident fits across cycles are the
-        # signature of an overconfident probe; flagged, and the verdict
-        # downgraded, rather than silently trusted.
-        self._sysid_fit_history: Dict[str, Tuple[float, float, str]] = {}
-        # A rejected (INCONSISTENT) fit awaiting confirmation:
-        # name -> (map_value, posterior_std_fit_space). If the NEXT
-        # cycle's independent fit lands within the consistency band of
-        # the pending value, the jump is accepted as real (two
-        # independent fits agree); until then the trusted history value
-        # holds. Without this, a genuinely-updated fit would read
-        # INCONSISTENT against stale history forever.
-        self._sysid_pending_fit: Dict[str, Tuple[float, float]] = {}
-        # The applied physical params as of the last CYCLE-LEVEL fit -
-        # the reference the INCONSISTENT hold policy reverts to.
-        # Deliberately not _identified_physical_params: the agent's
-        # in-session sim.fit calls mutate that dict, so "hold the
-        # currently-applied value" was a no-op that held the very fit
-        # it refused to trust (run_20260724_232411 seed2 cycle 2:
-        # "holding the currently-applied 0.6267" - 0.6267 WAS the
-        # distrusted new fit, applied minutes earlier in-session).
-        self._cycle_applied_physical: Dict[str, float] = {}
-        # Agent-facing digest of the latest rollout fit (unexplainable
-        # segments, unidentified/insensitive params, cross-cycle
-        # conflicts); surfaced to the explorer as experiment objectives.
-        self._last_sysid_diagnostics: str = ""
 
     @classmethod
     def get_name(cls) -> str:
@@ -459,27 +403,6 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
 
     # ── Agent session hooks ──────────────────────────────────────
 
-    def _get_agent_system_prompt(self) -> str:
-        if self._learning_mode:
-            return self._build_synthesis_system_prompt()
-        prompt = super()._get_agent_system_prompt()
-        base_sim_refs = self._base_sim_reference_paths()
-        if base_sim_refs:
-            ref_listing = "\n".join(f"  - {r}" for r in base_sim_refs)
-            prompt += (
-                "\n\n## Base Simulator Source\n"
-                "The environment simulator's own source code is "
-                "available (read-only):\n"
-                f"{ref_listing}\n"
-                "It covers the observable sim core: scene geometry and "
-                "constants, body construction, physics stepping, and "
-                "state read/write. It deliberately omits the hidden "
-                "domain-specific dynamics, task generation, and goal "
-                "semantics. Read it to ground your spatial and physical "
-                "reasoning (dimensions, contact geometry, actuation) "
-                "instead of guessing from images or trial and error.\n")
-        return prompt
-
     def _get_sandbox_reference_files(self) -> Dict[str, str]:
         files = super()._get_sandbox_reference_files()
         # Base-sim source rides the standard reference channel so every
@@ -519,20 +442,12 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
 
     # ── Subclass hooks ──────────────────────────────────────────
     # Default implementations are no-ops so subclasses can add
-    # predicate-invention (or other) extensions without copying
-    # _synthesize_with_agent.
+    # predicate-invention (or other) extensions.
 
     def _learning_cycle_index(self) -> int:
-        """0-based cycle index used in versioned snapshot filenames.
-
-        Matches main.py's "ONLINE LEARNING CYCLE i" numbering exactly:
-        ``_online_learning_cycle`` is incremented before this class's
-        online simulator learn runs, so subtracting 1 recovers the
-        cycle the session belongs to. The offline (pre-cycle-0) learn
-        yields -1, which the snapshot/journal formatters render as
-        "offline" - keeping it distinct from cycle 0's online pass.
-        """
-        return self._online_learning_cycle - 1
+        """Index used in versioned snapshot filenames; the continual arms
+        number snapshots by level."""
+        return 0
 
     def _compute_extra_synthesis_paths(self, base: str) -> Dict[str, str]:
         """Return extra path bindings for the synthesis sandbox."""
@@ -554,34 +469,6 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         none.
         """
         del exec_ns, base_pred_triples, inferred_hint, extra_paths
-
-    def _extra_synthesis_message(self, extra_paths: Dict[str, str]) -> str:
-        """Return text to append to the agent's first synthesis message.
-
-        Under ``CFG.partially_observable`` this is the short partial-
-        observability note; subclasses that override MUST chain via
-        ``super()`` so the note survives.
-        """
-        del extra_paths
-        if CFG.partially_observable:
-            return learn_prompts.render_partial_observability_message()
-        return ""
-
-    def _extra_synthesis_system_prompt_sections(self) -> List[str]:
-        """Sections a subclass adds to the synthesis system prompt.
-
-        Inserted after the validation guidance and before the recurrent
-        rules tutorial (partial observability) and the plan format.
-        Subclasses that override MUST chain via ``super()``.
-        """
-        return []
-
-    def _extra_synthesis_latent_sections(self) -> List[str]:
-        """Sections a subclass adds after the recurrent-rules tutorial.
-
-        Only rendered under ``CFG.partially_observable``.
-        """
-        return []
 
     def _post_synthesis_loading(
         self,
@@ -649,33 +536,6 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
 
     # ── Learning ────────────────────────────────────────────────
 
-    def learn_from_offline_dataset(self, dataset: Dataset) -> None:
-        super().learn_from_offline_dataset(dataset)
-        self._learn_simulator(self._get_all_trajectories())
-        # The single post-offline checkpoint, AFTER the simulator learn
-        # (the base hook is a no-op for this class, see below).
-        self.save(None)
-
-    def learn_from_interaction_results(
-            self, results: Sequence[InteractionResult]) -> None:
-        # Capture the index BEFORE super() increments it: the checkpoint
-        # below must be the one this cycle's filename denotes.
-        cycle = self._online_learning_cycle
-        super().learn_from_interaction_results(results)
-        self._learn_simulator(self._get_all_trajectories())
-        # The single per-cycle checkpoint, AFTER this cycle's simulator
-        # learning, so a resume never re-pays a completed learn and never
-        # mistakes a pre-learn file for a completed cycle. (The base hook
-        # that would have saved pre-learn is a no-op for this class.)
-        self.save(cycle)
-
-    def _checkpoint_after_offline_learning(self) -> None:
-        """No-op: this class checkpoints after its own simulator learn."""
-
-    def _checkpoint_after_interaction_results(self, cycle: int) -> None:
-        """No-op: this class checkpoints after its own simulator learn."""
-        del cycle
-
     # ── Checkpointing ────────────────────────────────────────────
     # The base checkpoint (AgentModelFreeApproach.save/load) persists
     # the datasets + cycle counter. This approach's real state is split
@@ -684,21 +544,19 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
     # which are embedded as file CONTENTS - run dirs are minted per run
     # and pruned, so a path reference to the old run's sandbox would be
     # fragile. Closures (_residual_rules, _learned_simulator, the option
-    # model, learned predicates/samplers) are never pickled: they are
+    # model, learned predicates) are never pickled: they are
     # rebuilt from the restored files in _rehydrate_from_artifacts.
 
     _save_suffix: str = "AgentSimLearner"
 
     _CHECKPOINT_SANDBOX_FILES: Tuple[str,
                                      ...] = ("simulator.py", "predicates.py",
-                                             "samplers.py",
                                              "ground_samplers.py", "notes.md",
                                              "journal.md", "attempts.md",
                                              "strategy.md",
                                              "open_questions.md")
     _CHECKPOINT_SANDBOX_DIRS: Tuple[str, ...] = ("simulator_versions",
-                                                 "predicates_versions",
-                                                 "samplers_versions")
+                                                 "predicates_versions")
     _CHECKPOINT_MAX_FILE_BYTES = 2 * 1024 * 1024
 
     def _checkpoint_sandbox_dir(self) -> str:
@@ -783,16 +641,12 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             dict(self._fit_evidence_history),
             "identified_physical_sigma_points":
             list(self._identified_physical_sigma_points),
-            "sysid_fit_history":
-            dict(self._sysid_fit_history),
             "residual_features":
             dict(self._residual_features),
             "current_simulator_version":
             self._current_simulator_version,
             "current_predicates_version":
             self._current_predicates_version,
-            "current_samplers_version":
-            self._current_samplers_version,
             "sandbox_files":
             self._collect_sandbox_artifacts(),
             "git_describe":
@@ -812,8 +666,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                 "is at %s - resuming across code versions is untested.",
                 saved_rev, current_rev)
         self._resume_query_count = int(save_dict.get("agent_query_count", 0))
-        # In-place update: _ParamsView holders (invented predicate and
-        # sampler closures) alias this exact dict object.
+        # In-place update: _ParamsView holders (invented predicate
+        # closures) alias this exact dict object.
         self._fitted_params.clear()
         self._fitted_params.update(save_dict.get("fitted_params") or {})
         self._fit_sse = save_dict.get("fit_sse", float("inf"))
@@ -831,18 +685,12 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             save_dict.get("carried_physical_prior") or {})
         self._fit_evidence_history = dict(
             save_dict.get("fit_evidence_history") or {})
-        self._sysid_fit_history = dict(
-            save_dict.get("sysid_fit_history") or {})
         self._residual_features = dict(
             save_dict.get("residual_features") or {})
         self._current_simulator_version = save_dict.get(
             "current_simulator_version")
         self._current_predicates_version = save_dict.get(
             "current_predicates_version")
-        # pylint: disable-next=attribute-defined-outside-init
-        # (initialized by SamplerLearningMixin's init hook)
-        self._current_samplers_version = save_dict.get(
-            "current_samplers_version")
         self._restore_sandbox_artifacts(save_dict.get("sandbox_files") or {})
         self._rehydrate_from_artifacts()
         # AFTER rehydration: _apply_identified_physical_params clears
@@ -860,8 +708,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         Order matters: simulator.py first (rules + latent init +
         physical specs), then the option model, then identified physics
         onto the base env, then subclass artifacts (predicates read the
-        already- restored ``_fitted_params``), then samplers and the
-        ensemble.
+        already- restored ``_fitted_params``), then the ensemble.
         """
         paths = self._resolve_synthesis_paths()
         if not os.path.isfile(paths.simulator_file):
@@ -934,126 +781,12 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             self._apply_identified_physical_params(
                 self._identified_physical_params)
         self._rehydrate_extra_artifacts(paths.base)
-        if self._samplers_enabled():
-            sampler_paths = self._sampler_paths(paths.base)
-            self._synthesized_samplers = self._load_samplers_from_module_file(
-                sampler_paths["samplers_file"])
         self._rebuild_param_ensemble()
         logger.info(
             "Rehydrated learned simulator from checkpoint artifacts "
-            "(%d rules, %d fitted params, %d learned predicates, "
-            "%d samplers).", len(rules), len(self._fitted_params),
-            len(getattr(self, "_learned_predicates", set()) or set()),
-            len(self._synthesized_samplers))
-
-    def _learn_simulator(self, trajectories: List[LowLevelTrajectory]) -> None:
-        """Synthesize rules, fit parameters, and build the option model."""
-        # Cache for recurrent fitting: lets _group_triples_by_trajectory
-        # slice the flat base_pred_triples back into per-trajectory chunks
-        # (latent threads within a trajectory, not across). Harmless for
-        # fully-observable (legacy) simulators, which never regroup.
-        self._fit_trajectories = list(trajectories)
-        # Dumped HERE, where the data arrives, rather than only inside the
-        # sysID fit: a cycle where the agent declines to fit is exactly the
-        # one worth post-morteming, and that is the branch that never ran.
-        # run_20260817_171402 declined on a sweep that returned one identical
-        # SSE for every value of five parameters, and left nothing on disk to
-        # explain it -- the episode had to be written off.
-        self._persist_fit_trajectories("recorded")
-        # New data invalidates the memoized explainability verdicts and
-        # the memoized whole fits.
-        self._explainability_cache.clear()
-        self._sysid_fit_cache.clear()
-        # Decide how samplers are obtained this cycle: ground-truth (if
-        # requested and available for the env) else agent synthesis. GT
-        # samplers are static, so install them up front, independent of
-        # whether simulator learning runs below (it is skipped when there
-        # are no step transitions and no oracle sim program to fall
-        # back on, e.g. when every demo failed).
-        self._maybe_install_oracle_samplers()
-        # Two parallel triple lists drive the rest of this method:
-        # * obs_triples       - raw (s_t, a, s_{t+1}) from the data.
-        # * base_pred_triples - same triples but s_t replaced by the
-        #   base sim's one-step prediction. The rules run on top of that
-        #   prediction; SSE compares against s_{t+1}.
-        obs_triples = self._extract_obs_triples(trajectories)
-        if (not obs_triples and not CFG.agent_sim_learn_oracle_sim_program
-                and not CFG.agent_sim_learn_zero_shot):
-            logger.warning("No step transitions; skipping simulator learning.")
-            return
-        if obs_triples:
-            # Headless env for the pre-compute: reusing the GUI base_env
-            # corrupts its visual-shape state after a few hundred steps.
-            fit_env = create_new_env(CFG.env,
-                                     do_cache=False,
-                                     use_gui=False,
-                                     skip_residual_dynamics=True)
-            logger.info("Pre-computing base states for %d transitions.",
-                        len(obs_triples))
-            try:
-                base_pred_triples = self._compute_base_pred_triples(
-                    obs_triples, fit_env)
-            finally:
-                # This env is rebuilt every learning cycle; dispose it
-                # (main client AND any secondary probe world) or each
-                # cycle leaks a full physics world (~145MB for the
-                # domino env).
-                dispose_env(fit_env)
-            inferred_hint = self._infer_residual_features_from_scan(
-                obs_triples, base_pred_triples)
-            logger.info("Residual features (data-driven hint): %s",
-                        inferred_hint)
-        elif CFG.agent_sim_learn_oracle_sim_program:
-            # The oracle sim program is data-free (rules and parameter
-            # inits come from get_gt_simulator), so a run whose every
-            # demo failed still gets a working option model; the fit
-            # below degrades to the declared inits.
-            logger.warning("No step transitions; loading oracle sim "
-                           "program without data.")
-            base_pred_triples = []
-            inferred_hint = {}
-        else:
-            # Zero-shot synthesis (ablation A2): the session runs with
-            # nothing recorded, so the artifacts come from the task
-            # description, the scene and the agent's own knowledge; the
-            # params deploy at their declared inits.
-            logger.info("Zero-shot synthesis: no step transitions; the "
-                        "agent writes its artifacts without data.")
-            base_pred_triples = []
-            inferred_hint = {}
-
-        self._synthesize_with_agent(trajectories, obs_triples,
-                                    base_pred_triples, inferred_hint)
-
-        if self._residual_rules is not None and self._fitted_params:
-            rules, params = self._residual_rules, self._fitted_params
-            self._learned_simulator = LearnedSimulator(
-                step_fn=lambda s, c, _r=rules, _p=params:  # type: ignore[misc]
-                apply_rules(s, _r, _p, cmds=c),
-                name="agent_synthesized")
-        elif self._learned_simulator is None:
-            logger.warning("Synthesis produced no simulator, skipping.")
-            return
-
-        combined_sim = self._build_combined_simulator(self._learned_simulator)
-        self._option_model = self._build_option_model(combined_sim)
-        logger.info("Built learned option model (SSE: %.6f).", self._fit_sse)
-
-        # When the simulator came from the oracle short-circuit no agent
-        # session ran above, so per-skill samplers (if enabled) get their
-        # own session here, after the option model is built so the
-        # session's probe (sim.refine) has a working simulator. When
-        # the agent *did* synthesize the simulator, samplers already rode
-        # along in that session and this is skipped.
-        if self._do_synthesize_samplers and \
-                CFG.agent_sim_learn_oracle_sim_program:
-            if base_pred_triples:
-                self._synthesize_samplers_standalone(trajectories,
-                                                     base_pred_triples,
-                                                     inferred_hint)
-            else:
-                logger.warning("No step transitions; skipping standalone "
-                               "sampler synthesis.")
+            "(%d rules, %d fitted params, %d learned predicates).", len(rules),
+            len(self._fitted_params),
+            len(getattr(self, "_learned_predicates", set()) or set()))
 
     def _build_option_model(
         self,
@@ -1305,8 +1038,6 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         self,
         simulator_file: str,
         trajectories: List[LowLevelTrajectory],
-        base_pred_triples: List[Tuple[State, Action, State]],
-        inferred_hint: Dict[str, List[str]],
     ) -> Callable[[], _OracleOptionModel]:
         """Lazy option-model builder behind the synthesis run_python.
 
@@ -1342,16 +1073,13 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             if cache.get("digest") == digest:
                 return cache["model"]
             fit_state = self._probe_fit_state()
-            rules, specs, features, ns = \
-                self._load_simulator_from_module_file(
-                    simulator_file, trajectories)
+            rules, specs, _, ns = self._load_simulator_from_module_file(
+                simulator_file, trajectories)
             if rules is None or specs is None:
                 raise RuntimeError(
                     "run_python probe: ./simulator.py failed to load "
                     "(exec error or missing simulator exports) - "
                     "fix the file and probe again.")
-            residual_features = (features
-                                 if features is not None else inferred_hint)
             # The candidate's rule parameters, which the joint belief
             # covers beside AGENT_PARAM_SPECS (see parameter_belief).
             setattr(self, "_probe_rule_specs", list(specs))
@@ -1378,14 +1106,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             # runs a fit it may not afford (sketch seed1 learn 011: an
             # implicit refit inside a probe hit the call cap and came
             # back as an empty "param fitting failed:").
-            model, params, _ = build_candidate_option_model(
-                self,
-                rules,
-                specs,
-                residual_features,
-                base_pred_triples,
-                latent_init=latent_init,
-                fit=False)
+            model, params = build_candidate_option_model(
+                self, rules, specs, latent_init=latent_init)
             if CFG.agent_sim_learn_declared_params_only:
                 status = ("at the DECLARED values of the current "
                           "simulator.py (harness parameter estimation is "
@@ -1410,19 +1132,6 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         return _provider
 
     # ── Active-experiment ensemble (info-seeking exploration) ────
-
-    def _info_seeking_active(self) -> bool:
-        """Whether the proactive info-seeking apparatus should run now.
-
-        Delegates to the run context's adaptive gate. Partial unit-test
-        objects have no ``_tool_context``; there, fall back to the plain
-        flag (adaptive gating needs the run-scoped refusal signal the
-        context carries).
-        """
-        ctx = getattr(self, "_tool_context", None)
-        if ctx is not None:
-            return ctx.info_seeking_active()
-        return CFG.agent_explorer_info_seeking
 
     def _rebuild_param_ensemble(self) -> None:
         """Rebuild the learned model's rule-parameter ensemble.
@@ -1458,16 +1167,6 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         if (not wanted or not self._fitted_params
                 or not CFG.agent_sim_learn_param_uncertainty):
             self._param_ensemble = []
-            return
-        if CFG.agent_sim_learn_oracle_sim_params:
-            # Oracle params carry no uncertainty: no fit ran, so the only
-            # ensemble on offer would be box jitter around the truth,
-            # which manufactures wrong models (a zero rate, a rewired
-            # lamp) that the capture gate would then demand every plan
-            # survive. Nothing to hedge against, so no ensemble.
-            self._param_ensemble = []
-            logger.info("Oracle sim params: no rule-parameter ensemble "
-                        "(nothing uncertain to sweep).")
             return
         num_members = CFG.agent_explorer_info_ensemble_size
         self._param_ensemble, method = self._select_param_ensemble(num_members)
@@ -1536,9 +1235,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         i.e. an informative experiment. Returns 0.0 when the ensemble is
         trivial (<=1 member) or no atoms are given.
 
-        Wired into refinement as the info-scorer for the agent_model_based
-        explorer; a read-only query that leaves ``_fitted_params``
-        unchanged on return.
+        Wired into the probe's refinement as the info-scorer; a read-only
+        query that leaves ``_fitted_params`` unchanged on return.
 
         Under ``agent_explorer_info_seeking_noise_aware`` with a declared
         observation-noise channel, each member reads the atoms from
@@ -1621,153 +1319,6 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
 
     # ── Agent-based synthesis ────────────────────────────────────
 
-    def _synthesize_with_agent(
-        self,
-        trajectories: List[LowLevelTrajectory],
-        obs_triples: List[Tuple[State, Action, State]],
-        base_pred_triples: List[Tuple[State, Action, State]],
-        inferred_hint: Dict[str, List[str]],
-    ) -> None:
-        """Obtain RESIDUAL_RULES / PARAM_SPECS / RESIDUAL_FEATURES, then fit.
-
-        ``inferred_hint`` is passed to the agent as a starting point and
-        used as the eval/test scope until it declares its own
-        ``RESIDUAL_FEATURES``. CFG flag
-        ``agent_sim_learn_oracle_sim_program`` short-circuits the agent
-        session by loading the GT simulator instead (and
-        ``agent_sim_learn_oracle_sim_params`` additionally skips the
-        parameter fit; see :meth:`_fit_params_after_synthesis`).
-        """
-        if CFG.agent_sim_learn_oracle_sim_program:
-            rules, specs, residual_features = \
-                self._load_oracle_sim_program(inferred_hint)
-        else:
-            loaded = self._run_agent_synthesis_session(trajectories,
-                                                       obs_triples,
-                                                       base_pred_triples,
-                                                       inferred_hint)
-            if loaded is None:
-                return
-            rules, specs, residual_features = loaded
-        self._residual_rules = rules
-        self._residual_features = residual_features
-        self._fit_params_after_synthesis(rules, specs, base_pred_triples,
-                                         residual_features)
-
-    def _load_oracle_sim_program(
-        self, inferred_hint: Dict[str, List[str]]
-    ) -> Tuple[List, List[ParamSpec], Dict[str, List[str]]]:
-        """Load the ground-truth simulator instead of running an agent.
-
-        ``get_gt_simulator`` dispatches by observability: in
-        partially-observable mode it returns the PO GT simulator
-        (gt_simulator_po.py - latent heat threaded across steps,
-        surfaced as the observable bubbling_level), which predicts only
-        observable features; otherwise it returns the fully-observable
-        gt_simulator.py (which reads/writes heat_level as a State
-        feature). The two factories gate on CFG.partially_observable so
-        the env-name dispatch resolves to exactly one module per run.
-
-        Unless ``agent_sim_learn_oracle_sim_params`` also holds, the
-        declared parameter inits are perturbed so the subsequent fit
-        starts from a miscalibrated - not oracle - belief.
-        """
-        rules, specs, residual_features = get_gt_simulator(CFG.env)
-        self._log_feature_set_diff(inferred_hint, residual_features,
-                                   "inferred", "oracle")
-        if not CFG.agent_sim_learn_oracle_sim_params:
-            specs = self._perturb_spec_inits(specs)
-        logger.info("Loaded oracle sim program (%d rules, %d params).",
-                    len(rules), len(specs))
-        return rules, specs, residual_features
-
-    @staticmethod
-    def _perturb_spec_inits(specs: List[ParamSpec]) -> List[ParamSpec]:
-        """Perturb each spec's init with multiplicative Gaussian noise.
-
-        Used when the oracle sim PROGRAM is loaded but its param VALUES
-        must still be learned: the fit then starts from a plausible but
-        wrong belief instead of the answer. Each perturbed init is
-        clipped to its spec's box.
-        """
-        rng = np.random.default_rng(CFG.seed)
-        noise_scale = CFG.agent_sim_learn_oracle_sim_param_noise_scale
-        if noise_scale < 0.0:
-            raise ValueError("agent_sim_learn_oracle_sim_param_noise_scale "
-                             "must be non-negative.")
-        perturbed = []
-        for s in specs:
-            val = float(
-                np.clip(s.init_value * (1.0 + rng.normal(0, noise_scale)),
-                        s.lo, s.hi))
-            perturbed.append(
-                ParamSpec(s.name,
-                          val,
-                          lo=s.lo,
-                          hi=s.hi,
-                          scale=getattr(s, "scale", "linear")))
-        return perturbed
-
-    def _run_agent_synthesis_session(
-        self,
-        trajectories: List[LowLevelTrajectory],
-        obs_triples: List[Tuple[State, Action, State]],
-        base_pred_triples: List[Tuple[State, Action, State]],
-        inferred_hint: Dict[str, List[str]],
-    ) -> Optional[Tuple[List, List[ParamSpec], Dict[str, List[str]]]]:
-        """Run one agent synthesis session and load what it committed.
-
-        Returns ``(rules, specs, residual_features)``, or None when the
-        session left no loadable simulator artifact. Per-skill samplers
-        (when enabled) ride along in the same session.
-        """
-        paths = self._resolve_synthesis_paths()
-        extra_paths = self._compute_extra_synthesis_paths(paths.base)
-        sampler_paths = (self._sampler_paths(paths.base)
-                         if self._do_synthesize_samplers else {})
-        exec_ns = self._build_synthesis_exec_ns(trajectories)
-        self._attach_synthesis_session_state(exec_ns, trajectories,
-                                             base_pred_triples, inferred_hint,
-                                             paths, extra_paths, sampler_paths)
-        # Fresh session so the synthesis prompt + tools take effect.
-        self._close_agent_session()
-        self._ensure_agent_session()
-        structs_ref = self._write_structs_reference()
-        base_sim_refs = self._base_sim_reference_paths()
-        message = self._build_synthesis_learn_message(
-            trajectories, obs_triples, inferred_hint, paths, structs_ref,
-            extra_paths, sampler_paths, base_sim_refs)
-        try:
-            responses = self._query_agent_sync(message, kind="learn")
-            dead = query_fatal_error(responses)
-            if dead is not None:
-                # The synthesis session never ran (usage limit, auth,
-                # transport): nothing was learned, so this cycle must
-                # not be checkpointed as learned. The cycle's explore
-                # episodes are stashed (main._save_inflight_interactions),
-                # so a relaunch resumes at exactly this learn. Silently
-                # continuing once wrote a byte-identical checkpoint and
-                # burned a whole cycle (2026-08-27 run_20260827_121111).
-                raise AgentSessionFatalError(
-                    "The learn session died without the agent doing any "
-                    f"work ({dead}); refusing to checkpoint this cycle as "
-                    "learned.")
-        finally:
-            self._tool_context.extra_session_hooks = {}
-            self._tool_context.extra_mcp_tools = []
-            self._tool_context.probe_artifact_loaders.clear()
-            self._tool_context.probe_option_model_provider = None
-            self._tool_context.probe_fit_provider = None
-            self._tool_context.probe_validation_provider = None
-            self._tool_context.probe_param_status = None
-            self._tool_context.probe_residuals_provider = None
-            self._tool_context.learn_cycle_index = None
-            self._learning_mode = False
-            self._close_agent_session()
-        return self._load_synthesis_artifacts(trajectories, inferred_hint,
-                                              paths, extra_paths,
-                                              sampler_paths)
-
     def _resolve_synthesis_paths(self) -> _SynthesisPaths:
         """Host- and agent-visible paths for one synthesis session.
 
@@ -1776,10 +1327,9 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         in __init__, but it isn't constructed until
         ``_ensure_agent_session()`` runs later in the session setup.
 
-        The agent-visible paths differ by sandbox backend: cwd-relative
-        for local-sandbox (the validation hook resolves against cwd and
-        rejects literal ``/sandbox/...`` paths), the docker mount point
-        for docker, the absolute host path otherwise.
+        The agent-visible paths are cwd-relative in the local sandbox
+        (the validation hook resolves against cwd and rejects literal
+        ``/sandbox/...`` paths) and absolute host paths otherwise.
         """
         if CFG.agent_sdk_use_local_sandbox:
             sandbox_dir: Optional[str] = os.path.abspath(
@@ -1791,9 +1341,6 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         if CFG.agent_sdk_use_local_sandbox:
             simulator_file_for_agent = "./simulator.py"
             sandbox_dir_for_agent: Optional[str] = "."
-        elif sandbox_dir:
-            simulator_file_for_agent = "/sandbox/simulator.py"
-            sandbox_dir_for_agent = "/sandbox"
         else:
             simulator_file_for_agent = simulator_file
             sandbox_dir_for_agent = None
@@ -1847,174 +1394,12 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                 self._make_evaluate_trajectory_fn()
         return exec_ns
 
-    def _attach_synthesis_session_state(
-        self,
-        exec_ns: Dict[str, Any],
-        trajectories: List[LowLevelTrajectory],
-        base_pred_triples: List[Tuple[State, Action, State]],
-        inferred_hint: Dict[str, List[str]],
-        paths: _SynthesisPaths,
-        extra_paths: Dict[str, str],
-        sampler_paths: Dict[str, str],
-    ) -> None:
-        """Install this synthesis session's state on the tool context.
-
-        Everything installed here is cleared by the caller's ``finally``
-        once the session query returns.
-        """
-        # Label tool output (e.g. attempt-log headers) with the
-        # learning cycle for the duration of this session.
-        self._tool_context.learn_cycle_index = self._learning_cycle_index()
-        # Build dynamic synthesis tools and attach them to the tool
-        # context *before* opening the session. The attached set is
-        # filtered against ``_get_synthesis_tool_names`` so that method
-        # is the single source of truth for what the agent sees:
-        # anything a builder constructs but the names list omits is
-        # dropped here.
-        # pylint: disable-next=import-outside-toplevel
-        from predicators.agent_sdk.belief_probe import _check_time_budget
-        toolkit = create_synthesis_tools(
-            exec_ns,
-            base_pred_triples,
-            inferred_hint,
-            simulator_file=paths.simulator_file,
-            versions_dir=paths.versions_dir,
-            approach=self,
-            sandbox_dir=paths.base,
-            sandbox_dir_for_agent=paths.sandbox_dir_for_agent,
-            cycle_index_provider=self._learning_cycle_index,
-            budget_check=lambda: _check_time_budget(self._tool_context),
-        )
-        tools = list(toolkit.tools)
-        self._install_extra_synthesis_surfaces(exec_ns, base_pred_triples,
-                                               inferred_hint, extra_paths)
-        if self._do_synthesize_samplers:
-            self._install_sampler_surface(sampler_paths)
-        declared = set(self._get_synthesis_tool_names() or ())
-        self._tool_context.extra_mcp_tools = [
-            t for t in tools if getattr(t, "name", "") in declared
-        ]
-        # Point the probe at the CANDIDATE simulator for this session
-        # (never the stale pre-synthesis option model; on cycle 1 that
-        # wraps the real env), then merge the probe facade into
-        # run_python's namespace: synthesis sessions offer ONE exec
-        # namespace, so helpers defined next to the data are visible to
-        # probe sweeps (create_mcp_tools skips the solve-phase instance
-        # when this one is attached). Unconditional: with fit / refine /
-        # forward-validation all living on ``sim``, the probe IS the
-        # validation surface, so a synthesis session without it would
-        # have no way to test what it writes. Only ``sim``/``BeliefProbe``
-        # are taken from the probe namespace: ``trajectories`` already
-        # binds the fit list and solve-only extras do not apply.
-        self._tool_context.probe_option_model_provider = \
-            self._make_candidate_probe_model_provider(
-                paths.simulator_file, trajectories, base_pred_triples,
-                inferred_hint)
-        self._tool_context.probe_fit_provider = toolkit.fit_runner
-        self._tool_context.probe_validation_provider = toolkit.validation_runner
-        self._tool_context.probe_residuals_provider = \
-            toolkit.residuals_runner
-        # pylint: disable-next=import-outside-toplevel
-        from predicators.agent_sdk.belief_probe import build_probe_namespace
-        probe_ns = build_probe_namespace(self._tool_context)
-        exec_ns["sim"] = probe_ns["sim"]
-        exec_ns["BeliefProbe"] = probe_ns["BeliefProbe"]
-        self._learning_mode = True
-        # PostToolUse hook: snapshot simulator.py / predicates.py on
-        # every successful Write/Edit/MultiEdit, so the version history
-        # covers everything the agent committed to file (not just
-        # states that happened to coincide with an eval call). Only
-        # active for this synthesis session.
-        snapshot_targets = self._build_write_snapshot_targets(
-            paths.simulator_file, paths.versions_dir, extra_paths)
-        if self._do_synthesize_samplers:
-            snapshot_targets.append(
-                self._sampler_snapshot_target(sampler_paths))
-        self._tool_context.extra_session_hooks = (
-            self._build_synthesis_session_hooks(snapshot_targets, paths.base))
-
-    def _build_synthesis_learn_message(
-        self,
-        trajectories: List[LowLevelTrajectory],
-        obs_triples: List[Tuple[State, Action, State]],
-        inferred_hint: Dict[str, List[str]],
-        paths: _SynthesisPaths,
-        structs_ref: str,
-        extra_paths: Dict[str, str],
-        sampler_paths: Dict[str, str],
-        base_sim_refs: Optional[List[str]] = None,
-    ) -> str:
-        """Compose the synthesis session's first user message.
-
-        Gathers this cycle's data roster, digests, and reports and
-        renders ``learn_message.md``. Reads the just-opened session's
-        tool names, so the session must be open before this is called.
-        """
-        n_trajs = len(trajectories)
-        n_demos = sum(1 for t in trajectories if t.is_demo)
-        # Start-of-session divergence report: when a prior model exists,
-        # score it (params refit to ALL data, so what remains is the
-        # structural gap) before the agent's first turn - the session
-        # then starts from "here is where the model breaks" instead of
-        # spending turns rediscovering it. The same report stays callable
-        # as `sim.residuals()` against every subsequent edit. With no
-        # prior model the "prior" is the bare base simulator and every
-        # mismatch is an unmodeled mechanism.
-        prior_state_block = self._format_prior_state_block(paths.base)
-        divergence_block = ""
-        if (self._tool_context.probe_residuals_provider is not None
-                and obs_triples):
-            try:
-                report = self._tool_context.probe_residuals_provider(
-                    max_transitions=100000,
-                    fit_params=not CFG.agent_sim_learn_declared_params_only)
-                divergence_block = learn_prompts.render_divergence_block(
-                    report, has_prior_model=bool(prior_state_block))
-            except Exception as e:  # pylint: disable=broad-except
-                logger.warning("Skipping start-of-session residual report: %s",
-                               e)
-        session_tool_names = (self._agent_session.tool_names
-                              if self._agent_session is not None else [])
-        extra_messages = []
-        if not trajectories and CFG.agent_sim_learn_zero_shot:
-            extra_messages.append(learn_prompts.render_zero_shot_message())
-        extra_message = self._extra_synthesis_message(extra_paths)
-        if extra_message:
-            extra_messages.append(extra_message)
-        if self._do_synthesize_samplers:
-            extra_messages.append(
-                self._sampler_synthesis_message(sampler_paths))
-        return learn_prompts.build_learn_message(
-            n_trajs=n_trajs,
-            n_transitions=len(obs_triples),
-            n_demos=n_demos,
-            n_interaction=n_trajs - n_demos,
-            trajectory_listing=self._format_trajectory_listing(trajectories),
-            structs_ref=structs_ref,
-            inferred_hint=str(inferred_hint),
-            predicate_listing=self._format_predicate_signatures(
-                self._get_all_predicates()),
-            types_digest=render_types_digest(self._tool_context.types),
-            options_digest=render_options_digest(
-                self._tool_context.options,
-                gt_options_ref_path=self._tool_context.gt_options_ref_path),
-            simulator_file=paths.simulator_file_for_agent,
-            objective_block=self._format_objective_block(),
-            prior_state_block=prior_state_block,
-            divergence_block=divergence_block,
-            base_sim_block=learn_prompts.render_base_sim_block(base_sim_refs
-                                                               or []),
-            tools_block=learn_prompts.render_tools_block(session_tool_names),
-            extra_messages=extra_messages,
-        )
-
     def _load_synthesis_artifacts(
         self,
         trajectories: List[LowLevelTrajectory],
         inferred_hint: Dict[str, List[str]],
         paths: _SynthesisPaths,
         extra_paths: Dict[str, str],
-        sampler_paths: Dict[str, str],
     ) -> Optional[Tuple[List, List[ParamSpec], Dict[str, List[str]]]]:
         """Load the artifacts the finished session committed to disk.
 
@@ -2078,8 +1463,6 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         logger.info("Agent synthesized %d rules, %d params.", len(rules),
                     len(specs))
         self._post_synthesis_loading(extra_paths, specs)
-        if self._do_synthesize_samplers:
-            self._finalize_and_load_samplers(sampler_paths)
         return rules, specs, residual_features
 
     def _fit_params_after_synthesis(
@@ -2089,30 +1472,12 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         base_pred_triples: List[Tuple[State, Action, State]],
         residual_features: Dict[str, List[str]],
     ) -> None:
-        """Deploy the agent's parameters; only oracle programs fit here."""
+        """Deploy the agent's parameters; the harness never fits here."""
         if getattr(self, "_residual_env_cls", None) is not None and \
                 not specs and not self._physical_param_specs:
             self._fitted_params.clear()
             self._last_fit_result = None
             self._fit_sse = float("inf")
-        elif CFG.agent_sim_learn_oracle_sim_params:
-            self._fitted_params.clear()
-            self._fitted_params.update({s.name: s.init_value for s in specs})
-            if self._physical_param_specs:
-                # Oracle mode: trust the agent-declared physical inits.
-                self._apply_identified_physical_params(
-                    {s.name: s.init_value
-                     for s in self._physical_param_specs})
-            # No fit ran; the ensemble falls back to uniform perturbation.
-            self._last_fit_result = None
-            if base_pred_triples:
-                self._fit_sse = self._oracle_param_sse(rules,
-                                                       base_pred_triples,
-                                                       residual_features,
-                                                       FIT_NOISE_SIGMA)
-            else:
-                logger.info("No transitions; skipping oracle-param SSE.")
-                self._fit_sse = float("inf")
         elif CFG.agent_sim_learn_declared_params_only:
             self._deploy_declared_params(rules, specs, base_pred_triples,
                                          residual_features)
@@ -2158,33 +1523,14 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                         version, len(expected), self._fit_sse)
                 applied = self._probe_fit_state().get("applied_physical")
                 if self._physical_param_specs and applied:
-                    # Mirror _fit_parameters_joint_rollout's deploy: the
-                    # cycle-level applied snapshot and the physics-margin
-                    # sigma points come from the published fit (applying
-                    # resets the points, so set them after).
+                    # The physics-margin sigma points come from the
+                    # published fit (applying resets the points, so set
+                    # them after).
                     self._apply_identified_physical_params(dict(applied))
-                    self._cycle_applied_physical = dict(applied)
                     if CFG.agent_sim_learn_param_uncertainty and int(
                             CFG.belief_joint_draws) <= 0:
                         self._identified_physical_sigma_points = list(
                             self._probe_fit_state().get("sigma_points") or [])
-            elif CFG.agent_sim_learn_oracle_sim_program and base_pred_triples:
-                # This baseline supplies a program without an agent
-                # session. Fitting is its explicitly configured protocol.
-                logger.info("Oracle sim program: fitting its "
-                            "parameters on the harness side.")
-                if self._physical_param_specs or has_physics_rules(rules):
-                    fit_result, self._fit_sse = (
-                        self._fit_parameters_joint_rollout(
-                            rules, specs, residual_features))
-                elif has_latent_rules(rules):
-                    fit_result, self._fit_sse = \
-                        self._fit_parameters_recurrent(
-                            rules, specs, base_pred_triples,
-                            residual_features)
-                else:
-                    fit_result, self._fit_sse = fit_rule_parameters(
-                        rules, specs, base_pred_triples, residual_features)
             else:
                 self._deploy_unfitted_params(specs)
             if fit_result is not None:
@@ -2212,7 +1558,6 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         if physical or self._identified_physical_params:
             self._apply_identified_physical_params(physical)
         self._identified_physical_sigma_points = []
-        self._cycle_applied_physical = dict(physical)
         # Retain the historical published fit for provenance and file
         # reversions, but do not use its SSE or posterior for this model.
         self._last_fit_result = None
@@ -2268,7 +1613,6 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         if physical_specs:
             applied = {s.name: s.init_value for s in physical_specs}
             self._apply_identified_physical_params(applied)
-            self._cycle_applied_physical = dict(applied)
             self._identified_physical_sigma_points = \
                 self._physics_margin_points(
                     applied, declared_interval_report(physical_specs),
@@ -2456,47 +1800,6 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                     "keeping the whole trajectories.")
         return rollouts
 
-    def _persist_fit_trajectories(self, label: str = "fitted") -> None:
-        """Dump the raw fit trajectories for offline post-mortems.
-
-        ``label`` distinguishes the two moments this is called from:
-        ``recorded`` when a cycle's data arrives (always), ``fitted``
-        when a sysID fit has just run and the payload's identified
-        params mean something. The first is what makes a cycle that
-        declined to fit replayable at all.
-
-        The rollout sysID fit data otherwise exists only in memory:
-        when run_20260724_232411 shipped friction fits 2-7 sigma from
-        the truth, the failing fits could not be replayed offline - the
-        episodes had to be approximately re-executed from logged plans,
-        which cannot reproduce mid-episode replans or the warm-env
-        recording context (exactly the suspected corruption channel).
-        One pickle per cycle-level fit under ``<log_dir>/fit_data/``;
-        never raises - persistence must not take down a run.
-        """
-        if not CFG.code_sim_learning_persist_fit_data:
-            return
-        try:
-            out_dir = os.path.join(self._get_log_dir(), "fit_data")
-            os.makedirs(out_dir, exist_ok=True)
-            idx = len([f for f in os.listdir(out_dir) if f.endswith(".pkl")])
-            path = os.path.join(out_dir,
-                                f"fit_trajectories_{idx:03d}_{label}.pkl")
-            payload = {
-                "trajectories":
-                list(self._fit_trajectories),
-                "physical_param_specs":
-                list(self._physical_param_specs),
-                "identified_physical_params":
-                dict(self._identified_physical_params),
-            }
-            with open(path, "wb") as f:
-                pkl.dump(payload, f)
-            logger.info("Persisted %d fit trajectories to %s",
-                        len(self._fit_trajectories), path)
-        except Exception as e:  # pylint: disable=broad-except
-            logger.warning("Could not persist fit trajectories: %s", e)
-
     def _apply_identified_physical_params(
             self, identified: Dict[str, float]) -> None:
         """Publish identified physical params into the planning base env.
@@ -2591,392 +1894,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                 }
         return None
 
-    def _fit_parameters_joint_rollout(
-        self,
-        rules: List,
-        rule_specs: List[ParamSpec],
-        residual_features: Dict[str, List[str]],
-    ) -> Tuple[FitResult, float]:
-        """Joint physical+rule fit against free-running base-sim rollouts.
-
-        Reached when the artifact declares ``PHYSICAL_PARAM_SPECS``. Consumes
-        the RAW observed trajectories rather than ``base_pred_triples``:
-        physical parameters only manifest when momentum free-runs, which
-        the teacher-forced triples destroy (``State`` has no
-        velocities). One theta = physical + rule params, one joint fit,
-        so rules cannot silently absorb physics error; with no rules
-        this degenerates to pure identification. The identified physical
-        values are applied in place to the planning base env, and the
-        per-parameter identifiability report (posterior contraction) is
-        logged so null parameters are visible rather than silently
-        trusted.
-        """
-        physical_specs = self._physical_param_specs
-        physical_names = [s.name for s in physical_specs]
-        # Factory, not an instance: every rollout runs in a fresh env.
-        fit_env = self._get_rollout_fit_env()
-        self._persist_fit_trajectories()
-        rollouts = self._rollout_fit_trajectories(residual_features)
-        init_params = {
-            s.name: s.init_value
-            for s in physical_specs + rule_specs
-        }
-        anchors = self.fit_prior_anchors(physical_specs)
-        if not rollouts:
-            logger.warning(
-                "No complete trajectories for rollout sysID; keeping the "
-                "declared physical-param inits unfitted.")
-            result = fit_params_rollout(fit_env, [],
-                                        physical_specs,
-                                        residual_features,
-                                        rules=rules,
-                                        rule_specs=rule_specs,
-                                        latent_init=self._latent_init,
-                                        anchors=anchors)
-            self._apply_identified_physical_params(
-                {n: init_params[n]
-                 for n in physical_names})
-            return result, float("nan")
-
-        # The adjuster's third argument is the fit's own SSE-at-theta
-        # probe (survivor set + shared scaling - the objective the fit
-        # minimized), which the cross-cycle consistency check uses to
-        # arbitrate flagged jumps on evidence. Deliberately NOT a
-        # full-set SSE: trimmed (unexplainable) segments would add the
-        # same large error to both candidates and dilute the ratio.
-        outcome = run_rollout_sysid(
-            fit_env,
-            rollouts,
-            physical_specs,
-            residual_features,
-            rules=rules,
-            rule_specs=rule_specs,
-            latent_init=self._latent_init,
-            anchors=anchors,
-            rms_cache=self._explainability_cache,
-            report_adjuster=lambda result, report, sse_fn:
-            (self._check_cross_cycle_consistency(
-                result, report, physical_names, pooled_sse=sse_fn)),
-            held={
-                **self._identified_physical_params,
-                **self._cycle_applied_physical
-            })
-        if outcome.num_survivors == 0:
-            # NO fit ran (the result is pinned at the declared inits).
-            # Apply nothing: the planner keeps its standing belief -
-            # the previous cycle's applied values - rather than being
-            # reverted to baselines (or moved to this call's declared
-            # inits) by data that supports neither.
-            logger.warning(
-                "Rollout sysID: no explainable segments this cycle; "
-                "leaving the planner's physical params untouched.")
-            self._record_sysid_diagnostics({}, physical_names, 0,
-                                           len(rollouts), outcome.traj_rms)
-            return outcome.fit_result, float("nan")
-        inference = outcome.inference
-        logger.info("Identifiability (posterior/prior contraction):\n%s",
-                    format_identifiability(inference.parameter_diagnostics))
-        log_param_changes(init_params, inference.point_estimate)
-        self._apply_identified_physical_params(inference.selected_parameters)
-        self.note_carried_posterior(inference.selected_parameters,
-                                    inference.parameter_diagnostics)
-        if outcome.evidence is not None:
-            self.note_fit_evidence(
-                self._current_simulator_version or "harness", outcome.evidence)
-        # Snapshot the cycle-level decision: this (not whatever the
-        # agent's in-session sim.fit last applied) is what a future
-        # INCONSISTENT verdict holds on to.
-        self._cycle_applied_physical = dict(inference.selected_parameters)
-        # Physics-margin points for the capture gate: the fit's posterior
-        # widths (floored, see identifiability_report) turned into a grid
-        # of perturbations spanning +-1 sigma of the applied values.
-        self._identified_physical_sigma_points = self._physics_margin_points(
-            inference.selected_parameters, inference.parameter_diagnostics,
-            physical_specs)
-        if self._identified_physical_sigma_points:
-            logger.info("Physics-margin points for capture validation: %s",
-                        [{k: f"{v:.4f}"
-                          for k, v in pt.items()}
-                         for pt in self._identified_physical_sigma_points])
-        self._record_sysid_diagnostics(inference.parameter_diagnostics,
-                                       physical_names, outcome.num_survivors,
-                                       len(rollouts), outcome.traj_rms)
-        return outcome.fit_result, outcome.post_sse
-
-    def _check_cross_cycle_consistency(
-        self,
-        result: FitResult,
-        report: Dict[str, Dict[str, Any]],
-        physical_names: Sequence[str],
-        pooled_sse: Optional[Callable[[Dict[str, float]],
-                                      float]] = None) -> None:
-        """Flag params whose confident MAP jumped since the previous cycle.
-
-        The curvature probe measures local *precision*: a biased
-        objective yields precisely-wrong values that the probe still
-        stamps "identified" (observed: per-cycle friction fits 0.0585,
-        0.0614, 0.0919, 0.0794, each with posterior_std ~0.003 -
-        mutually incompatible by many sigmas). Comparing successive
-        final fits in FIT space (log for log-scale params) catches
-        exactly this: a jump above
-        ``CFG.code_sim_learning_rollout_cross_cycle_sigma`` combined
-        sigmas sets ``Verdict.INCONSISTENT``, and the trust selection
-        then HOLDS the currently-applied value instead of hopping to
-        the new fit - neither of two mutually-incompatible confident
-        fits can be preferred on this evidence, and hopping churned the
-        belief env for whole runs (run_20260721_205821 seed1:
-        restitution 0.71 -> 0.52 -> 0.02 -> 0.32 -> 0.02). History
-        records only these final per-cycle fits, not the agent's
-        in-session tool fits, whose param sets churn.
-
-        Sigma distance alone cannot tell a real correction from probe
-        churn, and successive cycle fits are NOT independent equals:
-        the new fit minimized the objective over a superset of the old
-        fit's data. So before holding, a flagged jump is arbitrated on
-        evidence via ``pooled_sse`` (the fit's own SSE-at-theta probe
-        over its surviving segments - the objective it minimized):
-        when the held value explains that data decisively worse than
-        the new fit
-        (``CFG.code_sim_learning_rollout_consistency_sse_ratio``), the
-        jump is accepted. Without a decisive gap the hold stands
-        (run_20260724_232411-style subset disagreement stays held +
-        hull-swept). Motivated by run_20260727_210827 seed1: a sharp
-        but biased 2-trajectory cycle-0 fit (0.9313, true 0.5) was held
-        over the 4-trajectory refit (0.4748, pooled SSE 0.14 vs ~4.4)
-        for the rest of the run.
-        """
-        k = CFG.code_sim_learning_rollout_cross_cycle_sigma
-        fitted = result.point_estimate
-        scales = result.scales or ["linear"] * len(result.names)
-        for i, name in enumerate(result.names):
-            if name not in physical_names:
-                continue
-            if report.get(name, {}).get("verdict") is Verdict.ANCHORED:
-                # An ablation-reverted param's point estimate IS the
-                # baseline, not a fit. Recording it would make the next
-                # cycle's genuine fit read as a many-sigma jump (and
-                # spuriously downgrade it); keep the previous history
-                # entry, which holds the last real fit.
-                continue
-            post = float(
-                report.get(name, {}).get("posterior_std", float("nan")))
-            scale = scales[i]
-            value = fitted[name]
-            prev = self._sysid_fit_history.get(name)
-            flagged = False
-            if (k > 0 and prev is not None and np.isfinite(post)
-                    and np.isfinite(prev[1])):
-                prev_val, prev_std, prev_scale = prev
-                if prev_scale == scale:
-                    dist = _fit_space_dist(value, prev_val, scale)
-                    combined = float(np.sqrt(post**2 + prev_std**2))
-                    if combined > 0 and dist / combined > k:
-                        n_sigma = dist / combined
-                        pending = self._sysid_pending_fit.get(name)
-                        if pending is not None and _fit_space_dist(
-                                value, pending[0], scale) / max(
-                                    float(np.sqrt(post**2 + pending[1]**2)),
-                                    1e-12) <= k:
-                            # Two INDEPENDENT cycles agree on the new
-                            # value: the jump was real, not probe
-                            # overconfidence - accept it.
-                            logger.info(
-                                "Rollout sysID cross-cycle consistency: "
-                                "%s jump to ~%.4f confirmed by an "
-                                "independent refit (pending %.4f); "
-                                "accepting the new value.", name, value,
-                                pending[0])
-                            self._sysid_pending_fit.pop(name, None)
-                        elif self._arbitrate_cross_cycle_jump(
-                                name, fitted, prev_val, pooled_sse):
-                            # Pooled evidence decisively prefers the
-                            # new fit over the held value (the helper
-                            # logs the SSE gap); accept it now instead
-                            # of waiting a cycle for confirmation.
-                            self._sysid_pending_fit.pop(name, None)
-                        else:
-                            flagged = True
-                            logger.warning(
-                                "Rollout sysID cross-cycle consistency: %s "
-                                "moved %.4f -> %.4f (%.1f combined sigmas > "
-                                "%g) since the previous cycle; the posterior "
-                                "is overconfident.", name, prev_val, value,
-                                n_sigma, k)
-                            entry = report.get(name)
-                            if (entry is not None and
-                                    entry["verdict"] is Verdict.IDENTIFIED):
-                                entry["verdict"] = Verdict.INCONSISTENT
-                                entry["note"] = (
-                                    f"{prev_val:.4f} -> {value:.4f} is "
-                                    f"{n_sigma:.1f} combined sigmas; holding "
-                                    "the last trusted value, margin sweep "
-                                    "spans both")
-                                # Both incompatible fits become hull
-                                # candidates so the margin sweep covers
-                                # the whole disagreement - the interval
-                                # [0.3236, 0.6267] contained the true
-                                # 0.5 in run_20260724_232411 seed2.
-                                cands = set(entry.get("candidate_values", ()))
-                                cands.update((float(prev_val), float(value)))
-                                if pending is not None:
-                                    cands.add(float(pending[0]))
-                                entry["candidate_values"] = sorted(cands)
-                            self._sysid_pending_fit[name] = (value, post)
-            if flagged:
-                # Keep the trusted value as the comparison reference;
-                # the rejected fit waits in _sysid_pending_fit for an
-                # independent confirmation. Recording the rejected fit
-                # here would make it the NEXT cycle's reference, i.e.
-                # accept the hop one cycle late without any new
-                # evidence.
-                continue
-            self._sysid_pending_fit.pop(name, None)
-            self._sysid_fit_history[name] = (value, post, scale)
-
-    @staticmethod
-    def _arbitrate_cross_cycle_jump(
-            name: str, fitted: Dict[str, float], prev_val: float,
-            pooled_sse: Optional[Callable[[Dict[str, float]], float]]) -> bool:
-        """Settle a flagged cross-cycle jump by pooled-data evidence.
-
-        Evaluates ``pooled_sse`` (the fit's own objective over its
-        surviving segments) under the new joint fit and under the same
-        fit with ``name`` swapped back to the held value. Returns True
-        (accept the jump) only when the held
-        value's explanation is decisively worse - at least
-        ``CFG.code_sim_learning_rollout_consistency_sse_ratio`` times
-        the new fit's SSE. Anything short of decisive (including an SSE
-        evaluation failure) returns False and leaves the hold-and-
-        hull-sweep behavior in charge.
-        """
-        ratio = CFG.code_sim_learning_rollout_consistency_sse_ratio
-        if pooled_sse is None or ratio <= 0:
-            return False
-        try:
-            sse_new = pooled_sse(dict(fitted))
-            held_theta = dict(fitted)
-            held_theta[name] = prev_val
-            sse_held = pooled_sse(held_theta)
-        except Exception:  # pylint: disable=broad-except
-            logger.warning(
-                "Rollout sysID cross-cycle arbitration: pooled SSE "
-                "evaluation failed for %s; holding the trusted value.",
-                name,
-                exc_info=True)
-            return False
-        if not (np.isfinite(sse_new) and np.isfinite(sse_held)):
-            return False
-        decisive = sse_held > ratio * sse_new
-        logger.info(
-            "Rollout sysID cross-cycle arbitration: %s pooled SSE %.4g at "
-            "the new fit %.4g vs %.4g at the held value %.4g - %s.", name,
-            sse_new, fitted[name], sse_held, prev_val,
-            ("decisively better, accepting the jump"
-             if decisive else "not decisive, holding"))
-        return decisive
-
-    def _record_sysid_diagnostics(self, report: Dict[str, Dict[str, Any]],
-                                  physical_names: Sequence[str],
-                                  num_survivors: int, num_segments: int,
-                                  rms: List[float]) -> None:
-        """Digest the fit's weak spots for the next explore phase.
-
-        Generic (domain-free) statements of what the data could not
-        support - unexplainable segments, parameters the rollouts do not
-        constrain, cross-cycle conflicts - phrased as experiment
-        objectives. The explorer appends this to its guidance so the
-        agent designs interactions that fill the gaps, instead of
-        relying on whatever manipulation data the tasks happen to
-        produce.
-        """
-        lines: List[str] = []
-        dropped = num_segments - num_survivors
-        if dropped > 0:
-            lines.append(
-                f"- {dropped} of {num_segments} recorded motion segments "
-                "were unexplainable at ANY physical parameters (best RMS "
-                f"{[f'{r:.3g}' for r in rms]}): their dynamics are not "
-                "repeatable under replay. Prefer experiments whose outcome "
-                "is dominated by object dynamics rather than prolonged "
-                "robot-object contact: actuate cleanly, then let the scene "
-                "evolve and settle on its own.")
-        for name in physical_names:
-            entry = report.get(name, {})
-            verdict = entry.get("verdict", Verdict.UNKNOWN)
-            note = entry.get("note", "")
-            label = verdict.value + (f" ({note})" if note else "")
-            if verdict is Verdict.IDENTIFIED:
-                cands = entry.get("candidate_values", ())
-                if len(cands) > 1:
-                    lines.append(
-                        f"- physical param '{name}': identified, but the "
-                        "recorded segments preferred mutually-incompatible "
-                        f"explanations spanning [{min(cands):.4g}, "
-                        f"{max(cands):.4g}] (the physics-margin sweep "
-                        "covers that whole hull). A clean, repeatable "
-                        "interaction that excites this parameter and "
-                        "little else would collapse the hull.")
-                continue
-            belief = entry.get("belief_interval")
-            if verdict is Verdict.WIDE and belief is not None:
-                anchor = entry.get("anchor")
-                if anchor is None:
-                    where = ""
-                elif anchor < belief[0] or anchor > belief[1]:
-                    where = (f"; the baseline {anchor:.4g} lies outside it, "
-                             "so the data already exclude the baseline")
-                else:
-                    where = f"; the baseline {anchor:.4g} lies inside it"
-                lines.append(
-                    f"- physical param '{name}': the data moved it to "
-                    f"{entry.get('map', float('nan')):.4g} but only weakly; "
-                    f"the planner's belief is the interval [{belief[0]:.4g}, "
-                    f"{belief[1]:.4g}]{where}. Plans are certified across "
-                    "the whole interval, so an experiment whose observable "
-                    "outcome DIFFERS across it would narrow the belief and "
-                    "widen the set of certifiable plans.")
-                continue
-            interval = entry.get("flat_interval")
-            if (verdict in (Verdict.WEAKLY_IDENTIFIED, Verdict.NOT_IDENTIFIED)
-                    and interval is not None and interval[0] != interval[1]):
-                lines.append(
-                    f"- physical param '{name}': the data cannot "
-                    f"distinguish values in [{interval[0]:.4g}, "
-                    f"{interval[1]:.4g}]. An experiment whose observable "
-                    "outcome DIFFERS across this interval would pin it "
-                    "down.")
-                continue
-            if verdict is Verdict.ANCHORED:
-                # Anchor ablation handled this param correctly (the move
-                # was compensatory; the baseline is applied) - it is NOT
-                # a failed identification, so don't advise dropping it.
-                lines.append(
-                    f"- physical param '{name}': the fitted move was "
-                    "compensatory (a refit with it at its baseline explains "
-                    "the data equally well), so the baseline was kept. An "
-                    "experiment that excites this parameter SPECIFICALLY "
-                    "(not jointly with the others) would distinguish the "
-                    "two explanations.")
-                continue
-            if verdict is Verdict.INCONSISTENT:
-                lines.append(
-                    f"- physical param '{name}': successive cycles produced "
-                    f"confident but mutually-incompatible fits ({note}). "
-                    "The objective is biased somewhere: collect a clean, "
-                    "repeatable interaction that excites this parameter and "
-                    "little else, so one of the two values can be refuted.")
-                continue
-            lines.append(
-                f"- physical param '{name}': {label}. An experiment whose "
-                "observable outcome CHANGES when this parameter changes "
-                "would identify it; if none exists, drop it from "
-                "PHYSICAL_PARAM_SPECS.")
-        self._last_sysid_diagnostics = ("\n".join(lines) if lines else "")
-
     def _sync_tool_context(self) -> None:
         super()._sync_tool_context()
-        self._tool_context.sysid_diagnostics = (self._last_sysid_diagnostics
-                                                or None)
         self._tool_context.latent_tracking_available = \
             self._latent_tracking_available()
 
@@ -3073,38 +1992,6 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             idx += n
         return groups
 
-    def _fit_parameters_recurrent(
-        self,
-        rules: List,
-        specs: List[ParamSpec],
-        base_pred_triples: List[Tuple[State, Action, State]],
-        residual_features: Dict[str, List[str]],
-        lm_seed: Optional[Tuple[np.ndarray, Optional[np.ndarray]]] = None,
-    ) -> Tuple[FitResult, float]:
-        """LM fit over the recurrent (per-trajectory) SSE.
-
-        Counterpart to :func:`fitting.fit_rule_parameters` for rules
-        that carry a latent block. Re-groups the flat
-        ``base_pred_triples`` into per-trajectory chunks (latent threads
-        within a trajectory, not across) via the lengths cached in
-        ``self._fit_trajectories``; falls back to a single trajectory if
-        no grouping info exists. Delegates the actual fit/log to
-        :func:`fitting.fit_rule_parameters_latent` so the agent's
-        ``sim.fit`` surface scores latent rules through the exact
-        same path.
-        """
-        groups = self._group_triples_by_trajectory(base_pred_triples)
-        if not groups:
-            logger.warning("No trajectory groups for recurrent fitting; "
-                           "falling back to single-trajectory rollout.")
-            groups = [base_pred_triples]
-        return fit_rule_parameters_latent(rules,
-                                          specs,
-                                          groups,
-                                          self._latent_init,
-                                          residual_features,
-                                          lm_seed=lm_seed)
-
     def _oracle_param_sse_recurrent(
         self,
         rules: List,
@@ -3167,37 +2054,6 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         for name, val in sorted(self._fitted_params.items()):
             logger.info("  %-30s  %.4f", name, val)
         return sse
-
-    def _attach_initial_latent(self, task: Task) -> Task:
-        """Seed ``task.init.latent`` with the initial latent block.
-
-        Refinement starts at ``task.init`` (the planner's ``traj[0]``), so
-        the combined simulator must find a well-formed latent there. If no
-        ``LATENT_INIT`` was loaded (or the resulting block is empty), leave
-        the task alone so downstream code keeps the legacy
-        ``state.latent is None`` behaviour. Overrides the no-op default in
-        :class:`AgentModelBasedApproach`.
-        """
-        tracker = self.make_latent_tracker() if getattr(
-            self, "_residual_env_cls", None) is not None else None
-        if tracker is not None:
-            return Task(init=tracker.attach(task.init, None),
-                        goal=task.goal,
-                        alt_goal=task.alt_goal,
-                        goal_nl=task.goal_nl,
-                        evaluator=task.evaluator)
-        if self._latent_init is None:
-            return task
-        initial_latent = init_latent(self._latent_init, self._fitted_params
-                                     or {})
-        if not initial_latent:
-            return task
-        init_state = task.init.copy()
-        init_state.latent = initial_latent
-        return Task(init=init_state,
-                    goal=task.goal,
-                    alt_goal=task.alt_goal,
-                    goal_nl=task.goal_nl)
 
     def materialise_latent(
         self,
@@ -3326,25 +2182,6 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                 for s, a, s_next in obs_triples]
 
     @staticmethod
-    def _infer_residual_features_from_scan(
-        obs_triples: List[Tuple[State, Action, State]],
-        base_pred_triples: List[Tuple[State, Action, State]],
-        abs_tol: float = 1e-4,
-        rel_tol: float = 1e-3,
-        min_hits: int = 3,
-    ) -> Dict[str, List[str]]:
-        """Features whose base-sim prediction diverges from observation.
-
-        Flags ``(type, feat)`` if ``|pred - obs| > rel_tol*|obs| + abs_tol``
-        on at least ``min_hits`` triples. The ``min_hits`` floor keeps
-        one-off PyBullet jitter from leaking base-handled features into the set.
-        """
-        del obs_triples  # objects are identical across both triple lists
-        hits: Dict[Tuple[str, str], int] = {}
-        count_residual_hits(base_pred_triples, hits, abs_tol, rel_tol)
-        return residual_hint_from_hits(hits, min_hits)
-
-    @staticmethod
     def _log_feature_set_diff(
         a: Dict[str, List[str]],
         b: Dict[str, List[str]],
@@ -3365,23 +2202,6 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             logger.info("  only in %s: %s", a_label, only_a)
         if only_b:
             logger.info("  only in %s: %s", b_label, only_b)
-
-    @staticmethod
-    def _format_predicate_signatures(predicates: Set[Predicate]) -> str:
-        """Pretty-print predicates as ``Name(type1, type2)`` lines.
-
-        Mirrors the ``## Available Predicates`` block in
-        ``bilevel_sketch.build_solve_prompt``.
-        """
-        lines = []
-        for pred in sorted(predicates, key=lambda p: p.name):
-            type_sig = ", ".join(t.name for t in pred.types)
-            line = f"  {pred.name}({type_sig})"
-            if pred.natural_language_assertion is not None:
-                names = [t.name for t in pred.types]
-                line += f" - {pred.natural_language_assertion(names)}"
-            lines.append(line)
-        return "\n".join(lines)
 
     def _make_evaluate_trajectory_fn(self) -> Any:
         """Build the ``evaluate_trajectory`` helper exposed in the synthesis
@@ -3511,72 +2331,6 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
             "certified": solved == len(per_point),
         }
 
-    @staticmethod
-    def _format_trajectory_listing(
-            trajectories: List[LowLevelTrajectory]) -> str:
-        """Render a per-trajectory listing with provenance tags.
-
-        Each interaction trajectory shows the simulator / predicates
-        snapshot used to generate the plan that collected it (if
-        tracked). Demo trajectories list as ``demo``. Listed in the same
-        order the agent sees them via the ``trajectories`` var.
-        """
-        if not trajectories:
-            return ""
-        lines = ["Trajectory roster (matches the `trajectories` list):"]
-        for idx, traj in enumerate(trajectories):
-            kind = "demo" if traj.is_demo else "interaction"
-            try:
-                task_str = f"task {traj.train_task_idx}"
-            except AssertionError:
-                task_str = "task ?"
-            provenance: List[str] = []
-            sim_v = traj.source_simulator_version
-            preds_v = traj.source_predicates_version
-            if sim_v:
-                provenance.append(f"sim {sim_v}")
-            if preds_v:
-                provenance.append(f"predicates {preds_v}")
-            tail = (f" - generated using {', '.join(provenance)}"
-                    if provenance else "")
-            if traj.env_reward is not None:
-                solved = int(
-                    bool(traj.env_terminated) and not traj.env_rejected)
-                tail += (f" - env reward={traj.env_reward:.2f} "
-                         f"(solved={solved})")
-            lines.append(f"  [{idx}] {kind}, {task_str}{tail}")
-        return "\n".join(lines) + "\n"
-
-    def _format_objective_block(self) -> str:
-        """The env's public task objective (reward form), or empty.
-
-        Emitted when a train task's evaluator states an objective. The
-        statement is public by design: it contains the reward FORM
-        (success condition + costs), never oracle quantities like the
-        true minimum block count.
-        """
-        description = next(
-            (t.evaluator.objective_description()
-             for t in self._train_tasks if t.evaluator is not None
-             and t.evaluator.objective_description()), "")
-        return learn_prompts.render_objective_block(description)
-
-    def _format_prior_state_block(self, base: str) -> str:
-        """Tell the agent about any simulator/predicates left over from a
-        previous learning cycle.
-
-        Returns a paragraph the agent can act on (read the files first
-        and treat this cycle as incremental refinement) or an empty
-        string if no prior state exists. The base sandbox dir is scanned
-        for ``simulator.py`` / ``predicates.py``.
-        """
-        prior: List[str] = []
-        if os.path.isfile(os.path.join(base, "simulator.py")):
-            prior.append("`./simulator.py`")
-        if os.path.isfile(os.path.join(base, "predicates.py")):
-            prior.append("`./predicates.py`")
-        return learn_prompts.render_prior_state_block(prior)
-
     def _simulator_load_namespace(self) -> Dict[str, Any]:
         """The names pre-injected when ``simulator.py`` is exec'd.
 
@@ -3662,35 +2416,6 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
 
     # ── Static helpers ───────────────────────────────────────────
 
-    def _write_structs_reference(self) -> str:
-        """Write key struct sources to the sandbox; return the agent-visible
-        path."""
-        # pylint: disable=import-outside-toplevel,reimported
-        from predicators.structs import Action as _Action
-        from predicators.structs import LowLevelTrajectory as _LLT
-        from predicators.structs import Object as _Object
-        from predicators.structs import State as _State
-        from predicators.structs import Type as _Type
-
-        source = "\n\n".join(
-            inspect.getsource(cls)
-            for cls in [_Type, _Object, _State, _Action, _LLT])
-
-        base = self._tool_context.sandbox_dir or self._get_log_dir()
-        ref_dir = os.path.join(base, "reference")
-        os.makedirs(ref_dir, exist_ok=True)
-        ref_path = os.path.join(ref_dir, "structs.py")
-        with open(ref_path, "w", encoding="utf-8") as f:
-            f.write(source)
-
-        # Same backend-dependent agent-visible path mapping as
-        # _resolve_synthesis_paths.
-        if CFG.agent_sdk_use_local_sandbox:
-            return "./reference/structs.py"
-        if self._tool_context.sandbox_dir:
-            return "/sandbox/reference/structs.py"
-        return ref_path
-
     def _base_sim_reference_paths(self) -> List[str]:
         """Agent-visible paths of the provisioned base-sim sources.
 
@@ -3713,24 +2438,10 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
                 type(self._base_env).__name__)
             return []
         names = [os.path.basename(rel) for rel in src_files]
-        # Same backend-dependent path mapping as _write_structs_reference.
+        # Reference copies exist only in the local sandbox.
         if CFG.agent_sdk_use_local_sandbox:
             return [f"./reference/base_sim/{n}" for n in names]
-        if CFG.agent_sdk_use_docker_sandbox:
-            return [f"/sandbox/reference/base_sim/{n}" for n in names]
         return []
-
-    @staticmethod
-    def _extract_obs_triples(
-        trajectories: List[LowLevelTrajectory],
-    ) -> List[Tuple[State, Action, State]]:
-        """Extract observed (s_t, action_t, s_{t+1}) triples."""
-        triples: List[Tuple[State, Action, State]] = []
-        for traj in trajectories:
-            for i in range(len(traj.actions)):
-                triples.append(
-                    (traj.states[i], traj.actions[i], traj.states[i + 1]))
-        return triples
 
     def _recreate_base_env(self) -> None:
         """Reconnect after a PyBullet physics-server crash."""
@@ -4088,50 +2799,6 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
 
         return make_stepper
 
-    def _build_synthesis_system_prompt(self) -> str:
-        """Compose the synthesis system prompt from the templates.
-
-        Per-instance choices: the rule signature (flag-gated on
-        ``CFG.partially_observable``, which also swaps the env's
-        observation and the GT simulator module, so prompt and world
-        never disagree; under the flag only the recurrent 5-arg form is
-        shown), the optional PHYSICAL_PARAM_SPECS section (env parameter
-        menu), the scene-visualization hint, and the subclass extras.
-        """
-        return learn_prompts.build_learn_system_prompt(
-            partially_observable=CFG.partially_observable,
-            residual_rule_signature=self._residual_rule_signature(),
-            scene_viz_hint=self._scene_viz_hint(),
-            physical_params_section=self._physical_params_prompt_section(),
-            extra_sections=self._extra_synthesis_system_prompt_sections(),
-            latent_extra_sections=self._extra_synthesis_latent_sections(),
-            workflow_extra=self._synthesis_workflow_extra(),
-            declared_params_only=CFG.agent_sim_learn_declared_params_only,
-        )
-
-    def _synthesis_workflow_extra(self) -> str:
-        """Extra text appended to the Workflow list.
-
-        Subclasses with additional deliverables (e.g. invented
-        predicates) extend the workflow here so the numbered list stays
-        the single authoritative loop description.
-        """
-        return ""
-
-    @staticmethod
-    def _scene_viz_hint() -> str:
-        """The find-the-anchor-offset sentence.
-
-        The probe is unconditional in synthesis sessions, so the hint
-        always names its staging + overlay surface.
-        """
-        return ("use the `sim` probe in `run_python`: "
-                "`sim.reset(task_idx=..., "
-                "mods={...})` to stage a representative state from each "
-                "bucket and `sim.render(label, annotations=[...])` to "
-                "overlay, on one render, the recorded origin and the "
-                "positions where the effect did vs. did not fire")
-
     def _physical_params_prompt_section(self) -> str:
         """Markdown for the optional PHYSICAL_PARAM_SPECS (system-ID) block.
 
@@ -4148,17 +2815,3 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentModelBasedApproach):
         if callable(getter):
             info = getter() or {}
         return learn_prompts.render_physical_params_section(info)
-
-    def _residual_rule_signature(self) -> str:
-        """The ``def`` line used in the geometric-gate example.
-
-        Matches the canonical rule signature the prompt advertises
-        (``CFG.partially_observable`` selects it) so the worked example
-        doesn't contradict it.
-        """
-        if CFG.partially_observable:
-            # The example's body reads `state`; bind it so the recurrent
-            # form is a runnable rule, not a signature over a foreign name.
-            return ("def residual_rule(observation, latent, history, "
-                    "updates, params):\n    state = observation")
-        return "def residual_rule(state, updates, params):"

@@ -312,9 +312,8 @@ def test_agent_render_resolution() -> None:
 
 
 def test_synthesis_tool_names_run_python() -> None:
-    """Every session offers one ``run_python``: the synthesis roster carries
-    its own instance (fit data + the candidate-simulator probe in one
-    namespace), the solve roster the probe over the deployed belief model.
+    """The synthesis roster carries one ``run_python``, its own instance (fit
+    data + the candidate-simulator probe in one namespace).
 
     Fitting, residual reports, plan validation, and scene work are probe
     methods (``sim.fit`` / ``sim.residuals`` / ``sim.refine`` /
@@ -328,9 +327,7 @@ def test_synthesis_tool_names_run_python() -> None:
         AgentSimPredicateInventionApproach
 
     sim_learn = object.__new__(AgentSimLearningApproach)
-    sim_learn._do_synthesize_samplers = False
     invention = object.__new__(AgentSimPredicateInventionApproach)
-    invention._do_synthesize_samplers = False
 
     utils.reset_config({})
     names = _required_names(sim_learn._get_synthesis_tool_names())
@@ -338,28 +335,6 @@ def test_synthesis_tool_names_run_python() -> None:
     names = _required_names(invention._get_synthesis_tool_names())
     assert names.count("run_python") == 1
     assert "evaluate_predicate_quality" not in names  # sim.predicates()
-
-    # On the solve side every arm with a simulator gets the same surface:
-    # the probe (trajectories in its namespace, sim.task for the task
-    # digest) plus the submission tool.
-    utils.reset_config({
-        "env": "cover",
-        "approach": "agent_sim_predicate_invention",
-        "agent_planner_use_simulator": True,
-    })
-    names = _required_names(invention._get_solve_tool_names())
-    assert names.count("run_python") == 1
-    assert "submit_plan" in names
-
-    # Without a simulator there is nothing to probe or validate against.
-    utils.reset_config({
-        "env": "cover",
-        "approach": "agent_sim_predicate_invention",
-        "agent_planner_use_simulator": False,
-    })
-    names = _required_names(invention._get_solve_tool_names())
-    assert "run_python" not in names
-    assert "submit_plan" not in names
 
 
 def test_attached_run_python_replaces_the_static_instance() -> None:

@@ -21,15 +21,11 @@ from predicators.structs import GroundAtom, Object, ParameterizedOption, \
 class GroundSampler:
     """Per-step (ground) sampler compiled from a sketch annotation.
 
-    The ground level of the two-level sampler hierarchy that
-    ``_draw_params`` consults: ground sampler (this, most specific) >
-    learned parameterized sampler (``parameterized_samplers``, keyed by
-    option name) > uniform. A parameterized sampler is authored once
-    and sees every ground call of its option; a ground sampler is
-    declared inline for ONE step of ONE sketch and dies with the call -
-    it lives on the ``SketchStep`` rather than in the option-name-keyed
-    registry, which could not hold different distributions for two
-    same-option steps in one sketch.
+    ``_draw_params`` draws a step's params from its ground sampler when
+    it has one, uniformly otherwise. A ground sampler is declared inline
+    for ONE step of ONE sketch and dies with the call: it lives on the
+    ``SketchStep``, so two same-option steps in one sketch can draw from
+    different distributions.
 
     Two kinds, one per instance:
     - window (``center`` + ``width`` set): the uniform box a
@@ -37,9 +33,9 @@ class GroundSampler:
       proposed params;
     - code (``fn`` + ``name`` set): an agent-written function that a
       ``~ my_sampler`` annotation references by name (loaded fresh per
-      refine call from the sandbox's ``GROUND_SAMPLERS``); it shares
-      the parameterized-sampler call signature, so it can shape any
-      state-conditioned distribution.
+      refine call from the sandbox's ``GROUND_SAMPLERS``) with the
+      signature ``(state, subgoal_atoms, rng, objects) -> params``, so
+      it can shape any state-conditioned distribution.
     """
     center: Optional[np.ndarray] = None
     width: Optional[np.ndarray] = None
@@ -58,7 +54,7 @@ class GroundSampler:
 
         Returns ``None`` when a code fn misbehaves (raises or returns a
         wrong-shaped array); the caller falls back to uniform sampling
-        for that draw, mirroring the parameterized-sampler fallback.
+        for that draw.
         """
         if self.fn is not None:
             try:

@@ -15,7 +15,6 @@ from predicators.code_sim_learning.program_world_model import \
 from predicators.datasets import create_dataset
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
-from predicators.settings import CFG
 
 _PROGRAM = '''
 LATENT_FEATURES = {"robot": ["phase"]}
@@ -69,9 +68,8 @@ def test_belief_particles_and_override_scope() -> None:
     latents all come from the installed program."""
     env, train_tasks, options = _cover()
     approach = _bare(env, train_tasks, options)
-    # No model yet: no particles, and the initial latent is left alone.
+    # No model yet: no particles.
     assert not approach._belief_particles()
-    assert approach._attach_initial_latent(train_tasks[0]) is train_tasks[0]
     program, err = load_program_world_model(_PROGRAM, env.types,
                                             env.predicates, options)
     assert err is None and program is not None
@@ -86,10 +84,6 @@ def test_belief_particles_and_override_scope() -> None:
     # The current task drives the draw when one is set.
     approach._tool_context.current_task = train_tasks[1]
     assert approach._belief_particles() == particles
-    # The nominal latent is attached to the task the planner sees.
-    task = approach._attach_initial_latent(train_tasks[0])
-    assert task.init.latent is not None and "phase" in task.init.latent
-    assert train_tasks[0].init.latent is None
     # Under the scope every latent-less start rolls from the particle.
     model: ProgramOptionModel = approach._program_model
     (pick_place, ) = [o for o in options if o.name == "PickPlace"]
@@ -106,32 +100,6 @@ def test_belief_particles_and_override_scope() -> None:
     assert len(latents) == len(traj.states)
     assert latents[-1]["phase"] > latents[0]["phase"]
     assert approach._latent_tracking_available() is False
-
-
-def test_learn_simulator_gating(monkeypatch) -> None:
-    """No data means no session unless zero-shot is on."""
-    env, train_tasks, options = _cover()
-    approach = _bare(env, train_tasks, options)
-    approach._persist_fit_trajectories = lambda *a, **k: None
-    calls: List[Any] = []
-    program, _ = load_program_world_model(_PROGRAM, env.types, env.predicates,
-                                          options)
-
-    def _session(trajectories):
-        calls.append(list(trajectories))
-        return program
-
-    approach._run_program_synthesis_session = _session
-    monkeypatch.setattr(CFG, "agent_sim_learn_zero_shot", False)
-    approach._learn_simulator([])
-    assert not calls and approach._program is None
-    monkeypatch.setattr(CFG, "agent_sim_learn_zero_shot", True)
-    approach._learn_simulator([])
-    assert calls == [[]] and approach._program is program
-    dataset = create_dataset(env, train_tasks, options, env.predicates)
-    monkeypatch.setattr(CFG, "agent_sim_learn_zero_shot", False)
-    approach._learn_simulator(list(dataset.trajectories))
-    assert len(calls) == 2 and len(calls[1]) == len(dataset.trajectories)
 
 
 def test_rehydrate_from_world_model_file(tmp_path, monkeypatch) -> None:
