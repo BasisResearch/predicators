@@ -15,7 +15,9 @@ scene's metadata records:
 
 Figure 1 alone also draws Boil's cyan test jug in the red that the same
 jug has in training, because the renderer's ambient response for jug
-cavities washes cyan out. The Boil stripe keeps the recorded cyan.
+cavities washes cyan out, and colors Boil water by the heat that its
+bubbling level records, as the environment does. The Boil stripe keeps
+the recorded cyan and the water colors of a restored state.
 """
 import argparse
 import hashlib
@@ -210,6 +212,27 @@ def _restore_spill(env: Any, state: State) -> None:
             spilled, state)
 
 
+def _show_recorded_heat(env: Any, state: State) -> bool:
+    """Color Boil water by the heat its bubbling level records.
+
+    Restoring a state resets each jug's hidden heat to zero, which draws
+    boiled water blue. The observable bubbling level is clip((heat -
+    BUBBLING_THRESHOLD) * BUBBLING_RAMP, 0, 1), so a positive level
+    fixes the heat; below the threshold the heat is unknown and stays
+    zero. Returns whether any jug's heat was set.
+    """
+    shown = False
+    for jug in state.get_objects(env._jug_type):  # pylint: disable=protected-access
+        bubbling = state.get(jug, "bubbling_level")
+        if bubbling > 0:
+            env._heat_levels[jug.name] = (  # pylint: disable=protected-access
+                env.BUBBLING_THRESHOLD + bubbling / env.BUBBLING_RAMP)
+            shown = True
+    if shown:
+        env._update_liquid_colors(state)  # pylint: disable=protected-access
+    return shown
+
+
 def _redraw_test_jug(scene: Dict[str, Any]) -> None:
     """Draw Boil's cyan test jug in the red it has in training."""
     notes = scene["metadata"]["display_notes"]
@@ -266,6 +289,8 @@ def _export_row(row: Dict[str, Any]) -> None:
             env._current_observation = state  # pylint: disable=protected-access
             if row["domain"] == "Boil":
                 _restore_spill(env, state)
+                if _show_recorded_heat(env, state):
+                    notes.append("water colored by its recorded heat")
             if row["domain"] == "Balloons":
                 # The environment draws the strings of tied balloons only
                 # when it renders an image.
