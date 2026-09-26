@@ -29,9 +29,7 @@ class SessionConfig:
     max_turns: int
     max_buffer_size: int
     agent_timeout: int
-    use_docker_sandbox: bool
     use_local_sandbox: bool
-    docker_image: str
     use_scratchpad: bool
 
     @classmethod
@@ -44,9 +42,7 @@ class SessionConfig:
             max_turns=CFG.agent_sdk_max_agent_turns_per_iteration,
             max_buffer_size=CFG.agent_sdk_max_buffer_size,
             agent_timeout=CFG.agent_sdk_agent_timeout,
-            use_docker_sandbox=CFG.agent_sdk_use_docker_sandbox,
             use_local_sandbox=CFG.agent_sdk_use_local_sandbox,
-            docker_image=CFG.agent_sdk_docker_image,
             use_scratchpad=CFG.agent_planner_use_scratchpad,
         )
 

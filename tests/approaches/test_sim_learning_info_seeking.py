@@ -156,37 +156,6 @@ def test_rebuild_param_ensemble_respects_flag():
     assert approach._param_ensemble[0] == {"a": 1.0}  # member 0 is anchor
 
 
-def test_rebuild_param_ensemble_empty_under_oracle_params():
-    """Oracle params carry no uncertainty, so no ensemble is built.
-
-    Without this the uniform-jitter fallback would hand the capture gate
-    members that no plan can satisfy (a zero rate, a rewired lamp), and
-    the gate would refuse every plan on a model that is exactly right.
-    """
-    from predicators.code_sim_learning.fit_space import ParamSpec
-    approach = object.__new__(AgentSimLearningApproach)
-    approach._fitted_params = {"a": 1.0}
-    approach._param_specs = [ParamSpec("a", 1.0, lo=0.0, hi=2.0)]
-    approach._param_ensemble = [{"a": 1.0}, {"a": 2.0}]
-    approach._last_fit_result = None
-    approach._rng = np.random.default_rng(0)
-    utils.reset_config({
-        "agent_plan_validation_rule_param_margin": True,
-        "agent_explorer_info_ensemble_size": 5,
-        "agent_sim_learn_oracle_sim_params": True,
-    })
-    approach._rebuild_param_ensemble()
-    assert approach._param_ensemble == []
-
-    utils.reset_config({
-        "agent_plan_validation_rule_param_margin": True,
-        "agent_explorer_info_ensemble_size": 5,
-        "agent_sim_learn_oracle_sim_params": False,
-    })
-    approach._rebuild_param_ensemble()
-    assert len(approach._param_ensemble) == 5
-
-
 def _selector_approach(fit_result):
     from predicators.code_sim_learning.fit_space import ParamSpec
     approach = object.__new__(AgentSimLearningApproach)
@@ -261,14 +230,9 @@ def test_select_ensemble_uniform_when_calibration_disabled():
     assert method == "uniform-perturb"
 
 
-def test_fit_params_no_data_seeds_declared_inits(monkeypatch):
-    """With no transitions, params seed from inits and no fit runs.
-
-    This is the oracle-sim-program no-demos path: every demo failed, so
-    ``_learn_simulator`` reaches the fit with empty
-    ``base_pred_triples`` and must fall back to the declared init values
-    instead of fitting.
-    """
+def test_fit_params_no_data_seeds_declared_inits():
+    """With no transitions and no published fit, the deployed params are the
+    declared init values."""
     from predicators.code_sim_learning.fit_space import ParamSpec
 
     approach = object.__new__(AgentSimLearningApproach)
@@ -280,16 +244,7 @@ def test_fit_params_no_data_seeds_declared_inits(monkeypatch):
     approach._last_fit_result = None
     approach._fit_sse = 0.0
     approach._rng = np.random.default_rng(0)
-
-    def _fail_fit(*args, **kwargs):
-        del args, kwargs
-        raise AssertionError("fit must not run with no data")
-
-    monkeypatch.setattr(
-        "predicators.approaches.agent_sim_learning_approach"
-        ".fit_rule_parameters", _fail_fit)
     utils.reset_config({
-        "agent_sim_learn_oracle_sim_params": False,
         "agent_explorer_info_seeking": False,
     })
     specs = [ParamSpec("a", 1.5, lo=0.0, hi=5.0)]

@@ -1,8 +1,8 @@
 """Mixin providing shared agent session infrastructure.
 
 Extracts common code for ToolContext initialization, lazy
-AgentSessionManager creation, async-to-sync bridging, and agent explorer
-creation shared by AgentModelFreeApproach and its subclasses.
+AgentSessionManager creation and async-to-sync bridging shared by
+AgentModelFreeApproach and its subclasses.
 """
 import logging
 import os
@@ -15,8 +15,6 @@ from predicators.agent_sdk.session_manager import AgentSessionManager, \
     SessionManagerProtocol, run_async_sync, run_query_sync
 from predicators.agent_sdk.tools import ALL_TOOL_NAMES, ToolContext, \
     create_mcp_tools, get_allowed_tool_list
-from predicators.explorers import create_explorer
-from predicators.explorers.base_explorer import BaseExplorer
 from predicators.settings import CFG
 from predicators.structs import ParameterizedOption, Predicate, Task, Type
 
@@ -31,7 +29,7 @@ class AgentSessionMixin:
 
     And may optionally override:
       - _get_solve_tool_names()         -- complete tool surface for
-        solve / explore sessions. May mix static MCP tool names with
+        play sessions. May mix static MCP tool names with
         names of dynamic ``SdkMcpTool`` instances. ``None`` = all
         static MCP tools, ``[]`` = none.
       - _get_synthesis_tool_names()     -- complete tool surface for
@@ -54,11 +52,6 @@ class AgentSessionMixin:
     # by the sim-learning approach around synthesis sessions; the class
     # default keeps plain solve-only hosts working without declaring it.
     _learning_mode: bool = False
-    # Flipped around explorer creation (``get_interaction_requests``) so
-    # explore sessions carry their own phase tag: their system prompt is
-    # saved as ``system_prompt_explore.md`` next to the solve and
-    # synthesis ones instead of overwriting the solve copy.
-    _explore_phase: bool = False
     # Phase tag the live ``_agent_session`` was created with; a query
     # under a different phase closes and rebuilds the session so the
     # saved prompt, tools, and CLAUDE.md always match the active phase.
@@ -101,7 +94,7 @@ class AgentSessionMixin:
         raise NotImplementedError
 
     def _get_solve_tool_names(self) -> Optional[List[str]]:
-        """Return the complete tool surface for solve / explore sessions.
+        """Return the complete tool surface for play sessions.
 
         May mix static MCP tool names with names of dynamic
         ``SdkMcpTool`` instances. ``None`` means "all static MCP tools";
@@ -123,7 +116,7 @@ class AgentSessionMixin:
         return []
 
     def _get_sandbox_reference_files(self) -> Dict[str, str]:
-        """Return extra reference files for the docker sandbox.
+        """Return extra reference files for the sandbox.
 
         Maps destination paths (relative to ``/sandbox/reference/``) to
         source paths (relative to the repo root).  Override in
@@ -138,17 +131,12 @@ class AgentSessionMixin:
     def _ensure_agent_session(self) -> None:
         """Create the agent session manager if needed.
 
-        When ``SessionConfig.use_docker_sandbox`` is ``True``, creates a
-        ``DockerSessionManager`` that runs ``ClaudeSDKClient`` inside a
-        Docker container with full built-in tools (Bash, Read, Write,
-        …). Otherwise creates the normal in-process
-        ``AgentSessionManager``.
+        When ``SessionConfig.use_local_sandbox`` is ``True``, creates a
+        ``LocalSandboxSessionManager`` that runs the agent in a sandbox
+        directory with its built-in tools (Bash, Read, Write, ...).
+        Otherwise creates the in-process ``AgentSessionManager``.
         """
-        phase = ("synthesis" if self._learning_mode else
-                 "explore" if self._explore_phase else "solve")
-        # The tools read the phase for phase-dependent facts such as
-        # the real episode's step budget (explore episodes are capped by
-        # max_num_steps_interaction_request, tests by the horizon).
+        phase = "synthesis" if self._learning_mode else "solve"
         self._tool_context.phase = phase
         if self._agent_session is not None:
             if self._agent_session_phase == phase:
@@ -220,21 +208,7 @@ class AgentSessionMixin:
             logger.info("\n".join(lines))
 
         session: SessionManagerProtocol
-        if config.use_docker_sandbox:
-            from predicators.agent_sdk.docker_sandbox import \
-                DockerSessionManager  # pylint: disable=import-outside-toplevel
-            session = DockerSessionManager(
-                system_prompt=self._get_agent_system_prompt(),
-                log_dir=self._get_log_dir(),
-                model_name=config.model_name,
-                tool_context=self._tool_context,
-                tool_names=tool_names,
-                image=config.docker_image,
-                extra_reference_files=self._get_sandbox_reference_files(),
-                phase=phase,
-                config=config,
-            )
-        elif config.use_local_sandbox:
+        if config.use_local_sandbox:
             from predicators.agent_sdk.local_sandbox import \
                 LocalSandboxSessionManager  # pylint: disable=import-outside-toplevel
             session = LocalSandboxSessionManager(
@@ -279,7 +253,7 @@ class AgentSessionMixin:
         # suffix) as full_system_prompt_{phase}.md during sandbox setup; for
         # in-process sessions the approach prompt IS the full prompt, so
         # save it under the same name here and nothing else.
-        if not (config.use_docker_sandbox or config.use_local_sandbox):
+        if not config.use_local_sandbox:
             log_dir = self._get_log_dir()
             os.makedirs(log_dir, exist_ok=True)
             prompt_path = os.path.join(log_dir,
@@ -323,22 +297,3 @@ class AgentSessionMixin:
         self._ensure_agent_session()
         assert self._agent_session is not None
         return run_query_sync(self._agent_session, message, **query_kwargs)
-
-    def _create_agent_explorer(
-        self,
-        predicates: Set[Predicate],
-        options: Set[ParameterizedOption],
-        name: str = "agent_model_free",
-    ) -> BaseExplorer:
-        """Create an agent explorer with tool_context and agent_session."""
-        self._ensure_agent_session()
-        return create_explorer(
-            name,
-            predicates,
-            options,
-            self._types,
-            self._action_space,
-            self._train_tasks,
-            tool_context=self._tool_context,
-            agent_session=self._agent_session,
-        )

@@ -1205,20 +1205,6 @@ class BeliefProbe:
             max_trajectories=max_trajectories,
             max_groundings_per_predicate=max_groundings_per_predicate)
 
-    def samplers(self) -> str:
-        """Reload ``samplers.py`` and install its per-skill samplers.
-
-        Sampler-synthesis sessions only. Loads ``LEARNED_SAMPLERS``
-        fresh from the file (snapshotting it into
-        ``samplers_versions/``), validates the option-name -> callable
-        map, installs it so ``refine`` draws from the draft samplers,
-        and reports a per-option sanity check (return shape, in-box
-        draws) on a representative train-task state. Call it after every
-        edit of ``samplers.py``.
-        """
-        self._require_available("samplers")
-        return self._artifact_loader("samplers")()
-
     def _artifact_loader(self, name: str) -> Callable[..., str]:
         ctx = self._ctx
         _check_time_budget(ctx)
@@ -2903,7 +2889,6 @@ class BeliefProbe:
             rng=rng,
             max_draws=max(1, int(max_draws)),
             top_k=max(1, int(top_k)),
-            parameterized_samplers=ctx.parameterized_samplers or None,
             on_rollout=_on_rollout)
         return ProbeSuggestResult(suggestions, list(notices) + notes)
 
@@ -2974,7 +2959,6 @@ class BeliefProbe:
             rng=rng,
             max_draws=max(1, max_draws),
             top_k=max(1, int(top_k)),
-            parameterized_samplers=ctx.parameterized_samplers or None,
             on_rollout=lambda: _check_time_budget(ctx),
             plan_scorer=plan_scorer)
         notices.append(
@@ -3095,7 +3079,6 @@ class BeliefProbe:
             check_subgoals=True,
             check_final_goal=require_goal,
             run_id="probe",
-            parameterized_samplers=ctx.parameterized_samplers or None,
             strip_latent_wait_targets=not ctx.latent_tracking_available,
             solved_check=solved_check)
         refined_plan, success = outcome.plan, outcome.success
@@ -3219,7 +3202,6 @@ class BeliefProbe:
                 check_subgoals=True,
                 check_final_goal=require_goal,
                 run_id="probe",
-                parameterized_samplers=ctx.parameterized_samplers or None,
                 strip_latent_wait_targets=not ctx.latent_tracking_available,
                 solved_check=solved_check)
             extra_samples += outcome.total_samples

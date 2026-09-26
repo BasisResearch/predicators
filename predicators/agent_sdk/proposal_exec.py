@@ -31,7 +31,7 @@ def _load_sampler_dict(
     var_name: str,
     key_error: Callable[[Any], Optional[str]],
 ) -> Tuple[Dict[str, Any], List[str], Optional[str]]:
-    """Shared core of the two sampler loaders.
+    """Core of the ground-sampler loader.
 
     Execs ``code`` and validates its ``var_name`` dict. ``key_error``
     returns a skip reason for an invalid key (None = valid). Returns
@@ -60,27 +60,6 @@ def _load_sampler_dict(
             continue
         valid[name] = fn
     return valid, warnings, None
-
-
-def load_learned_samplers(
-    code: str,
-    context: Dict[str, Any],
-    option_names: Set[str],
-) -> Tuple[Dict[str, Any], List[str], Optional[str]]:
-    """Exec sampler code and validate its ``LEARNED_SAMPLERS`` dict.
-
-    The single loader behind both ``sim.samplers()`` and
-    ``SamplerLearningMixin._load_samplers_from_module_file``, so the
-    two cannot drift. Keys must be known option names.
-    """
-
-    def key_error(name: Any) -> Optional[str]:
-        if name not in option_names:
-            return (f"Skipped '{name}' (not a known option name; known: "
-                    f"{', '.join(sorted(option_names))}).")
-        return None
-
-    return _load_sampler_dict(code, context, "LEARNED_SAMPLERS", key_error)
 
 
 def load_ground_samplers(

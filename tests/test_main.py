@@ -13,8 +13,8 @@ import predicators.ground_truth_models
 from predicators import utils
 from predicators.approaches import ApproachFailure, ApproachTimeout, \
     BaseApproach, create_approach
-from predicators.approaches.agent_model_free_approach import \
-    AgentModelFreeApproach
+from predicators.approaches.pp_online_process_learning_approach import \
+    OnlineProcessLearningAndPlanningApproach
 from predicators.cogman import CogMan
 from predicators.envs.cover import CoverEnv
 from predicators.execution_monitoring import create_execution_monitor
@@ -465,9 +465,9 @@ def test_stash_resume_restores_request_bookkeeping():
     get_interaction_requests, so the result->train-task pairing that
     learn_from_interaction_results needs must come from
     restore_interaction_requests (run_20260828_173451 asserted on it)."""
-    # The model-free family records the pairing in get_interaction_requests
-    # and asserts on it in learn_from_interaction_results.
-    approach = object.__new__(AgentModelFreeApproach)
+    # The online process learner records the pairing in
+    # get_interaction_requests and reads it in learn_from_interaction_results.
+    approach = object.__new__(OnlineProcessLearningAndPlanningApproach)
     approach._requests_train_task_idxs = None  # pylint: disable=protected-access
     approach.restore_interaction_requests([0, 0])
     assert approach._requests_train_task_idxs == [0, 0]  # pylint: disable=protected-access

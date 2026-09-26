@@ -5,8 +5,6 @@
   ensemble.
 * ``agent_sim_learn_declared_params_only`` (A4): no estimation runs;
   the declaration is the estimate and its box the plausible interval.
-* ``agent_sim_learn_zero_shot`` (A2): the synthesis session runs with
-  no recorded transitions.
 """
 # pylint: disable=protected-access
 from typing import Any, Dict, List
@@ -45,7 +43,6 @@ def _bare_approach() -> Any:
     approach._base_env = _RegistryEnv()
     approach._identified_physical_params = {}
     approach._identified_physical_sigma_points = []
-    approach._cycle_applied_physical = {}
     approach._fitted_params = {}
     approach._param_ensemble = []
     approach._param_specs = []
@@ -118,7 +115,6 @@ def test_deploy_declared_params_uses_the_declaration_as_the_estimate() -> None:
     # to the planning env.
     assert approach._fitted_params == {"k": 2.0}
     assert approach._base_env.applied == [{"lateral_friction": 0.5}]
-    assert approach._cycle_applied_physical == {"lateral_friction": 0.5}
     # Physics margin spans the declared box.
     frictions = [
         p["lateral_friction"]
@@ -209,7 +205,6 @@ def test_no_data_seeding_applies_declared_physical_inits() -> None:
     which the zero-shot arm relies on."""
     utils.reset_config({
         "agent_sim_learn_declared_params_only": False,
-        "agent_sim_learn_oracle_sim_params": False,
         "agent_explorer_info_seeking": False,
     })
     approach = _bare_approach()
@@ -218,40 +213,6 @@ def test_no_data_seeding_applies_declared_physical_inits() -> None:
     assert approach._fitted_params == {"k": 2.0}
     assert approach._base_env.applied == [{"lateral_friction": 0.5}]
     assert approach._last_fit_result is None
-
-
-def test_zero_shot_flag_gates_data_free_synthesis() -> None:
-    """With no transitions, _learn_simulator returns early unless the zero-shot
-    flag is set, in which case synthesis runs on empty data."""
-    approach: Any = asla.AgentSimLearningApproach.__new__(
-        asla.AgentSimLearningApproach)
-    approach._explainability_cache = {}
-    approach._sysid_fit_cache = {}
-    approach._persist_fit_trajectories = lambda *a, **k: None
-    approach._maybe_install_oracle_samplers = lambda: None
-    approach._extract_obs_triples = lambda trajs: []
-    approach._residual_rules = None
-    approach._learned_simulator = None
-    approach._fitted_params = {}
-    calls: List[Any] = []
-
-    def _synth(trajectories, obs_triples, base_pred_triples, inferred_hint):
-        calls.append(
-            (trajectories, obs_triples, base_pred_triples, inferred_hint))
-
-    approach._synthesize_with_agent = _synth
-    utils.reset_config({
-        "agent_sim_learn_zero_shot": False,
-        "agent_sim_learn_oracle_sim_program": False,
-    })
-    approach._learn_simulator([])
-    assert not calls
-    utils.reset_config({
-        "agent_sim_learn_zero_shot": True,
-        "agent_sim_learn_oracle_sim_program": False,
-    })
-    approach._learn_simulator([])
-    assert calls == [([], [], [], {})]
 
 
 def test_declared_params_prompt_section_is_flag_gated() -> None:
