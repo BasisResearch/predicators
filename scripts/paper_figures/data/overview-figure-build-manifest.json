@@ -9,7 +9,7 @@
     "figures/sources/balloons_cycles_start.png": "3c07371df5c7a198be32e1d59c3faae28319cc6d35232fe629884c0b35858f24",
     "figures/sources/balloons_cycles_win.png": "bfbef2eb5704c86b797a09f11d598bdf54684c4eb4a3e33e563a9b36b4d12f6a",
     "figures/sources/boil_cycles_start.png": "2e59056221c1306ebb51b6c8da07f47a020875ee38cbeb6071363b37b873a35b",
-    "figures/sources/boil_cycles_win.png": "e40184d6a7cd43858e4e77a1e69911f48ca6562891626100ccbb0d483b4fb070",
+    "figures/sources/boil_cycles_win.png": "caa3cf069be538755cc1b76b6009445d24f8477f79cb99723327881cf6bb4e6f",
     "figures/sources/bridge_cycles_start.png": "f7b210b1803085290cb67fc3054e10c5be62536bab2fb4308bdcd1192092316a",
     "figures/sources/bridge_cycles_win.png": "4d1094afa84f611f5924acc964d60ac0dc7af6fd9e3cf13964a53d436e9a19aa",
     "figures/sources/bridge_pair_observed_cycles.png": "6cd9e0aa0a07bfc75ecd961c5d2cbd1dce24acc165538203214b45d9fd33e908",
@@ -53,13 +53,13 @@
     "figures/sources/trajectory_fan_stripe_4_cycles.png": "8a03a372eb33a9b43681f0d61f638f582bd0e016c68cf4f4e834b88c59c7d103"
   },
   "outputs": {
-    "fig1_residual.pdf": "6c8542f6858c1e3d3cdb264d93fa0e3c94f309543f967b62ad631725237be3ba",
+    "fig1_residual.pdf": "4c1d23c53cc9084c69310a18578beaf843c296466b606f40cb5dc7de42407698",
     "fig2_method.pdf": "013f29bdcf1f29f40f88d8bad95f5b3dbd6cfaa549372c4d1d53ec9615f2354d",
     "fig3_trajectories.pdf": "92c4d99f75ff517c6f42ce0effd086c66fe5a1e20e048662f1c74c721c1eb9df",
     "figA_trajectories.pdf": "024019d6a1ea8063ab549443a098fd40fcf123e3d6f6ab1614982501b550b612"
   },
   "svgs": {
-    "figures/svg/fig1_residual.svg": "e875711744e3717e1901755f289fa586bf56560cbc77371f20fc7235c2912d07",
+    "figures/svg/fig1_residual.svg": "9ebcf9a1c368317c04c9389c586fc624d392d7690e417b4ed17338b8731959a5",
     "figures/svg/fig2_method.svg": "0eaf5b200f49fcadccaa0d7494adf1d0b9a739b220428a2a31e5aa8a9e4a04ad",
     "figures/svg/fig3_trajectories.svg": "0c0125d4d7fa841fb953a442f55d44deb773ab1233faf7f2184c3252d9493ca5",
     "figures/svg/figA_trajectories.svg": "6c9c8e13007859ba4ccb5b84b5ee43cd8b57213784286363f742777bf658d8c0"

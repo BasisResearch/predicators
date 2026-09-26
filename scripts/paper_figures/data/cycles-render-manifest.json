@@ -14,9 +14,9 @@
     },
     "figures/sources/boil_cycles_win.png": {
       "renderer_sha256": "dc22aabb095c81e9016bbf48e0f5f3a1fcde9565716dbe525f431b37d5fd6035",
-      "scene_sha256": "a8b4453b5ef5112bb185b42f04438dc95692f1958063d725a2a3bd5f5f4c0ffd",
+      "scene_sha256": "ec700aed217cdef8d84379f629ec7aca36f19907e4c02969a0c9816b3b7a2a7f",
       "samples": 48,
-      "sha256": "e40184d6a7cd43858e4e77a1e69911f48ca6562891626100ccbb0d483b4fb070",
+      "sha256": "caa3cf069be538755cc1b76b6009445d24f8477f79cb99723327881cf6bb4e6f",
       "domain": "Boil",
       "frame": "win",
       "scene": "data/cycles_scenes/boil_win.json",

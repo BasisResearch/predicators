@@ -95,6 +95,7 @@ Boil shows the two-jug test episode of the run behind its trajectory stripe, so 
 Balloons draws its ceiling, the height at which balloons burst, as a red cap over the chute instead of the environment's translucent plate over the table, and draws the strings of tied balloons, which the environment otherwise draws only when it renders an image.
 Boil draws water no higher than the jug rim and redraws the spill puddle that restoring a state omits.
 Figure 1 also draws the test task's cyan jug in the red that the same jug has in training, since the ambient response washes cyan out; the Boil stripe keeps the recorded cyan.
+Figure 1 also colors Boil water by the heat that its recorded bubbling level fixes, as the environment does, since restoring a state resets the hidden heat and would draw boiled water blue.
 Update those declarations before re-exporting when new data should replace an existing figure panel.
 
 The Bridge crop constants in `scripts/paper_figures/build_figures.py` reproduce the tighter framing used by the earlier figures.

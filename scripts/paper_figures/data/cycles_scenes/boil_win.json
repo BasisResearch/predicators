@@ -9,6 +9,7 @@
     "frame": "win",
     "display_notes": [
       "liquid drawn no higher than the rim",
+      "water colored by its recorded heat",
       "test jug drawn in its training red"
     ],
     "physics_steps_after_restore": 0
@@ -2088,9 +2089,9 @@
         0.7328200936317444
       ],
       "rgba": [
-        0.0,
-        0.0,
         1.0,
+        0.0,
+        0.0,
         0.9
       ]
     },
@@ -2118,9 +2119,9 @@
         0.6994538307189941
       ],
       "rgba": [
-        0.0,
-        0.0,
         1.0,
+        0.0,
+        0.0,
         0.9
       ]
     },
