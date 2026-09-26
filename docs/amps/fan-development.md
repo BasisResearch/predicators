@@ -303,20 +303,20 @@ The backup account `dat` also passed but is not in the active pool.
 Account `c` has an active limit marker until September 23 at 00:00 UTC and is excluded.
 Usage percentages were unavailable from the service endpoint; successful probes establish current access, not a guarantee of sufficient remaining quota for full runs.
 Each task requests 8 CPUs and 16 GB, with requeue enabled for preemption, time limits, and recognized account-limit exits.
-The launch configuration is [continual_fan_ramp_skill_repair_r1.yaml](../../scripts/configs/predicatorv3/continual_fan_ramp_skill_repair_r1.yaml).
+The launch configuration is [continual_fan_ramp_skill_repair_r1.yaml](https://github.com/BasisResearch/predicators/blob/iclr-empiric-submission/scripts/configs/predicatorv3/continual_fan_ramp_skill_repair_r1.yaml).
 The shared repair and its measured extra interaction cost are documented in [the switch investigation](fan-switch-seed4-investigation.md).
 
 Seed 0's original job stopped after account `a` reported that its organization had disabled subscription access for Claude Code.
 This was an infrastructure interruption after training succeeded and the test reached 207 steps, not a task failure.
 With the user's approval, job `23395354` resumes only seed 0 on `dat`, from the same frozen runtime, experiment key, run directory, sandbox, and recorded state.
-The resume configuration is [continual_fan_ramp_skill_repair_seed0_resume.yaml](../../scripts/configs/predicatorv3/continual_fan_ramp_skill_repair_seed0_resume.yaml).
+The resume configuration is [continual_fan_ramp_skill_repair_seed0_resume.yaml](https://github.com/BasisResearch/predicators/blob/iclr-empiric-submission/scripts/configs/predicatorv3/continual_fan_ramp_skill_repair_seed0_resume.yaml).
 
 ### Six matched comparison arms
 
 The user approved five seeds each for all six other paper agents on this repaired Fan ramp setup.
 All 30 tasks were verified running on compute nodes after submission.
 They use the same frozen runtime `ff11bc76f4652c6964e73beda7e41a6655d670d9`, reviewed geometry, observation noise, step budget, and preflight-off setting as the repaired EMPIRIC cohort.
-The [six-arm configuration](../../scripts/configs/predicatorv3/continual_fan_ramp_skill_repair_baselines_r1.yaml) resolves to exactly six five-seed arrays, with only the intended approach and ablation flag differences.
+The [six-arm configuration](https://github.com/BasisResearch/predicators/blob/iclr-empiric-submission/scripts/configs/predicatorv3/continual_fan_ramp_skill_repair_baselines_r1.yaml) resolves to exactly six five-seed arrays, with only the intended approach and ablation flag differences.
 
 - Oracle dynamics: array `23398858`, seeds 0-4, accounts b/d.
 - Direct agent: array `23398859`, seeds 0-4, account dat.

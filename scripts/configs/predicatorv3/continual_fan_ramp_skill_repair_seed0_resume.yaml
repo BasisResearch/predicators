@@ -1,5 +1,0 @@
-# Resume only the interrupted seed, preserving its cohort and runtime.
-includes:
-  - /home/ycliang/predicators/logs/fan-ramp-skill-repair-runtime-20260921/scripts/configs/predicatorv3/continual_fan_ramp_skill_repair_r1.yaml
-START_SEED: 0
-NUM_SEEDS: 1

@@ -28,7 +28,7 @@ from predicators.explorers import BaseExplorer
 from predicators.settings import CFG
 from predicators.structs import ExplorationStrategy, Object, State, _Option
 
-# Same grammar as scripts/domino_debug/replay_plan.py.
+# One option per line: ``Name(obj, ...) [param, ...]``.
 _LINE = re.compile(r"^\s*(\w+)\s*\(([^)]*)\)\s*\[([^\]]*)\]")
 
 

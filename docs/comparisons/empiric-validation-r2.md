@@ -1,7 +1,7 @@
 # EMPIRIC r2: prospective robustness checks
 
 The requested cohort is two additional seeds per domain, seeds 3 and 4, across Boil, Domino, Balloons, Bridge, and Fan.
-The launcher is [continual_empiric_benchmark_r2.yaml](../../scripts/configs/predicatorv3/continual_empiric_benchmark_r2.yaml).
+The launcher is [continual_empiric_benchmark_r2.yaml](https://github.com/BasisResearch/predicators/blob/iclr-empiric-submission/scripts/configs/predicatorv3/continual_empiric_benchmark_r2.yaml).
 Its experiment key is `<domain>-mb_opus_benchmark_r2`, under `agent_continual`.
 The main figures retain historical EMPIRIC and show this cohort separately as **EMPIRIC r2**.
 All finished outcomes count, including failures; an unfinished run is not a failed run.

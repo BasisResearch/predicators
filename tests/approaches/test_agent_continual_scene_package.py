@@ -20,18 +20,27 @@ from tests.approaches.test_agent_continual_real_to_sim_approach import \
 
 # pylint: disable=protected-access
 
-CONFIG = "predicatorv3/continual_empiric_scene_package_benchmark_r1.yaml"
+# EMPIRIC with what an agentic real-to-sim agent receives: the engine
+# wrapper, the scene manifest and the URDF and mesh files, plus the twin's
+# own core module where the domain declares one. Not a benchmark arm; it
+# is the benchmark's EMPIRIC arm with these two flags.
+SCENE_PACKAGE_FLAGS = {
+    "agent_sim_provide_base_sim_source": True,
+    "continual_provide_scene_package": True,
+}
 
 
 def _arm_flags(env_name: str) -> Dict[str, Any]:
-    cfg = next(c for c in generate_run_configs(CONFIG, False)
+    cfg = next(c for c in generate_run_configs(
+        "empiric/benchmark.yaml", False, approaches=["mb_opus"])
                if c.env == env_name)
     # The launcher pins machine-specific output paths; tests keep their own.
     flags = {
         k: v
         for k, v in cfg.flags.items() if k not in ("log", "continual_runs_dir")
     }
-    flags.update(approach=cfg.approach,
+    flags.update(SCENE_PACKAGE_FLAGS,
+                 approach=cfg.approach,
                  env=cfg.env,
                  continual_render=False,
                  continual_make_video=False)
@@ -53,18 +62,6 @@ def _refs(sandbox: Path) -> List[str]:
     return sorted(
         str(q.relative_to(sandbox / "reference"))
         for q in (sandbox / "reference").rglob("*") if q.is_file())
-
-
-def test_config_is_empiric_with_the_scene_package() -> None:
-    """Five settings, three seeds, the MB arm with both reference flags."""
-    runs = list(generate_run_configs(CONFIG, False))
-    assert len(runs) == 15
-    for run in runs:
-        assert run.approach == "agent_continual"
-        assert run.flags["continual_provide_scene_package"] is True
-        assert run.flags["agent_sim_provide_base_sim_source"] is True
-        assert run.flags["continual_require_model_on_test"] is True
-        assert "agent_sim_learn_declared_params_only" not in run.flags
 
 
 def test_fan_lists_the_twin_core_and_the_package(tmp_path: Any) -> None:

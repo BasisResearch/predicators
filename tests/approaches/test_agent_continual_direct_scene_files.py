@@ -20,11 +20,12 @@ from tests.approaches.test_agent_continual_real_to_sim_approach import \
 
 # pylint: disable=protected-access
 
-CONFIG = "predicatorv3/continual_direct_scene_files_benchmark_r1.yaml"
+CONFIG = "empiric/benchmark.yaml"
+ARM = "mf_scene_package_opus"
 
 
 def _arm_flags(env_name: str) -> Dict[str, Any]:
-    cfg = next(c for c in generate_run_configs(CONFIG, False)
+    cfg = next(c for c in generate_run_configs(CONFIG, False, approaches=[ARM])
                if c.env == env_name)
     # The launcher pins machine-specific output paths; tests keep their own.
     flags = {
@@ -50,10 +51,10 @@ def _make(tmp_path: Any, **overrides: Any) -> Any:
 
 
 def test_config_is_the_direct_agent_with_the_scene_files() -> None:
-    """Five settings, three seeds, the MF arm with the package flag and none of
+    """Five settings, five seeds, the MF arm with the package flag and none of
     the model arm's flags."""
-    runs = list(generate_run_configs(CONFIG, False))
-    assert len(runs) == 15
+    runs = list(generate_run_configs(CONFIG, False, approaches=[ARM]))
+    assert len(runs) == 25
     for run in runs:
         assert run.approach == "agent_continual_model_free"
         assert run.flags["continual_provide_scene_package"] is True

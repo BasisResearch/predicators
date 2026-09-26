@@ -35,7 +35,7 @@ These checks do not establish future solve rates or resolve the previously docum
 
 ## Launch and reporting
 
-The launcher is [continual_benchmark_five_seeds.yaml](../../scripts/configs/predicatorv3/continual_benchmark_five_seeds.yaml).
+The launcher is [continual_benchmark_five_seeds.yaml](https://github.com/BasisResearch/predicators/blob/iclr-empiric-submission/scripts/configs/predicatorv3/continual_benchmark_five_seeds.yaml).
 All 60 destination seed directories were checked absent before submission.
 Jobs use `mit_preemptable`, checkpoint resume, automatic requeue, and account labels `a,b,c,d`, all confirmed usable by the user during this launch review.
 The user's account e corresponds to the launcher's `dat` label and is reserved as backup, not included in the normal rotation.

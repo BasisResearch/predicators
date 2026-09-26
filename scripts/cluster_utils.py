@@ -2,10 +2,11 @@
 
 import copy
 import os
+import re
 import shlex
 import subprocess
 from dataclasses import dataclass
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Collection, Dict, Iterator, List, Optional, Tuple
 
 import yaml
 
@@ -131,30 +132,36 @@ def _resolve_config(config_filepath: str) -> Dict[str, Any]:
     return merged
 
 
-def _resolve_extends(section: Dict[str, Any]) -> Dict[str, Any]:
-    """Expand ``EXTENDS`` entries of an ENVS or APPROACHES section.
+def parse_seed_range(text: str) -> Tuple[int, int]:
+    """Parse a seed range as (start, count): "3" is seed 3 alone, "2-4" is
+    seeds 2, 3 and 4."""
+    match = re.fullmatch(r"(\d+)(?:-(\d+))?", text.strip())
+    if match is None:
+        raise ValueError(f"seed range {text!r} is not N or N-M")
+    start = int(match.group(1))
+    stop = int(match.group(2)) if match.group(2) is not None else start
+    if stop < start:
+        raise ValueError(f"seed range {text!r} ends before it starts")
+    return start, stop - start + 1
 
-    An entry ``{EXTENDS: base, FLAGS: {...}}`` is the ``base`` entry of
-    the same section with the entry's own keys deep-merged on top, and
-    it is un-parked (``SKIP: False``) unless it says otherwise. This is
-    how a launcher gives a menu arm a round-specific experiment id: the
-    id is the entry's key, the definition stays in the menu.
+
+def _select(section: Dict[str, Any], keys: Optional[Collection[str]],
+            kind: str) -> Dict[str, Any]:
+    """The entries of an ENVS or APPROACHES section that a launch runs:
+
+    the ``keys`` named on the command line, whether or not the config
+    parks them, else every entry the config does not SKIP.
     """
-    resolved: Dict[str, Any] = {}
-    for key, entry in section.items():
-        base_key = entry.get("EXTENDS")
-        if base_key is None:
-            resolved[key] = entry
-            continue
-        if base_key not in section:
-            raise ValueError(f"{key} EXTENDS unknown entry {base_key}")
-        if "EXTENDS" in section[base_key]:
-            raise ValueError(f"{key} EXTENDS {base_key}, which itself "
-                             "EXTENDS another entry; extend menu entries")
-        derived = {k: v for k, v in entry.items() if k != "EXTENDS"}
-        merged = _deep_merge(section[base_key], {"SKIP": False})
-        resolved[key] = _deep_merge(merged, derived)
-    return resolved
+    if keys is None:
+        return {
+            key: entry
+            for key, entry in section.items() if not entry.get("SKIP", False)
+        }
+    unknown = sorted(set(keys) - set(section))
+    if unknown:
+        raise ValueError(f"unknown {kind} {unknown}; the config defines "
+                         f"{sorted(section)}")
+    return {key: entry for key, entry in section.items() if key in keys}
 
 
 def parse_configs(config_filename: str) -> Iterator[Dict[str, Any]]:
@@ -177,11 +184,25 @@ def parse_configs(config_filename: str) -> Iterator[Dict[str, Any]]:
 
 
 def generate_run_configs(config_filename: str,
-                         batch_seeds: bool = False) -> Iterator[RunConfig]:
-    """Generate run configs from a (local path) config file."""
+                         batch_seeds: bool = False,
+                         round_name: Optional[str] = None,
+                         envs: Optional[Collection[str]] = None,
+                         approaches: Optional[Collection[str]] = None,
+                         seeds: Optional[Tuple[int, int]] = None,
+                         require_round: bool = False) -> Iterator[RunConfig]:
+    """Generate run configs from a (local path) config file.
+
+    The experiment id is ``<env key>-<approach key>``, suffixed with
+    ``_<round>`` when the launch names a round: ``round_name``, else the
+    config's ROUND key. ``envs`` and ``approaches`` pick entries by key
+    and ``seeds`` is a (start, count) pair that overrides START_SEED and
+    NUM_SEEDS. With ``require_round``, a continual-protocol run without
+    a round is an error: its runs auto-resume from their run folders, so
+    an unnamed relaunch would resume the previous launch.
+    """
     for config in parse_configs(config_filename):
-        start_seed = config["START_SEED"]
-        num_seeds = config["NUM_SEEDS"]
+        start_seed, num_seeds = seeds or (config["START_SEED"],
+                                          config["NUM_SEEDS"])
         args = config["ARGS"]
         flags = config["FLAGS"]
         if "USE_GPU" in config.keys():
@@ -196,20 +217,23 @@ def generate_run_configs(config_filename: str,
             train_refinement_estimator = config["TRAIN_REFINEMENT_ESTIMATOR"]
         else:
             train_refinement_estimator = False
-        approaches = _resolve_extends(config["APPROACHES"])
-        envs = _resolve_extends(config["ENVS"])
+        launch_round = round_name or config.get("ROUND")
+        if launch_round is not None and not re.fullmatch(
+                r"[A-Za-z0-9][A-Za-z0-9_]*", str(launch_round)):
+            raise ValueError(f"round {launch_round!r} must be letters, "
+                             "digits and underscores")
+        suffix = f"_{launch_round}" if launch_round is not None else ""
+        selected_approaches = _select(config["APPROACHES"], approaches,
+                                      "approaches")
+        selected_envs = _select(config["ENVS"], envs, "envs")
         # Loop over approaches.
-        for approach_exp_id, approach_config in approaches.items():
-            if approach_config.get("SKIP", False):
-                continue
+        for approach_exp_id, approach_config in selected_approaches.items():
             approach = approach_config["NAME"]
             # Loop over envs.
-            for env_exp_id, env_config in envs.items():
-                if env_config.get("SKIP", False):
-                    continue
+            for env_exp_id, env_config in selected_envs.items():
                 env = env_config["NAME"]
                 # Create the experiment ID, args, and flags.
-                experiment_id = f"{env_exp_id}-{approach_exp_id}"
+                experiment_id = f"{env_exp_id}-{approach_exp_id}{suffix}"
                 run_args = list(args)
                 if "ARGS" in approach_config:
                     run_args.extend(approach_config["ARGS"])
@@ -220,6 +244,13 @@ def generate_run_configs(config_filename: str,
                     run_flags.update(approach_config["FLAGS"])
                 if "FLAGS" in env_config:
                     run_flags.update(env_config["FLAGS"])
+                if (require_round and not suffix and
+                        run_flags.get("experiment_protocol") == "continual"):
+                    raise ValueError(
+                        f"{experiment_id} runs the continual protocol, "
+                        "whose runs auto-resume from their run folders: "
+                        "name a round (--round or the config's ROUND) so "
+                        "this launch cannot resume an earlier one")
                 # Loop or batch over seeds.
                 if batch_seeds:
                     yield BatchSeedRunConfig(experiment_id, approach, env,

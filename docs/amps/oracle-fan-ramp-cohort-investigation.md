@@ -90,7 +90,7 @@ The driver is [audit_oracle_ramp_20260922.py](/home/ycliang/predicators/logs/aud
 
 Seeds 9 and 10 were submitted as array `23463117` and started on compute nodes using accounts b and d.
 The launch flags and arguments were checked against the previous extra-seed config; only the seed range changes.
-The [launch configuration](/home/ycliang/predicators/scripts/configs/predicatorv3/continual_fan_ramp_oracle_extra_r3.yaml) retains the frozen runtime and original cohort identifier.
+The [launch configuration](https://github.com/BasisResearch/predicators/blob/iclr-empiric-submission/scripts/configs/predicatorv3/continual_fan_ramp_oracle_extra_r3.yaml) retains the frozen runtime and original cohort identifier.
 The Markdown benchmark tracks all eleven seeds, retaining all failures.
 Replacement plot monitor `23463368` refreshes the report and figures every 60 seconds when results change.
 The expanded-cohort report tests passed: 8 tests.
