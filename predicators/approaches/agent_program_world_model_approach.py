@@ -2,31 +2,25 @@
 invented predicates (paper arm C4: a code world model with no engine
 underneath, in the form of Pinductor / POMDP Coder).
 
-Everything about the loop is the residual arm's - the explorer, the
-sketch / refine / run tools, the capture gate, the solve pipeline,
-predicate invention - except the model artifact: instead of residual
-rules over a physics engine the agent writes ``world_model.py``, an
-option-level transition program with its own hidden state (see
+Everything about the loop is the residual arm's - the sketch / refine /
+run tools and predicate invention - except the model artifact: instead of
+residual rules over a physics engine the agent writes ``world_model.py``,
+an option-level transition program with its own hidden state (see
 :mod:`code_sim_learning.program_world_model`). There is no parameter
-fit; the learn session scores the program with the Pinductor
+fit; the synthesis tools score the program with the Pinductor
 particle-filter kernel pseudo-likelihood (``sim.score``) and the agent
-edits it. The belief over the hidden state is a particle set drawn from
-the program's ``initial_latent``; the capture gate re-rolls every
-submission under every particle through the residual arm's
-rule-parameter margin channel.
+edits it.
 """
 from __future__ import annotations
 
-import copy
 import logging
 import os
 from contextlib import contextmanager
 from typing import Any, Callable, Dict, FrozenSet, Iterator, List, Optional, \
-    Tuple, cast
+    Tuple
 
 import numpy as np
 
-from predicators import utils
 from predicators.agent_sdk.tools import _SnapshotTarget
 from predicators.agent_sdk.tools.program_synthesis import CandidateLoader, \
     create_program_synthesis_tools
@@ -58,15 +52,6 @@ class AgentProgramWorldModelApproach(AgentSimPredicateInventionApproach):
         super().__init__(*args, **kwargs)
         self._program: Optional[ProgramWorldModel] = None
         self._program_model: Optional[ProgramOptionModel] = None
-        # The belief particles ride the capture gate's rule-parameter
-        # margin channel: every submission is re-rolled from each
-        # particle's hidden state.
-        ctx = self._tool_context
-        ctx.rule_param_margin_provider = self._belief_particles
-        ctx.rule_param_override_scope = self._particle_override_scope
-        ctx.rule_param_margin_label = "belief particle"
-        ctx.rule_param_margin_note = (
-            "particles of the belief over the world model's hidden state")
 
     @classmethod
     def get_name(cls) -> str:
@@ -251,46 +236,6 @@ class AgentProgramWorldModelApproach(AgentSimPredicateInventionApproach):
                                         self._get_all_options())
 
     # ── Belief over the hidden state ─────────────────────────────
-
-    def _belief_particles(self) -> List[Dict[str, float]]:
-        """Distinct draws from ``initial_latent`` for the current task: the
-        capture gate's margin points (empty until a model exists)."""
-        model = self._program_model
-        if model is None:
-            return []
-        task = self._tool_context.current_task
-        if task is None:
-            if not self._train_tasks:
-                return []
-            task = self._train_tasks[0]
-        rng = np.random.default_rng(CFG.seed + 7919)
-        particles: List[Dict[str, Any]] = []
-        seen = set()
-        for _ in range(CFG.agent_program_belief_particles):
-            try:
-                latent = model.initial_latent(task.init, rng=rng)
-            except utils.OptionExecutionFailure as e:
-                logger.warning("Belief particles unavailable: %s", e)
-                break
-            key = repr(sorted(latent.items(), key=lambda kv: str(kv[0])))
-            if key in seen:
-                continue
-            seen.add(key)
-            particles.append(latent)
-        return cast(List[Dict[str, float]], particles)
-
-    @contextmanager
-    def _particle_override_scope(self,
-                                 particle: Dict[str, float]) -> Iterator[None]:
-        """Roll every latent-less start from ``particle`` while entered."""
-        model = self._program_model
-        assert model is not None
-        prev = model.initial_latent_override
-        model.initial_latent_override = copy.deepcopy(particle)
-        try:
-            yield
-        finally:
-            model.initial_latent_override = prev
 
     def materialise_latent(
             self, traj: LowLevelTrajectory) -> List[Optional[Dict[str, Any]]]:

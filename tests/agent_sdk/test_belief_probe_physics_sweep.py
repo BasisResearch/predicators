@@ -219,12 +219,12 @@ def test_physics_sweep_returns_partial_on_mid_loop_budget_expiry():
     utils.reset_config({})
     points = [{"friction": mu} for mu in (0.43, 0.52)]
     ctx, model, _ = _make_ctx(points)
-    ctx.attempt_deadline = time.monotonic() + 60.0
+    ctx.python_call_deadline = time.monotonic() + 60.0
     orig = model.get_next_state_and_num_actions
 
     def _expire_after_rollout(state, option):
         result = orig(state, option)
-        ctx.attempt_deadline = time.monotonic() - 1.0
+        ctx.python_call_deadline = time.monotonic() - 1.0
         return result
 
     model.get_next_state_and_num_actions = _expire_after_rollout
@@ -238,7 +238,7 @@ def test_physics_sweep_returns_partial_on_mid_loop_budget_expiry():
     ctx3, _, _ = _make_ctx(points)
     sim3 = BeliefProbe(ctx3)
     sim3.reset()
-    ctx3.attempt_deadline = time.monotonic() - 1.0
+    ctx3.python_call_deadline = time.monotonic() - 1.0
     with pytest.raises(ProbeBudgetExceeded):
         sim3.run("Move(block0:block)[0.95]", render=False, physics_sweep=True)
 

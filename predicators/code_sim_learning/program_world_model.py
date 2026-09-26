@@ -136,9 +136,8 @@ class ProgramOptionModel(_OptionModelBase):
 
     The latent rides on ``State.latent``; a state without one (a task's
     initial state, a probe reset) is seeded from the program's
-    ``initial_latent`` - or from ``initial_latent_override`` while the
-    capture gate sweeps the belief particles. Program exceptions surface
-    as :class:`utils.OptionExecutionFailure` with the traceback tail in
+    ``initial_latent``. Program exceptions surface as
+    :class:`utils.OptionExecutionFailure` with the traceback tail in
     ``last_execution_failure``, the same channel the engine-backed model
     uses, so every consumer reports them the same way.
     """
@@ -147,7 +146,6 @@ class ProgramOptionModel(_OptionModelBase):
         super().__init__()
         self._program = program
         self._rng = np.random.default_rng(seed)
-        self.initial_latent_override: Optional[Dict[str, Any]] = None
         self.last_execution_failure: Optional[str] = None
         self.last_trajectory: Optional[LowLevelTrajectory] = None
         self.sim_env: Optional[Any] = None
@@ -161,10 +159,8 @@ class ProgramOptionModel(_OptionModelBase):
             self,
             state: State,
             rng: Optional[np.random.Generator] = None) -> Dict[str, Any]:
-        """A latent for ``state``: the override if one is set, else a draw from
-        the program's ``initial_latent`` (with ``rng`` or the model's own)."""
-        if self.initial_latent_override is not None:
-            return copy.deepcopy(self.initial_latent_override)
+        """A latent for ``state``: a draw from the program's ``initial_latent``
+        (with ``rng`` or the model's own)."""
         latent = self._program.initial_latent(
             _observation(state), rng if rng is not None else self._rng)
         if not isinstance(latent, dict):

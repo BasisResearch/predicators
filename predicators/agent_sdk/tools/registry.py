@@ -20,31 +20,22 @@ BUILTIN_TOOLS = [
     "TaskList",
 ]
 
-TESTING_TOOL_NAMES = [
-    "submit_plan",
-    # Closed-loop policy mode (agent_solve_policy_mode): validates and
-    # captures the agent-written policy.py. Only offered on solve
-    # rosters when the mode is on.
-    "submit_policy",
-]
-# The one code-execution tool. Solve sessions get the static instance
+# The one code-execution tool. Play sessions get the static instance
 # built by ``create_mcp_tools`` (namespace = the BeliefProbe facade over
 # the deployed belief model, predicators/agent_sdk/belief_probe.py);
 # synthesis sessions attach their own instance under the same name
 # (fit data + the probe over the candidate simulator), which replaces
-# the static one at assembly. Offered to every session that has a
-# simulator to probe (see ``AgentModelFreeApproach._get_solve_tool_names``).
+# the static one at assembly.
 EXPLORATION_TOOL_NAMES = [
     "run_python",
 ]
-ALL_TOOL_NAMES = TESTING_TOOL_NAMES + EXPLORATION_TOOL_NAMES
+ALL_TOOL_NAMES = list(EXPLORATION_TOOL_NAMES)
 
 # Name of the tool ``create_synthesis_tools`` builds for a synthesis
 # session (the same ``run_python`` name as the solve-phase instance -
 # see EXPLORATION_TOOL_NAMES). ``tests/agent_sdk/test_tool_registry.py``
-# asserts that the factory output matches this tuple. Predicate and
-# sampler drafts are loaded through the probe (``sim.predicates()`` /
-# ``sim.samplers()``), not through tools.
+# asserts that the factory output matches this tuple. Predicate drafts
+# are loaded through the probe (``sim.predicates()``), not through tools.
 SYNTHESIS_TOOL_NAMES = ("run_python", )
 
 

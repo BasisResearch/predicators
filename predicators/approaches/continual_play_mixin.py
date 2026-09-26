@@ -321,8 +321,8 @@ class ContinualPlayMixin:
             kind = "continue"
         query = self._build_query(session, kind)
         round_number = self._rounds_played + 1
-        # No per-round clock: the run's wall-clock cap is the only clock.
-        ctx.begin_attempt(round_number, 0.0)
+        # No per-round budget: the run's wall-clock cap is the only one.
+        ctx.begin_attempt()
         self._round_in_flight = True
         self.save(session.level_index)
         entries_before = len(session.index_entries())
@@ -331,7 +331,6 @@ class ContinualPlayMixin:
             responses = self._query_agent_sync(query, kind=SESSION_KIND)
         finally:
             ctx.attempt_start = None
-            ctx.attempt_deadline = None
             self._round_in_flight = False
             self._agent_session.resume_session_id = None
             self._after_round(session, state)

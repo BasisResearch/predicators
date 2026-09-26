@@ -151,15 +151,6 @@ def _make_python_exec_tool(
         rollouts_before = 0
         if budget_ctx is not None:
             rollouts_before = budget_ctx.attempt_rollout_count
-            attempt_dl = budget_ctx.attempt_deadline
-            if (attempt_dl is not None and time.monotonic() > attempt_dl
-                    and not budget_ctx.capture_best_effort_plan):
-                return text_result(
-                    "The attempt's wall-clock exploration budget is "
-                    "exhausted - this call was not run. Submit your single "
-                    "best plan NOW via submit_plan on the current "
-                    "task (omit task_idx)." +
-                    _budget_footer(budget_ctx, rollouts_before))
             call_timeout = ToolSurfaceConfig.from_cfg().python_call_timeout
             if budget_ctx.probe_option_model_provider is not None:
                 # Synthesis sessions probe the CANDIDATE simulator, whose
@@ -184,9 +175,6 @@ def _make_python_exec_tool(
         if budget_ctx is not None:
             if budget_ctx.python_call_deadline is not None:
                 wd_deadlines.append(budget_ctx.python_call_deadline)
-            if (budget_ctx.attempt_deadline is not None
-                    and not budget_ctx.capture_best_effort_plan):
-                wd_deadlines.append(budget_ctx.attempt_deadline)
         if call_timeout_s is not None and call_timeout_s > 0:
             wd_deadlines.append(time.monotonic() + call_timeout_s)
         if wd_deadlines:

@@ -16,11 +16,11 @@ class _EvalStateCollector:
     """Per-step states + option labels of one rollout, for evaluator verdicts.
 
     The single collector behind every surface that scores a belief-sim
-    rollout (``submit_plan``'s first and validation rollouts,
-    ``_belief_rollout_verdict``). The cascade certificate needs per-step
-    states (topple-onset analysis); option-boundary states give garbage
-    verdicts, so prefer the option model's ``last_trajectory`` and flag
-    the verdict as coarse (``self.coarse``) when it is unavailable.
+    rollout (``_belief_rollout_verdict``). The cascade certificate needs
+    per-step states (topple-onset analysis); option-boundary states give
+    garbage verdicts, so prefer the option model's ``last_trajectory``
+    and flag the verdict as coarse (``self.coarse``) when it is
+    unavailable.
     """
 
     def __init__(self, option_model: Any, init_state: State) -> None:
@@ -172,6 +172,14 @@ def _sandbox_base(ctx: ToolContext) -> Optional[str]:
     if ctx.sandbox_dir:
         return ctx.sandbox_dir
     return ctx.log_dir or None
+
+
+def _policy_source_path(ctx: ToolContext) -> Optional[str]:
+    """Host path of the agent-editable ``policy.py``."""
+    base = _sandbox_base(ctx)
+    if not base:
+        return None
+    return os.path.join(base, "policy.py")
 
 
 def _ground_samplers_path(ctx: ToolContext) -> Optional[str]:

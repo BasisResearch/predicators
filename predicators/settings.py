@@ -2105,7 +2105,6 @@ class GlobalSettings:
     # maximum buffer size". 20 MB comfortably fits full-res scene images.
     agent_sdk_max_buffer_size = 20 * 1024 * 1024
     agent_sdk_resume_session = True  # resume previous session if available
-    agent_sdk_max_trajectories_in_context = 3
 
     # Sandbox settings for agent SDK
     # sandbox dir with built-in tools
@@ -2128,51 +2127,24 @@ class GlobalSettings:
 
     # Agent bilevel approach settings
     agent_bilevel_max_samples_per_step = 50  # param samples per step
-    agent_bilevel_check_subgoals = True  # check subgoal atoms after each step
-    # When True, the agent proposes per-step continuous parameters inside the
-    # plan sketch (`Option(obj:type)[p1, p2] -> {subgoals}`). Refinement tries
-    # the proposed params first, then falls back to the registered sampler /
-    # uniform backtracking on failure. Default False keeps the param-free
-    # sketch (search finds all continuous params).
-    agent_bilevel_use_llm_initial_params = False
     # When True, sketch steps may carry GROUND samplers - per-step, per-call
-    # sampling priors that override any learned parameterized sampler for
-    # that step (precedence: ground > parameterized > uniform). Two forms
-    # after a step's `[params]`: a uniform window `~ [w1, w2]`
+    # sampling priors that replace uniform sampling for that step. Two
+    # forms after a step's `[params]`: a uniform window `~ [w1, w2]`
     # (per-dimension half-widths around the proposed params) or a named
     # code sampler `~ my_sampler` referencing GROUND_SAMPLERS in the
     # sandbox's ground_samplers.py, loaded fresh on each refine call
-    # (signature (state, subgoal_atoms, rng, objects) -> params, same as a
-    # parameterized sampler, so any state-conditioned region is
-    # expressible). Default False hides the grammar from the agent and
-    # rejects the annotations, keeping baseline arms free of the channel.
+    # (signature (state, subgoal_atoms, rng, objects) -> params, so any
+    # state-conditioned region is expressible). Default False hides the
+    # grammar from the agent and rejects the annotations, keeping baseline
+    # arms free of the channel.
     agent_bilevel_ground_samplers = False
-    # Persistent per-run solve journal: the harness logs each attempt's
-    # outcome + captured plan to <sandbox>/attempts.md, the agent keeps
-    # its own lessons in <sandbox>/journal.md with the file tools, and
-    # both are injected into every solve prompt. The prompts ask for
-    # facts/measurements rather than verdicts, so failed attempts steer
-    # later ones away from repeated sweeps without re-importing their
-    # anchoring mistakes.
-    agent_solve_use_journal = False
-    # Closed-loop policy mode: the solve agent's deliverable is a per-task
-    # PROGRAM (<sandbox>/policy.py with get_option(state, memory) -> next
-    # plan line or None) validated in the belief model via the
-    # submit_policy tool and executed at test time WITHOUT an LLM in
-    # the loop. Option failures are surfaced to the policy (via
-    # memory["last_failure"]) instead of ending the episode, so recovery
-    # (re-place a drifted block, re-aim after a BiRRT refusal) is the
-    # policy's job - which is why this mode is mutually exclusive with
-    # the sketch-divergence replan machinery
-    # (agent_bilevel_max_execution_replans must be 0).
-    agent_solve_policy_mode = False
-    # Total options a policy episode may issue (belief validation AND real
-    # execution): the anti-oscillation bound that converts a retry loop
-    # that never progresses into a bounded, attributable failure.
+    # Total options one policy rollout of sim.run_policy may issue: the
+    # anti-oscillation bound that converts a retry loop that never
+    # progresses into a bounded, attributable failure.
     agent_policy_max_options = 50
     # Consecutive identical failures (same option, objects, and params)
-    # after which a policy episode ends with a fatal stuck-loop error, in
-    # belief validation AND real execution. An unchanged command that
+    # after which a sim.run_policy rollout ends with a fatal stuck-loop
+    # error. An unchanged command that
     # just failed fails the same way; re-issuing it is a policy bug, not
     # recovery (the 2026-08-22 policy-arm tests burned 20+ of their 50
     # options on one identical colliding PickBlock). 3 still allows a
@@ -2192,8 +2164,8 @@ class GlobalSettings:
     # would otherwise silently continue the old run; a Slurm requeue or
     # a prompt resubmission of a live run is always recent.
     auto_resume_max_age_hours = 36.0
-    # Per-call wall-clock limit for solve-session run_python calls, in
-    # seconds (0 disables). Enforced cooperatively at every probe sim
+    # Per-call wall-clock limit for run_python calls, in seconds (0
+    # disables). Enforced cooperatively at every probe sim
     # call, plus a hard async-exception watchdog for sim-free code (a
     # pure-Python loop blocks the event loop, so nothing else can stop
     # it), so a combinatorial sweep stops with its printed output
@@ -2219,50 +2191,9 @@ class GlobalSettings:
     # new params) and report UNFITTED until the agent fits the current
     # file. 0 disables the cap.
     agent_sdk_fit_call_timeout = 3600.0
-    # Test-time closed-loop recovery. After each option in the refined plan
-    # finishes, the subgoal_annotations execution monitor checks the
-    # sketch's subgoal annotation for that step against the REAL state; on
-    # divergence (execution left the option-model rollout — e.g. a place
-    # that settled off-target), CogMan re-invokes solve(), which resumes a
-    # re-refined suffix of the executed sketch from the current state,
-    # instead of running the rest of the stale plan open-loop. Value =
-    # recoveries per test episode, shared across chained replans; when no
-    # suffix refines (or the budget is spent) the remaining plan resumes
-    # open-loop rather than failing the episode. 0 disables (legacy
-    # open-loop execution). Requires --execution_monitor
-    # subgoal_annotations (enforced at approach construction).
-    agent_bilevel_max_execution_replans = 0
-    # log state pretty_str before/after each step
-    agent_bilevel_log_state = False
-    # When a sketch refinement runs without an explicit timeout, the
-    # caller computes
-    #   max(_min, _per_step * len(sketch))
-    # so plans with more steps automatically get more wall-clock budget.
-    agent_bilevel_refinement_timeout_per_step = 30.0  # seconds per step
-    agent_bilevel_refinement_timeout_min = 30.0  # floor on auto-scaled timeout
-    # Total number of belief-sim rollouts a goal-reaching plan must pass in
-    # submit_plan before it is captured as the agent's answer. The
-    # shared sim env is nondeterministic across repeats (motion-planner
-    # sampling, physics-solver state), so repeats sample the same execution
-    # variability the real rollout will - a flaky plan is reported to the
-    # agent in-session (where it can add margin and resubmit) instead of
-    # captured and discovered as a failed real episode. 1 disables repeats.
-    # An n-rollout gate passes a plan with per-rollout success rate p with
-    # probability p^n, so small n lets marginal plans through: at p=0.85,
-    # 3 rollouts pass 61% and 5 pass 44% (bridge run_20260819_053515: a
-    # knife-edge grasp offset validated 3/3, then cammed out on the real
-    # episode). The agent can request a stricter gate per submission via
-    # the tool's validation_rollouts argument; it can never lower this.
-    agent_plan_validation_rollouts = 5
-    # Escalated rollout count once a task has produced a FLAKY rejection
-    # (see the p^n math above; run_20260717_182321: a 20/20-swept relay
-    # placement validated 3/3, then missed the target for real). A FLAKY
-    # rejection is direct evidence the agent is tuning in a marginal
-    # region, so subsequent captures on that task must clear this stricter
-    # gate instead. Never lowers the base count.
-    agent_plan_validation_rollouts_after_flaky = 10
-    # Run each validation rollout inside ``ctx.validation_env_scope`` (a
-    # freshly constructed sim env) when the approach installs one. A shared
+    # Run each probe trial and sweep rollout inside
+    # ``ctx.validation_env_scope`` (a freshly constructed sim env) when
+    # the approach installs one. A shared
     # env's reset provably cannot reconstruct state exactly (solver
     # warm-start state, velocity residuals, near-matching bodies skipped by
     # the reconstruction diff - see rollout_states in physical_sysid.py), so
@@ -2270,69 +2201,25 @@ class GlobalSettings:
     # the fresh real env; fresh envs make them honest i.i.d. samples of what
     # the real episode will draw. Costs one env construction per rollout.
     agent_plan_validation_fresh_env = True
-    # Physics-margin gate on captures: after a goal-reaching plan passes
-    # the execution-validation rollouts, re-run it at a grid of
-    # perturbations spanning +-1 sigma of the identified physical
-    # parameters (sigma = the posterior width the sysID fit reported,
-    # floored by code_sim_learning_rollout_min_posterior_width). The
-    # execution repeats above only sample motion-planner/physics-stepping
-    # variability AT the fitted values; a plan can pass them all and
-    # still have zero margin to the fit's parameter error
-    # (run_20260723_091108: a capture validated 8/8 at fitted
-    # lateral_friction 0.5319 failed deterministically at true 0.5 -
-    # the design's success band started at the fitted value). A failing
-    # perturbed rollout refuses the capture as PARAM-SENSITIVE so the
-    # agent adds design margin in-session. Runs only when the approach
-    # installs a fresh-env scope (perturbing the shared env would leak)
-    # and a fit with nonzero posterior width has been applied. Default
-    # False; no benchmark arm turns it on (the retired phased
-    # sim_predicator arm did).
-    agent_plan_validation_physics_margin = False
-    # Number of grid points the margin gate (and the sim.run physics
-    # sweep) spreads evenly across the +-1-sigma range, endpoints
-    # included. Endpoints alone (2) are provably insufficient: near a
-    # feasibility boundary success is a SPECKLED function of the
-    # params, and run_20260724_140531's capture passed both +-1-sigma
-    # endpoints (lateral_friction 0.4295/0.5246) while failing
+    # Number of grid points the sim.run physics sweep spreads evenly
+    # across the +-1-sigma range of the last applied fit, endpoints
+    # included (without the joint belief; with it the sweep reads the
+    # belief's interval ends). Endpoints alone (2) are provably
+    # insufficient: near a feasibility boundary success is a SPECKLED
+    # function of the params, and run_20260724_140531's plan passed both
+    # +-1-sigma endpoints (lateral_friction 0.4295/0.5246) while failing
     # deterministically at the true 0.5 between them. Replaying that
-    # capture mapped the speckle: a hazard band [~0.494, 0.511] holding
+    # plan mapped the speckle: a hazard band [~0.494, 0.511] holding
     # ~30% failures at ~0.001 grain, so ANY even grid is a
     # probabilistic detector - a 16-point grid's two in-band points
-    # both passed (would still have captured), while the 32-point
-    # grid's 0.5046 fails (rejects it). Per-point rollouts are
-    # deterministic measurements costing one rollout (~seconds), and
-    # captures are infrequent, so density is cheap sensitivity; designs
-    # with real margin pass every density identically.
+    # both passed, while the 32-point grid's 0.5046 fails. Per-point
+    # rollouts are deterministic measurements costing one rollout
+    # (~seconds), so density is cheap sensitivity; designs with real
+    # margin pass every density identically.
     agent_plan_validation_physics_margin_points = 32
-    # Rule-parameter margin gate: after the physics points, re-run each
-    # capture-eligible submission under the calibrated rule-parameter
-    # ensemble members (the same posterior draws info-seeking
-    # exploration scores with), rejecting as PARAM-SENSITIVE a plan
-    # that survives only at the point estimate of an uncertain LEARNED
-    # constant (a gate threshold, a geometric offset). The physics
-    # sweep cannot catch these: it perturbs identified base-physics
-    # params, while a learned rule constant baked near a data boundary
-    # carries its own posterior uncertainty. No-op unless the approach
-    # installs the ensemble providers (see rule_param_margin_provider);
-    # this flag alone is enough for the ensemble to be built.
-    agent_plan_validation_rule_param_margin = False
-    # Necessity gate on captures: after a goal-reaching plan passes every
-    # other gate, re-run it once per step with that step removed. If the
-    # goal is still reached without a step, the plan is refused as
-    # REDUNDANT naming that step. A captured plan is an explanation of the
-    # goal, and a step whose absence changes nothing explains nothing: it
-    # is padding (a Wait on atoms that already hold, a press of a button
-    # the model says does nothing) that costs real episode steps and, when
-    # the model is wrong about the step, can break the plan for real.
-    # run_20260902_152811: a validated capture pressed three of four
-    # buttons and released one that was never on, for a goal its own
-    # model reached with two presses and a Wait. Costs one rollout per
-    # plan step, run in parallel with the other sweeps' workers.
-    agent_plan_validation_necessity = False
-    # Fork-parallel rollouts: the capture gate's repeat rollouts, its
-    # physics/rule-param margin sweeps, the belief probe's
-    # trials/physics_sweep modes, and the rollout-sysID objective (each
-    # candidate theta scores N trajectory segments) all run N
+    # Fork-parallel rollouts: the belief probe's trials/physics_sweep
+    # modes and the rollout-sysID objective (each candidate theta scores
+    # N trajectory segments) all run N
     # INDEPENDENT fresh-env rollouts; with a value W > 1, up to W run
     # concurrently as forked children (see
     # agent_sdk/parallel_rollouts.py). Verdict/fit semantics are
@@ -2344,33 +2231,22 @@ class GlobalSettings:
     # enable in experiment configs sized to the job's CPU allocation
     # (e.g. 6 with --cpus-per-task=8).
     agent_validation_parallel_workers = 0
-    # Agent bilevel explorer settings. Separate from the solve-path budget
-    # above because the explorer runs full backtracking while looking for
-    # the deepest subgoal-failure to truncate at. Denominated in
-    # option-model rollouts per search node: plain steps spend one per
-    # backtracking attempt (classic semantics); info-seeking steps spend
-    # the same budget pooling candidates (see refine_sketch).
-
     # Active-experiment-design exploration: build the learned model's
     # parameter ensemble so the agent can rank candidate probes by the
     # ensemble's disagreement on a step's subgoal atoms
-    # (sim.suggest_probes) and the capture gate can sweep the rule-param
-    # margin. The agent decides what to run; the harness never moves
-    # its parameters. Off => the ensemble is built only when the
-    # rule-param margin gate asks for it.
+    # (sim.suggest_probes). The agent decides what to run; the harness
+    # never moves its parameters. Off => no ensemble is built.
     agent_explorer_info_seeking = False
     # Adaptive info-seeking: with this on (and agent_explorer_info_seeking
     # on), the proactive half of info-seeking - the probe-ranking
     # sim.suggest_probes result and the disagreement guidance - stays
-    # dormant until the
-    # capture gate has refused a plan as PARAM-SENSITIVE
-    # (ctx.param_sensitive_refusal_pending). The rule-param margin gate
-    # and its (Laplace) ensemble stay always on, so the FIRST refusal can
-    # still fire; only then does the agent start spending real steps to
-    # reduce the uncertainty the gate named. This removes the info-seeking
-    # step tax on easy levels no plan is ever refused on, while keeping
-    # the robustness on levels where a fragile plan is caught. Off =>
-    # info-seeking is always active (the original behaviour).
+    # dormant until the sim.run physics sweep finds a plan whose success
+    # straddles the belief interval (ctx.param_sensitive_refusal_pending);
+    # only then does the agent start spending real steps to reduce that
+    # uncertainty. This removes the info-seeking step tax on easy levels
+    # while keeping the robustness on levels where a fragile plan is
+    # found. Off => info-seeking is always active (the original
+    # behaviour).
     agent_explorer_info_seeking_adaptive = False
     # Noise-aware probe value (docs/uncertainty/design.md, section
     # 3.5): under a declared observation-noise channel the ensemble
@@ -2747,8 +2623,7 @@ class GlobalSettings:
     # Program world model arm (agent_program_world_model, paper arm C4 in
     # the form of Pinductor): the belief over the program's hidden state
     # is a particle set of this size (drawn from the program's
-    # initial_latent; the capture gate re-rolls every submission under
-    # each particle), the score's distance kernel is
+    # initial_latent), the score's distance kernel is
     # exp(-distance / bandwidth) with distances in feature-std units,
     # and the score report shows this many worst transitions.
     agent_program_belief_particles = 6

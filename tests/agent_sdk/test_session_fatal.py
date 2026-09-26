@@ -463,7 +463,6 @@ def test_run_streamed_query_polls_after_the_reset(tmp_path, monkeypatch):
 
     class _Ctx:
         attempt_start = 100.0
-        attempt_deadline = 2800.0
         python_call_deadline = None
         paused = 0.0
 
@@ -471,7 +470,6 @@ def test_run_streamed_query_polls_after_the_reset(tmp_path, monkeypatch):
             """Shift the armed marks like the real ToolContext does."""
             self.paused += seconds
             self.attempt_start += seconds
-            self.attempt_deadline += seconds
 
     ctx = _Ctx()
     monkeypatch.setattr(sb, "stream_agent_response", _fake_stream)
@@ -485,7 +483,7 @@ def test_run_streamed_query_polls_after_the_reset(tmp_path, monkeypatch):
     assert collected == healthy_resp
     assert sleeps == [sb._LIMIT_POLL_SECS] * 3
     assert ctx.paused == sum(sleeps)
-    assert ctx.attempt_deadline == 2800.0 + sum(sleeps)
+    assert ctx.attempt_start == 100.0 + sum(sleeps)
     # Past the total cap the limited response is handed back as-is.
     monkeypatch.setattr(sb, "_LIMIT_MAX_TOTAL_WAIT_SECS", 1.0)
     responses[:] = [list(limit_resp), list(healthy_resp)]

@@ -49,18 +49,9 @@ class SessionConfig:
 
 @dataclass(frozen=True)
 class RefinementConfig:
-    """Plan-sketch refinement: search budgets, gates, and ground samplers.
-
-    Consumed at handler entry by ``submit_plan`` (tools/testing.py) and
-    by the probe's ``refine`` (belief_probe.py).
-    """
+    """Plan-sketch refinement settings the probe's ``refine`` reads."""
     ground_samplers: bool
-    refinement_timeout_per_step: float
-    refinement_timeout_min: float
     max_samples_per_step: int
-    check_subgoals: bool
-    log_state: bool
-    use_llm_initial_params: bool
 
     @classmethod
     def from_cfg(cls) -> "RefinementConfig":
@@ -68,45 +59,7 @@ class RefinementConfig:
         # Flags keep their names for experiment-yaml compatibility.
         return cls(
             ground_samplers=CFG.agent_bilevel_ground_samplers,
-            refinement_timeout_per_step=(
-                CFG.agent_bilevel_refinement_timeout_per_step),
-            refinement_timeout_min=CFG.agent_bilevel_refinement_timeout_min,
             max_samples_per_step=CFG.agent_bilevel_max_samples_per_step,
-            check_subgoals=CFG.agent_bilevel_check_subgoals,
-            log_state=CFG.agent_bilevel_log_state,
-            use_llm_initial_params=CFG.agent_bilevel_use_llm_initial_params,
-        )
-
-
-@dataclass(frozen=True)
-class ValidationConfig:
-    """Capture-validation rollouts and the cross-attempt journal.
-
-    Consumed at handler entry by ``submit_plan`` (tools.py) and the
-    probe's ``run(trials=N)`` (belief_probe.py); ``use_journal`` gates
-    the journal / attempt-log channel.
-    """
-    rollouts: int
-    rollouts_after_flaky: int
-    fresh_env: bool
-    physics_margin: bool
-    rule_param_margin: bool
-    necessity: bool
-    use_journal: bool
-
-    @classmethod
-    def from_cfg(cls) -> "ValidationConfig":
-        """Read the validation flags from the live ``CFG``."""
-        # Flags keep their names for experiment-yaml compatibility.
-        return cls(
-            rollouts=CFG.agent_plan_validation_rollouts,
-            rollouts_after_flaky=(
-                CFG.agent_plan_validation_rollouts_after_flaky),
-            fresh_env=CFG.agent_plan_validation_fresh_env,
-            physics_margin=CFG.agent_plan_validation_physics_margin,
-            rule_param_margin=CFG.agent_plan_validation_rule_param_margin,
-            necessity=CFG.agent_plan_validation_necessity,
-            use_journal=CFG.agent_solve_use_journal,
         )
 
 
