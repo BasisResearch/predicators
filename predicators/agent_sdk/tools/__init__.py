@@ -3,14 +3,14 @@
 This package replaces the former single-module ``tools.py``. Layout:
 
 - ``registry``: tool-name rosters and the session tool-list surface.
-- ``context``: ``ToolContext`` / ``PlanCapture`` shared session state.
+- ``context``: ``ToolContext``, the shared session state.
 - ``results``: tool-result formatting and sandbox-file helpers.
 - ``sandbox_guard``: sandbox-escape screening for agent-supplied text.
-- ``budget``: solve-attempt budget footer and watchdog.
+- ``budget``: the round's budget footer and the run_python watchdog.
 - ``scene``: scene rendering and state-manipulation helpers.
 - ``verdicts``: task-evaluator verdicts and ground-sampler loading.
-- ``testing`` / ``exploration``: the static MCP
-  tool builders, assembled by ``assembly.create_mcp_tools``.
+- ``exploration``: the static ``run_python`` builder, assembled by
+  ``assembly.create_mcp_tools``.
 - ``digests``: the type / option / task / trajectory digest renderers
   shared by the prompts and the probe.
 - ``snapshots``: versioned write-time snapshots of agent-edited files.
@@ -25,14 +25,13 @@ private helpers from their home submodules.
 """
 # pylint: disable=unused-import
 from predicators.agent_sdk.tools.assembly import create_mcp_tools
-from predicators.agent_sdk.tools.context import PlanCapture, ToolContext
+from predicators.agent_sdk.tools.context import ToolContext
 from predicators.agent_sdk.tools.params_view import _ParamsView
 from predicators.agent_sdk.tools.predicate_synthesis import \
     make_predicate_quality_loader
 from predicators.agent_sdk.tools.registry import ALL_TOOL_NAMES, \
     BUILTIN_TOOLS, EXPLORATION_TOOL_NAMES, MCP_SERVER_NAME, \
-    SYNTHESIS_TOOL_NAMES, TESTING_TOOL_NAMES, get_allowed_tool_list, \
-    list_session_tool_names
+    SYNTHESIS_TOOL_NAMES, get_allowed_tool_list, list_session_tool_names
 from predicators.agent_sdk.tools.results import _make_coercing_tool, \
     _make_spilling_text_result, session_log_filename
 from predicators.agent_sdk.tools.sandbox_guard import \
@@ -56,8 +55,6 @@ __all__ = [
     "SANDBOX_INTROSPECTION",
     "SANDBOX_SYSTEM_ROOTS",
     "SYNTHESIS_TOOL_NAMES",
-    "TESTING_TOOL_NAMES",
-    "PlanCapture",
     "ToolContext",
     "agent_render_resolution",
     "apply_state_modifications",

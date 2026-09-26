@@ -588,9 +588,9 @@ def create_synthesis_tools(
                 sse=post_sse,
                 applied_physical=dict(applied),
                 coverage=(outcome.num_survivors, len(rollouts)),
-                # Physics-margin points for the capture gate, restored
-                # when this fit is deployed as the cycle's model; the
-                # joint belief replaces them with its own draws.
+                # The physics sweep's +-1-sigma grid, restored when this
+                # fit is deployed as the cycle's model; under the joint
+                # belief the sweep reads the belief's interval ends.
                 sigma_points=(physics_sigma_points(
                     applied,
                     ident_report,

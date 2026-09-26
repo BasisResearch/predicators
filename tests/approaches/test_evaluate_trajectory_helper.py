@@ -1,5 +1,5 @@
-"""Tests for the ``evaluate_trajectory`` helper the synthesis namespace offers,
-and for the learn system prompt's deliverables."""
+"""Tests for the ``evaluate_trajectory`` helper the synthesis namespace
+offers."""
 # pylint: disable=protected-access,import-outside-toplevel,unused-import
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import pytest
 
 # Bootstrap circular imports before pulling from predicators.approaches.
 from predicators import utils
-from predicators.structs import Action, LowLevelTrajectory, State, Task, Type
+from predicators.structs import Action, State, Task, Type
 
 
 @pytest.fixture(name="approach_cls")
@@ -157,22 +157,3 @@ def test_evaluate_trajectory_physics_sweep(approach_cls):
     assert physics == {"friction": 0.5}  # the scope restored the physics
     stub._identified_physical_sigma_points = []
     assert fn(states, None, task_idx=0, physics_sweep=True)["sweep"] is None
-
-
-def test_learn_message_ships_goal_required_mechanisms_as_hypotheses():
-    """The learn message distinguishes a hypothesis the goal can do without
-    (record, do not ship) from one the goal REQUIRES (ship as a labelled
-    hypothesis with declared ParamSpecs and a first-ranked confirming
-    experiment).
-
-    The rule lives in the learn system prompt's deliverables section.
-    """
-    from predicators.agent_sdk import learn_prompts
-    prompt = learn_prompts.build_learn_system_prompt(
-        partially_observable=False,
-        residual_rule_signature="def residual_rule(state, updates, params):",
-        scene_viz_hint="render the scene")
-    assert "When the goal requires it" in prompt
-    assert "labelled hypothesis" in prompt
-    assert "first entry of `./open_questions.md`" in prompt
-    assert "A GO that rests on a hypothesized mechanism" in prompt

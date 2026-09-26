@@ -38,15 +38,15 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, \
     Sequence, Set, Tuple, Union
 
 from predicators import utils
-from predicators.agent_sdk.config import RefinementConfig, ToolSurfaceConfig, \
-    ValidationConfig
+from predicators.agent_sdk.config import RefinementConfig, ToolSurfaceConfig
 from predicators.agent_sdk.parallel_rollouts import prefetch_parallel
 from predicators.agent_sdk.tools.context import absolute_rollout_seed, \
     decorrelated_rollout_seed
 from predicators.agent_sdk.tools.scene import apply_state_modifications, \
     draw_pybullet_annotation, render_pybullet_image, render_scene_image
 from predicators.agent_sdk.tools.verdicts import _EvalStateCollector, \
-    evaluate_states_with, load_ground_sampler_fns, make_solved_check
+    _policy_source_path, evaluate_states_with, load_ground_sampler_fns, \
+    make_solved_check
 from predicators.structs import State, Task, excluded_object_type_names
 
 if TYPE_CHECKING:
@@ -62,29 +62,17 @@ class ProbeBudgetExceeded(Exception):
     """A probe call ran past a wall-clock budget.
 
     Raised cooperatively at probe checkpoints (every sim call) when the
-    run_python per-call limit or the solve attempt's wall clock has
-    expired. ``run_python`` catches it specially: the code's printed
+    run_python per-call limit has expired. ``run_python`` catches it
+    specially: the code's printed
     output so far is returned with the budget message appended, so a
     stopped sweep still hands the agent its partial results.
     """
 
 
 def _check_time_budget(ctx: "ToolContext") -> None:
-    """Raise :class:`ProbeBudgetExceeded` when a wall-clock budget is up.
-
-    Never fires during the final-submission nudge
-    (``ctx.capture_best_effort_plan``): with the budget spent, the one
-    thing left is submitting, and blocking that would forfeit the task.
-    """
-    if ctx.capture_best_effort_plan:
-        return
+    """Raise :class:`ProbeBudgetExceeded` when the run_python call's time limit
+    is up."""
     now = time.monotonic()
-    attempt_dl = ctx.attempt_deadline
-    if attempt_dl is not None and now > attempt_dl:
-        raise ProbeBudgetExceeded(
-            "the attempt's wall-clock exploration budget is exhausted. Stop "
-            "exploring NOW and submit your single best plan via "
-            "submit_plan on the current task (omit task_idx).")
     call_dl = ctx.python_call_deadline
     if call_dl is not None and now > call_dl:
         call_timeout = ToolSurfaceConfig.from_cfg().python_call_timeout
@@ -930,7 +918,9 @@ class BeliefProbe:
 
     def _fresh_scope(self) -> Optional[Callable[..., Any]]:
         """Select isolation for the model this probe actually executes."""
-        if not ValidationConfig.from_cfg().fresh_env:
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.settings import CFG
+        if not CFG.agent_plan_validation_fresh_env:
             return None
         ctx = self._ctx
         if ctx.probe_option_model_provider is not None:
@@ -2561,7 +2551,6 @@ class BeliefProbe:
 
         from predicators.agent_sdk.policy_execution import \
             build_policy_option_fn, execute_policy_forward
-        from predicators.agent_sdk.tools.testing import _policy_source_path
         from predicators.settings import CFG
 
         # pylint: enable=import-outside-toplevel

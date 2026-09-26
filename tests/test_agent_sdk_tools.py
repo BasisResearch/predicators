@@ -1,12 +1,10 @@
 """Tests for agent SDK tool enhancements.
 
 Validates:
-1. submit_plan always saves scene images
-2. submit_plan shows "Missing goal atoms" when goal not achieved
-3. submit_plan shows object poses on failure
-4. format_object_poses helper
-5. render_scene_image helper
-6. _sync_tool_context sets ctx.env from option model
+1. the run_python probe (reset, run, refine, render)
+2. format_object_poses helper
+3. render_scene_image helper
+4. _sync_tool_context sets ctx.env from option model
 
 Usage:
     python tests/test_agent_sdk_tools.py
@@ -163,63 +161,6 @@ def _get_valid_option_plan_step(ctx: Any) -> dict[str, Any] | None:
     return None
 
 
-def _plan_to_text(plan: Any, ctx: Any) -> str:
-    """Render structured option-plan steps as the text grammar that submit_plan
-    now expects (typed object refs + params in [])."""
-    type_of = {o.name: o.type.name for o in ctx.current_task.init}
-    lines = []
-    for step in plan:
-        objs = ", ".join(f"{n}:{type_of.get(n, 'object')}"
-                         for n in step["object_names"])
-        params = ", ".join(str(p) for p in step["params"])
-        lines.append(f"{step['option_name']}({objs})[{params}]")
-    return "\n".join(lines)
-
-
-def test_option_plan_missing_goal_atoms(ctx: Any) -> None:
-    """submit_plan reports missing goal atoms when goal not achieved."""
-    tools = _make_tools(ctx, ["submit_plan"])
-
-    step = _get_valid_option_plan_step(ctx)
-    assert step is not None, "No valid option found for testing"
-    plan = [step]
-
-    result = _run(tools["submit_plan"]({
-        "plan": _plan_to_text(plan, ctx),
-        "include_atoms": True,
-    }))
-    text = result["content"][0]["text"]
-
-    # Three possible outcomes:
-    if "Goal achieved: False" in text:
-        # Either the env exposes goal atoms (and we show "Missing goal
-        # atoms: ...") or it sets goal_nl (and we show that instead,
-        # to avoid leaking env predicate names to predicate-invention
-        # agents).
-        assert ("Missing goal atoms:" in text
-                or "Goal (natural language):" in text)
-        print("  PASS: submit_plan (failure diagnostic shown)")
-    elif "Goal achieved: True" in text:
-        assert "Missing goal atoms:" not in text
-        print("  PASS: submit_plan (goal achieved, no missing atoms)")
-    else:
-        # Plan failed early (grounding error, NOT INITIABLE, etc.)
-        assert ("NOT INITIABLE" in text or "FAILURE REASON:" in text
-                or "EXECUTION ERROR" in text or "Failed to ground" in text)
-        print("  PASS: submit_plan (plan failed early, "
-              "goal check not reached)")
-
-
-def test_option_plan_description_submission_split(ctx: Any) -> None:
-    """submit_plan's description routes exploration to the probe and frames
-    this tool as the submission path."""
-    from predicators.agent_sdk.tools import create_mcp_tools
-    tool_obj = create_mcp_tools(ctx, tool_names=["submit_plan"])[0]
-    desc = getattr(tool_obj, "description", "")
-    assert "run_python" in desc and "SUBMIT" in desc
-    print("  PASS: submit_plan (submission-split description)")
-
-
 def test_run_python_render_annotations(ctx: Any) -> None:
     """sim.render(annotations=...) overlays temporary geometry for one render
     (bodies removed after) and surfaces bad annotations as loud errors."""
@@ -272,11 +213,10 @@ def test_run_python_exec_and_persistence(ctx: Any) -> None:
 
 def test_run_python_probe_sim(ctx: Any) -> None:
     """BeliefProbe: reset with mods, full-precision state, run from the
-    modified state, snapshot/restore - and nothing is ever captured."""
+    modified state, snapshot/restore."""
     tools = _make_tools(ctx, ["run_python"])
     domino = next(o for o in ctx.current_task.init if o.type.name == "domino")
     robot = next(o for o in ctx.current_task.init if o.type.name == "robot")
-    ctx.capture_goal_reaching_plans = True
     prior_dir = ctx.image_save_dir
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -298,16 +238,15 @@ print("natoms", len(sim.atoms()))
             result = _run(tools["run_python"]({"code": code}))
             saved = [f for f in os.listdir(tmpdir) if f.endswith(".png")]
     finally:
-        ctx.capture_goal_reaching_plans = False
         ctx.image_save_dir = prior_dir
     text = result["content"][0]["text"]
     assert "modx 0.95" in text
     assert "steps 1" in text
     assert "restx 0.95" in text
     assert "natoms" in text
-    # sim.run saves the same per-step audit images submit_plan
-    # does, and reports their paths on each step; render=False (for
-    # tight sweep loops) skips the render entirely.
+    # sim.run saves per-step audit images and reports their paths on
+    # each step; render=False (for tight sweep loops) skips the render
+    # entirely.
     assert "quietimg None" in text
     if saved:
         assert any("probe_step_0_" in f for f in saved)
@@ -315,20 +254,16 @@ print("natoms", len(sim.atoms()))
         assert len(saved) == 1
     else:
         print("  NOTE: rendering not available, image save not checked")
-    # The probe carries no scoring surface: nothing it ran was captured.
-    assert ctx.solved_plan is None
-    print("  PASS: run_python (BeliefProbe reset/run/snapshot, no capture)")
+    print("  PASS: run_python (BeliefProbe reset/run/snapshot)")
 
 
 def test_run_python_probe_refine(ctx: Any) -> None:
-    """BeliefProbe.refine searches params from the current state, reports per-
-    step samples and a refined plan line, and captures nothing."""
+    """BeliefProbe.refine searches params from the current state and reports
+    per-step samples and a refined plan line."""
     tools = _make_tools(ctx, ["run_python"])
     domino = next(o for o in ctx.current_task.init if o.type.name == "domino")
     robot = next(o for o in ctx.current_task.init if o.type.name == "robot")
-    ctx.capture_goal_reaching_plans = True
-    try:
-        code = f"""
+    code = f"""
 sim.reset()
 res = sim.refine(
     "Pick({robot.name}:robot, {domino.name}:domino)[0.06] "
@@ -338,15 +273,12 @@ print("success", res.success)
 print("samples", res.total_samples, res.step_samples)
 print("line", res.plan_lines[0])
 """
-        result = _run(tools["run_python"]({"code": code}))
-    finally:
-        ctx.capture_goal_reaching_plans = False
+    result = _run(tools["run_python"]({"code": code}))
     text = result["content"][0]["text"]
     assert "success True" in text
     assert "samples" in text
     assert "line Pick(" in text and "Holding(" in text
-    assert ctx.solved_plan is None
-    print("  PASS: run_python (BeliefProbe.refine, no capture)")
+    print("  PASS: run_python (BeliefProbe.refine)")
 
 
 def test_run_python_probe_refine_verdict_line(ctx: Any) -> None:
@@ -526,112 +458,6 @@ print(res)
     print("  PASS: run_python (contact recording)")
 
 
-def test_option_plan_not_initiable_shows_poses(ctx: Any) -> None:
-    """submit_plan shows object poses when option is NOT INITIABLE."""
-    tools = _make_tools(ctx, ["submit_plan"])
-
-    # Find Place option and try it without Pick first
-    place_opt = None
-    for opt in ctx.options:
-        if opt.name == "Place":
-            place_opt = opt
-            break
-
-    if place_opt is None:
-        print("  SKIP: submit_plan (no Place option)")
-        return
-
-    # Build object names from types
-    state = ctx.current_task.init
-    obj_names = []
-    for t in place_opt.types:
-        for obj in state:
-            if obj.type == t and obj.name not in obj_names:
-                obj_names.append(obj.name)
-                break
-
-    low = place_opt.params_space.low
-    high = place_opt.params_space.high
-    params = ((low + high) / 2).tolist()
-
-    plan = [{
-        "option_name": "Place",
-        "object_names": obj_names,
-        "params": params,
-    }]
-
-    result = _run(tools["submit_plan"]({
-        "plan": _plan_to_text(plan, ctx),
-    }))
-    text = result["content"][0]["text"]
-
-    if "NOT INITIABLE" in text:
-        assert "Object poses at failure:" in text
-        print("  PASS: submit_plan (NOT INITIABLE shows poses)")
-    elif "Failed to ground" in text:
-        print("  SKIP: submit_plan (Place could not be grounded)")
-    else:
-        print("  SKIP: submit_plan (Place was initiable, "
-              "can't test NOT INITIABLE path)")
-
-
-def test_option_plan_saves_images(ctx: Any) -> None:
-    """submit_plan always saves scene images (never returns inline)."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        ctx.image_save_dir = tmpdir
-
-        tools = _make_tools(ctx, ["submit_plan"])
-
-        step = _get_valid_option_plan_step(ctx)
-        assert step is not None, "No valid option found for testing"
-        plan = [step]
-
-        result = _run(tools["submit_plan"]({
-            "plan": _plan_to_text(plan, ctx),
-        }))
-
-        content = result["content"]
-        # Should have text block only (no inline images)
-        assert any(b["type"] == "text" for b in content)
-        assert not any(b["type"] == "image" for b in content)
-
-        # Check files were saved if env rendering works
-        saved = [f for f in os.listdir(tmpdir) if f.endswith(".png")]
-        if saved:
-            print(f"  PASS: submit_plan ({len(saved)} images saved)")
-        else:
-            print("  SKIP: submit_plan (rendering not available)")
-
-        ctx.image_save_dir = None
-
-
-def test_option_plan_failure_shows_poses(ctx: Any) -> None:
-    """submit_plan shows object poses when option returns 0 actions."""
-    tools = _make_tools(ctx, ["submit_plan"])
-
-    step = _get_valid_option_plan_step(ctx)
-    assert step is not None, "No valid option found for testing"
-    plan = [step]
-
-    result = _run(tools["submit_plan"]({
-        "plan": _plan_to_text(plan, ctx),
-    }))
-    text = result["content"][0]["text"]
-
-    # Check the output is well-formed — it should have either step info
-    # or a grounding error
-    assert ("Step 0:" in text or "Failed to ground" in text
-            or "Testing option plan" in text)
-    if "FAILURE REASON:" in text:
-        assert "Object poses at failure:" in text
-        print("  PASS: submit_plan (failure shows poses)")
-    elif "NOT INITIABLE" in text:
-        assert "Object poses at failure:" in text
-        print("  PASS: submit_plan (NOT INITIABLE shows poses)")
-    else:
-        print("  PASS: submit_plan (no failures in output)")
-
-
 def testformat_object_poses(ctx: Any) -> None:
     """format_object_poses formats object positions correctly."""
     from predicators.agent_sdk.tools import format_object_poses
@@ -732,21 +558,14 @@ def main() -> None:
 
         print("=== Tool Enhancement Tests ===\n")
 
-        # submit_plan tests
-        print("1. submit_plan tests:")
-        test_option_plan_missing_goal_atoms(ctx)
-        test_option_plan_not_initiable_shows_poses(ctx)
-        test_option_plan_saves_images(ctx)
-        test_option_plan_failure_shows_poses(ctx)
-
         # Helper function tests
-        print("\n2. Helper function tests:")
+        print("1. Helper function tests:")
         testformat_object_poses(ctx)
         testrender_scene_image(ctx)
         test_render_scene_no_env(ctx)
 
         # _sync_tool_context test (creates fresh env)
-        print("\n3. Context sync tests:")
+        print("\n2. Context sync tests:")
         test_sync_tool_context_sets_env()
 
         print("\n=== All tests passed! ===")

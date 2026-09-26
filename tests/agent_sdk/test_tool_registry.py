@@ -119,12 +119,12 @@ def test_list_session_tool_names_filters_and_combines() -> None:
     """Filtered MCP names drop unknowns; ``extra_mcp_tools`` pass through."""
     fake = SimpleNamespace(name="run_python")
     grouped = list_session_tool_names(
-        mcp_filter=["submit_plan", "not_a_tool", "run_python"],
+        mcp_filter=["not_a_tool", "run_python"],
         extra_mcp_tools=[fake],
         include_builtin=False,
     )
     assert grouped == {
-        "mcp": ["submit_plan", "run_python"],
+        "mcp": ["run_python"],
         "extra": ["run_python"],
     }
 
@@ -143,13 +143,13 @@ def test_solve_and_synthesis_tool_names_are_independent() -> None:
     class _Approach(AgentSessionMixin):
 
         def _get_solve_tool_names(self) -> Optional[List[str]]:
-            return ["run_python", "submit_plan"]
+            return ["run_python", "skills_execute_plan"]
 
         def _get_synthesis_tool_names(self) -> Optional[List[str]]:
             return ["run_python"]
 
     obj = _Approach()
-    assert obj._get_solve_tool_names() == ["run_python", "submit_plan"]
+    assert obj._get_solve_tool_names() == ["run_python", "skills_execute_plan"]
     assert obj._get_synthesis_tool_names() == ["run_python"]
 
 
@@ -158,13 +158,11 @@ def test_get_allowed_tool_list_passes_dynamic_names_through() -> None:
     list is the single source of truth, with no silent filtering against
     ``ALL_TOOL_NAMES``."""
     allowed = get_allowed_tool_list([
-        "submit_plan",  # static
-        "run_python",  # dynamic synthesis tool
+        "run_python",  # static, or a dynamic synthesis instance
         "my_dynamic_tool",  # a dynamic tool the roster never lists
     ])
     prefix = f"mcp__{MCP_SERVER_NAME}__"
     assert allowed == [
-        f"{prefix}submit_plan",
         f"{prefix}run_python",
         f"{prefix}my_dynamic_tool",
     ]

@@ -378,12 +378,10 @@ def physics_sigma_points(applied: Dict[str, float],
                          num_points: int = 2) -> List[Dict[str, float]]:
     """A grid of perturbations spanning +-1 posterior sigma of the fit.
 
-    Consumed by the capture gate's physics-margin check
-    (``agent_plan_validation_physics_margin``) and by the ``sim.run``
-    physics sweep: validation rollouts AT the fitted values sample
-    execution variability only, so a plan can pass them all while
-    having zero margin to the fit's parameter error
-    (run_20260723_091108: a capture validated 8/8 at fitted
+    Consumed by the ``sim.run`` physics sweep: rollouts AT the fitted
+    values sample execution variability only, so a plan can pass them
+    all while having zero margin to the fit's parameter error
+    (run_20260723_091108: a plan validated 8/8 at fitted
     lateral_friction 0.5319 failed deterministically at true 0.5). Each
     param whose FITTED value was deployed (``Verdict.applies_fitted``,
     which under the interval belief includes ``Verdict.WIDE``: a moved

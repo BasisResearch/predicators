@@ -1,10 +1,8 @@
-"""Tests for the solve journal and the wall-clock exploration budgets.
+"""Tests for the run journal and ``run_python``'s budgets.
 
 Covers the journal module (entry caps, prompt-injection trimming, the
-harness-owned attempt log), the cooperative probe deadline
-(:class:`ProbeBudgetExceeded`), and ``run_python``'s budget handling
-(refusal after the attempt deadline, per-call timeout with partial
-output, ``[budget]`` footer).
+harness-owned round log) and ``run_python``'s budget handling (per-call
+timeout with partial output, ``[budget]`` footer).
 """
 # pylint: disable=protected-access
 import asyncio
@@ -17,7 +15,7 @@ from gym.spaces import Box
 
 from predicators import utils
 from predicators.agent_sdk import journal as journal_mod
-from predicators.agent_sdk.belief_probe import BeliefProbe, ProbeBudgetExceeded
+from predicators.agent_sdk.belief_probe import BeliefProbe
 from predicators.agent_sdk.tools import ToolContext, create_mcp_tools
 from predicators.structs import Action, GroundAtom, LowLevelTrajectory, \
     Object, ParameterizedOption, Predicate, State, Task, Type
@@ -107,19 +105,17 @@ def test_journal_append_and_read(tmp_path):
     """Entries append under headers and read back verbatim."""
     sandbox = str(tmp_path)
     assert journal_mod.read_journal(sandbox) == ""
-    assert journal_mod.append_entry(sandbox, "task 0 attempt 1 (auto)",
-                                    "- outcome: no capture") is None
+    journal_mod.append_entry(sandbox, "Round 1", "- no environment action")
     content = journal_mod.read_journal(sandbox,
                                        filename=journal_mod.ATTEMPTS_FILENAME)
-    assert "### task 0 attempt 1 (auto)" in content
-    assert "- outcome: no capture" in content
+    assert "### Round 1" in content
+    assert "- no environment action" in content
 
 
 def test_journal_entry_truncated_at_cap(tmp_path):
-    """Oversize entries are truncated with a notice."""
+    """Oversize entries are truncated with a marker."""
     sandbox = str(tmp_path)
-    note = journal_mod.append_entry(sandbox, "big", "x" * 10000)
-    assert note is not None and "truncated" in note
+    journal_mod.append_entry(sandbox, "big", "x" * 10000)
     content = journal_mod.read_journal(sandbox, max_chars=10**6, filename=_A)
     assert "[entry truncated at the per-entry size cap]" in content
     assert len(content) < 5000
@@ -145,26 +141,6 @@ def test_journal_read_no_sandbox():
     assert journal_mod.read_journal(None) == ""
 
 
-def test_journal_read_raw_and_restore(tmp_path):
-    """read_raw snapshots faithfully and restore rolls entries back."""
-    sandbox = str(tmp_path)
-    assert journal_mod.read_raw(None) is None
-    assert journal_mod.read_raw(sandbox, filename=_A) is None
-    journal_mod.append_entry(sandbox, "Agent notes (pre-test phase)",
-                             "- learning fact")
-    snapshot = journal_mod.read_raw(sandbox, filename=_A)
-    assert snapshot is not None and "- learning fact" in snapshot
-    journal_mod.append_entry(sandbox, "Agent notes (test task 0)",
-                             "- test-phase fact")
-    journal_mod.restore(sandbox, snapshot, filename=_A)
-    assert journal_mod.read_raw(sandbox, filename=_A) == snapshot
-    # A None snapshot means no journal file existed: restore deletes.
-    journal_mod.restore(sandbox, None, filename=_A)
-    assert journal_mod.read_raw(sandbox, filename=_A) is None
-    # Deleting an already-absent journal is a no-op, not an error.
-    journal_mod.restore(sandbox, None, filename=_A)
-
-
 # ---------------------------------------------------------------------------
 # attempt log (harness-owned file next to the agent's journal)
 # ---------------------------------------------------------------------------
@@ -172,97 +148,25 @@ def test_journal_read_raw_and_restore(tmp_path):
 
 def test_attempt_log_is_a_separate_file(tmp_path):
     """Harness entries land in attempts.md; the agent's journal.md is a plain
-    file the harness never writes, and each is read, snapshotted and restored
-    on its own."""
+    file the harness never writes, and each is read on its own."""
     sandbox = str(tmp_path)
-    assert journal_mod.append_entry(sandbox, "task 0 attempt 1/1 (auto)",
-                                    "- outcome: no capture") is None
-    assert not os.path.isfile(journal_mod.journal_path(sandbox))
-    assert os.path.isfile(journal_mod.attempts_path(sandbox))
+    journal_path = os.path.join(sandbox, journal_mod.JOURNAL_FILENAME)
+    journal_mod.append_entry(sandbox, "Round 1", "- no environment action")
+    assert not os.path.isfile(journal_path)
+    assert os.path.isfile(os.path.join(sandbox, _A))
     assert journal_mod.read_journal(sandbox) == ""
-    attempts = journal_mod.read_journal(sandbox,
-                                        filename=journal_mod.ATTEMPTS_FILENAME)
-    assert "### task 0 attempt 1/1 (auto)" in attempts
+    assert "### Round 1" in journal_mod.read_journal(sandbox, filename=_A)
     # The agent writes its journal with the file tools.
-    with open(journal_mod.journal_path(sandbox), "w", encoding="utf-8") as f:
-        f.write("### task 0 attempt 1\n- tried x=0.5: stopped 3 cm short\n")
+    with open(journal_path, "w", encoding="utf-8") as f:
+        f.write("### Level 1\n- tried x=0.5: stopped 3 cm short\n")
     assert "stopped 3 cm short" in journal_mod.read_journal(sandbox)
-    snapshot = journal_mod.read_raw(sandbox,
-                                    filename=journal_mod.ATTEMPTS_FILENAME)
-    journal_mod.append_entry(sandbox, "task 1 attempt 1/1 (auto)",
-                             "- outcome: captured")
-    journal_mod.restore(sandbox,
-                        snapshot,
-                        filename=journal_mod.ATTEMPTS_FILENAME)
-    assert "task 1" not in journal_mod.read_journal(
-        sandbox, filename=journal_mod.ATTEMPTS_FILENAME)
-    assert "stopped 3 cm short" in journal_mod.read_journal(sandbox)
+    assert "stopped 3 cm short" not in journal_mod.read_journal(sandbox,
+                                                                filename=_A)
 
 
 # ---------------------------------------------------------------------------
-# probe deadline
+# probe rollout metering
 # ---------------------------------------------------------------------------
-
-
-def test_probe_raises_after_attempt_deadline():
-    """Past the attempt deadline every probe sim call raises."""
-    utils.reset_config({})
-    ctx = _make_ctx()
-    ctx.attempt_deadline = time.monotonic() - 1.0
-    sim = BeliefProbe(ctx)
-    try:
-        sim.reset()
-        assert False, "expected ProbeBudgetExceeded"
-    except ProbeBudgetExceeded as e:
-        assert "submit your single best plan" in str(e)
-
-
-def test_probe_deadline_skipped_during_best_effort_nudge():
-    """The final-submission nudge is never blocked by the spent budget."""
-    utils.reset_config({})
-    ctx = _make_ctx()
-    ctx.attempt_deadline = time.monotonic() - 1.0
-    ctx.capture_best_effort_plan = True
-    sim = BeliefProbe(ctx)
-    sim.reset()  # must not raise
-
-
-def test_probe_trials_returns_partial_on_mid_loop_budget_expiry():
-    """A budget stop mid-trials returns the completed trials (they are minutes
-    of sim time living in the return value, not stdout) instead of discarding
-    them."""
-    utils.reset_config({})
-    ctx = _make_ctx()
-    ctx.attempt_deadline = time.monotonic() + 60.0
-    model = ctx.option_model
-    orig = model.get_next_state_and_num_actions
-
-    def _expire_after_rollout(state, option):
-        result = orig(state, option)
-        ctx.attempt_deadline = time.monotonic() - 1.0
-        return result
-
-    model.get_next_state_and_num_actions = _expire_after_rollout
-    sim = BeliefProbe(ctx)
-    sim.reset()
-    res = sim.run("Move(block0:block)[0.95]", render=False, trials=5)
-    assert len(res.trials) == 1
-    assert res.successes == 1
-    assert any("time budget expired after 1/5 trials" in n for n in res.notes)
-
-
-def test_probe_trials_reraises_when_nothing_completed():
-    """With zero completed trials there is nothing to salvage."""
-    utils.reset_config({})
-    ctx = _make_ctx()
-    sim = BeliefProbe(ctx)
-    sim.reset()
-    ctx.attempt_deadline = time.monotonic() - 1.0
-    try:
-        sim.run("Move(block0:block)[0.95]", render=False, trials=3)
-        assert False, "expected ProbeBudgetExceeded"
-    except ProbeBudgetExceeded:
-        pass
 
 
 def test_probe_counts_rollouts():
@@ -281,19 +185,6 @@ def test_probe_counts_rollouts():
 # ---------------------------------------------------------------------------
 # run_python budgets
 # ---------------------------------------------------------------------------
-
-
-def test_run_python_refuses_after_attempt_deadline(tmp_path):
-    """A call arriving past the attempt deadline is refused unrun."""
-    utils.reset_config({})
-    ctx = _make_ctx(sandbox_dir=str(tmp_path))
-    ctx.attempt_start = time.monotonic() - 10.0
-    ctx.attempt_deadline = time.monotonic() - 1.0
-    text = _call(_get_tool(ctx, "run_python"),
-                 {"code": "print('should not run')"})
-    assert "wall-clock exploration budget" in text
-    assert "should not run" not in text
-    assert "[budget]" in text
 
 
 def test_python_call_timeout_returns_partial_output(tmp_path):
@@ -317,12 +208,10 @@ def test_run_python_budget_footer(tmp_path):
     })
     ctx = _make_ctx(sandbox_dir=str(tmp_path))
     ctx.attempt_start = time.monotonic()
-    ctx.attempt_deadline = ctx.attempt_start + 2700
     code = "sim.reset(); print(sim.run('Move(block0:block)[0.95]', " \
            "render=False).goal_reached)"
     text = _call(_get_tool(ctx, "run_python"), {"code": code})
     assert "[budget] attempt time" in text
-    assert "/45 min" in text
     assert "sim rollouts this attempt: 1 (+1 this call)" in text
 
 
@@ -377,55 +266,6 @@ def test_run_python_no_footer_outside_attempt(tmp_path):
     ctx = _make_ctx(sandbox_dir=str(tmp_path))
     text = _call(_get_tool(ctx, "run_python"), {"code": "print('hi')"})
     assert "[budget]" not in text
-
-
-# ---------------------------------------------------------------------------
-# prompt injection
-# ---------------------------------------------------------------------------
-
-
-def test_solve_prompt_includes_journal_section():
-    """build_solve_prompt renders the journal and attempt log contents."""
-    # pylint: disable-next=import-outside-toplevel
-    from predicators.agent_sdk.sketch_prompts import build_solve_prompt
-    utils.reset_config({})
-    ctx = _make_ctx()
-    task = ctx.train_tasks[0]
-    journal_text = ("### task 0 attempt 1/3 (auto)\n"
-                    "- outcome: no capture")
-    prompt = build_solve_prompt(task,
-                                all_predicates={_ReachedHi},
-                                all_options={_Move},
-                                journal="### notes\n- tried x=0.5",
-                                attempts=journal_text)
-    assert "## Attempt Log" in prompt
-    assert "- outcome: no capture" in prompt
-    assert "## Solve Journal" in prompt
-    assert "- tried x=0.5" in prompt
-    assert "./journal.md" in prompt
-    assert "record_journal" not in prompt
-    # Without journal content the section is absent entirely.
-    prompt_no_journal = build_solve_prompt(task,
-                                           all_predicates={_ReachedHi},
-                                           all_options={_Move})
-    assert "## Solve Journal" not in prompt_no_journal
-    assert "## Attempt Log" not in prompt_no_journal
-
-
-def test_read_strategy_absent_present_and_truncated(tmp_path):
-    """read_strategy: "" when absent, verbatim when small, head-kept cap."""
-    sandbox = str(tmp_path)
-    assert journal_mod.read_strategy(sandbox) == ""
-    assert journal_mod.read_strategy(None) == ""
-    with open(journal_mod.strategy_path(sandbox), "w", encoding="utf-8") as f:
-        f.write("## Approach\n- glue both faces\n")
-    assert "- glue both faces" in journal_mod.read_strategy(sandbox)
-    with open(journal_mod.strategy_path(sandbox), "w", encoding="utf-8") as f:
-        f.write("HEADLINE\n" + "x" * 10000)
-    content = journal_mod.read_strategy(sandbox)
-    assert content.startswith("HEADLINE")
-    assert "[strategy truncated at the prompt cap" in content
-    assert len(content) < 4300
 
 
 # ---------------------------------------------------------------------------

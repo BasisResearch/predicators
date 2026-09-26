@@ -88,7 +88,6 @@ def _make_probe(evaluator, model=None):
         # (p = 0.1 each) a 1e-9 event, so the certified/rejected paths
         # below are exercised at every probe seed, not just lucky ones.
         "agent_bilevel_max_samples_per_step": 200,
-        "agent_bilevel_use_llm_initial_params": False,
     })
     init = State({_block: np.array([0.0], dtype=np.float32)})
     goal = {GroundAtom(_ReachedHi, [_block])}

@@ -7,9 +7,6 @@ the step is uniform inside ``clip([center - w, center + w], box)``
 instead of the full option box.
 """
 
-import asyncio
-from typing import Any
-
 import numpy as np
 import pytest
 from gym.spaces import Box
@@ -20,7 +17,7 @@ from predicators.agent_sdk.sketch_parsing import format_step_line, \
     parse_sketch_from_text, strip_region_annotations
 from predicators.agent_sdk.sketch_refinement import refine_sketch
 from predicators.agent_sdk.sketch_types import GroundSampler, SketchStep
-from predicators.agent_sdk.tools import ToolContext, create_mcp_tools
+from predicators.agent_sdk.tools import ToolContext
 from predicators.structs import Action, GroundAtom, Object, \
     ParameterizedOption, Predicate, State, Task, Type
 
@@ -423,7 +420,6 @@ def test_named_ground_sampler_deterministic_flag_caps_step():
 
 def _tool_ctx(ground_samplers=True, sandbox_dir=None):
     utils.reset_config({
-        "agent_bilevel_use_llm_initial_params": True,
         "agent_bilevel_max_samples_per_step": 200,
         "agent_bilevel_ground_samplers": ground_samplers,
     })
@@ -439,21 +435,6 @@ def _tool_ctx(ground_samplers=True, sandbox_dir=None):
         current_task=task,
         sandbox_dir=sandbox_dir,
     )
-
-
-def _run_tool(tool_name, args, ground_samplers=True, sandbox_dir=None):
-    ctx = _tool_ctx(ground_samplers=ground_samplers, sandbox_dir=sandbox_dir)
-    tools = {
-        t.name: t.handler
-        for t in create_mcp_tools(ctx, tool_names=[tool_name])
-    }
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    result: Any = loop.run_until_complete(tools[tool_name](args))
-    return result["content"][0]["text"]
 
 
 def _probe_refine(plan, ground_samplers=True, sandbox_dir=None):
@@ -481,23 +462,6 @@ def test_probe_refine_rejects_bad_region():
     """Strict parsing surfaces a malformed region as a clear error."""
     with pytest.raises(ValueError, match="expects 1"):
         _probe_refine("Move(block0:block)[0.85] ~ [0.1, 0.2]")
-
-
-def test_submit_plan_ignores_region():
-    """submit_plan runs the exact center; the region is inert."""
-    text = _run_tool(
-        "submit_plan", {
-            "plan": ("Move(block0:block)[0.95] ~ [0.05] -> "
-                     "{ReachedHi(block0:block)}"),
-            "include_states":
-            False,
-            "include_atoms":
-            False,
-        })
-    # Goal achieved proves the exact center 0.95 ran (only x >= 0.9 passes);
-    # a searched/perturbed value could not be distinguished, so also check
-    # the report is a plain execution (no refinement verdict lines).
-    assert "Goal achieved: True" in text
 
 
 def test_probe_refine_ignores_region_when_disabled():

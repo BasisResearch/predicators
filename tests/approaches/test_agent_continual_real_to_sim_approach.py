@@ -29,8 +29,6 @@ REAL_TO_SIM_FLAGS = {
     "agent_sim_learn_declared_params_only": True,
     "continual_uncertainty_decisions": False,
     "agent_sim_learn_param_uncertainty": False,
-    "agent_plan_validation_rule_param_margin": False,
-    "agent_plan_validation_physics_margin": False,
     "agent_explorer_info_seeking": False,
     "agent_explorer_info_seeking_adaptive": False,
     "agent_explorer_info_seeking_noise_aware": False,

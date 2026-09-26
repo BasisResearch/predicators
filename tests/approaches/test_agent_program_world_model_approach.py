@@ -3,15 +3,12 @@
 import os
 from typing import Any, List
 
-import numpy as np
-
 from predicators import utils
-from predicators.agent_sdk import learn_prompts
 from predicators.agent_sdk.tools import ToolContext
 from predicators.approaches import agent_program_world_model_approach as apwm
 from predicators.approaches.agent_sim_learning_approach import _SynthesisPaths
 from predicators.code_sim_learning.program_world_model import \
-    ProgramOptionModel, load_program_world_model
+    load_program_world_model
 from predicators.datasets import create_dataset
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
@@ -63,37 +60,16 @@ def _bare(env: Any, train_tasks: List[Any], options: Any) -> Any:
     return approach
 
 
-def test_belief_particles_and_override_scope() -> None:
-    """Particles, the nominal latent, the override scope, and the rolled
-    latents all come from the installed program."""
+def test_installed_program_rolls_latents() -> None:
+    """An installed program backs the option model, and materialise_latent
+    rolls it along a recorded trajectory."""
     env, train_tasks, options = _cover()
     approach = _bare(env, train_tasks, options)
-    # No model yet: no particles.
-    assert not approach._belief_particles()
     program, err = load_program_world_model(_PROGRAM, env.types,
                                             env.predicates, options)
     assert err is None and program is not None
     approach._install_program(program)
     assert approach._option_model is approach._program_model
-    particles = approach._belief_particles()
-    # Distinct draws only: initial_latent has three outcomes.
-    assert 1 <= len(particles) <= 3
-    assert len({p["phase"] for p in particles}) == len(particles)
-    # Deterministic across calls (seeded).
-    assert approach._belief_particles() == particles
-    # The current task drives the draw when one is set.
-    approach._tool_context.current_task = train_tasks[1]
-    assert approach._belief_particles() == particles
-    # Under the scope every latent-less start rolls from the particle.
-    model: ProgramOptionModel = approach._program_model
-    (pick_place, ) = [o for o in options if o.name == "PickPlace"]
-    option = pick_place.ground([], np.array([0.4], dtype=np.float32))
-    with approach._particle_override_scope({"phase": 20}):
-        nxt, _ = model.get_next_state_and_num_actions(train_tasks[0].init,
-                                                      option)
-        assert nxt.latent == {"phase": 21}
-    assert model.initial_latent_override is None
-    # materialise_latent rolls the program along a recorded trajectory.
     dataset = create_dataset(env, train_tasks, options, env.predicates)
     traj = dataset.trajectories[0]
     latents = approach.materialise_latent(traj)
@@ -130,31 +106,3 @@ def test_rehydrate_from_world_model_file(tmp_path, monkeypatch) -> None:
     assert program.latent_features == {"robot": ["phase"]}
     assert "world_model.py" in approach._CHECKPOINT_SANDBOX_FILES
     assert "world_model_versions" in approach._CHECKPOINT_SANDBOX_DIRS
-
-
-def test_program_prompts_render() -> None:
-    """System prompt and first message render without leftovers."""
-    system = learn_prompts.build_program_learn_system_prompt(
-        scene_viz_hint="x",
-        extra_sections=[
-            learn_prompts.render_predicate_invention_section("workbench")
-        ],
-        workflow_extra=learn_prompts.render_predicate_workflow_extra())
-    assert "world_model.py" in system and "sim.score" in system
-    assert "Plan format" in system and "Predicate Invention" in system
-    assert "__" not in system.replace("__init__", "")
-    message = learn_prompts.build_program_learn_message(
-        n_trajs=0,
-        n_transitions=0,
-        n_demos=0,
-        n_interaction=0,
-        trajectory_listing="",
-        structs_ref="./reference/structs.py",
-        predicate_listing="- Holding(robot, block)",
-        types_digest="types",
-        options_digest="options",
-        world_model_file="./world_model.py",
-        extra_messages=[learn_prompts.render_program_zero_shot_message()])
-    assert "./world_model.py" in message
-    assert "No trajectory has been recorded" in message
-    assert "__" not in message
