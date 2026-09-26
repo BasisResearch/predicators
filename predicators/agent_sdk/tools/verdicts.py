@@ -65,12 +65,11 @@ def evaluate_states_with(evaluator: Any,
     ``note`` is the agent-facing sentence naming what a physics-
     replaying certificate simulated and on what substrate (see
     ``TaskEvaluator.verdict_note``); ``legitimate``/``reason`` are
-    HARNESS-INTERNAL (capture gating,
-    logs), and ``terminated`` is agent-computable from the public goal
-    atoms: agent-facing surfaces expose only the public (solved,
-    reward) pair - the standard RL end-of-episode observables - so the
-    agent must infer the scoring rules from the stated objective and
-    the outcomes its rollouts earn.
+    HARNESS-INTERNAL (logs), and ``terminated`` is agent-computable from
+    the public goal atoms: agent-facing surfaces expose only the public
+    (solved, reward) pair - the standard RL end-of-episode observables -
+    so the agent must infer the scoring rules from the stated objective
+    and the outcomes its rollouts earn.
     """
     ok, reason = evaluator._certify(states, step_options, sim_env=sim_env)  # pylint: disable=protected-access
     note_fn = getattr(evaluator, "verdict_note", None)

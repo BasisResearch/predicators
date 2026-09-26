@@ -184,9 +184,9 @@ def belief_probe_blurb(synthesis_probe: bool,
         run_desc = (
             "`sim.run(plan_text, render=True, draws=None, contacts=False, "
             "physics_sweep=False, seed=None)` rehearses an option plan "
-            "FROM THE CURRENT STATE (same grammar as submit_plan) on the "
-            f"{int(CFG.belief_joint_draws)} joint draws of the belief - a "
-            "parameter draw, a state draw and the memory those parameters "
+            "FROM THE CURRENT STATE (same grammar as skills_execute_plan) on "
+            f"the {int(CFG.belief_joint_draws)} joint draws of the belief - "
+            "a parameter draw, a state draw and the memory those parameters "
             "imply, each on a fresh env with its own planner seed - and "
             "reports the success estimate P-hat with its standard error, "
             "scored by the TASK EVALUATOR on the episode so far followed "
@@ -207,7 +207,7 @@ def belief_probe_blurb(synthesis_probe: bool,
             "`sim.refine(sketch_text, timeout=60, require_goal=False, "
             "require_solved=False)` runs "
             "backtracking parameter search from the belief mean (same "
-            "grammar as submit_plan"
+            "grammar as skills_execute_plan"
             f"{_region_syntax_blurb()}; "
             "success = each step establishes its `-> {subgoals}` "
             "annotation), scores up to "
@@ -228,13 +228,13 @@ def belief_probe_blurb(synthesis_probe: bool,
             "your sketch forward on your own parameters and, per `-> "
             "{subgoals}`-annotated step with continuous params, ranks "
             "feasible alternatives by the learned model's ensemble "
-            "disagreement on those atoms (advice only: what you submit "
+            "disagreement on those atoms (advice only: what you execute "
             "runs as written); " if surface.uncertainty else "")
         run_desc = (
             "`sim.run(plan_text, render=True, trials=1, solved=False, "
             "contacts=False)` executes an option "
             "plan FROM THE CURRENT "
-            "STATE (same grammar as submit_plan; print the result "
+            "STATE (same grammar as skills_execute_plan; print the result "
             "for per-step outcomes incl. saved per-step scene-image paths - "
             "view them with the Read tool; pass render=False inside tight "
             "sweep loops) and advances the state; `-> {subgoals}` "
@@ -251,13 +251,13 @@ def belief_probe_blurb(synthesis_probe: bool,
             "unmodified reset() state) also scores each trial with the "
             "TASK EVALUATOR (per-trial solved/reward) - reaching the goal "
             "atoms is NOT the same as being scored a solve, so check this "
-            f"BEFORE submitting; {belief_desc}"
+            f"BEFORE executing the plan; {belief_desc}"
             "contacts=True (single run) reports, per ")
         refine_desc = (
             "`sim.refine(sketch_text, timeout=60, require_goal=False, "
             "require_solved=False)` runs "
             "backtracking parameter search FROM THE CURRENT STATE (same "
-            "grammar as submit_plan"
+            "grammar as skills_execute_plan"
             f"{_region_syntax_blurb()}; "
             "success = each step establishes its `-> {subgoals}` "
             "annotation, and the result's Verdict line states what it "
@@ -315,10 +315,8 @@ def _build_exploration_tools(ctx: ToolContext, _text_result: Callable,
     The namespace is the probe facade, numpy, and the collected real
     trajectories as read-only evidence (see ``build_probe_namespace`` -
     nothing evaluator-shaped beyond the probe's gated paths): the probe
-    reuses the exact machinery behind ``submit_plan`` (same
-    plan grammar, same option-model executor, same renderer) but
-    carries no scoring surface - nothing run here can be captured as
-    the answer, so it is safe to hand the agent as a freely composable
+    carries no scoring surface and nothing run here acts in the
+    environment, so it is safe to hand the agent as a freely composable
     physics probe. Synthesis sessions attach their own ``run_python``
     (fit data + the candidate-simulator probe in one namespace; see
     ``_get_synthesis_tool_names``), and ``create_mcp_tools`` skips this
@@ -328,12 +326,9 @@ def _build_exploration_tools(ctx: ToolContext, _text_result: Callable,
     # pylint: disable-next=import-outside-toplevel
     from predicators.agent_sdk.belief_probe import build_probe_namespace
 
-    submit_desc = (
-        "EXPLORATORY "
-        "ONLY: nothing run here is captured as your answer - preview "
-        "the evaluator's verdict with sim.run(solved=True), then "
-        "validate and submit the final plan via submit_plan "
-        "from the true initial state.")
+    exploratory_desc = (
+        "EXPLORATORY ONLY: nothing run here acts in the environment; "
+        "preview the evaluator's verdict with sim.run(solved=True).")
     run_python = _make_python_exec_tool(
         tool,
         name="run_python",
@@ -359,8 +354,9 @@ def _build_exploration_tools(ctx: ToolContext, _text_result: Callable,
              "for sim-free code; printed output up to the stop is "
              "returned): budget sweeps accordingly - "
              "prefer coarse-to-fine over exhaustive grids, and print "
-             "intermediate bests so partial results survive a stop. " if
-             surface_cfg.python_call_timeout > 0 else "") + f"{submit_desc}"),
+             "intermediate bests so partial results survive a stop. "
+             if surface_cfg.python_call_timeout > 0 else "") +
+            f"{exploratory_desc}"),
         exec_ns=build_probe_namespace(ctx),
         sandbox_dir=ctx.sandbox_dir,
         text_result=_text_result,

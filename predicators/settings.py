@@ -2077,8 +2077,9 @@ class GlobalSettings:
     # or a stream error before the first tool call) before the run
     # terminates with AgentSessionFatalError. Such failures make every
     # future query hopeless, but each one returns in ~1 s at $0.00 and is
-    # otherwise indistinguishable from a no-capture attempt, so without
-    # this check the solve restart / replan / online-cycle budgets grind
+    # otherwise indistinguishable from an attempt that produced nothing,
+    # so without this check the solve restart / replan / online-cycle
+    # budgets grind
     # through hundreds of instant failures (run_20260721_161159: 300
     # "organization has disabled Claude subscription access" queries
     # across 10 cycles, agent never ran). 0 disables the check.
@@ -2113,7 +2114,7 @@ class GlobalSettings:
     # Agent planner approach settings
     agent_planner_use_scratchpad = False  # include notes.md scratchpad
     # Whether the planner is given a simulator to test candidate plans with
-    # (the submit_plan tool / option-model rollouts). When False, the
+    # (option-model rollouts). When False, the
     # agent must plan open-loop from trajectory data and LLM reasoning alone
     # -- the genuinely model-free baseline.
     agent_planner_use_simulator = True
@@ -2327,9 +2328,9 @@ class GlobalSettings:
     # only for the ones whose posterior contracted below a fixed
     # fraction of the prior. A parameter that moved but whose posterior
     # stayed wide gets the dedicated verdict "wide posterior"
-    # (Verdict.WIDE): its most likely value is deployed, and the capture
-    # gate's physics-margin sweep and sim.run(physics_sweep=True)
-    # certify plans across its whole interval. A mixed sweep (some
+    # (Verdict.WIDE): its most likely value is deployed, and
+    # sim.run(physics_sweep=True) certifies plans across its whole
+    # interval. A mixed sweep (some
     # points pass, some fail) is reported as the interval straddling the
     # plan's success boundary, with the passing and failing ranges, and
     # arms adaptive info-seeking (the probe trigger). The fit report
@@ -2374,7 +2375,7 @@ class GlobalSettings:
     # run_20260723_091108, 0.1414 vs 0.1 on run_20260708_213258). The
     # default 0.1 (~+-10% for log params) brackets the typical bias;
     # the consumers of the reported width (verdict contraction, the
-    # capture gate's physics-margin sigma points) inherit the floor.
+    # physics sweep's sigma points) inherit the floor.
     # 0 disables.
     code_sim_learning_rollout_min_posterior_width = 0.1
     # Post-fit anchor-ablation backward elimination (False disables):
@@ -2603,10 +2604,9 @@ class GlobalSettings:
 
     # Ablations A6+A7 combined ("no uncertainty"): when False, nothing
     # consumes a posterior over the model parameters. The physics-margin sigma
-    # points are never built (so the capture gate's physics margin and
-    # the probe's physics_sweep have nothing to sweep) and the
-    # rule-parameter ensemble stays empty (so the rule-param margin and
-    # the info-seeking disagreement score have nothing to score). Fits
+    # points are never built (so the probe's physics_sweep has nothing
+    # to sweep) and the rule-parameter ensemble stays empty (so the
+    # info-seeking disagreement score has nothing to score). Fits
     # still run; only their point estimates are used.
     agent_sim_learn_param_uncertainty = True
     # Ablation A4 ("no harness parameter fitting"): when True, no

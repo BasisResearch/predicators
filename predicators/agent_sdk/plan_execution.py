@@ -104,7 +104,7 @@ class ForwardResult:
         goal already holds is harmless, but one before it dooms the
         rollout. ``execute_plan_forward`` itself continues past such
         failures (the option model returns an unchanged post-state), so
-        this guards against capturing a plan whose goal atoms only hold
+        this guards against accepting a plan whose goal atoms only hold
         because forward simulation pressed on through a collision the
         real env would abort on.
         """
