@@ -1674,8 +1674,7 @@ def strip_latent_wait_targets(options: Sequence[_Option],
     negative one is trivially satisfied (the Wait ends at once). Both
     are removed from every Wait's ``memory`` in place; with no targets
     left the Wait falls back to any-atom-change termination. Returns a
-    description per dropped target for logging. Mirrors the capture's
-    execution-verifiability filter on subgoal annotations.
+    description per dropped target for logging.
     """
     dropped: List[str] = []
     for i, option in enumerate(options):

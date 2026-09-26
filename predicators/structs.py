@@ -554,7 +554,7 @@ class Predicate:
 
         Such a predicate's truth can depend on belief-only state that
         real observations do not carry, so it may be unverifiable at
-        execution time (see the capture gate's latent-stripped probe).
+        execution time.
         """
         return _classifier_accepts_latent(self._classifier)
 

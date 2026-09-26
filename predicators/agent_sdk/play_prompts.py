@@ -8,7 +8,7 @@ cannot drift.
 """
 from __future__ import annotations
 
-from typing import Iterable, List, Sequence
+from typing import Any, Iterable, List, Mapping, Sequence
 
 from predicators.agent_sdk.prompt_templates import render
 from predicators.observation_noise import ObservationNoise
@@ -354,6 +354,28 @@ def build_play_system_prompt(tool_names: Sequence[str],
     return "\n\n".join(section.strip() for section in sections)
 
 
+def render_physical_params_section(
+        info: Mapping[str, Mapping[str, Any]]) -> str:
+    """The base-physics parameter menu for a revealed parameter menu.
+
+    ``info`` maps a parameter name to its ``default``, ``lo``, ``hi``,
+    ``description``, and optional ``scale``; empty input renders
+    nothing, so envs without a menu never see the feature mentioned.
+    """
+    if not info:
+        return ""
+    lines = []
+    for name, meta in info.items():
+        scale_note = (", fitted in log-space"
+                      if meta.get("scale") == "log" else "")
+        lines.append(f"- `{name}` (built-in {meta['default']:.4g}, fit "
+                     f"box [{meta['lo']:.4g}, {meta['hi']:.4g}]"
+                     f"{scale_note}): {meta['description']}")
+    return render("subclass_model",
+                  "physical_params",
+                  param_list="\n".join(lines))
+
+
 def build_model_contract(
     *,
     partially_observable: bool,
@@ -369,15 +391,15 @@ def build_model_contract(
     ``partially_observable`` adds the model-state callback contract and
     the latent-aware classifier note. ``physical_params_section`` is the
     rendered system-identification section, from
-    ``render_physical_params_section`` in the learn prompt module; empty
-    when the env reveals no tunable physics. ``declared_params_only``
-    adds the no-harness-fitting section, since the probe then refuses to
-    fit. ``frozen`` (the zero-shot arm) drops the fitting guidance,
-    since the model is sealed at the first action. ``supplied_model``
-    (scene-only, oracle dynamics) keeps only the predicate contract: the
-    agent never writes ``simulator.py``. ``scene_built`` (the agentic
-    real-to-sim arm) replaces the domain-twin subclass contract with the
-    ``SceneBase`` one: the agent loads the scene itself.
+    ``render_physical_params_section`` above; empty when the env reveals
+    no tunable physics. ``declared_params_only`` adds the no-harness-
+    fitting section, since the probe then refuses to fit. ``frozen``
+    (the zero-shot arm) drops the fitting guidance, since the model is
+    sealed at the first action. ``supplied_model`` (scene-only, oracle
+    dynamics) keeps only the predicate contract: the agent never writes
+    ``simulator.py``. ``scene_built`` (the agentic real-to-sim arm)
+    replaces the domain-twin subclass contract with the ``SceneBase``
+    one: the agent loads the scene itself.
     """
     if supplied_model:
         parts = [

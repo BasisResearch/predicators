@@ -12,25 +12,6 @@ from predicators.structs import CausalProcess, LowLevelTrajectory, \
     ParameterizedOption, Predicate, State, Task, Type
 
 
-@dataclass(frozen=True)
-class PlanCapture:
-    """A captured plan popped off a :class:`ToolContext` in one piece.
-
-    Returned by :meth:`ToolContext.take_plan_capture` so consumers see
-    the four ``solved_plan*`` fields as the single value they are:
-    ``plan`` is falsy when nothing was captured.
-    """
-    plan: Optional[Any]
-    sketch: Optional[Any]
-    reached_goal: Optional[bool]
-    eval_reward: Optional[float]
-    validation_summary: Optional[str] = None
-    # Closed-loop policy mode: the validated policy.py SOURCE snapshot
-    # (mutually exclusive with ``plan``). The capture is falsy when both
-    # are None.
-    policy_source: Optional[str] = None
-
-
 @dataclass
 class ToolContext:
     """Shared mutable state between the approach and MCP tools."""
@@ -157,7 +138,7 @@ class ToolContext:
     # main.py's ``test_task_idx``. None outside the test phase. Threaded into
     # the saved session-log filename so test queries are attributable to a task.
     test_task_idx: Optional[int] = None
-    test_call_id: int = 0  # incremented per submit_plan call
+    test_call_id: int = 0  # incremented per probe rollout call
     # 0-based learning cycle (matching main.py's "ONLINE LEARNING CYCLE i";
     # -1 = the offline pass) while a synthesis (learn) session is active,
     # None otherwise. Set/cleared around the synthesis query so tools that
@@ -183,126 +164,40 @@ class ToolContext:
     # atoms are evaluable on real observations and refinement must keep
     # them as Wait targets; False (bare observations) strips them.
     latent_tracking_available: bool = False
-    # Set by submit_plan / submit_policy when a plan is verified
-    # to reach the goal on the CURRENT solve task: the simulator-verified plan
-    # (grounded options with found params) and the parallel subgoal sketch.
-    # The bilevel approach returns this directly instead of re-refining, so
-    # the agent's tool-validated answer is exactly what gets executed. None ⇒
-    # nothing captured this query.
-    solved_plan: Optional[Any] = None
-    solved_sketch: Optional[Any] = None
-    # Whether the captured solved_plan counts as a validated solve in its
-    # belief-sim rollout(s): goal reached, evaluator-certified, and every
-    # validation rollout passed. False ⇒ it was a best-effort capture (see
-    # below). Cleared together with solved_plan.
-    solved_plan_reached_goal: Optional[bool] = None
-    # Gate for the above: only approaches that consume captured plans
-    # set this True, so other users of submit_plan record no spurious
-    # captures.
-    capture_goal_reaching_plans: bool = False
-    # Set (with capture_goal_reaching_plans) only for the final-submission
-    # nudge after an attempt exhausted its turn budget: submit_plan
-    # then captures the agent's submitted plan on the current task even if it
-    # does not reach the goal, is scored a non-solve by the task evaluator,
-    # or is flaky, so the approach executes the best-effort plan (for its
-    # honest reward) instead of paying for another full-budget attempt. A
-    # best-effort capture never displaces a validated-solve capture.
-    capture_best_effort_plan: bool = False
-    # Fresh-physics scope for capture-validation rollouts: a callable
-    # returning a context manager. While entered, ``ctx.option_model``
-    # simulates on a freshly constructed env instance instead of the shared
-    # session env, whose reset cannot reconstruct state exactly (solver
-    # warm-start state, velocity residuals), making repeated rollouts
-    # correlated with each other and systematically offset from the fresh
-    # real env. Accepts an optional ``physical_overrides`` keyword (a
-    # param-name -> value dict applied to the fresh env on top of the
-    # identified params) for the physics-margin rollouts. Installed by
+    # Fresh-physics scope for validation rollouts: a callable returning a
+    # context manager. While entered, ``ctx.option_model`` simulates on a
+    # freshly constructed env instance instead of the shared session env,
+    # whose reset cannot reconstruct state exactly (solver warm-start
+    # state, velocity residuals), making repeated rollouts correlated
+    # with each other and systematically offset from the fresh real env.
+    # Accepts an optional ``physical_overrides`` keyword (a param-name ->
+    # value dict applied to the fresh env on top of the identified
+    # params) for the physics-sweep rollouts. Installed by
     # AgentSimLearningApproach (see ``_fresh_validation_env_scope``);
-    # None ⇒ validation rollouts share the session env. Gated by
+    # None ⇒ probe rollouts share the session env. Gated by
     # agent_plan_validation_fresh_env.
     validation_env_scope: Optional[Callable[..., Any]] = None
     # Candidate-aware counterpart: loads the deployed candidate before
     # cloning its physics and rebinds its option model for the whole rollout.
-    # Never substitute the solve-time model for a synthesis candidate.
+    # Never substitute the deployed model for a synthesis candidate.
     probe_validation_env_scope: Optional[Callable[..., Any]] = None
-    # Physics-margin points for the capture gate: a zero-arg callable
-    # returning the current grid of perturbations spanning +-1 posterior
-    # sigma of the identified physical params (full override dicts,
-    # ascending; empty when no fit with nonzero posterior width is
-    # deployed). A callable rather than a stored list so the points
-    # always track the LATEST applied fit. Installed by
-    # AgentSimLearningApproach; consumed by submit_plan under
-    # agent_plan_validation_physics_margin and by the sim.run physics
-    # sweep.
+    # Physics-margin points: a zero-arg callable returning the current grid
+    # of perturbations spanning +-1 posterior sigma of the identified
+    # physical params (full override dicts, ascending; empty when no fit
+    # with nonzero posterior width is deployed). A callable rather than a
+    # stored list so the points always track the LATEST applied fit.
+    # Installed by AgentSimLearningApproach; consumed by the sim.run
+    # physics sweep.
     physics_margin_provider: Optional[Callable[[], List[Dict[str,
                                                              float]]]] = None
-    # Rule-parameter margin points for the capture gate: a zero-arg
-    # callable returning the calibrated rule-parameter ensemble (full
-    # fitted-param dicts drawn from the fit posterior; the same members
-    # info-seeking exploration scores with). The gate re-rolls a
-    # capture-eligible submission under each member so a plan that
-    # survives only at the point estimate of an uncertain learned
-    # constant is rejected as PARAM-SENSITIVE. Installed by
-    # AgentSimLearningApproach; consumed under
-    # agent_plan_validation_rule_param_margin.
-    # How the capture gate names one rule-param margin point and the
-    # set it came from in its reports. The program-world-model arm
-    # sweeps belief particles over the model's hidden state through
-    # the same gate and relabels them here.
-    rule_param_margin_label: str = "rule-param ensemble member"
-    rule_param_margin_note: str = (
-        "calibrated posterior members of the learned rule parameters")
-    rule_param_margin_provider: Optional[Callable[[],
-                                                  List[Dict[str,
-                                                            float]]]] = None
-    # Context manager applying one rule-parameter override dict for the
-    # duration of a validation rollout: swap-and-restore of the live
-    # fitted-params mapping that the learned rules and frozen predicate
-    # classifiers read through (the score_atom_disagreement pattern).
-    # The gate enters it BEFORE the fresh-env scope so anything bound at
-    # env construction sees the override too.
-    rule_param_override_scope: Optional[Callable[[Dict[str, float]],
-                                                 Any]] = None
-    # Capture-task keys (see ``_capture_task_key``) that have produced a
-    # FLAKY rejection in submit_plan. A flaky submission is direct
-    # evidence the agent is tuning in a marginal region where a lucky
-    # streak can pass the base rollout gate (run_20260717_182321: a
-    # 20/20-swept placement validated 3/3, then failed the real episode),
-    # so subsequent captures on these tasks must clear the escalated
-    # agent_plan_validation_rollouts_after_flaky gate instead.
-    flaky_capture_task_keys: Set[Any] = field(default_factory=set)
-    # Task-evaluator reward of the rollout that produced the current
-    # solved_plan capture (None when no evaluator verdict was computed).
-    # The restart loop ranks best-effort captures across attempts by it.
-    # Cleared together with solved_plan.
-    solved_plan_eval_reward: Optional[float] = None
-    # One-line record of the capture-time validation outcome (rollout
-    # tally, first failing step, physics-margin tally), for the journal
-    # auto-entry. Cleared together with solved_plan.
-    solved_plan_validation_summary: Optional[str] = None
-    # Closed-loop policy mode (CFG.agent_solve_policy_mode): the captured
-    # policy.py source, SNAPSHOTTED at submit_policy call time so a
-    # later edit of the file cannot swap unvalidated code into the
-    # executed artifact. Mutually exclusive with solved_plan; cleared
-    # together with it.
-    solved_policy_source: Optional[str] = None
-    # True while the current solve attempt's deliverable is a policy:
-    # submit_plan keeps its probing role but its CAPTURE gate is
-    # disabled, and submit_policy requires it. Set by _solve_attempt.
-    policy_capture_mode: bool = False
-    # Attempt bookkeeping, set around each attempt (a continual play
-    # round is one). ``attempt_start``/``attempt_deadline`` are
-    # time.monotonic() values; the deadline is enforced cooperatively by
-    # the probe (every sim call) and run_python, and surfaced in tool
-    # results as a budget footer. None ⇒ no attempt in flight / no wall
-    # clock. The deadline is cleared before the final-submission nudge so
-    # nothing blocks the submission itself.
-    attempt_index: int = 0
+    # Round bookkeeping (a continual play round is one attempt):
+    # ``attempt_start`` is a time.monotonic() value, surfaced in tool
+    # results as the budget footer's elapsed time. None ⇒ no round in
+    # flight.
     attempt_start: Optional[float] = None
-    attempt_deadline: Optional[float] = None
-    # Count of full-plan belief-sim rollouts this attempt (probe runs,
-    # trials, capture-validation repeats). Reset per attempt; shown in
-    # the budget footer so sweeps carry a visible price.
+    # Count of full-plan belief-sim rollouts this round (probe runs,
+    # trials). Reset per round; shown in the budget footer so sweeps
+    # carry a visible price.
     attempt_rollout_count: int = 0
     # The run's conversation as the play tools show it in the [context]
     # line (continual protocol): the prompt size of the latest assistant
@@ -314,22 +209,14 @@ class ToolContext:
     context_turns: int = 0
     context_compactions: int = 0
     context_window_tokens: Optional[int] = None
-    # Best submission on the current task this attempt that
-    # submit_plan evaluated but refused to capture (evaluator
-    # scored it a non-solve, or it was flaky), ranked by evaluator
-    # reward. Reset per attempt; the journal auto-entry records it so a
-    # later attempt (or the final best-effort nudge) can resubmit it
-    # instead of the attempt's work vanishing with its context.
-    best_uncaptured_plan_lines: Optional[List[str]] = None
-    best_uncaptured_reward: Optional[float] = None
     # Per-call deadline for the run_python call currently executing
-    # (agent_sdk_python_call_timeout); enforced at the same
-    # probe checkpoints as attempt_deadline. None ⇒ no call in flight.
+    # (agent_sdk_python_call_timeout); enforced at the probe's
+    # checkpoints. None ⇒ no call in flight.
     python_call_deadline: Optional[float] = None
     # Adaptive info-seeking trigger (agent_explorer_info_seeking_adaptive):
-    # set True the first time submit_plan's rule-param margin gate refuses
-    # a plan as PARAM-SENSITIVE, cleared when a plan is captured. While
-    # True the proactive info-seeking apparatus (suggest_probes ranking,
+    # set True the first time the probe's physics sweep finds a plan's
+    # success straddling the belief interval. While True the proactive
+    # info-seeking apparatus (suggest_probes ranking,
     # disagreement guidance) is active; while False, and
     # under the adaptive flag, it stays dormant so easy levels pay no
     # info-seeking step tax. Ignored unless the adaptive flag is on.
@@ -347,10 +234,11 @@ class ToolContext:
         Off when info-seeking exploration is disabled outright. On
         whenever it is enabled and the adaptive flag is off (the
         original always-on behaviour). Under the adaptive flag it turns
-        on only once the capture gate has refused a plan as PARAM-
-        SENSITIVE this run (``param_sensitive_refusal_pending``), so the
-        agent spends real steps reducing uncertainty only after a
-        fragile plan has actually been caught.
+        on only once the probe's physics sweep has found a plan whose
+        success straddles the belief interval this run
+        (``param_sensitive_refusal_pending``), so the agent spends real
+        steps reducing uncertainty only after a fragile plan has
+        actually been found.
         """
         if not CFG.agent_explorer_info_seeking:
             return False
@@ -373,81 +261,25 @@ class ToolContext:
         elif kind == "system" and entry.get("subtype") == "compact_boundary":
             self.context_compactions += 1
 
-    def begin_attempt(self, index: int, wall_clock: float) -> None:
-        """Start restart-loop bookkeeping for solve attempt ``index``.
-
-        Resets everything scoped to a single attempt (rollout count,
-        best refused submission) and arms the wall-clock deadline
-        (``wall_clock <= 0`` ⇒ no deadline).
-        """
-        self.attempt_index = index
+    def begin_attempt(self) -> None:
+        """Start a round's bookkeeping: its clock and rollout count."""
         self.attempt_rollout_count = 0
-        self.best_uncaptured_plan_lines = None
-        self.best_uncaptured_reward = None
         self.attempt_start = time.monotonic()
-        self.attempt_deadline = (self.attempt_start +
-                                 wall_clock if wall_clock > 0 else None)
 
     def pause_attempt_clock(self, seconds: float) -> None:
         """Push every armed wall-clock mark ``seconds`` into the future.
 
         Called by the session manager after it slept out a usage limit,
-        so the wait is charged to neither the attempt's budget nor the
-        run_python call in flight, and the budget footer's elapsed time
-        stays honest.
+        so the wait is charged to neither the round nor the run_python
+        call in flight, and the budget footer's elapsed time stays
+        honest.
         """
         if seconds <= 0:
             return
         if self.attempt_start is not None:
             self.attempt_start += seconds
-        if self.attempt_deadline is not None:
-            self.attempt_deadline += seconds
         if self.python_call_deadline is not None:
             self.python_call_deadline += seconds
-
-    def clear_plan_capture(self) -> None:
-        """Clear the four ``solved_plan*`` fields together.
-
-        They form one value (see :class:`PlanCapture`); clearing any of
-        them individually would leave a stale mix.
-        """
-        self.solved_plan = None
-        self.solved_sketch = None
-        self.solved_plan_reached_goal = None
-        self.solved_plan_eval_reward = None
-        self.solved_plan_validation_summary = None
-        self.solved_policy_source = None
-
-    def take_plan_capture(self) -> PlanCapture:
-        """Pop the captured plan, clearing it so it cannot be reused.
-
-        The returned capture's ``plan`` is falsy when nothing was
-        captured since the last clear.
-        """
-        capture = PlanCapture(
-            plan=self.solved_plan,
-            sketch=self.solved_sketch,
-            reached_goal=self.solved_plan_reached_goal,
-            eval_reward=self.solved_plan_eval_reward,
-            validation_summary=self.solved_plan_validation_summary,
-            policy_source=self.solved_policy_source)
-        self.clear_plan_capture()
-        return capture
-
-
-def _capture_task_key(ctx: ToolContext) -> Any:
-    """Stable identity of the task behind a ``task_idx="current"`` capture.
-
-    Keys ``ctx.flaky_capture_task_keys`` so a FLAKY rejection escalates
-    the validation gate for later submissions on the SAME task only.
-    Test-time solves are keyed by the test task index (stable across the
-    sessions and replans of one task); exploration/synthesis captures
-    fall back to the learning iteration, which at worst escalates
-    conservatively across that cycle's tasks.
-    """
-    if ctx.test_task_idx is not None:
-        return ("test", ctx.test_task_idx)
-    return ("iter", ctx.iteration_id)
 
 
 @contextmanager

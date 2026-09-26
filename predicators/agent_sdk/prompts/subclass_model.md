@@ -142,26 +142,6 @@ Execution tracking uses the same callback on real observations; this is an infer
 Do not treat it as measured truth or as a particle filter.
 Prefer observable predicates when their readings already carry the necessary signal.
 
-<!-- section: tools -->
-## Fit and validate complete rollouts
-
-Edit `./simulator.py`, then explicitly call `sim.fit()` to estimate its declared constants from the recorded trajectories.
-Edits are loaded on the next probe call; a rollout does not implicitly fit parameters.
-Before fitting, the model uses its carried or declared values and is marked UNFITTED.
-If there are no learnable constants, skip fitting and call `sim.validate()`.
-
-`sim.validate()` replays every selected recording at the values currently deployed for planning, including recordings a robust fit rejected.
-`sim.residuals()` uses full simulator replay for subclass models to expose accumulated error; the report labels the parameter values it scores.
-`sim.fit(traj_idxs=[...])` and explicit validation parameter overrides are diagnostics and publish nothing.
-Compare candidates on the same recordings, inspect per-trajectory failures and preserve counterexamples.
-A low fitting error on a selected subset does not establish model fidelity or task solvability.
-
-Use `sim.refine(plan)` to search skill parameters, then run the resulting plan continuously with `sim.run(plan)` and check each annotated subgoal.
-Use `sim.reset(task_idx=..., mods=...)` and `sim.render(label, annotations=[...])` to inspect geometry.
-Evaluate trajectory success with the supplied evaluator when available; its verdict on a simulated trajectory depends on the model's fidelity.
-Prefer additional simulator checks over spending real steps on a prediction that disagrees with recorded evidence.
-Keep speculative mechanisms labeled as hypotheses and state what observation would distinguish competing explanations.
-
 <!-- section: physical_params -->
 ## Supplied physical parameter menu
 

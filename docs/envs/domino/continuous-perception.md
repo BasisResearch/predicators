@@ -89,9 +89,8 @@ contiguous recorded motion. Re-time an episode after the merge.
 `after_step` returns `obs` **unchanged**. Shipping is a pure write-only side
 effect, so *when* it happens is unobservable to the rollout — deferring every
 chunk to the end produces a bit-identical twin trajectory. Everything reading
-state mid-episode (`subgoal_annotations` monitor,
-`agent_bilevel_max_execution_replans`, `terminate_on_goal_reached`) reads the
-twin's own deterministic simulation either way.
+state mid-episode (`terminate_on_goal_reached`) reads the twin's own
+deterministic simulation either way.
 
 **No protocol change is needed.** `execute_chunks` already packs a list of chunks
 into one `StepRequest` (`real_robot_bridge.py:176-185`), and `_split_actions` is

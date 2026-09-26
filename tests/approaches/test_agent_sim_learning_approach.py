@@ -678,13 +678,11 @@ def test_base_sim_reference_provisioning() -> None:
 
 
 def test_synthesis_tool_names_are_run_python_only():
-    """The learn session's only tool is run_python; the journal is a plain file
-    the agent edits, whatever the journal flag says."""
-    stub = SimpleNamespace(_do_synthesize_samplers=False)
-    for use_journal in (True, False):
-        utils.reset_config({"agent_solve_use_journal": use_journal})
-        names = AgentSimLearningApproach._get_synthesis_tool_names(stub)
-        assert names == ["run_python"]
+    """The synthesis session's only tool is run_python; the journal is a plain
+    file the agent edits."""
+    names = AgentSimLearningApproach._get_synthesis_tool_names(
+        SimpleNamespace())
+    assert names == ["run_python"]
 
 
 # ---------------------------------------------------------------------------

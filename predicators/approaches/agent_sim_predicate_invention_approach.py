@@ -9,32 +9,23 @@ sandboxed ``predicates.py``. Invented predicates flow through
 option model's abstraction function, and every other caller asking the
 approach for its current predicates.
 
-Predicates persist across online learning cycles: ``predicates.py`` is
-preserved at the sandbox root, and every version evaluated during
-synthesis (plus a final snapshot of post-eval edits) is saved to
-``predicates_versions/`` as ``cycle_XXX_vers_YYY_predicates.py``.
+Predicates persist across rounds: ``predicates.py`` is preserved at the
+sandbox root, and every version evaluated during synthesis (plus a final
+snapshot of post-eval edits) is saved to ``predicates_versions/`` as
+``cycle_XXX_vers_YYY_predicates.py``.
 
-Partial observability is not a separate approach: like every
-sim-learning arm, the synthesis prompt follows
-``CFG.partially_observable`` (see ``AgentSimLearningApproach``) - under
-the flag the agent is taught the recurrent 5-arg rule signature
-``rule(observation, latent, history, updates, params)`` and
-``LATENT_INIT``, and this module appends the predicate-side latent
-guidance (classifiers may take an optional ``latent`` kwarg,
-auto-routed by ``Predicate.holds``). The latent *mechanics* (recurrent
-LM fitting, the latent-threaded combined simulator riding
+Partial observability is not a separate approach. The latent mechanics
+(recurrent LM fitting, the latent-threaded combined simulator riding
 ``State.latent`` so backtracking restores it per search node,
 ``LATENT_INIT`` loading and initial-latent seeding) live in
 ``AgentSimLearningApproach`` and activate automatically whenever the
-loaded rules use the 5-arg signature, independent of the flag.
+loaded rules use the 5-arg signature ``rule(observation, latent,
+history, updates, params)``; classifiers may take an optional
+``latent`` kwarg, auto-routed by ``Predicate.holds``.
 
-Example command (partially observable)::
-
-    python predicators/main.py --env pybullet_boil \
-        --approach agent_sim_predicate_invention --seed 0 \
-        --num_train_tasks 10 --num_test_tasks 5 \
-        --partially_observable True \
-        --num_online_learning_cycles 2 --explorer agent_model_free
+The continual arms (``AgentContinualApproach`` and its variants) build
+on this class; launch them through
+``scripts/configs/empiric/benchmark.yaml``.
 """
 
 import logging

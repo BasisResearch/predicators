@@ -69,8 +69,6 @@ APPROACHES:
       continual_belief_frame: false
       continual_uncertainty_decisions: false
       agent_sim_learn_param_uncertainty: false
-      agent_plan_validation_rule_param_margin: false
-      agent_plan_validation_physics_margin: false
       agent_explorer_info_seeking: false
       agent_explorer_info_seeking_adaptive: false
       agent_explorer_info_seeking_noise_aware: false

@@ -8,25 +8,20 @@ from predicators.agent_sdk.tools.context import ToolContext
 
 
 def _budget_footer(ctx: ToolContext, rollouts_before: int = 0) -> str:
-    """``[budget]`` line appended to tool results during a solve attempt.
+    """``[budget]`` line appended to tool results during a play round.
 
-    Shows attempt wall-clock (elapsed, and the budget when one is set)
-    and the attempt's cumulative sim-rollout count (plus this call's
-    delta). Agents pace well when they can see a clock and terribly when
-    they can't: the 47k-rollout single-call sweep of run_20260717_230436
-    ran 7 h with zero cost feedback. Empty when no attempt is in flight.
+    Shows the round's elapsed wall clock and its cumulative sim-rollout
+    count (plus this call's delta). Agents pace well when they can see a
+    clock and terribly when they can't: the 47k-rollout single-call
+    sweep of run_20260717_230436 ran 7 h with zero cost feedback. Empty
+    when no attempt is in flight.
     """
     start = ctx.attempt_start
     if start is None:
         return ""
     parts = []
     elapsed_min = (time.monotonic() - start) / 60.0
-    deadline = ctx.attempt_deadline
-    if deadline is not None:
-        total_min = (deadline - start) / 60.0
-        parts.append(f"attempt time {elapsed_min:.1f}/{total_min:.0f} min")
-    else:
-        parts.append(f"attempt time {elapsed_min:.1f} min")
+    parts.append(f"attempt time {elapsed_min:.1f} min")
     total_rollouts = ctx.attempt_rollout_count
     delta = total_rollouts - rollouts_before
     rollout_part = f"sim rollouts this attempt: {total_rollouts}"

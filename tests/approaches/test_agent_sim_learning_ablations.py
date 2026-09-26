@@ -13,7 +13,6 @@ import numpy as np
 import pytest
 
 from predicators import utils
-from predicators.agent_sdk import learn_prompts
 from predicators.agent_sdk.tools import create_synthesis_tools
 from predicators.approaches import agent_sim_learning_approach as asla
 from predicators.code_sim_learning.fit_space import ParamSpec, \
@@ -136,13 +135,12 @@ def test_deploy_declared_params_uses_the_declaration_as_the_estimate() -> None:
     assert approach._fit_sse == 1.5
 
 
-def test_rule_param_margin_alone_builds_the_ensemble() -> None:
-    """A6 (info-seeking off, gate on) keeps the validation ensemble; with both
-    consumers off (A6+A7) none is built."""
+def test_ensemble_follows_info_seeking() -> None:
+    """Info-seeking, the ensemble's consumer, builds it; with info-seeking off
+    none is built."""
     utils.reset_config({
         "agent_sim_learn_declared_params_only": True,
-        "agent_explorer_info_seeking": False,
-        "agent_plan_validation_rule_param_margin": True,
+        "agent_explorer_info_seeking": True,
         "agent_explorer_info_ensemble_size": 5,
     })
     approach = _bare_approach()
@@ -153,7 +151,6 @@ def test_rule_param_margin_alone_builds_the_ensemble() -> None:
     utils.reset_config({
         "agent_sim_learn_declared_params_only": True,
         "agent_explorer_info_seeking": False,
-        "agent_plan_validation_rule_param_margin": False,
     })
     approach = _bare_approach()
     approach._physical_param_specs = list(_PHYS_SPECS)
@@ -213,24 +210,6 @@ def test_no_data_seeding_applies_declared_physical_inits() -> None:
     assert approach._fitted_params == {"k": 2.0}
     assert approach._base_env.applied == [{"lateral_friction": 0.5}]
     assert approach._last_fit_result is None
-
-
-def test_declared_params_prompt_section_is_flag_gated() -> None:
-    """The no-estimation section renders only under the A3 flag."""
-    kwargs: Dict[str, Any] = dict(
-        partially_observable=False,
-        residual_rule_signature="def rule(state, updates, params):",
-        scene_viz_hint="look",
-    )
-    plain = learn_prompts.build_learn_system_prompt(**kwargs)
-    declared = learn_prompts.build_learn_system_prompt(
-        declared_params_only=True, **kwargs)
-    marker = "Harness parameter estimation is DISABLED"
-    assert marker not in plain
-    assert marker in declared
-    assert "__" not in declared.replace("__init__", "")
-    zero_shot = learn_prompts.render_zero_shot_message()
-    assert "No trajectory has been recorded" in zero_shot
 
 
 def test_estimation_surfaces_refuse_under_declared_params(tmp_path) -> None:
