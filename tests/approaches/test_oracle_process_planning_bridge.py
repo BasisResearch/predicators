@@ -1,8 +1,8 @@
 """End-to-end test: oracle_process_planning solves a bridge task.
 
 Mirrors the retired phased config (``predicatorv3/oracle.yaml`` +
-``envs/all.yaml`` (bridge entry) + ``common.yaml`` at tag
-iclr-empiric-submission) so that a regression in the approach (process
+``envs/all.yaml`` (bridge entry) + ``common.yaml`` at commit
+72d7258ed) so that a regression in the approach (process
 planning + bilevel refinement), the bridge env's glue/weld machinery, or
 the skill factories would surface here.
 

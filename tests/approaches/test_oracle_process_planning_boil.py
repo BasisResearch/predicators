@@ -1,7 +1,7 @@
 """End-to-end test: oracle_process_planning solves a boil task.
 
 Mirrors the retired phased config (``predicatorv3/oracle.yaml`` +
-``envs/all.yaml`` + ``common.yaml`` at tag iclr-empiric-submission) so that a
+``envs/all.yaml`` + ``common.yaml`` at commit 72d7258ed) so that a
 regression in either the approach (process planning + bilevel
 refinement) or the boil env's skill execution would surface here.
 

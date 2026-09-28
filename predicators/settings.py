@@ -1100,7 +1100,7 @@ class GlobalSettings:
     # agent-intractable pair-corner tasks. Probe candidate bands whenever
     # the friction pair changes (the differentiating cells move with the
     # frictions), with scripts/domino_debug/probe_min_block_bands.py from
-    # tag iclr-empiric-submission.
+    # commit 72d7258ed.
     domino_min_block_turn_entry_lo: Optional[float] = None
     domino_min_block_turn_entry_hi: Optional[float] = None
     domino_min_block_turn_exit_lo: Optional[float] = None
