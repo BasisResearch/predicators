@@ -1585,17 +1585,6 @@ class GlobalSettings:
     gnn_use_validation_set = True
 
     # parameters for GNN option policy approach
-    # GNN dynamics + shooting baseline (gnn_dynamics_shooting, paper arm
-    # C5): how many previous pre-option states ride along as node
-    # features (so a hidden mechanism is inferable from the recent
-    # past), the longest option sequence one shooting try samples, how
-    # many tries a plan query gets before failing, and whether the plan
-    # is re-shot from the observed state after every option (MPC) or
-    # executed open-loop.
-    gnn_dynamics_history_len = 2
-    gnn_dynamics_max_plan_length = 30
-    gnn_dynamics_shooting_max_tries = 200
-    gnn_dynamics_replan_every_option = True
     gnn_option_policy_solve_with_shooting = True
     gnn_option_policy_shooting_variance = 0.1
     gnn_option_policy_shooting_max_samples = 100
@@ -2117,16 +2106,10 @@ class GlobalSettings:
     agent_sdk_max_buffer_size = 20 * 1024 * 1024
     agent_sdk_resume_session = True  # resume previous session if available
     agent_sdk_max_trajectories_in_context = 3
-    agent_sdk_log_agent_responses = True
 
     # Sandbox settings for agent SDK
-    agent_sdk_use_docker_sandbox = False  # run agent inside Docker container
-    agent_sdk_docker_image = "predicators-sandbox"  # Docker image name
-    # sandbox dir with built-in tools, no Docker
+    # sandbox dir with built-in tools
     agent_sdk_use_local_sandbox = False
-
-    # Agent explorer settings
-    agent_explorer_fallback_to_random = True  # fall back to random on failure
 
     # Agent planner approach settings
     agent_planner_use_scratchpad = False  # include notes.md scratchpad
@@ -2164,40 +2147,6 @@ class GlobalSettings:
     # expressible). Default False hides the grammar from the agent and
     # rejects the annotations, keeping baseline arms free of the channel.
     agent_bilevel_ground_samplers = False
-    # When True, close the agent SDK session at the start of each test task
-    # so every test solve begins with a FRESH conversation (no context from
-    # earlier test tasks). The sandbox filesystem and learned artifacts are
-    # untouched. Default False keeps the current behavior: all test tasks
-    # share one continuous agent conversation.
-    agent_fresh_session_per_test_task = False
-    # Restart loop for test-task solving. Solve-time outcomes are close to
-    # heavy-tailed in agent-search quality (run_20260717 family split: the
-    # same tasks solved in 9-32 min in one launch and burned 2-11 h without
-    # solving in its identical sibling, anchored on wrong conclusions), so
-    # several short, independent attempts beat one long one. Each attempt
-    # above the first starts from a fresh conversation; the solve journal
-    # (below) carries curated knowledge across attempts. An attempt ends
-    # early with a validated (evaluator-solved) capture; otherwise its
-    # best-effort capture is banked and the best across attempts executes.
-    # Each attempt is exactly ONE agent query: however that query ends -
-    # a spent budget, an unparseable sketch, or a session that simply
-    # never submitted - the fresh-context restart is the only retry, so
-    # this is the sole knob controlling how many shots a task gets. Only
-    # the final attempt (no restart left) pays for the best-effort
-    # submission nudge.
-    agent_solve_max_attempts = 1
-    # Wall-clock budget per solve attempt, in seconds (0 disables). The
-    # turn cap bounds turns, not compute - one run_python sweep hid
-    # 47k rollouts (~7 h) inside a single turn. On expiry, exploration
-    # tools refuse with a submit-now message and the approach runs the
-    # same best-effort submission flow as turn-cap exhaustion.
-    agent_solve_attempt_wall_clock = 0.0
-    # When True, every solve attempt (including the first, i.e. every test
-    # task) begins with a fresh agent conversation; cross-attempt and
-    # cross-task knowledge travels through the solve journal instead of
-    # raw transcript history, which also carries the *wrong* conclusions
-    # of failed attempts.
-    agent_solve_fresh_context = False
     # Persistent per-run solve journal: the harness logs each attempt's
     # outcome + captured plan to <sandbox>/attempts.md, the agent keeps
     # its own lessons in <sandbox>/journal.md with the file tools, and
@@ -2237,10 +2186,6 @@ class GlobalSettings:
     # cannot see (nothing fails). 3 tolerates a benign settle-in-place
     # step without letting a livelock burn the budget.
     agent_policy_max_repeated_noops = 3
-    # LLM-free bypass: path to a prewritten policy.py used as the captured
-    # artifact for every test task (mirrors the sketch-file bypass). For
-    # smoke tests and debugging the execution path.
-    agent_policy_file = ""
     # --auto_resume only resumes from checkpoints modified within this
     # many hours. The checkpoint path ignores the run timestamp, so a
     # RELAUNCH of a finished experiment under the same experiment_id
@@ -2287,22 +2232,8 @@ class GlobalSettings:
     # open-loop execution). Requires --execution_monitor
     # subgoal_annotations (enforced at approach construction).
     agent_bilevel_max_execution_replans = 0
-    # When an execution replan's suffix refinement fails, whether to fall
-    # back to querying the agent for a fresh sketch - a brand-new
-    # full-turn-budget session. Default False: the cheap suffix replan is
-    # the only recovery, and when no suffix of the executed sketch
-    # refines from the diverged state the remaining plan resumes
-    # open-loop (the divergence is logged; the goal check decides the
-    # episode). Re-opening the agent budget is especially wasteful after
-    # a best-effort (non-solve) capture, whose execution diverges by
-    # construction.
-    agent_bilevel_replan_agent_fallback = False
     # log state pretty_str before/after each step
     agent_bilevel_log_state = False
-    # Load a plan sketch from a file instead of querying the LLM. The dir is
-    # under scripts/; the file may be a bare name or an absolute path.
-    agent_bilevel_plan_sketch_dir = "plan_sketches"
-    agent_bilevel_plan_sketch_file = ""
     # When a sketch refinement runs without an explicit timeout, the
     # caller computes
     #   max(_min, _per_step * len(sketch))
@@ -2457,18 +2388,6 @@ class GlobalSettings:
     # Ensemble size used to estimate disagreement. 1 disables scoring
     # (every candidate scores 0) and reduces to first-feasible.
     agent_explorer_info_ensemble_size = 6
-    # A plan the explore session validated through the capture gate
-    # (submit_plan: goal reached in
-    # agent_plan_validation_rollouts fresh belief rollouts) is executed
-    # verbatim as the episode's solve attempt with mental_model_solved=
-    # True. The cycle's remaining requests on that task still query the
-    # agent, which sees the certified plan among the plans already
-    # scheduled and is asked for a different certified plan (a second,
-    # independent test of the belief), resubmitting the same one only as
-    # a last resort; every certified attempt solving for real satisfies
-    # the train-driven early-stop rule. Off feeds the capture into the
-    # experiment search as seeds instead.
-    agent_explorer_execute_certified_plan = True
     # Per-parameter jitter as a fraction of the ParamSpec box width, for
     # the uniform-fallback ensemble only (see calibrated flag below).
     agent_explorer_info_perturb_frac = 0.15
@@ -2478,16 +2397,6 @@ class GlobalSettings:
     # fit runs).
     agent_explorer_info_calibrated_ensemble = True
 
-    # Code sim-learning parameter fitting settings.
-    # Persist the raw rollout-fit trajectories (states + actions per
-    # recorded episode) to <log_dir>/fit_data/ at every cycle-level
-    # fit. The fit data otherwise lives only in memory, which made the
-    # wrong fits of run_20260724_232411 (lateral_friction 1.0358 /
-    # 0.3236 vs true 0.5) impossible to replay offline: approximate
-    # re-execution from logged plans cannot reproduce mid-episode
-    # replans or the warm-env recording context, the very channel
-    # suspected of corrupting the fits. Cost: one small pickle per fit.
-    code_sim_learning_persist_fit_data = True
     # Truncate each rollout-fit trajectory once the scored features have
     # settled (physical_sysid.truncate_settled_tail): keep everything up
     # to the last observed motion plus a margin, drop the static tail.
@@ -2789,12 +2698,6 @@ class GlobalSettings:
     # such and its anchor (env-registry baseline) is kept instead of
     # the fitted value. 0 disables the screen.
     code_sim_learning_rollout_sensitivity_factor = 2.0
-    # Cross-cycle consistency check on the final per-cycle fit: a param
-    # whose MAP moved more than this many combined posterior sigmas
-    # since the previous cycle's fit is flagged (and its "identified"
-    # verdict downgraded) - mutually-incompatible confident fits are
-    # the signature of an overconfident probe. 0 disables.
-    code_sim_learning_rollout_cross_cycle_sigma = 3.0
     # Pooled-evidence arbitration of a cross-cycle conflict: when the
     # new fit is flagged (see above) but explains the fit's surviving
     # segments with an SSE at least this factor smaller than the
@@ -2822,12 +2725,6 @@ class GlobalSettings:
     # per fit.
     code_sim_learning_warm_start_with_lm = True
 
-    # Sim-learning oracle flags (for ablation / debugging).
-    # When True, load GT residual rules instead of running agent synthesis.
-    # Parameters init_values are perturbed so the fit still has work to do.
-    agent_sim_learn_oracle_sim_program = False
-    # Relative scale for perturbing oracle parameter init_values before the fit.
-    agent_sim_learn_oracle_sim_param_noise_scale = 0.2
     # Ablations A6+A7 combined ("no uncertainty"): when False, nothing
     # consumes a posterior over the model parameters. The physics-margin sigma
     # points are never built (so the capture gate's physics margin and
@@ -2857,42 +2754,6 @@ class GlobalSettings:
     agent_program_belief_particles = 6
     agent_program_kernel_bandwidth = 0.2
     agent_program_score_max_examples = 3
-    # Ablation A2 ("zero-shot synthesis"): when True, the synthesis
-    # session runs even when no transition has been recorded, so the
-    # agent writes its artifacts from the task description, the scene
-    # and its own knowledge. Pair with no demos and
-    # num_online_learning_cycles 0 for one learn, one solve, done.
-    agent_sim_learn_zero_shot = False
-    # When True, use GT parameter values directly, skipping the fit.
-    # Also grants planning base sims the TRUE physical params (e.g. the true
-    # domino friction even when domino_planning_friction is set) — as if all
-    # param learning, rule-level and physical, had already succeeded. Task
-    # generation still reads domino_planning_friction for the
-    # differentiation filter, so the oracle, the no-learning baseline, and
-    # the sysID learner all see IDENTICAL tasks (and share the task cache:
-    # this agent_ flag is outside the cache key's
-    # domino_/pybullet_/skill_phase_ prefixes on purpose).
-    agent_sim_learn_oracle_sim_params = False
-    # When True, the agent learns PARAMETERIZED samplers - per-option
-    # (lifted-skill) functions that aim continuous option parameters at each
-    # sketch step's subgoal, instead of bilevel refinement drawing them
-    # uniformly from the option's box. The agent authors a versioned
-    # ``samplers.py`` (LEARNED_SAMPLERS keyed by option name) and tunes it
-    # with ``sim.samplers()``. Sampler learning rides along in
-    # the sim/predicate synthesis session when one runs
-    # (oracle_sim_program=False); when no synthesis session runs
-    # (oracle_sim_program=True) it gets a dedicated session of its own.
-    # The GROUND level of the sampler hierarchy needs no flag: a sketch
-    # step's ``~ [widths]`` region annotation compiles to a per-step
-    # GroundSampler that overrides the parameterized sampler for that step
-    # (ground > parameterized > uniform).
-    agent_sim_learn_parameterized_samplers = False
-    # When True (and parameterized_samplers is on), use ground-truth
-    # per-skill samplers from the env's GroundTruthSamplerFactory instead of
-    # having the agent learn them — if such samplers exist for the env;
-    # otherwise warn and fall back to synthesis. Mirrors
-    # agent_sim_learn_oracle_sim_program.
-    agent_sim_learn_oracle_samplers = False
 
     # Allowlist of env predicate names surfaced to the agent for
     # agent_sim_learning and its subclasses (e.g.

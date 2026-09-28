@@ -6,24 +6,20 @@ ground-truth simulator program, the hybrid learned option model
 that solve a pybullet_boil task.
 """
 # pylint: disable=protected-access
-import inspect
 import logging
 import os
 import re
 from types import SimpleNamespace
 from typing import List, Optional, Sequence, Set, Tuple, cast
 
-import dill as pkl
 import numpy as np
 import pytest
 
 from predicators import utils
+from predicators.agent_sdk.sketch_types import SketchStep as _SketchStep
 from predicators.approaches import agent_sim_learning_approach as asla
-from predicators.approaches.agent_model_based_approach import _SketchStep
 from predicators.approaches.agent_sim_learning_approach import \
     AgentSimLearningApproach
-from predicators.code_sim_learning.fit_space import FitResult
-from predicators.code_sim_learning.identifiability import Verdict
 from predicators.code_sim_learning.utils import LearnedSimulator, \
     apply_rules, merge_updates
 from predicators.envs import create_new_env
@@ -595,60 +591,6 @@ def test_rollout_fit_trajectories_subset() -> None:
         obj._rollout_fit_trajectories(traj_idxs=[3])
 
 
-def _cross_cycle_fit(value: float) -> Tuple[FitResult, dict]:
-    result = FitResult(names=["friction"],
-                       samples=np.array([[value]]),
-                       log_probs=np.zeros(1),
-                       jacobian=None,
-                       noise_sigma=0.05,
-                       prior_sigma=np.array([0.75]),
-                       scales=["log"])
-    report = {
-        "friction": {
-            "posterior_std": 0.1,
-            "prior_std": 0.75,
-            "contraction": 0.13,
-            "verdict": Verdict.IDENTIFIED,
-            "note": "",
-        }
-    }
-    return result, report
-
-
-def test_cross_cycle_inconsistent_holds_then_confirms() -> None:
-    """A many-sigma jump is held once, accepted on independent repeat.
-
-    Regression for run_20260724_232411 seed2: cycle fits 0.3236 ->
-    0.6267 (4.7 combined sigmas). The first jump must flag INCONSISTENT
-    (trusted history unchanged, both fits recorded as hull candidates);
-    a following cycle re-fitting near the new value confirms the jump
-    and the history moves - without confirmation the stale reference
-    would flag every future fit forever.
-    """
-    obj = object.__new__(AgentSimLearningApproach)
-    obj._sysid_fit_history = {}
-    obj._sysid_pending_fit = {}
-
-    result, report = _cross_cycle_fit(0.3236)
-    obj._check_cross_cycle_consistency(result, report, ["friction"])
-    assert report["friction"]["verdict"] is Verdict.IDENTIFIED
-    assert obj._sysid_fit_history["friction"][0] == 0.3236
-
-    result, report = _cross_cycle_fit(0.6267)
-    obj._check_cross_cycle_consistency(result, report, ["friction"])
-    assert report["friction"]["verdict"] is Verdict.INCONSISTENT
-    assert report["friction"]["candidate_values"] == [0.3236, 0.6267]
-    # Trusted history holds; the rejected fit waits as pending.
-    assert obj._sysid_fit_history["friction"][0] == 0.3236
-    assert obj._sysid_pending_fit["friction"][0] == 0.6267
-
-    result, report = _cross_cycle_fit(0.63)
-    obj._check_cross_cycle_consistency(result, report, ["friction"])
-    assert report["friction"]["verdict"] is Verdict.IDENTIFIED
-    assert obj._sysid_fit_history["friction"][0] == 0.63
-    assert "friction" not in obj._sysid_pending_fit
-
-
 def test_make_probe_process_model_factory() -> None:
     """The certificate-probe factory mirrors the combined simulator.
 
@@ -703,124 +645,6 @@ def test_make_probe_process_model_factory() -> None:
     assert stepper(state, noop).get(thing, "x") == 2.0
     # ...and resets on a fresh stepper (new replay attempt).
     assert factory()(state, noop).get(thing, "x") == 1.0
-
-
-def test_cross_cycle_arbitration_by_pooled_evidence() -> None:
-    """A flagged jump is accepted when pooled data decisively backs it.
-
-    Regression for run_20260727_210827 seed1: the sharp-but-biased
-    2-trajectory cycle-0 fit (0.9313, true 0.5) was held over the
-    4-trajectory refit (0.4748) for the rest of the run even though the
-    refit explained the pooled data ~30x better. With a pooled-SSE probe
-    the arbitration must accept the new value immediately; an ambivalent
-    gap (or a failing probe) must keep the hold.
-    """
-    obj = object.__new__(AgentSimLearningApproach)
-    obj._sysid_fit_history = {}
-    obj._sysid_pending_fit = {}
-
-    result, report = _cross_cycle_fit(0.9313)
-    obj._check_cross_cycle_consistency(result, report, ["friction"])
-    assert obj._sysid_fit_history["friction"][0] == 0.9313
-
-    def pooled_sse(theta: dict) -> float:
-        return 0.14 if abs(theta["friction"] - 0.4748) < 1e-9 else 4.4
-
-    result, report = _cross_cycle_fit(0.4748)
-    obj._check_cross_cycle_consistency(result,
-                                       report, ["friction"],
-                                       pooled_sse=pooled_sse)
-    assert report["friction"]["verdict"] is Verdict.IDENTIFIED
-    assert "candidate_values" not in report["friction"]
-    assert obj._sysid_fit_history["friction"][0] == 0.4748
-    assert "friction" not in obj._sysid_pending_fit
-
-    # Ambivalent pooled gap (below the decisive ratio): hold as before.
-    obj._sysid_fit_history = {"friction": (0.9313, 0.1, "log")}
-    obj._sysid_pending_fit = {}
-    result, report = _cross_cycle_fit(0.4748)
-    obj._check_cross_cycle_consistency(result,
-                                       report, ["friction"],
-                                       pooled_sse=lambda theta: 0.14)
-    assert report["friction"]["verdict"] is Verdict.INCONSISTENT
-    assert obj._sysid_fit_history["friction"][0] == 0.9313
-    assert obj._sysid_pending_fit["friction"][0] == 0.4748
-
-    # A failing SSE probe must fall back to the hold, not crash.
-    obj._sysid_fit_history = {"friction": (0.9313, 0.1, "log")}
-    obj._sysid_pending_fit = {}
-
-    def broken_sse(theta: dict) -> float:
-        raise RuntimeError("env died")
-
-    result, report = _cross_cycle_fit(0.4748)
-    obj._check_cross_cycle_consistency(result,
-                                       report, ["friction"],
-                                       pooled_sse=broken_sse)
-    assert report["friction"]["verdict"] is Verdict.INCONSISTENT
-    assert obj._sysid_fit_history["friction"][0] == 0.9313
-
-
-def test_persist_fit_trajectories(tmp_path, monkeypatch) -> None:
-    """Fit data lands in <log_dir>/fit_data/, one numbered pickle per fit."""
-    obj = object.__new__(AgentSimLearningApproach)
-    obj._fit_trajectories = cast(List[LowLevelTrajectory],
-                                 ["fake_traj_a", "fake_traj_b"])
-    obj._physical_param_specs = []
-    obj._identified_physical_params = {"friction": 0.5}
-    obj._get_log_dir = lambda: str(tmp_path)  # type: ignore[method-assign]
-
-    obj._persist_fit_trajectories()
-    obj._persist_fit_trajectories()
-    out_dir = tmp_path / "fit_data"
-    files = sorted(f.name for f in out_dir.glob("*.pkl"))
-    assert files == [
-        "fit_trajectories_000_fitted.pkl", "fit_trajectories_001_fitted.pkl"
-    ]
-    with open(out_dir / files[0], "rb") as f:
-        payload = pkl.load(f)
-    assert payload["trajectories"] == ["fake_traj_a", "fake_traj_b"]
-    assert payload["identified_physical_params"] == {"friction": 0.5}
-
-    monkeypatch.setattr(CFG, "code_sim_learning_persist_fit_data", False)
-    obj._persist_fit_trajectories()
-    assert len(list(out_dir.glob("*.pkl"))) == 2
-
-
-def test_fit_data_is_dumped_even_when_no_fit_runs(tmp_path) -> None:
-    """A cycle that declines to fit is exactly the one worth post-morteming.
-
-    Persistence used to sit only inside the sysID fit, so the branch
-    that never ran was the branch whose data mattered:
-    run_20260817_171402 declined on a sweep returning one identical SSE
-    for every value of five parameters, and left nothing on disk to
-    explain it. Dumping where the data ARRIVES is what makes that
-    replayable.
-    """
-    obj = object.__new__(AgentSimLearningApproach)
-    obj._physical_param_specs = []
-    obj._identified_physical_params = {}
-    obj._get_log_dir = lambda: str(tmp_path)  # type: ignore[method-assign]
-    obj._explainability_cache = {}
-    obj._sysid_fit_cache = {}
-
-    # The one line of _learn_simulator this is about, with no fit after it.
-    obj._fit_trajectories = cast(List[LowLevelTrajectory], ["traj"])
-    obj._persist_fit_trajectories("recorded")
-
-    files = [f.name for f in (tmp_path / "fit_data").glob("*.pkl")]
-    assert files == ["fit_trajectories_000_recorded.pkl"]
-    with open(tmp_path / "fit_data" / files[0], "rb") as f:
-        assert pkl.load(f)["trajectories"] == ["traj"]
-
-    # The wiring, not just the function: _learn_simulator runs on every
-    # cycle whether or not a fit follows, so the dump has to hang off it.
-    # Asserted on the source because calling _learn_simulator for real
-    # needs a whole synthesis session, and without this the test above
-    # passes with the call deleted.
-    source = inspect.getsource(AgentSimLearningApproach._learn_simulator)  # pylint: disable=protected-access
-    assert "_persist_fit_trajectories(\"recorded\")" in source, \
-        "the recorded-data dump is no longer wired into _learn_simulator"
 
 
 def test_base_sim_reference_provisioning() -> None:
@@ -900,11 +724,9 @@ def _make_checkpoint_stub(tmp_path, monkeypatch):
     obj._carried_physical_prior = {"lateral_friction": 0.5}
     obj._fit_evidence_history = {"vers_001": {"log_evidence": -1.0}}
     obj._identified_physical_sigma_points = [{"lateral_friction": 0.55}]
-    obj._sysid_fit_history = {}
     obj._residual_features = {"block": ["x"]}
     obj._current_simulator_version = "cycle_001_vers_003"
     obj._current_predicates_version = None
-    obj._current_samplers_version = None
     return obj, sandbox
 
 
@@ -987,7 +809,6 @@ def test_rehydrate_rebuilds_simulator_from_restored_file(
     obj._learned_simulator = None
     obj._latent_init = None
     obj._fit_trajectories = []
-    obj._synthesized_samplers = {}
     obj._base_env = SimpleNamespace(get_physical_param_info=lambda: {})
     calls = []
     monkeypatch.setattr(
@@ -1008,8 +829,6 @@ def test_rehydrate_rebuilds_simulator_from_restored_file(
     monkeypatch.setattr(AgentSimLearningApproach,
                         "_apply_identified_physical_params",
                         lambda self, p: calls.append(("apply", dict(p))))
-    monkeypatch.setattr(AgentSimLearningApproach, "_samplers_enabled",
-                        staticmethod(lambda: False))
     monkeypatch.setattr(AgentSimLearningApproach, "_rebuild_param_ensemble",
                         lambda self: calls.append("ensemble"))
     # Checkpointed fitted params carry a stale name -> fall back to init.
@@ -1040,39 +859,3 @@ def test_rehydrate_without_simulator_is_graceful(tmp_path, monkeypatch):
                         lambda self, base: hooks.append(base))
     obj._rehydrate_from_artifacts()
     assert hooks == [str(sandbox)]
-
-
-def test_checkpoint_cycle_counter_semantics(tmp_path, monkeypatch):
-    """``_c`` files store c even when saved after the counter advanced, and
-    loading ``_None`` resumes at cycle 0 while ``_c`` resumes at c+1."""
-    # pylint: disable=import-outside-toplevel
-    from predicators.approaches.agent_model_free_approach import \
-        AgentModelFreeApproach
-    from predicators.structs import Dataset
-    utils.reset_config({
-        "env": "cover",
-        "approach": "agent_model_free",
-        "seed": 0,
-        "approach_dir": str(tmp_path),
-    })
-    obj = object.__new__(AgentModelFreeApproach)
-    obj._offline_dataset = Dataset([])
-    obj._online_trajectories = []
-    obj._run_id = "run"
-    obj._agent_session = None
-    monkeypatch.setattr(AgentModelFreeApproach, "_sync_tool_context",
-                        lambda self: None)
-    # Post-offline checkpoint: counter 0, file _None.
-    obj._online_learning_cycle = 0
-    obj.save(None)
-    # Cycle-3 checkpoint written AFTER the counter already advanced to 4
-    # (the sim-learning subclass saves post-learn): the file must still
-    # denote cycle 3.
-    obj._online_learning_cycle = 4
-    obj.save(3)
-    fresh = object.__new__(AgentModelFreeApproach)
-    fresh._agent_session = None
-    fresh.load(None)
-    assert fresh._online_learning_cycle == 0
-    fresh.load(3)
-    assert fresh._online_learning_cycle == 4

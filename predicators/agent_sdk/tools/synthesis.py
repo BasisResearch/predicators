@@ -546,9 +546,6 @@ def create_synthesis_tools(
                     sse=float(outcome.pre_sse),
                     pinned=True,
                     coverage=(0, len(rollouts)))
-                if hasattr(approach, "_record_sysid_diagnostics"):
-                    approach._record_sysid_diagnostics(  # pylint: disable=protected-access
-                        {}, physical_names, 0, len(rollouts), outcome.traj_rms)
             rms_str = ", ".join(f"{r:.4g}" for r in outcome.traj_rms)
             trim_threshold = (CFG.code_sim_learning_rollout_trim_rms_factor *
                               DEFAULT_NOISE_SIGMA)
@@ -601,10 +598,6 @@ def create_synthesis_tools(
                     num_points=CFG.agent_plan_validation_physics_margin_points)
                               if outcome.belief is None else []),
                 belief=outcome.belief)
-            if hasattr(approach, "_record_sysid_diagnostics"):
-                approach._record_sysid_diagnostics(  # pylint: disable=protected-access
-                    ident_report, physical_names, outcome.num_survivors,
-                    len(rollouts), outcome.traj_rms)
         kept_at_init = sorted(n for n in physical_names
                               if applied[n] != fitted[n])
         # Like-for-like SSE headline: the % reduction is measured on the

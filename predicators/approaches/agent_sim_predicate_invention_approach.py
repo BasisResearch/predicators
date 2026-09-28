@@ -41,7 +41,6 @@ import logging
 import os
 from typing import Any, Dict, FrozenSet, List, Set, Tuple
 
-from predicators.agent_sdk import learn_prompts
 from predicators.agent_sdk.tools import _SnapshotTarget, \
     finalize_versioned_snapshot, make_predicate_quality_loader
 from predicators.approaches.agent_sim_learning_approach import \
@@ -161,61 +160,6 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
                 cycle_index_provider=self._learning_cycle_index,
             ))
         return targets
-
-    def _extra_synthesis_message(self, extra_paths: Dict[str, str]) -> str:
-        message = learn_prompts.render_predicate_invention_message(
-            extra_paths["predicates_file_for_agent"],
-            self._format_goal_nl_block())
-        return message + self._chained_extra_message(extra_paths)
-
-    def _chained_extra_message(self, extra_paths: Dict[str, str]) -> str:
-        """The base class's extra message (the partial-observability note under
-        ``CFG.partially_observable``), separated for appending."""
-        base = super()._extra_synthesis_message(extra_paths)
-        return "\n\n" + base if base else ""
-
-    def _format_goal_nl_block(self) -> str:
-        """Render the deduped natural-language goals for the train tasks.
-
-        Returns an empty string only if every task is missing a
-        ``goal_nl``, but ``__init__`` asserts they're present, so in
-        practice this always returns a non-empty block.
-        """
-        seen: List[str] = []
-        for task in self._train_tasks:
-            nl = task.goal_nl
-            if nl and nl not in seen:
-                seen.append(nl)
-        if not seen:
-            return ""
-        if len(seen) == 1:
-            return f"Goal (natural language): {seen[0]}\n\n"
-        bullets = "\n".join(f"  - {g}" for g in seen)
-        return f"Goals across train tasks (natural language):\n{bullets}\n\n"
-
-    def _synthesis_workflow_extra(self) -> str:
-        # The base workflow's validation step depends on invented
-        # predicates: sketches can only reference predicates that exist.
-        return learn_prompts.render_predicate_workflow_extra()
-
-    def _extra_synthesis_system_prompt_sections(self) -> List[str]:
-        # The scene workbench is the sim probe inside run_python (the
-        # probe is unconditional in synthesis sessions).
-        workbench = ("the `sim` probe in `run_python` as scene workbench "
-                     "(`sim.reset(task_idx=..., mods={...})` to stage "
-                     "states, `sim.render(label, annotations=[...])` "
-                     "to render with overlays)")
-        sections = super()._extra_synthesis_system_prompt_sections()
-        sections.append(
-            learn_prompts.render_predicate_invention_section(workbench))
-        return sections
-
-    def _extra_synthesis_latent_sections(self) -> List[str]:
-        # The predicate-side latent guidance belongs to invention arms
-        # only and follows the simulator-side tutorial it refers to.
-        sections = super()._extra_synthesis_latent_sections()
-        sections.append(learn_prompts.render_predicate_latent_section())
-        return sections
 
     def _post_synthesis_loading(
         self,

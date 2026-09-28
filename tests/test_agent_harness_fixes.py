@@ -29,20 +29,12 @@ def test_max_session_log_number(tmp_path: Path) -> None:
     assert max_session_log_number(str(tmp_path)) == 7
 
 
-def test_real_episode_step_budget_is_phase_aware() -> None:
-    """Explore episodes are capped by the interaction-request cap too."""
-    utils.reset_config({
-        "horizon": 3000,
-        "max_num_steps_interaction_request": 1000
-    })
-    assert utils.real_episode_step_budget("explore") == 1000
+def test_real_episode_step_budget_is_the_horizon() -> None:
+    """Every agent session phase gets the horizon."""
+    utils.reset_config({"horizon": 3000})
     assert utils.real_episode_step_budget("solve") == 3000
+    assert utils.real_episode_step_budget("synthesis") == 3000
     assert utils.real_episode_step_budget(None) == 3000
-    utils.reset_config({
-        "horizon": 3000,
-        "max_num_steps_interaction_request": 5000
-    })
-    assert utils.real_episode_step_budget("explore") == 3000
 
 
 _block_type = Type("block", ["x"])

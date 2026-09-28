@@ -4,8 +4,7 @@ parsing (``sketch_parsing``) and refinement (``sketch_refinement``).
 A region annotation gives a step's LLM-proposed params per-dimension
 half-widths: the exact center is tried once, then every later draw for
 the step is uniform inside ``clip([center - w, center + w], box)``
-instead of the full option box, taking precedence over any per-skill
-sampler (region > sampler > uniform).
+instead of the full option box.
 """
 
 import asyncio
@@ -334,19 +333,6 @@ def test_region_draws_confined_to_window():
     assert 0.9 <= float(plan[0].params[0]) <= 0.95
 
 
-def test_region_takes_precedence_over_sampler():
-    """A registered per-skill sampler is never consulted for a region step."""
-
-    def sampler(*_args):
-        raise AssertionError("sampler called despite region annotation")
-
-    plan, success, _ = _refine(_region_step(0.5, 0.5),
-                               max_samples_per_step=200,
-                               parameterized_samplers={"Move": sampler})
-    assert success
-    assert float(plan[0].params[0]) >= 0.9
-
-
 def test_region_window_clipped_to_box():
     """An oversized width clips to the option box (draws stay in-box)."""
     plan, success, _ = _refine(_region_step(0.95, 10.0),
@@ -378,24 +364,6 @@ def test_region_applies_on_info_seeking_path():
         info_n_feasible_target=4)
     assert success
     # Window [0.9, 1.0]: every pooled candidate clears the subgoal.
-    assert float(plan[0].params[0]) >= 0.9
-
-
-def test_region_step_not_capped_by_deterministic_sampler():
-    """A deterministic-flagged sampler must not collapse a region step to a
-    single attempt: the region bypasses the sampler entirely."""
-
-    def sampler(*_args):
-        return np.array([0.95], dtype=np.float32)
-
-    sampler.deterministic = True
-    plan, success, total = _refine(_region_step(0.5, 0.5),
-                                   max_samples_per_step=200,
-                                   parameterized_samplers={"Move": sampler})
-    assert success
-    # The failing center consumed the first attempt; regional draws (not a
-    # single deterministic try) then found a passing value.
-    assert total > 1
     assert float(plan[0].params[0]) >= 0.9
 
 

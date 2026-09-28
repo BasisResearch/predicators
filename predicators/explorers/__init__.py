@@ -1,13 +1,11 @@
 """Handle creation of explorers."""
 
-import logging
-from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Set
+from typing import Callable, Dict, List, Optional, Set
 
 from gym.spaces import Box
 
 from predicators import utils
 from predicators.competence_models import SkillCompetenceModel
-from predicators.explorers.agent_explorer_base import AgentExplorerBase
 from predicators.explorers.base_explorer import BaseExplorer
 from predicators.explorers.bilevel_planning_explorer import \
     BilevelPlanningExplorer
@@ -17,10 +15,6 @@ from predicators.settings import CFG
 from predicators.structs import NSRT, GroundAtom, \
     NSRTSamplerWithEpsilonIndicator, ParameterizedOption, Predicate, State, \
     Task, Type, _GroundSTRIPSOperator
-
-if TYPE_CHECKING:
-    from predicators.agent_sdk.session_manager import SessionManagerProtocol
-    from predicators.agent_sdk.tools import ToolContext
 
 __all__ = ["BaseExplorer"]
 
@@ -49,23 +43,10 @@ def create_explorer(
     seen_train_task_idxs: Optional[Set[int]] = None,
     pursue_task_goal_first: Optional[bool] = None,
     maple_q_function: Optional[MapleQFunction] = None,
-    tool_context: Optional["ToolContext"] = None,
-    agent_session: Optional["SessionManagerProtocol"] = None,
 ) -> BaseExplorer:
     """Create an explorer given its name."""
     if max_steps_before_termination is None:
         max_steps_before_termination = CFG.max_num_steps_interaction_request
-    # Deprecated aliases from before the explorers' model-free /
-    # model-based rename (2026-08-30); old launch commands and
-    # requeued jobs still pass them.
-    aliases = {
-        "agent_plan": "agent_model_free",
-        "agent_bilevel": "agent_model_based",
-    }
-    if name in aliases:
-        logging.warning("Explorer name %r is deprecated; use %r.", name,
-                        aliases[name])
-        name = aliases[name]
     for cls in utils.get_all_subclasses(BaseExplorer):
         if not cls.__abstractmethods__ and cls.get_name() == name:
             # Special case GLIB because it uses babble predicates and an atom
@@ -122,13 +103,6 @@ def create_explorer(
                                action_space, train_tasks,
                                max_steps_before_termination, nsrts,
                                maple_q_function)
-            elif issubclass(cls, AgentExplorerBase):
-                assert tool_context is not None
-                assert agent_session is not None
-                explorer = cls(initial_predicates, initial_options, types,
-                               action_space, train_tasks,
-                               max_steps_before_termination, tool_context,
-                               agent_session)
             else:
                 explorer = cls(initial_predicates, initial_options, types,
                                action_space, train_tasks,

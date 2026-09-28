@@ -1,12 +1,8 @@
-"""Tests for per-skill synthesized samplers in ``sketch_refinement``.
+"""Tests for how ``sketch_refinement`` draws a step's continuous params:
 
-Verifies that a sampler registered under an option name in
-``parameterized_samplers`` is consulted (with the step's subgoal +
-objects + the option's params box) to draw that option's continuous
-params during refinement — on both the plain and info-seeking paths —
-and that a missing / misbehaving sampler falls back to uniform sampling
-so refinement is byte-for-byte unchanged when no usable sampler is
-supplied.
+uniformly by default, the agent's proposed params first, and on the
+info-seeking path a pool of the proposal and sampled draws; plus the
+sketch parsing and forward-execution helpers.
 """
 
 # pylint: disable=unused-import
@@ -23,7 +19,7 @@ from predicators.agent_sdk.sketch_parsing import parse_atoms, \
     parse_sketch_from_text, strip_subgoal_annotations
 from predicators.agent_sdk.sketch_refinement import \
     refine_and_validate_report, refine_sketch, sample_params
-from predicators.agent_sdk.sketch_types import SketchStep
+from predicators.agent_sdk.sketch_types import GroundSampler, SketchStep
 from predicators.structs import Action, GroundAtom, Object, \
     ParameterizedOption, Predicate, State, Task, Type
 
@@ -126,107 +122,8 @@ def _easy_task_and_sketch():
     return task, sketch
 
 
-def test_registered_sampler_is_used():
-    """A targeted sampler lands the hard subgoal on the first sample."""
-    calls = []
-
-    def sampler(state, subgoal_atoms, rng, objects):
-        del state, rng
-        calls.append((objects, subgoal_atoms))
-        return np.array([0.95], dtype=np.float32)
-
-    model = _FakeOptionModel()
-    plan, success, total = refine_sketch(
-        _task_hi(),
-        _sketch_hi(),
-        model,
-        predicates={_ReachedHi},
-        timeout=10.0,
-        rng=np.random.default_rng(0),
-        max_samples_per_step=50,
-        check_subgoals=True,
-        check_final_goal=False,
-        parameterized_samplers={"Move": sampler})
-    assert success
-    assert np.isclose(float(plan[0].params[0]), 0.95)
-    # Feasible on the very first attempt — none of the uniform churn.
-    assert total == 1
-    assert model.num_calls == 1
-    # The sampler saw the right subgoal and objects.
-    objs, subgoal = calls[0]
-    assert [o.name for o in objs] == ["block0"]
-    assert GroundAtom(_ReachedHi, [_block]) in subgoal
-
-
-def test_missing_entry_falls_back_to_uniform():
-    """A sampler keyed by another option leaves Move on the uniform path."""
-    seed = 7
-    first = float(sample_params(_Move, np.random.default_rng(seed))[0])
-    task, sketch = _easy_task_and_sketch()
-
-    def other(*_args):
-        raise AssertionError("sampler for a different option was called")
-
-    plan, success, _ = refine_sketch(
-        task,
-        sketch,
-        _FakeOptionModel(),
-        predicates={_Reached},
-        timeout=10.0,
-        rng=np.random.default_rng(seed),
-        max_samples_per_step=50,
-        check_subgoals=True,
-        check_final_goal=False,
-        parameterized_samplers={"OtherOption": other})
-    assert success
-    # Identical to the no-sampler uniform draw.
-    assert float(plan[0].params[0]) == first
-
-
-def test_bad_shape_falls_back_to_uniform():
-    """A wrong-shaped return is rejected; uniform sampling still succeeds."""
-    task, sketch = _easy_task_and_sketch()
-
-    def bad(*_args):
-        return np.array([0.5, 0.5], dtype=np.float32)  # shape (2,) != (1,)
-
-    plan, success, _ = refine_sketch(task,
-                                     sketch,
-                                     _FakeOptionModel(),
-                                     predicates={_Reached},
-                                     timeout=10.0,
-                                     rng=np.random.default_rng(0),
-                                     max_samples_per_step=50,
-                                     check_subgoals=True,
-                                     check_final_goal=False,
-                                     parameterized_samplers={"Move": bad})
-    assert success
-    assert 0.0 <= float(plan[0].params[0]) <= 1.0
-
-
-def test_raising_sampler_falls_back_to_uniform():
-    """A sampler that raises is caught and uniform sampling proceeds."""
-    task, sketch = _easy_task_and_sketch()
-
-    def boom(*_args):
-        raise ValueError("nope")
-
-    _, success, _ = refine_sketch(task,
-                                  sketch,
-                                  _FakeOptionModel(),
-                                  predicates={_Reached},
-                                  timeout=10.0,
-                                  rng=np.random.default_rng(0),
-                                  max_samples_per_step=50,
-                                  check_subgoals=True,
-                                  check_final_goal=False,
-                                  parameterized_samplers={"Move": boom})
-    assert success
-
-
-def test_none_samplers_unchanged():
-    """parameterized_samplers=None reproduces the plain first-uniform-draw
-    param."""
+def test_plain_step_draws_uniformly():
+    """A step with no ground sampler takes the plain first uniform draw."""
     seed = 7
     first = float(sample_params(_Move, np.random.default_rng(seed))[0])
     task, sketch = _easy_task_and_sketch()
@@ -238,36 +135,9 @@ def test_none_samplers_unchanged():
                                      rng=np.random.default_rng(seed),
                                      max_samples_per_step=50,
                                      check_subgoals=True,
-                                     check_final_goal=False,
-                                     parameterized_samplers=None)
+                                     check_final_goal=False)
     assert success
     assert float(plan[0].params[0]) == first
-
-
-def test_sampler_used_on_info_seeking_path():
-    """The info-seeking draw loop also routes through the sampler."""
-
-    def sampler(_s, _a, rng, _o):
-        # Jitter so candidates differ but all clear the x>=0.9 subgoal.
-        return np.array([0.9 + 0.05 * rng.random()], dtype=np.float32)
-
-    model = _FakeOptionModel()
-    plan, success, _ = refine_sketch(
-        _task_hi(),
-        _sketch_hi(),
-        model,
-        predicates={_ReachedHi},
-        timeout=10.0,
-        rng=np.random.default_rng(0),
-        max_samples_per_step=50,
-        check_subgoals=True,
-        check_final_goal=False,
-        info_scorer=lambda s, _a: s.get(_block, "x"),
-        info_n_feasible_target=4,
-        parameterized_samplers={"Move": sampler})
-    assert success
-    # Every pooled candidate came from the sampler => satisfies x >= 0.9.
-    assert float(plan[0].params[0]) >= 0.9
 
 
 # --------------------------------------------------------------------------- #
@@ -289,8 +159,7 @@ def test_initial_params_tried_first_without_sampler():
                                          rng=np.random.default_rng(0),
                                          max_samples_per_step=50,
                                          check_subgoals=True,
-                                         check_final_goal=False,
-                                         parameterized_samplers=None)
+                                         check_final_goal=False)
     assert success
     # The proposal satisfied the hard subgoal on the very first attempt.
     assert np.isclose(float(plan[0].params[0]), 0.95)
@@ -312,8 +181,7 @@ def test_initial_params_fall_back_to_uniform_on_failure():
                                          rng=np.random.default_rng(0),
                                          max_samples_per_step=200,
                                          check_subgoals=True,
-                                         check_final_goal=False,
-                                         parameterized_samplers=None)
+                                         check_final_goal=False)
     assert success
     # The failed proposal was the first sample; uniform then found x >= 0.9.
     assert total > 1
@@ -333,12 +201,16 @@ def test_initial_params_clipped_to_box():
                                          rng=np.random.default_rng(0),
                                          max_samples_per_step=50,
                                          check_subgoals=True,
-                                         check_final_goal=False,
-                                         parameterized_samplers=None)
+                                         check_final_goal=False)
     assert success
     # 5.0 clipped to the option's high bound (1.0), which clears x >= 0.9.
     assert np.isclose(float(plan[0].params[0]), 1.0)
     assert total == 1
+
+
+def _near_hi(_s, _a, rng, _o):
+    """Sampled candidates that clear x >= 0.9 but stay below 1.0."""
+    return np.array([0.9 + 0.05 * rng.random()], dtype=np.float32)
 
 
 def test_initial_params_seeded_and_win_on_disagreement():
@@ -350,12 +222,10 @@ def test_initial_params_seeded_and_win_on_disagreement():
     step = SketchStep(option=_Move,
                       objects=[_block],
                       subgoal_atoms={GroundAtom(_ReachedHi, [_block])},
-                      initial_params=np.array([1.0], dtype=np.float32))
+                      initial_params=np.array([1.0], dtype=np.float32),
+                      ground_sampler=GroundSampler(fn=_near_hi,
+                                                   name="near_hi"))
     model = _FakeOptionModel()
-
-    # Sampled candidates clear x >= 0.9 but stay below the guess's x = 1.0.
-    def sampler(_s, _a, rng, _o):
-        return np.array([0.9 + 0.05 * rng.random()], dtype=np.float32)
 
     plan, success, _ = refine_sketch(
         _task_hi(), [step],
@@ -367,8 +237,7 @@ def test_initial_params_seeded_and_win_on_disagreement():
         check_subgoals=True,
         check_final_goal=False,
         info_scorer=lambda s, _a: float(s.get(_block, "x")),
-        info_n_feasible_target=4,
-        parameterized_samplers={"Move": sampler})
+        info_n_feasible_target=4)
     assert success
     # The guess had the highest disagreement (x = 1.0) => argmax picked it.
     assert np.isclose(float(plan[0].params[0]), 1.0)
@@ -383,7 +252,10 @@ def test_initial_params_lose_to_more_informative_draw():
     step = SketchStep(option=_Move,
                       objects=[_block],
                       subgoal_atoms={GroundAtom(_ReachedHi, [_block])},
-                      initial_params=np.array([0.9], dtype=np.float32))
+                      initial_params=np.array([0.9], dtype=np.float32),
+                      ground_sampler=GroundSampler(
+                          fn=lambda *_a: np.array([0.99], dtype=np.float32),
+                          name="at_0_99"))
     plan, success, _ = refine_sketch(
         _task_hi(), [step],
         _FakeOptionModel(),
@@ -394,10 +266,7 @@ def test_initial_params_lose_to_more_informative_draw():
         check_subgoals=True,
         check_final_goal=False,
         info_scorer=lambda s, _a: float(s.get(_block, "x")),
-        info_n_feasible_target=4,
-        parameterized_samplers={
-            "Move": lambda *_a: np.array([0.99], dtype=np.float32)
-        })
+        info_n_feasible_target=4)
     assert success
     # The seeded guess (x = 0.9) was beaten by the more informative draw
     # (0.99) — proving it is pooled, not accepted just for being first.
@@ -409,7 +278,9 @@ def test_initial_params_infeasible_seed_info_seeking_recovers():
     step = SketchStep(option=_Move,
                       objects=[_block],
                       subgoal_atoms={GroundAtom(_ReachedHi, [_block])},
-                      initial_params=np.array([0.0], dtype=np.float32))
+                      initial_params=np.array([0.0], dtype=np.float32),
+                      ground_sampler=GroundSampler(fn=_near_hi,
+                                                   name="near_hi"))
     plan, success, _ = refine_sketch(
         _task_hi(), [step],
         _FakeOptionModel(),
@@ -420,12 +291,7 @@ def test_initial_params_infeasible_seed_info_seeking_recovers():
         check_subgoals=True,
         check_final_goal=False,
         info_scorer=lambda s, _a: float(s.get(_block, "x")),
-        info_n_feasible_target=4,
-        parameterized_samplers={
-            "Move":
-            lambda _s, _a, rng, _o: np.array([0.9 + 0.05 * rng.random()],
-                                             dtype=np.float32)
-        })
+        info_n_feasible_target=4)
     assert success
     # The infeasible guess (x = 0) wasn't pooled; sampled candidates won.
     assert float(plan[0].params[0]) >= 0.9

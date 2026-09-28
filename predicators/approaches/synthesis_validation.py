@@ -16,10 +16,8 @@ import logging
 from typing import TYPE_CHECKING, Any, Dict, List, Tuple
 
 from predicators.code_sim_learning.fit_space import ParamSpec
-from predicators.code_sim_learning.fitting import fit_rule_parameters
 from predicators.code_sim_learning.utils import LearnedSimulator, \
-    apply_rules, has_latent_rules, has_physics_rules
-from predicators.structs import Action, State
+    apply_rules, has_latent_rules
 
 if TYPE_CHECKING:
     from predicators.agent_sdk.synthesis_backend import SynthesisBackend
@@ -31,26 +29,20 @@ def build_candidate_option_model(
     approach: "SynthesisBackend",
     rules: List,
     specs: List[ParamSpec],
-    residual_features: Dict[str, List[str]],
-    base_pred_triples: List[Tuple[State, Action, State]],
     latent_init: Any = None,
-    fit: bool = True,
-) -> Tuple[Any, Dict[str, float], float]:
-    """Fit ``specs`` (unless ``fit=False``) and build the candidate's option
-    model.
+) -> Tuple[Any, Dict[str, float]]:
+    """Build the candidate's option model at :func:`carry_over_params`.
 
-    ``fit=False`` builds the candidate at :func:`carry_over_params`
-    (the last published fit where a spec still exists and the value
-    lies in its box, the declared init value otherwise) and returns
-    ``nan`` for the SSE: fitting is the agent's explicit ``sim.fit``
-    call, never a side effect of probing (see
+    The parameters are the last published fit's where a spec still
+    exists and the value lies in its box, the declared init value
+    otherwise: fitting is the agent's explicit ``sim.fit`` call, never a
+    side effect of probing (see
     ``AgentSimLearningApproach._make_candidate_probe_model_provider``).
 
     The front half of the synthesis-session probe: every rollout must
     exercise the candidate simulator at its *deployed* (fitted)
     parameters, never at init_value. Returns ``(option_model,
-    fitted_params, fit_sse)``; raises ``RuntimeError`` when fitting
-    fails.
+    params)``.
 
     Publishes side effects onto ``approach`` exactly once, here, so the
     two surfaces can never disagree: the candidate ``rules`` /
@@ -59,12 +51,6 @@ def build_candidate_option_model(
     place* (invented predicates hold a ``_ParamsView`` over it - the
     gating rule and the gating predicate must anchor to the same
     values).
-
-    Recurrent (latent-declaring, 5-arg) rules are fit with the latent
-    threaded per trajectory; fully-observable rules take the legacy
-    per-transition path. Dispatch keys off the candidate rule
-    signatures (:func:`has_latent_rules`), as everywhere else in the
-    fitting stack.
     """
     # pylint: disable=protected-access
     latent = has_latent_rules(rules)
@@ -80,37 +66,10 @@ def build_candidate_option_model(
     if latent:
         approach._latent_init = latent_init
 
-    if not fit:
-        params = carry_over_params(approach._fitted_params, specs)
-        approach._fitted_params.clear()
-        approach._fitted_params.update(params)
-        return _finish_candidate_model(approach, rules, params), params, \
-            float("nan")
-    try:
-        if has_physics_rules(rules):
-            # Physics-command rules act through engine stepping, so the
-            # teacher-forced objectives below cannot see them; fit
-            # against free-running rollouts instead (the same routing
-            # sim.fit uses). The joint fit also covers any declared
-            # PHYSICAL_PARAM_SPECS, which _load_simulator_from_module_file
-            # published onto the approach before this runs.
-            fit_result, fit_sse = approach._fit_parameters_joint_rollout(
-                rules, specs, residual_features)
-        elif latent:
-            fit_result, fit_sse = approach._fit_parameters_recurrent(
-                rules, specs, base_pred_triples, residual_features)
-        else:
-            fit_result, fit_sse = fit_rule_parameters(rules, specs,
-                                                      base_pred_triples,
-                                                      residual_features)
-        params = fit_result.point_estimate
-    except Exception as e:
-        raise RuntimeError(f"param fitting failed:\n{e}") from e
-
-    # In place (clear + update, never replace): see docstring.
+    params = carry_over_params(approach._fitted_params, specs)
     approach._fitted_params.clear()
     approach._fitted_params.update(params)
-    return _finish_candidate_model(approach, rules, params), params, fit_sse
+    return _finish_candidate_model(approach, rules, params), params
 
 
 def carry_over_params(fitted: Dict[str, float],

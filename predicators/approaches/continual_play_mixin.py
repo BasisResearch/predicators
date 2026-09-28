@@ -28,17 +28,15 @@ query returns, so it can span several episodes if the agent resets.
 A reset starts a new episode on the same level without ending the round.
 A level can span several rounds if the agent returns before settling it.
 
-Why a mixin. The arms' learning and session machinery live in the
-phased approach classes (``AgentModelFreeApproach`` and its
+Why a mixin. The arms' model and session machinery live in the
+approach classes below them (``AgentModelFreeApproach`` and its
 ``AgentSimPredicateInventionApproach`` descendant), where the simulator
-synthesis, the parameter fit, predicate invention, the sandbox and the
+loading, the parameter belief, predicate invention, the sandbox and the
 session managers are implemented. An arm keeps that class as its base
-and mixes this loop in front of it, the way ``AgentSessionMixin`` and
-``SamplerLearningMixin`` add their concerns; the phased loop's own entry
-points (``_solve``, the explorers, the learning sessions) are simply
-unused under the protocol. The mixin has no base class of its own, so
-there is no diamond, and what it needs from its host is declared below
-as the host contract.
+and mixes this loop in front of it, the way ``AgentSessionMixin`` adds
+its concerns. The mixin has no base class of its own, so there is no
+diamond, and what it needs from its host is declared below as the host
+contract.
 
 The harness never chooses for the agent: whether to act, reset, model
 or give up is decided inside the conversation; the loop only services
@@ -542,8 +540,6 @@ class ContinualPlayMixin:
                         self, "_current_simulator_version", None),
                     _source_predicates_version=getattr(
                         self, "_current_predicates_version", None),
-                    _source_samplers_version=getattr(
-                        self, "_current_samplers_version", None),
                     _env_reward=ep.get("reward"),
                     _env_terminated=ep.get("terminated"),
                 ))

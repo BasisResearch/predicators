@@ -27,12 +27,7 @@ from typing import Any, Callable, Dict, FrozenSet, Iterator, List, Optional, \
 import numpy as np
 
 from predicators import utils
-from predicators.agent_sdk import learn_prompts
-from predicators.agent_sdk.session_base import AgentSessionFatalError, \
-    query_fatal_error
 from predicators.agent_sdk.tools import _SnapshotTarget
-from predicators.agent_sdk.tools.digests import render_options_digest, \
-    render_types_digest
 from predicators.agent_sdk.tools.program_synthesis import CandidateLoader, \
     create_program_synthesis_tools
 from predicators.agent_sdk.tools.snapshots import finalize_versioned_snapshot
@@ -41,9 +36,9 @@ from predicators.approaches.agent_sim_predicate_invention_approach import \
     AgentSimPredicateInventionApproach
 from predicators.code_sim_learning.program_world_model import \
     ProgramOptionModel, ProgramWorldModel, load_program_world_model, \
-    option_transitions, roll_program_latents
+    roll_program_latents
 from predicators.settings import CFG
-from predicators.structs import LowLevelTrajectory, State, Task
+from predicators.structs import LowLevelTrajectory, State
 
 logger = logging.getLogger(__name__)
 
@@ -95,73 +90,12 @@ class AgentProgramWorldModelApproach(AgentSimPredicateInventionApproach):
 
     # ── Learning ─────────────────────────────────────────────────
 
-    def _learn_simulator(self, trajectories: List[LowLevelTrajectory]) -> None:
-        """Run one program-synthesis session and deploy what it wrote."""
-        self._fit_trajectories = list(trajectories)
-        self._persist_fit_trajectories("recorded")
-        usable = [
-            t for t in trajectories if t.actions and t.actions[0].has_option()
-        ]
-        if not usable and not CFG.agent_sim_learn_zero_shot:
-            logger.warning("No skill-level transitions; skipping world "
-                           "model synthesis.")
-            return
-        if not usable:
-            logger.info("Zero-shot synthesis: no skill-level transitions; "
-                        "the agent writes the world model without data.")
-        program = self._run_program_synthesis_session(trajectories)
-        if program is None:
-            logger.warning("Synthesis produced no loadable world model; "
-                           "the previous model stands.")
-            return
-        self._install_program(program)
-
     def _install_program(self, program: ProgramWorldModel) -> None:
         self._program = program
         self._program_model = ProgramOptionModel(program, seed=CFG.seed)
         self._option_model = self._program_model
         logger.info("Deployed the program world model (latent over %s).",
                     dict(program.latent_features) or "nothing")
-
-    def _run_program_synthesis_session(
-            self, trajectories: List[LowLevelTrajectory]
-    ) -> Optional[ProgramWorldModel]:
-        paths = self._resolve_synthesis_paths()
-        wm_paths = self._world_model_paths(paths)
-        extra_paths = self._compute_extra_synthesis_paths(paths.base)
-        exec_ns = self._build_synthesis_exec_ns(trajectories)
-        self._attach_program_session_state(exec_ns, trajectories, paths,
-                                           wm_paths, extra_paths)
-        # Fresh session so the synthesis prompt + tools take effect.
-        self._close_agent_session()
-        self._ensure_agent_session()
-        structs_ref = self._write_structs_reference()
-        message = self._build_program_learn_message(trajectories, paths,
-                                                    wm_paths, structs_ref,
-                                                    extra_paths)
-        try:
-            responses = self._query_agent_sync(message, kind="learn")
-            dead = query_fatal_error(responses)
-            if dead is not None:
-                raise AgentSessionFatalError(
-                    "The learn session died without the agent doing any "
-                    f"work ({dead}); refusing to checkpoint this cycle as "
-                    "learned.")
-        finally:
-            ctx = self._tool_context
-            ctx.extra_session_hooks = {}
-            ctx.extra_mcp_tools = []
-            ctx.probe_artifact_loaders.clear()
-            ctx.probe_option_model_provider = None
-            ctx.probe_fit_provider = None
-            ctx.probe_validation_provider = None
-            ctx.probe_residuals_provider = None
-            ctx.probe_score_provider = None
-            ctx.probe_param_status = None
-            ctx.learn_cycle_index = None
-            self._learning_mode = False
-            self._close_agent_session()
-        return self._load_program_artifacts(wm_paths, extra_paths)
 
     def _attach_program_session_state(
         self,
@@ -283,59 +217,6 @@ class AgentProgramWorldModelApproach(AgentSimPredicateInventionApproach):
 
         return _provider
 
-    def _build_program_learn_message(
-        self,
-        trajectories: List[LowLevelTrajectory],
-        paths: _SynthesisPaths,
-        wm_paths: Dict[str, str],
-        structs_ref: str,
-        extra_paths: Dict[str, str],
-    ) -> str:
-        predicates = self._get_all_predicates()
-        n_trajs = len(trajectories)
-        n_demos = sum(1 for t in trajectories if t.is_demo)
-        n_transitions = sum(
-            len(option_transitions(t, predicates)) for t in trajectories)
-        prior: List[str] = []
-        if os.path.isfile(wm_paths["world_model_file"]):
-            prior.append("`./world_model.py`")
-        if os.path.isfile(os.path.join(paths.base, "predicates.py")):
-            prior.append("`./predicates.py`")
-        session_tool_names = (self._agent_session.tool_names
-                              if self._agent_session is not None else [])
-        extra_messages: List[str] = []
-        if not trajectories and CFG.agent_sim_learn_zero_shot:
-            extra_messages.append(
-                learn_prompts.render_program_zero_shot_message())
-        extra_message = self._extra_synthesis_message(extra_paths)
-        if extra_message:
-            extra_messages.append(extra_message)
-        return learn_prompts.build_program_learn_message(
-            n_trajs=n_trajs,
-            n_transitions=n_transitions,
-            n_demos=n_demos,
-            n_interaction=n_trajs - n_demos,
-            trajectory_listing=self._format_trajectory_listing(trajectories),
-            structs_ref=structs_ref,
-            predicate_listing=self._format_predicate_signatures(predicates),
-            types_digest=render_types_digest(self._tool_context.types),
-            options_digest=render_options_digest(
-                self._tool_context.options,
-                gt_options_ref_path=self._tool_context.gt_options_ref_path),
-            world_model_file=wm_paths["world_model_file_for_agent"],
-            objective_block=self._format_objective_block(),
-            prior_state_block=learn_prompts.render_prior_state_block(prior),
-            tools_block=learn_prompts.render_tools_block(session_tool_names),
-            extra_messages=extra_messages,
-        )
-
-    def _build_synthesis_system_prompt(self) -> str:
-        return learn_prompts.build_program_learn_system_prompt(
-            scene_viz_hint=self._scene_viz_hint(),
-            extra_sections=self._extra_synthesis_system_prompt_sections(),
-            workflow_extra=self._synthesis_workflow_extra(),
-        )
-
     def _load_program_artifacts(
             self, wm_paths: Dict[str, str],
             extra_paths: Dict[str, str]) -> Optional[ProgramWorldModel]:
@@ -370,19 +251,6 @@ class AgentProgramWorldModelApproach(AgentSimPredicateInventionApproach):
                                         self._get_all_options())
 
     # ── Belief over the hidden state ─────────────────────────────
-
-    def _attach_initial_latent(self, task: Task) -> Task:
-        """Seed ``task.init.latent`` with the nominal particle (a seeded draw
-        from the program's ``initial_latent``)."""
-        if self._program_model is None:
-            return task
-        init_state = task.init.copy()
-        init_state.latent = self._program_model.initial_latent(
-            task.init, rng=np.random.default_rng(CFG.seed))
-        return Task(init=init_state,
-                    goal=task.goal,
-                    alt_goal=task.alt_goal,
-                    goal_nl=task.goal_nl)
 
     def _belief_particles(self) -> List[Dict[str, float]]:
         """Distinct draws from ``initial_latent`` for the current task: the

@@ -1105,30 +1105,6 @@ def test_latent_only_annotation_excluded_from_monitoring():
         {"ReachedHi(block0:block)"}
 
 
-def test_raising_negative_annotation_excluded_from_monitoring():
-    """A negative annotation whose classifier RAISES without a latent is.
-
-    dropped too - the monitor could not evaluate it on a real state.
-    """
-    # Empty bond set: RaisingBond is False with the latent, so the NOT
-    # annotation holds in the belief rollout and survives to the probe.
-    model = _LatentModel(set())
-    utils.reset_config({"agent_plan_validation_rollouts": 3})
-    ctx = _make_ctx(model)
-    ctx.predicates.add(_RaisingBond)
-    # Belief rollouts attach an initial latent to the task init (the
-    # production path does this via _attach_initial_latent); without it
-    # the classifier would raise inside the rollout itself.
-    ctx.current_task.init.latent = {"_bonds": set()}
-    text = _call_tool(ctx, _NEG_RAISING_PLAN)
-    assert "Captured as the current answer" in text
-    assert "cannot be verified from a real observation" in text
-    assert "RaisingBond" in text
-    sketch = ctx.solved_sketch
-    assert sketch is not None
-    assert not sketch[0].subgoal_neg_atoms
-
-
 def test_observation_backed_annotation_survives_probe():
     """An annotation that holds from observable features alone is kept:
 

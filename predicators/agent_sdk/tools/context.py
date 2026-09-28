@@ -9,7 +9,7 @@ from predicators import utils
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
 from predicators.structs import CausalProcess, LowLevelTrajectory, \
-    ParameterizedOption, ParameterizedSampler, Predicate, State, Task, Type
+    ParameterizedOption, Predicate, State, Task, Type
 
 
 @dataclass(frozen=True)
@@ -69,10 +69,9 @@ class ToolContext:
     # need the real engine). A comparison arm lists what its surface
     # withholds; the probe raises on a listed call instead of serving it.
     probe_disabled: FrozenSet[str] = frozenset()
-    # Synthesis-session loaders behind ``sim.predicates()`` and
-    # ``sim.samplers()``: each reloads the agent-authored file fresh
-    # (predicates.py / samplers.py), installs the result into the
-    # approach so refinement sees the draft, and returns the report
+    # Synthesis-session loader behind ``sim.predicates()``: it reloads
+    # the agent-authored predicates.py fresh, installs the result into
+    # the approach so refinement sees the draft, and returns the report
     # text. Empty in sessions that do not offer the artifact.
     probe_artifact_loaders: Dict[str,
                                  Callable[...,
@@ -111,18 +110,11 @@ class ToolContext:
     probe_score_provider: Optional[Callable[..., str]] = None
     # Active-experiment info-gain scorer, synced from the learning
     # approach when info-seeking exploration is on:
-    # ``(state, atoms) -> disagreement``. The agent_model_based explorer
-    # passes it into refinement so continuous-parameter search prefers
-    # candidates that straddle the learned model's decision boundaries.
-    # None ⇒ plain feasibility search (default).
+    # ``(state, atoms) -> disagreement``. The probe passes it into
+    # refinement so continuous-parameter search prefers candidates that
+    # straddle the learned model's decision boundaries. None ⇒ plain
+    # feasibility search (default).
     atom_disagreement_fn: Optional[Callable[[State, Any], float]] = None
-    # Synthesized per-skill samplers (option name -> sampler), synced from
-    # the learning approach when agent_sim_learn_parameterized_samplers is on.
-    # The agent_model_based explorer and synthesis tools pass these into
-    # refinement so continuous-parameter search aims at each step's subgoal
-    # instead of drawing uniformly. Empty ⇒ uniform sampling (default).
-    parameterized_samplers: Dict[str, ParameterizedSampler] = field(
-        default_factory=dict)
     current_task: Optional[Task] = None
     # The last real observation of the level in progress (continual
     # play: every env tool result and the session query refresh it), so
@@ -153,8 +145,6 @@ class ToolContext:
     joint_draw_scope: Optional[Callable[[Dict[str, float]], Any]] = None
     episode_prefix_provider: Optional[Callable[[], Tuple[List[State],
                                                          List[Any]]]] = None
-    skill_factory_context: Dict[str, Any] = field(default_factory=dict)
-    proposals_disabled: bool = False  # set True during test-time solving
     log_dir: Optional[str] = None
     env: Optional[Any] = None  # simulator env reference (for rendering)
     image_save_dir: Optional[str] = None  # sandbox path for rendered images
@@ -184,44 +174,15 @@ class ToolContext:
     # frozen for the session's lifetime. Subclasses set this before
     # opening a fresh session and clear it on close.
     extra_session_hooks: Dict[str, list] = field(default_factory=dict)
-    # Populated by AgentModelBasedExplorer so learning approaches can diff
-    # mental-model subgoals against real trajectories.
-    # TODO(sim-learning): consume these in learn_from_interaction_results.
-    last_sketch_subgoals: Optional[Any] = None
-    # Agent-session phase the tools are serving: "explore", "solve"
-    # (test-time) or "synthesis" (learn). Set by the session mixin when
-    # it builds the session; None before any session exists.
+    # Agent-session phase the tools are serving: "solve" or
+    # "synthesis" (the model-writing rounds). Set by the session mixin
+    # when it builds the session; None before any session exists.
     phase: Optional[str] = None
     # True when the approach will track the simulator's latent block at
     # execution (code_sim_learning.latent_tracker), so latent-reading
     # atoms are evaluable on real observations and refinement must keep
     # them as Wait targets; False (bare observations) strips them.
     latent_tracking_available: bool = False
-    last_sketch_options: Optional[Any] = None
-    # Set by AgentModelBasedExplorer per request: did the mental model reach
-    # the task goal during refinement? Read by get_interaction_requests to
-    # stamp InteractionRequest.mental_model_solved (None ⇒ no verdict).
-    last_mental_model_solved: Optional[bool] = None
-    # Sketch-line descriptions of the exploration plans already generated
-    # this online-learning cycle (a cycle's requests are all generated
-    # before any executes). Cleared by get_interaction_requests per cycle,
-    # appended by AgentModelBasedExplorer per request, and shown in the next
-    # explore prompt so the agent proposes a complementary plan instead of
-    # repeating the identical one for every request.
-    cycle_scheduled_plans: List[str] = field(default_factory=list)
-    # Digest of the latest rollout system-ID fit's weak spots
-    # (unexplainable segments, unidentified/insensitive params,
-    # cross-cycle conflicts), synced from the sim-learning approach.
-    # The agent_model_based explorer appends it to its experiment guidance
-    # so the next exploration targets the gaps. None ⇒ no fit ran yet
-    # (or it had no weak spots).
-    sysid_diagnostics: Optional[str] = None
-    # The natural-language world-model arm's document (world_model.md
-    # content) and its agent-visible path: the solve prompt and the
-    # model-free explorer quote it into every task message. Empty
-    # everywhere else.
-    world_model_notes: str = ""
-    world_model_notes_path: str = ""
     # Set by submit_plan / submit_policy when a plan is verified
     # to reach the goal on the CURRENT solve task: the simulator-verified plan
     # (grounded options with found params) and the parallel subgoal sketch.
@@ -236,9 +197,8 @@ class ToolContext:
     # below). Cleared together with solved_plan.
     solved_plan_reached_goal: Optional[bool] = None
     # Gate for the above: only approaches that consume captured plans
-    # (AgentModelBasedApproach) set this True. Keeps the open-loop
-    # planner, which also uses submit_plan, from recording
-    # spurious captures.
+    # set this True, so other users of submit_plan record no spurious
+    # captures.
     capture_goal_reaching_plans: bool = False
     # Set (with capture_goal_reaching_plans) only for the final-submission
     # nudge after an attempt exhausted its turn budget: submit_plan
@@ -330,8 +290,8 @@ class ToolContext:
     # submit_plan keeps its probing role but its CAPTURE gate is
     # disabled, and submit_policy requires it. Set by _solve_attempt.
     policy_capture_mode: bool = False
-    # Restart-loop attempt bookkeeping, set by AgentModelBasedApproach._solve
-    # around each attempt. ``attempt_start``/``attempt_deadline`` are
+    # Attempt bookkeeping, set around each attempt (a continual play
+    # round is one). ``attempt_start``/``attempt_deadline`` are
     # time.monotonic() values; the deadline is enforced cooperatively by
     # the probe (every sim call) and run_python, and surfaced in tool
     # results as a budget footer. None ⇒ no attempt in flight / no wall
@@ -418,9 +378,7 @@ class ToolContext:
 
         Resets everything scoped to a single attempt (rollout count,
         best refused submission) and arms the wall-clock deadline
-        (``wall_clock <= 0`` ⇒ no deadline). The matching teardown stays
-        in ``AgentModelBasedApproach._solve``'s finally block,
-        interleaved with its journal write.
+        (``wall_clock <= 0`` ⇒ no deadline).
         """
         self.attempt_index = index
         self.attempt_rollout_count = 0

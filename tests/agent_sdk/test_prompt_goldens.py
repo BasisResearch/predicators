@@ -373,34 +373,6 @@ def test_golden_learn_program_message() -> None:
             ]))
 
 
-def test_golden_learn_notes_system() -> None:
-    """The natural-language world-model learn system prompt (paper arm C3)."""
-    _check_golden("learn_notes_system",
-                  learn_prompts.build_notes_learn_system_prompt())
-
-
-def test_golden_learn_notes_message() -> None:
-    """The natural-language world-model learn first message with prior notes
-    and a goal."""
-    _check_golden(
-        "learn_notes_message",
-        learn_prompts.build_notes_learn_message(
-            n_trajs=2,
-            n_transitions=9,
-            n_demos=0,
-            n_interaction=2,
-            trajectory_listing="  [0] interaction, task 0\n"
-            "  [1] interaction, task 0",
-            structs_ref="./reference/structs.py",
-            predicate_listing="- Holding(robot:robot, block:block)",
-            types_digest="- robot: hand\n- block: x, y, held",
-            options_digest="- Pick(robot:robot, block:block)[]",
-            notes_file="./world_model.md",
-            goal_nls=["Build the bridge.", "Build the bridge."],
-            has_prior_notes=True,
-            tools_block=learn_prompts.render_tools_block(["run_python"])))
-
-
 @pytest.mark.parametrize("model_based,noise,repair", [
     (True, False, False),
     (True, True, True),
