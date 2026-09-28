@@ -35,7 +35,8 @@ from predicators.datasets import create_dataset
 from predicators.envs import _MOST_RECENT_ENV_INSTANCE
 from predicators.envs.pybullet_boil import PyBulletBoilEnv
 from predicators.envs.pybullet_coffee import PyBulletCoffeeEnv
-from predicators.envs.pybullet_fan import PyBulletFanEnv
+from predicators.envs.pybullet_fan import HISTORICAL_ARENA_FLAGS, \
+    PyBulletFanEnv
 from predicators.envs.pybullet_grow import PyBulletGrowEnv
 from predicators.ground_truth_models import get_gt_options
 from predicators.run.setup import _options as setup_options
@@ -251,6 +252,7 @@ def _create_coffee_env():
 @pytest.fixture(scope="module", name="fan_env")
 def _create_fan_env():
     utils.reset_config({
+        **HISTORICAL_ARENA_FLAGS,
         "env": "pybullet_fan",
         "use_gui": _GUI_ON,
         "pybullet_control_mode": "reset",

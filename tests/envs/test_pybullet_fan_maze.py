@@ -6,7 +6,8 @@ import pybullet as p
 import pytest
 
 from predicators import utils
-from predicators.envs.pybullet_fan import PyBulletFanEnv
+from predicators.envs.pybullet_fan import HISTORICAL_ARENA_FLAGS, \
+    PyBulletFanEnv
 from predicators.settings import CFG
 from predicators.structs import State
 
@@ -71,6 +72,7 @@ def test_free_cells_connected() -> None:
 
 
 _MAZE_FLAGS = {
+    **HISTORICAL_ARENA_FLAGS,
     "fan_test_num_pos_x": 10,
     "fan_test_num_pos_y": 9,
     "fan_test_num_walls_per_task": [16, 20, 24],
@@ -82,10 +84,23 @@ _MAZE_FLAGS = {
 
 
 def test_default_test_split_is_uniform() -> None:
-    """The defaults keep the historical 6 x 6 uniform test split; the maze
-    split is opted into per config."""
+    """The defaults are the paper's exposed ramp, with a uniform 3 x 3 test
+    split and no walls; HISTORICAL_ARENA_FLAGS restores the historical 6 x 6
+    uniform split.
+
+    The maze split is opted into per config.
+    """
     utils.reset_config({"env": "pybullet_fan", "seed": 0})
+    assert CFG.fan_exposed_transfer and CFG.fan_ramp_transfer
     assert CFG.fan_test_task_generation == "uniform"
+    assert (CFG.fan_test_num_pos_x, CFG.fan_test_num_pos_y) == (3, 3)
+    assert CFG.fan_test_num_walls_per_task == [0]
+    utils.reset_config({
+        "env": "pybullet_fan",
+        "seed": 0,
+        **HISTORICAL_ARENA_FLAGS
+    })
+    assert not CFG.fan_exposed_transfer and not CFG.fan_ramp_transfer
     assert (CFG.fan_test_num_pos_x, CFG.fan_test_num_pos_y) == (6, 6)
     assert CFG.fan_test_num_walls_per_task == [2, 3]
 
@@ -145,6 +160,7 @@ def test_maze_generation_is_deterministic() -> None:
             "seed": 3,
             "num_train_tasks": 1,
             "num_test_tasks": 2,
+            **HISTORICAL_ARENA_FLAGS,
         })
         env = PyBulletFanEnv(use_gui=False)
         try:
@@ -161,6 +177,9 @@ def test_maze_generation_is_deterministic() -> None:
 def test_unknown_generation_rejected() -> None:
     """An unknown generation mode fails loudly."""
     utils.reset_config({
+        # The exposed ramp generates its own tasks; the historical arena
+        # reads fan_test_task_generation.
+        **HISTORICAL_ARENA_FLAGS,
         "env": "pybullet_fan",
         "seed": 0,
         "num_train_tasks": 1,

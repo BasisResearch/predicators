@@ -21,7 +21,8 @@ from predicators.code_sim_learning.commands import ApplyForce, CommandBuffer
 from predicators.code_sim_learning.utils import apply_rules, \
     has_physics_rules, merge_updates
 from predicators.envs import create_new_env
-from predicators.envs.pybullet_fan import PyBulletFanEnv
+from predicators.envs.pybullet_fan import HISTORICAL_ARENA_FLAGS, \
+    PyBulletFanEnv
 from predicators.ground_truth_models import get_gt_simulator
 from predicators.structs import Action
 
@@ -33,11 +34,13 @@ GOAL_TOL = 0.04
 @pytest.fixture(scope="module", name="fan_setup")
 def _fan_setup():
     utils.reset_config({
+        **HISTORICAL_ARENA_FLAGS,
         "env": "pybullet_fan",
         "seed": 0,
         "fan_use_skill_factories": True,
-        # The assertions below are written against the curated seed-0
-        # task (ball/wall/target aligned in the center column).
+        # The assertions below are written against the historical arena's
+        # curated seed-0 task (ball/wall/target aligned in the center
+        # column).
         "fan_3x3_strategic_task_gen": True,
     })
     rules, specs, _ = get_gt_simulator("pybullet_fan")

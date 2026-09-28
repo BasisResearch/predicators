@@ -6,8 +6,9 @@ scene's metadata records:
 - Fan and Balloons states move into the current scene layouts; motion
   relative to the platforms or chute is unchanged.
 - Balloons draws its burst height as a red cap over the chute. The
-  environment pictures that height as a translucent plate over the whole
-  table, but balloons only rise with the box, inside the chute.
+  environment now draws the same cap in place of its old translucent
+  plate over the whole table; the export still writes the cap's values
+  and its note, so the committed scenes are unchanged.
 - Boil liquid is drawn no higher than the jug rim. The environment lets
   water rise above the rim before it overflows, which reads as an
   upturned jug. Its spill puddle, which restoring a state omits, is
@@ -27,7 +28,7 @@ import re
 import shlex
 import sys
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Tuple
 from unittest.mock import patch
 
 import pybullet as p
@@ -156,19 +157,32 @@ def _migrate_balloons_layout(env: Any, state: State) -> State:
 
 
 def _cap_chute(env: Any, scene: Dict[str, Any]) -> None:
-    """Redraw an exported Balloons ceiling as a red cap over the chute.
+    """Write the Balloons ceiling cap into an exported scene.
 
-    The cap keeps the plate's height and thickness, so its underside is
-    still the burst height, and spans the chute walls.
+    The environment draws this cap across the chute walls, with its
+    underside at the burst height. Writing its exact values keeps the
+    committed scenes, exported when the environment still drew a plate,
+    unchanged.
     """
     assert CFG.balloons_scene == "chute"
     ceiling, = (shape for shape in scene["shapes"]
                 if shape["body"] == env._ceiling_id)  # pylint: disable=protected-access
-    half = (env.chute_half_gap + 2 * env.chute_wall_half_thickness,
-            env.chute_wall_half_depth, env.ceiling_half_extents[2])
+    half, position, _ = env.ceiling_geometry()
     ceiling.update(dimensions=[2 * h for h in half],
-                   position=[*env.box_xy, env.ceiling_z],
+                   position=list(position),
                    rgba=list(CHUTE_CAP_RGBA))
+
+
+def _current_flags(argv: List[str]) -> List[str]:
+    """Drop the ``--name value`` overrides that the current code no longer
+    defines; nothing reads them."""
+    _, overrides = utils.create_arg_parser().parse_known_args(argv[1:])
+    kept = list(argv)
+    for flag, _ in zip(overrides[:-1:2], overrides[1::2]):
+        if flag[2:] not in CFG.__dict__:
+            at = kept.index(flag)
+            del kept[at:at + 2]
+    return kept
 
 
 def _load_run_config(run: Path) -> None:
@@ -179,7 +193,7 @@ def _load_run_config(run: Path) -> None:
         if "Running command:" in line)
     argv = sys.argv
     try:
-        sys.argv = shlex.split(command)[1:]
+        sys.argv = _current_flags(shlex.split(command)[1:])
         utils.reset_config(utils.parse_args())
     finally:
         sys.argv = argv

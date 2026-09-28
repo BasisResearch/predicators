@@ -9,7 +9,8 @@ permuted (a cross through the arena in every rendering).
 import pybullet as p
 
 from predicators import utils
-from predicators.envs.pybullet_fan import PyBulletFanEnv
+from predicators.envs.pybullet_fan import HISTORICAL_ARENA_FLAGS, \
+    PyBulletFanEnv
 
 
 def test_boundary_state_survives_foreign_object_ids() -> None:
@@ -21,6 +22,7 @@ def test_boundary_state_survives_foreign_object_ids() -> None:
         "seed": 0,
         "num_train_tasks": 1,
         "num_test_tasks": 1,
+        **HISTORICAL_ARENA_FLAGS,
     })
     producer = PyBulletFanEnv(use_gui=False)
     consumer = PyBulletFanEnv(use_gui=False)

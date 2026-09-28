@@ -1152,29 +1152,34 @@ class GlobalSettings:
     fan_known_controls_relation = True
     fan_combine_switch_on_off = False
     fan_use_kinematic = False
-    # Separate pilot: a protected calibration tray and exposed L-shaped deck.
-    # Historical uniform/maze tasks and their physics remain unchanged.
-    fan_exposed_transfer = False
-    # Separate inertial pilot; requires exposed transfer. Preserve r1 physics.
-    fan_inertial_transfer = False
-    # Optional visible downhill ramp, with a protected training counterpart.
-    fan_ramp_transfer = False
+    # The defaults below are the paper's Fan domain (scripts/configs/empiric
+    # and the paper figures): a protected calibration tray for training, an
+    # exposed L-shaped deck with a downhill ramp for the test, no walls, and
+    # a 3 x 3 grid. HISTORICAL_ARENA_FLAGS in pybullet_fan.py turns the
+    # transfers off and restores the walls and the 6 x 6 test grid of the
+    # historical uniform/maze arena, whose tasks and physics are unchanged.
+    fan_exposed_transfer = True
+    # Inertial ball dynamics; requires exposed transfer.
+    fan_inertial_transfer = True
+    # A visible downhill ramp, with a protected training counterpart.
+    fan_ramp_transfer = True
     # Visible elevation drop shared by training and test ramps, in metres.
-    fan_ramp_rise = 0.004
+    fan_ramp_rise = 0.003
     # Extra exposed landing length, without moving the target or adding walls.
-    fan_ramp_landing_extension = 0.0
+    fan_ramp_landing_extension = 0.10
     fan_train_num_pos_x = 3
     fan_train_num_pos_y = 3
-    # The historical 6 x 6 uniform test split. The loc bounds in
+    # The historical arena's test split was 6 x 6. The loc bounds in
     # pybullet_fan.py admit at most 10 x 9 cells at the 8 cm pitch, which
     # fills the arena up to the fan rows; the historical maze split used
     # that full grid.
-    fan_test_num_pos_x = 6
-    fan_test_num_pos_y = 6
-    fan_train_num_walls_per_task = [1]
+    fan_test_num_pos_x = 3
+    fan_test_num_pos_y = 3
+    # The historical arena used [1] for training and [2, 3] for the test.
+    fan_train_num_walls_per_task = [0]
     # Under "maze" generation this is the number of wall cells; the walls
     # are laid as straight segments (see fan_maze_max_segment_len).
-    fan_test_num_walls_per_task = [2, 3]
+    fan_test_num_walls_per_task = [0]
     # How ball, target and walls are laid out, per split:
     #   "uniform": ball, target and walls at uniformly random cells, kept
     #       only if a cardinal path exists (the historical generator);
