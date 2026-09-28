@@ -92,7 +92,7 @@ The Bridge selection behind Figure 2's act panel and Figure 1's lift illustratio
 The selected Domino, Fan, Balloons and Boil runs are declared in `scripts/paper_figures/export_static_scenes.py`; `--domains` re-exports a subset.
 Domino, Fan and Balloons declare their environment settings there, and Boil restores its run's settings from the launch command in `info.log`.
 Boil shows the two-jug test episode of the run behind its trajectory stripe, so its final frame matches the stripe's last frame.
-Balloons draws its ceiling, the height at which balloons burst, as a red cap over the chute instead of the environment's translucent plate over the table, and draws the strings of tied balloons, which the environment otherwise draws only when it renders an image.
+Balloons writes its ceiling, the height at which balloons burst, as the red cap over the chute that the environment draws, and draws the strings of tied balloons, which the environment otherwise draws only when it renders an image.
 Boil draws water no higher than the jug rim and redraws the spill puddle that restoring a state omits.
 Figure 1 also draws the test task's cyan jug in the red that the same jug has in training, since the ambient response washes cyan out; the Boil stripe keeps the recorded cyan.
 Figure 1 also colors Boil water by the heat that its recorded bubbling level fixes, as the environment does, since restoring a state resets the hidden heat and would draw boiled water blue.
@@ -220,6 +220,20 @@ Fan and Balloons states move into the current scene layouts that Figure 1 uses, 
 Balloons shares Figure 1's red chute cap and balloon strings.
 Boil liquid is drawn no higher than the jug rim, because the environment lets water rise above the rim before it overflows, which reads as an upturned jug.
 The Bridge model frame draws the glue the model remembers as the environment's glue patches.
+
+## Run videos in the current layouts
+
+The harness's `run.mp4` replays a run's actions in the environment of the run's own code.
+The Balloons and Fan scenes changed after their paper runs were recorded, so replaying those actions in the current environment would not reproduce the runs.
+`render_run_videos.py` instead restores every recorded state, moves it into the current layout as the figures do, and renders it with the environment's PyBullet camera beside the harness video's panel.
+It renders the runs behind the Balloons and Fan stripes, at the stride and frame rate of each run's own video:
+
+```bash
+PYTHONPATH=.:scripts/paper_figures python scripts/paper_figures/render_run_videos.py \
+    --domains Balloons Fan --out-dir logs/paper_run_videos
+```
+
+A frame takes about a second, so render on a compute node; the project page uses these videos.
 
 ## Real-world trajectory
 

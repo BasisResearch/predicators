@@ -57,6 +57,8 @@ def _env(request):
         "num_test_tasks": 1,
         "fan_exposed_transfer": True,
         "fan_inertial_transfer": request.param,
+        # The exposed deck without the ramp that the defaults add.
+        "fan_ramp_transfer": False,
         "fan_train_num_walls_per_task": [0],
         "fan_test_num_walls_per_task": [0],
     })
@@ -326,6 +328,10 @@ def test_ramp_fan_banks_have_separate_evenly_spaced_supports():
         "fan_exposed_transfer": True,
         "fan_inertial_transfer": True,
         "fan_ramp_transfer": True,
+        # The ramp this layout was centred for, without the benchmark's
+        # 3 mm rise and longer landing.
+        "fan_ramp_rise": 0.004,
+        "fan_ramp_landing_extension": 0.0,
         "fan_train_num_walls_per_task": [0],
         "fan_test_num_walls_per_task": [0],
     })

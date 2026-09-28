@@ -25,6 +25,21 @@ from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
     Predicate, State, StepOption, TaskEvaluator, Type
 
+# The flags that turn the default Fan domain, the paper's exposed deck and
+# ramp, back into the historical uniform/maze arena. Its tasks and physics
+# are unchanged; these were the defaults before September 28, 2026.
+HISTORICAL_ARENA_FLAGS: Dict[str, Any] = {
+    "fan_exposed_transfer": False,
+    "fan_inertial_transfer": False,
+    "fan_ramp_transfer": False,
+    "fan_ramp_rise": 0.004,
+    "fan_ramp_landing_extension": 0.0,
+    "fan_test_num_pos_x": 6,
+    "fan_test_num_pos_y": 6,
+    "fan_train_num_walls_per_task": [1],
+    "fan_test_num_walls_per_task": [2, 3],
+}
+
 
 class FanTransferEvaluator(TaskEvaluator):
     """Require settled arrival; a ball falling off the deck ends the level."""

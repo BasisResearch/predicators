@@ -31,8 +31,9 @@ Physical layout (a tabletop, the robot at the near side):
   says what opening one does.
 - The ``band``: a translucent slab crossing the box's chute,
   spanning the heights the goal wants the box to float at.
-- The ``ceiling``: a plate drawn over the table, at ``ceiling_z``.
-  Nothing in this file says what reaching it does to a balloon.
+- The ``ceiling``: a red cap drawn over the box's chute at
+  ``ceiling_z`` (a plate over the table in the hatch scene). Nothing in
+  this file says what reaching it does to a balloon.
 """
 from typing import Any, ClassVar, Dict, FrozenSet, List, Optional, Set, Tuple
 
@@ -155,12 +156,17 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
     clip_slider_color: ClassVar[Tuple[float, float, float,
                                       float]] = (0.92, 0.92, 0.94, 1.0)
 
-    # The ceiling: a plate drawn over the table.
+    # The ceiling: a picture of the burst height. The chute scene draws it
+    # as an opaque red cap across the chute, the only column the balloons
+    # rise in; the hatch scene draws a translucent plate over the table.
+    # Both are ceiling_half_extents[2] thick, centred on ceiling_z.
     ceiling_z: ClassVar[float] = table_height + 0.78
     ceiling_half_extents: ClassVar[Tuple[float, float,
                                          float]] = (0.45, 0.35, 0.004)
     ceiling_color: ClassVar[Tuple[float, float, float,
                                   float]] = (0.85, 0.85, 0.90, 0.35)
+    ceiling_cap_color: ClassVar[Tuple[float, float, float,
+                                      float]] = (0.80, 0.16, 0.14, 1.0)
 
     # The chute: two fixed vertical walls flanking the box's column, a
     # slot the box must rise through to reach the band. They collide ONLY
@@ -301,6 +307,22 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
         z = (cls.chute_z_lo + cls.chute_z_hi) / 2.0
         return [(half, (cls.box_xy[0] + sign * (cls.chute_half_gap + half[0]),
                         cls.box_xy[1], z)) for sign in (-1.0, 1.0)]
+
+    @classmethod
+    def ceiling_geometry(
+            cls) -> Tuple[Pose3D, Pose3D, Tuple[float, float, float, float]]:
+        """Half extents, centre and colour of the ceiling picture.
+
+        In the chute scene it is a cap spanning the chute walls; in the
+        hatch scene, a plate over the table.
+        """
+        if CFG.balloons_scene == "hatch":
+            return (cls.ceiling_half_extents, (cls.x_mid, 1.35, cls.ceiling_z),
+                    cls.ceiling_color)
+        half = (cls.chute_half_gap + 2 * cls.chute_wall_half_thickness,
+                cls.chute_wall_half_depth, cls.ceiling_half_extents[2])
+        return (half, (cls.box_xy[0], cls.box_xy[1], cls.ceiling_z),
+                cls.ceiling_cap_color)
 
     @classmethod
     def box_top_point(cls, state: State,
@@ -487,16 +509,16 @@ class PyBulletBalloonsBaseEnv(PyBulletEnv):
         # The ceiling is a picture, not a body: the arm swings through
         # its height, and what a balloon does there is a rule of the
         # concrete env, read off the balloon's height.
-        ceiling_visual = p.createVisualShape(
-            p.GEOM_BOX,
-            halfExtents=cls.ceiling_half_extents,
-            rgbaColor=cls.ceiling_color,
-            physicsClientId=physics_client_id)
+        ceiling_half, ceiling_position, ceiling_color = cls.ceiling_geometry()
+        ceiling_visual = p.createVisualShape(p.GEOM_BOX,
+                                             halfExtents=ceiling_half,
+                                             rgbaColor=ceiling_color,
+                                             physicsClientId=physics_client_id)
         bodies["ceiling_id"] = p.createMultiBody(
             baseMass=0.0,
             baseCollisionShapeIndex=-1,
             baseVisualShapeIndex=ceiling_visual,
-            basePosition=(cls.x_mid, 1.35, cls.ceiling_z),
+            basePosition=ceiling_position,
             physicsClientId=physics_client_id)
         # The chute walls: real collision bodies, but filtered below to
         # collide only with the box. Centred on the box's column, one on
