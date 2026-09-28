@@ -119,10 +119,17 @@ def test_gather_timeout_returns_partial():
     reg = AsyncRolloutRegistry(max_workers=2)
     try:
         fast = reg.launch(lambda: "fast")
-        slow = reg.launch(lambda: time.sleep(10) or "slow")
-        done, pending = reg.gather([fast, slow], timeout=2)
-        assert fast in done
-        assert slow in pending
+        slow = reg.launch(lambda: time.sleep(60) or "slow")
+        # Wait for the fast child on its own first: forking a large test
+        # process can take seconds on a loaded node, and racing that
+        # against the short timeout below tested the node, not gather.
+        first, _ = reg.gather([fast], timeout=30)
+        assert first == [fast]
+        start = time.monotonic()
+        done, pending = reg.gather([fast, slow], timeout=0.5)
+        assert time.monotonic() - start < 10
+        assert done == [fast]
+        assert pending == [slow]
     finally:
         reg.shutdown()
 
