@@ -37,7 +37,6 @@ import asyncio
 import datetime
 import logging
 import os
-import time
 from typing import Any, Dict, List, Optional
 
 from predicators.agent_sdk.config import SessionConfig
@@ -55,11 +54,6 @@ logger = logging.getLogger(__name__)
 # the environment sets MCP_TOOL_TIMEOUT: six hours, room for a learning
 # session run inside one tool call.
 MCP_TOOL_TIMEOUT_MS = 6 * 3600 * 1000
-
-# Grace period past the solve-attempt deadline before interrupting a
-# still-streaming agent turn (cooperative tool refusals normally end
-# the turn well before this).
-_DEADLINE_INTERRUPT_SLACK_S = 180
 
 # Build local-sandbox-specific prompts from shared templates.
 # CLAUDE.md (sandbox mechanics only; see build_claude_md) is written
@@ -179,33 +173,9 @@ class LocalSandboxSessionManager(SandboxSessionManagerBase):
         if not self._started:
             await self.start_session()
 
-        # Wall-clock backstop for the solve attempt deadline: the probe
-        # and run_python enforce it cooperatively (tool calls refuse
-        # past the deadline), so normally the agent wraps up on its own;
-        # interrupt only if the turn stream is still going long after.
-        # The approach clears attempt_deadline before its final-submission
-        # nudge, so the submission query is never interrupted.
-        interrupt_sent = False
-
-        async def _maybe_interrupt_on_deadline(_entry: Dict[str, Any]) -> None:
-            nonlocal interrupt_sent
-            deadline = getattr(self._tool_context, "attempt_deadline", None)
-            if (interrupt_sent or deadline is None or time.monotonic() <=
-                    deadline + _DEADLINE_INTERRUPT_SLACK_S):
-                return
-            interrupt_sent = True
-            logger.warning(
-                "Solve-attempt wall clock exceeded by >%ds mid-query; "
-                "interrupting the agent turn.", _DEADLINE_INTERRUPT_SLACK_S)
-            try:
-                await self._client.interrupt()
-            except Exception as e:  # pylint: disable=broad-except
-                logger.warning("Interrupt failed: %s", e)
-
         async def _on_entry(entry: Dict[str, Any]) -> None:
             # The context counters behind the play tools' [context] line.
             self._tool_context.note_stream_entry(entry)
-            await _maybe_interrupt_on_deadline(entry)
 
         collected = await self._run_streamed_query(message,
                                                    log_path=log_path,

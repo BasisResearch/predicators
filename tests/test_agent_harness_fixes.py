@@ -13,9 +13,8 @@ from gym.spaces import Box
 
 from predicators import utils
 from predicators.agent_sdk.session_base import max_session_log_number
-from predicators.agent_sdk.tools.testing import _missing_goal_atoms
 from predicators.structs import Action, GroundAtom, Object, \
-    ParameterizedOption, Predicate, State, Task, Type
+    ParameterizedOption, Predicate, State, Type
 
 
 def test_max_session_log_number(tmp_path: Path) -> None:
@@ -98,14 +97,3 @@ def test_strip_latent_wait_targets_keeps_observable_atoms() -> None:
     assert wait.memory["wait_target_atoms"] == {GroundAtom(far, [block])}
     assert "wait_target_neg_atoms" not in wait.memory
     assert other.memory["wait_target_atoms"] == {GroundAtom(far, [block])}
-
-
-def test_missing_goal_atoms_uses_the_goal_classifiers() -> None:
-    """Atoms that hold are not reported missing even when the goal predicates
-    are absent from the agent's predicate set."""
-    near, far_block = Object("near", _block_type), Object("far", _block_type)
-    state = State({near: np.array([0.0]), far_block: np.array([1.0])})
-    far = _geometric_pred()
-    goal = {GroundAtom(far, [near]), GroundAtom(far, [far_block])}
-    task = Task(state, goal)
-    assert _missing_goal_atoms(task, state) == {GroundAtom(far, [near])}

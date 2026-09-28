@@ -39,12 +39,9 @@ FLAGS:
   partially_observable: true
   agent_sdk_max_agent_turns_per_iteration: 10000
   agent_sdk_image_max_px: 900
-  agent_solve_use_journal: true
   continual_max_idle_rounds: 5
-  agent_bilevel_use_llm_initial_params: true
   agent_validation_parallel_workers: 6
   code_sim_learning_rollout_min_posterior_width: 0.1
-  agent_plan_validation_rule_param_margin: true
   agent_explorer_info_seeking: true
   agent_explorer_info_seeking_adaptive: true
   code_sim_learning_interval_belief: true

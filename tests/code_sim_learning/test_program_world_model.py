@@ -91,8 +91,8 @@ def _ground_pick_place(options: Any, param: float) -> Any:
 
 
 def test_program_option_model_steps_and_carries_latent() -> None:
-    """Transitions write features, seed and advance the latent, honor the
-    override, and never mutate the input state."""
+    """Transitions write features, seed and advance the latent, and never
+    mutate the input state."""
     env, train_tasks, options, _ = _cover()
     model = ProgramOptionModel(_load(_HAND_PROGRAM, env, options), seed=0)
     init = train_tasks[0].init
@@ -110,12 +110,6 @@ def test_program_option_model_steps_and_carries_latent() -> None:
     nxt2, _ = model.get_next_state_and_num_actions(nxt, option)
     assert nxt2.latent is not None
     assert nxt2.latent["count"] == nxt.latent["count"] + 1
-    # The override pins every latent-less start.
-    model.initial_latent_override = {"count": 40}
-    nxt3, _ = model.get_next_state_and_num_actions(init, option)
-    assert nxt3.latent is not None
-    assert nxt3.latent["count"] == 41
-    model.initial_latent_override = None
     assert model.last_execution_failure is None
 
 

@@ -1,10 +1,10 @@
-"""Closed-loop execution of agent-written per-task policies.
+"""Closed-loop execution of agent-written policies in the belief model.
 
-``agent_solve_policy_mode`` replaces the captured fixed option plan with
-a program the solve agent writes to the sandbox (``policy.py``): a
-``get_option(state, memory)`` function that returns the NEXT plan line
-(same grammar as sketches) from the actual current state, or ``None``
-when finished. This module holds the two shared pieces:
+``BeliefProbe.run_policy`` rolls out a program the agent writes to the
+sandbox (``policy.py``): a ``get_option(state, memory)`` function that
+returns the NEXT plan line (same grammar as sketches) from the actual
+current state, or ``None`` when finished. This module holds the two
+shared pieces:
 
 * :func:`build_policy_option_fn` - execs the policy source once and
   wraps ``get_option`` into a ``(state, last_failure) -> Optional[

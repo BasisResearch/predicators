@@ -50,8 +50,6 @@ class AgentContinualNoUncertaintyApproach(AgentContinualApproach):
         disabled = (
             "continual_uncertainty_decisions",
             "agent_sim_learn_param_uncertainty",
-            "agent_plan_validation_rule_param_margin",
-            "agent_plan_validation_physics_margin",
             "agent_explorer_info_seeking",
             "agent_explorer_info_seeking_adaptive",
             "agent_explorer_info_seeking_noise_aware",

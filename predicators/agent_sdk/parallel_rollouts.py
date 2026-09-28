@@ -1,8 +1,7 @@
 """Fork-based parallel execution of independent validation rollouts.
 
-The capture gate's margin sweep, its repeat rollouts, and the belief
-probe's ``trials=N`` / ``physics_sweep`` modes all run the same shape of
-work: N independent rollouts, each on a freshly constructed env under
+The belief probe's ``trials=N`` and ``physics_sweep`` modes run the same
+shape of work: N independent rollouts, each on a freshly constructed env under
 its own seed / override scope, in one CPU-bound process. This module
 fans them out as forked children.
 

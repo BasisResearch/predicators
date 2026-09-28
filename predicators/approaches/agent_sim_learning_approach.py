@@ -25,8 +25,8 @@ import pybullet
 from gym.spaces import Box
 
 from predicators import utils
-from predicators.agent_sdk import learn_prompts
 from predicators.agent_sdk.fit_status import format_fit_status
+from predicators.agent_sdk.play_prompts import render_physical_params_section
 from predicators.agent_sdk.session_base import max_session_log_number
 from predicators.agent_sdk.tools import SYNTHESIS_TOOL_NAMES, \
     _SnapshotTarget, evaluate_states_with, finalize_versioned_snapshot, \
@@ -225,23 +225,12 @@ class AgentSimLearningApproach(AgentModelFreeApproach):
         # sample the distribution the real episode will.
         self._tool_context.validation_env_scope = \
             self._fresh_validation_env_scope
-        # Physics-margin points for the capture gate (+-1 posterior sigma
-        # of the latest applied fit): a callable so the tool always sees
-        # the current fit, not the one deployed when the session opened.
-        # Under agent_sim_learn_param_uncertainty False the points are
-        # never built (see _physics_margin_points), so this returns [].
+        # The sim.run physics sweep's stress points (see _stress_points):
+        # a callable so the probe always sees the current fit, not the
+        # one deployed when the session opened. Under
+        # agent_sim_learn_param_uncertainty False the legacy grid is never
+        # built (see _physics_margin_points).
         self._tool_context.physics_margin_provider = self._stress_points
-        # Rule-parameter margin points for the capture gate: the
-        # calibrated ensemble the info-seeking explorer scores with
-        # (posterior subsample / Laplace / jitter, see
-        # _select_param_ensemble) doubles as the uncertainty sweep over
-        # LEARNED rule constants - a submission must survive every
-        # member, not just the fitted point estimate. Callables so the
-        # gate always sees the latest fit's ensemble.
-        self._tool_context.rule_param_margin_provider = \
-            lambda: [dict(m) for m in self._param_ensemble]
-        self._tool_context.rule_param_override_scope = \
-            self._rule_param_override_scope
         # The joint belief's rehearsals split a draw's parameters into the
         # ones the env applies and the rule parameters read through the
         # draw scope.
@@ -342,7 +331,7 @@ class AgentSimLearningApproach(AgentModelFreeApproach):
         # delta against the previous version reads from here.
         self._fit_evidence_history: Dict[str, Dict[str, float]] = {}
         # +-1-posterior-sigma perturbations of the applied params (the
-        # capture gate's physics-margin points). Set only by the joint
+        # legacy physics sweep's grid). Set only by the joint
         # rollout fit, which has the identifiability report; cleared by
         # every _apply_identified_physical_params call so points can
         # never outlive the fit they were derived from.
@@ -416,26 +405,18 @@ class AgentSimLearningApproach(AgentModelFreeApproach):
         """Complete tool surface for the synthesis agent.
 
         The names of the dynamic synthesis callables (just
-        ``run_python``) attached to ``ctx.extra_mcp_tools`` inside
-        :meth:`_synthesize_with_agent`. The mixin asserts the attached
-        instances and this list agree. Fitting, residual reports, and
-        plan validation are NOT tools: they live on the ``sim`` probe
-        (``sim.fit`` / ``sim.residuals`` / ``sim.refine`` /
-        ``sim.run``) inside ``run_python``.
+        ``run_python``); a continual round keeps only the toolkit tools
+        named here. Fitting, residual reports, and plan validation are
+        NOT tools: they live on the ``sim`` probe (``sim.fit`` /
+        ``sim.residuals`` / ``sim.refine`` / ``sim.run``) inside
+        ``run_python``.
 
-        No inspect tools: the type/option digests are injected into the
-        learn message (see :meth:`_build_synthesis_learn_message`) and
-        trajectory access lives in ``run_python`` (``trajectories`` +
-        ``describe_trajectory``). The probe rides inside that same
-        ``run_python`` namespace as ``sim`` (one exec namespace per
-        session - a helper defined next to the data is visible to probe
-        sweeps; the solve-phase instance of the tool is not built when
-        this one is attached). In the
-        agent-synthesis session the probe runs against the CANDIDATE
-        simulator.py via ctx.probe_option_model_provider (installed in
-        _synthesize_with_agent); in the oracle-sim-program sampler
-        session no provider is installed and the probe falls back to
-        ctx.option_model, which there IS the deployed belief model.
+        No inspect tools: trajectory access lives in ``run_python``
+        (``trajectories`` + ``describe_trajectory``). The probe rides
+        inside that same ``run_python`` namespace as ``sim`` (one exec
+        namespace per session - a helper defined next to the data is
+        visible to probe sweeps) and runs against the CANDIDATE
+        simulator.py via ctx.probe_option_model_provider.
         """
         names: List[str] = list(SYNTHESIS_TOOL_NAMES)
         return names
@@ -1136,13 +1117,12 @@ class AgentSimLearningApproach(AgentModelFreeApproach):
     def _rebuild_param_ensemble(self) -> None:
         """Rebuild the learned model's rule-parameter ensemble.
 
-        Two consumers share it: info-seeking exploration (off under
-        ablation A6) and the capture gate's rule-param margin (off under
-        ablation A7). Built when either is on, a fit has populated
-        ``_fitted_params`` and parameter uncertainty is in use; cleared
-        otherwise. The ensemble can use an exploration-only posterior
-        even when solver params remain at the global-budget point
-        estimate.
+        Its consumer is info-seeking exploration
+        (:meth:`score_atom_disagreement`). Built when that is on, a fit
+        has populated ``_fitted_params`` and parameter uncertainty is in
+        use; cleared otherwise. The ensemble can use an exploration-only
+        posterior even when solver params remain at the global-budget
+        point estimate.
 
         Picks the most *calibrated* ensemble the fit affords, preferring
         spreads that reflect real posterior uncertainty over uniform
@@ -1162,9 +1142,7 @@ class AgentSimLearningApproach(AgentModelFreeApproach):
                 "Rule-parameter ensemble: %d draws of the joint belief.",
                 len(self._param_ensemble))
             return
-        wanted = (CFG.agent_explorer_info_seeking
-                  or CFG.agent_plan_validation_rule_param_margin)
-        if (not wanted or not self._fitted_params
+        if (not CFG.agent_explorer_info_seeking or not self._fitted_params
                 or not CFG.agent_sim_learn_param_uncertainty):
             self._param_ensemble = []
             return
@@ -1304,9 +1282,7 @@ class AgentSimLearningApproach(AgentModelFreeApproach):
         swap changes their gates for the wrapped validation rollout and
         the restore returns the deployed fit untouched - the same
         pattern :meth:`score_atom_disagreement` uses for ensemble
-        scoring. Installed on the tool context as
-        ``rule_param_override_scope`` for the capture gate's
-        rule-parameter margin sweep.
+        scoring.
         """
         saved = dict(self._fitted_params)
         self._fitted_params.clear()
@@ -1572,7 +1548,7 @@ class AgentSimLearningApproach(AgentModelFreeApproach):
         report: Dict[str, Dict[str, Any]],
         physical_specs: List[ParamSpec],
     ) -> List[Dict[str, float]]:
-        """The capture gate's physics-margin grid for ``applied``.
+        """The physics sweep's +-1-sigma grid for ``applied``.
 
         Empty under ``agent_sim_learn_param_uncertainty`` False (ablations
         A6+A7 combined: point estimates only, so there is no width to
@@ -2581,17 +2557,16 @@ class AgentSimLearningApproach(AgentModelFreeApproach):
                                           float]] = None) -> Iterator[None]:
         """Run the option model on a freshly constructed base env.
 
-        ``physical_overrides`` (the capture gate's physics-margin
-        rollouts) is applied to the fresh env ON TOP of the identified
-        params, so the rollout runs at a perturbed physics; the shared
-        session env is never touched.
+        ``physical_overrides`` (a physics-sweep point) is applied to the
+        fresh env ON TOP of the identified params, so the rollout runs at
+        a perturbed physics; the shared session env is never touched.
 
-        Installed as ``ToolContext.validation_env_scope`` so
-        ``submit_plan``'s capture-validation rollouts each sample
-        a fresh physics world. The shared ``_base_env``'s reset cannot
-        reconstruct state exactly (solver warm-start state, velocity
-        residuals, near-matching bodies skipped by the reconstruction diff
-        - the same mechanism measured in :func:`rollout_states`), so
+        Installed as ``ToolContext.validation_env_scope`` so the probe's
+        trials and sweep rollouts each sample a fresh physics world. The
+        shared ``_base_env``'s reset cannot reconstruct state exactly
+        (solver warm-start state, velocity residuals, near-matching bodies
+        skipped by the reconstruction diff - the same mechanism measured
+        in :func:`rollout_states`), so
         repeats on it are correlated with each other and systematically
         offset from the fresh env the real episode runs in
         (run_20260717_182321: a placement swept 20/20 on the shared env
@@ -2814,4 +2789,4 @@ class AgentSimLearningApproach(AgentModelFreeApproach):
         getter = getattr(base_env, "get_physical_param_info", None)
         if callable(getter):
             info = getter() or {}
-        return learn_prompts.render_physical_params_section(info)
+        return render_physical_params_section(info)
