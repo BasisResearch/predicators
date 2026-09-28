@@ -19,8 +19,8 @@ from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES, \
     PRIMITIVE_TOOL_NAMES, PlayState, build_continual_tools, context_status, \
     format_observation, parse_plan_lines, play_tool_names
 from predicators.approaches import create_approach
-from predicators.approaches.agent_model_free_approach import \
-    AgentModelFreeApproach
+from predicators.approaches.agent_continual_approach import \
+    AgentContinualModelFreeApproach
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
 from predicators.run.continual import ContinualRun, ProtocolSession, RunEnded
@@ -149,9 +149,9 @@ def test_controller_diagnostics_are_private(tmp_path: Any, monkeypatch: Any,
     "pybullet_balloons"
 ])
 def test_shared_controller_references_are_public_api(env_name: str) -> None:
-    """The MF parent supplies API documentation instead of engine source."""
+    """The MF arm supplies API documentation instead of engine source."""
     utils.reset_config({"env": env_name})
-    approach = object.__new__(AgentModelFreeApproach)
+    approach = object.__new__(AgentContinualModelFreeApproach)
     references = approach._get_sandbox_reference_files()  # pylint: disable=protected-access
     assert references == {
         "skills.md": "predicators/agent_sdk/prompts/public_skills.md"

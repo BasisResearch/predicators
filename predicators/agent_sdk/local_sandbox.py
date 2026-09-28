@@ -26,7 +26,7 @@ Behavioral notes relative to the shared base
 Usage
 -----
 When the ``agent_sdk_use_local_sandbox`` flag is ``True``, the
-``AgentSessionMixin`` creates a ``LocalSandboxSessionManager`` in place
+``AgentBaseApproach`` creates a ``LocalSandboxSessionManager`` in place
 of the normal ``AgentSessionManager``::
 
     manager = LocalSandboxSessionManager(...)

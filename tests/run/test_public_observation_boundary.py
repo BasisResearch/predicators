@@ -5,8 +5,8 @@ from typing import Any
 import numpy as np
 
 from predicators import utils
-from predicators.approaches.agent_model_free_approach import \
-    AgentModelFreeApproach
+from predicators.approaches.agent_continual_approach import \
+    AgentContinualModelFreeApproach
 from predicators.envs import create_new_env
 from predicators.envs.pybullet_balloons import BalloonsEvaluator
 from predicators.run.episode import EpisodeRunner, EpisodeState
@@ -29,9 +29,9 @@ def test_recording_objects_have_only_public_schema() -> None:
 
 
 def test_skill_reference_is_public_documentation() -> None:
-    """The same baseline parent supplies API docs instead of implementation."""
+    """The model-free arm supplies API docs instead of implementation."""
     utils.reset_config({"env": "pybullet_bridge"})
-    approach = object.__new__(AgentModelFreeApproach)
+    approach = object.__new__(AgentContinualModelFreeApproach)
     references = approach._get_sandbox_reference_files()
     assert references
     assert all(path.endswith('.md') for path in references.values())

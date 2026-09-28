@@ -18,11 +18,10 @@ logger = logging.getLogger(__name__)
 class SessionManagerProtocol(Protocol):
     """Structural interface shared by the three session managers.
 
-    Implemented by :class:`AgentSessionManager` (in-process, no
-    sandbox), ``LocalSandboxSessionManager`` (in-process, sandbox cwd +
-    hooks), and ``DockerSessionManager`` (stateless container per
-    query). Consumers - ``AgentSessionMixin`` and the agent explorers -
-    must depend on this, not a concrete manager.
+    Implemented by :class:`AgentSessionManager` (in-process, no sandbox)
+    and ``LocalSandboxSessionManager`` (in-process, sandbox cwd +
+    hooks). Consumers such as ``AgentBaseApproach`` must depend on this,
+    not a concrete manager.
     """
 
     session_id: Optional[str]
