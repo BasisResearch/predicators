@@ -1,21 +1,19 @@
 """Exploration probe API exposed to agents via ``run_python``.
 
-``BeliefProbe`` is a thin facade over the machinery the curated tools
-already use - ``parse_sketch_from_text`` (plan grammar),
-``execute_plan_forward`` (forward executor over the option model), the
-tools' state-modification and rendering helpers - so probe rollouts
-behave identically to ``submit_plan`` rollouts. What it adds is
-composability: the agent can set the sim to any task state (or a
-modified copy), read full-precision features, run partial plans, render,
-snapshot/restore, and write sweep loops in one ``run_python`` call
-instead of one tool round-trip per experiment.
+``BeliefProbe`` is a thin facade over shared machinery -
+``parse_sketch_from_text`` (plan grammar), ``execute_plan_forward``
+(forward executor over the option model), the tools' state-modification
+and rendering helpers. What it adds is composability: the agent can set
+the sim to any task state (or a modified copy), read full-precision
+features, run partial plans, render, snapshot/restore, and write sweep
+loops in one ``run_python`` call instead of one tool round-trip per
+experiment.
 
-By construction nothing the probe executes can be captured as the
-answer - submission happens only through ``submit_plan`` on the
-true initial state. The task evaluator is reachable, but only as a
-read-only preview: ``run(trials>=2, solved=True)`` and
-``refine(require_solved=True)`` score rollouts through the same gate the
-capture path uses (see ``_require_solved_evaluator``).
+Nothing the probe executes acts in the environment: plans reach the
+robot only through the play tools (``skills_execute_plan``). The task
+evaluator is reachable, but only as a read-only preview:
+``run(trials>=2, solved=True)`` and ``refine(require_solved=True)``
+score rollouts with it (see ``_require_solved_evaluator``).
 
 In synthesis sessions the same facade probes the CANDIDATE simulator
 (the ``simulator.py`` under edit, freshly fitted - see
@@ -224,16 +222,15 @@ class _StrLikeResult:
 class ProbeResult(_StrLikeResult):
     """Outcome of one ``BeliefProbe.run`` call.
 
-    Attributes mirror the ``submit_plan`` report: ``steps`` is
-    a list of per-step dicts (``option``, ``num_actions``, ``failure``,
-    ``added``, ``deleted``, ``subgoals_missing`` - the step's ``->
-    {atoms}`` annotations that did NOT hold in the post-state (the
-    forward-pass divergence signal), ``image`` - the saved post-step
-    scene image path, if rendering is available; with ``contacts=True``
-    also ``contacts`` - the step's contact-pair span lines), plus
-    ``goal_reached`` and ``final_atoms``. ``notes`` carries caveats
-    (ignored region annotations, horizon overruns). ``print(result)``
-    renders the same step-by-step summary the tool prints.
+    ``steps`` is a list of per-step dicts (``option``, ``num_actions``,
+    ``failure``, ``added``, ``deleted``, ``subgoals_missing`` - the
+    step's ``-> {atoms}`` annotations that did NOT hold in the
+    post-state (the forward-pass divergence signal), ``image`` - the
+    saved post-step scene image path, if rendering is available; with
+    ``contacts=True`` also ``contacts`` - the step's contact-pair span
+    lines), plus ``goal_reached`` and ``final_atoms``. ``notes`` carries
+    caveats (ignored region annotations, horizon overruns).
+    ``print(result)`` renders the step-by-step summary.
     """
     steps: List[Dict[str, Any]]
     goal_reached: bool
@@ -656,9 +653,9 @@ class ProbeSweepResult(_StrLikeResult):
                 "  the plan fails INSIDE the identified-parameter "
                 "uncertainty range. The real environment may sit at any "
                 "of these points (success can be non-monotonic: passing "
-                "neighbors do NOT cover the points between them), and the "
-                "capture gate re-runs this same sweep - add design margin "
-                "until every point passes before submitting.")
+                "neighbors do NOT cover the points between them) - add "
+                "design margin until every point passes before executing "
+                "the plan.")
         lines.extend(f"NOTE: {n_}" for n_ in self.notes)
         return "\n".join(lines)
 
@@ -764,7 +761,7 @@ class ProbeRefineResult(_StrLikeResult):
     as more than it means. ``plan_lines`` holds one line per sketch
     step with the refined params filled in (``[?]`` for steps the
     search never refined) - paste them into ``sim.run`` or
-    ``submit_plan``. ``near_miss`` is the deepest validation
+    ``skills_execute_plan``. ``near_miss`` is the deepest validation
     failure (step index, the exact params that got furthest, and why
     they failed), also populated on timeout/exhaustion. ``note``
     carries caveats.
@@ -860,15 +857,14 @@ class BeliefProbe:
         sim.state("domino_1")  # full-precision features
         sim.render("after_push")
         sim.restore(sid)
-        # Search params for a suffix from here (nothing is captured):
+        # Search params for a suffix from here (simulation only):
         print(sim.refine(
             "Place(robot:robot)[0.46, 1.32, 0.55, -1.0] ~ [0.05, 0.05, "
             "0.0, 0.5] -> {SomeSubgoal(domino_1:domino)}"))
 
     The "current state" is just a ``State`` object; ``run`` executes from
-    it (the option model resets the sim env from that state, exactly as
-    ``submit_plan`` does from a task init) and advances it to
-    the rollout's final state.
+    it (the option model resets the sim env from that state) and advances
+    it to the rollout's final state.
     """
 
     # Distinct deterministic rng streams per instance (see refine).
@@ -1715,8 +1711,8 @@ class BeliefProbe:
         the probe task starts at the current state and carries no
         evaluator, and ``notices`` lists parse caveats to surface (e.g.
         region annotations ignored because ground samplers are off).
-        Same grammar and parser as ``submit_plan`` (``~ [w]`` search
-        regions included).
+        Same grammar and parser as ``skills_execute_plan``, plus ``~
+        [w]`` search regions.
         """
         # pylint: disable=import-outside-toplevel
         from predicators.agent_sdk import bilevel_sketch
@@ -1872,7 +1868,7 @@ class BeliefProbe:
         real steps are spent on it. Needs a declared observation-noise
         channel.
 
-        ``plan_text`` uses the same grammar as ``submit_plan``:
+        ``plan_text`` uses the same grammar as ``skills_execute_plan``:
         one option per line, ``Option(obj:type, ...)[params]`` with
         exact continuous params (``[]`` for none); ``-> {atoms}``
         subgoal annotations are optional but CHECKED - each step's
@@ -1883,10 +1879,10 @@ class BeliefProbe:
         diverges here means a rule is more permissive than the env).
         Advances the current state
         to the rollout's final state (``restore`` a snapshot to rewind).
-        Like ``submit_plan``, each step's post-state is
-        rendered to a saved image whose path lands in the step report;
-        pass ``render=False`` inside tight sweep loops to skip that.
-        Exploratory only: results are never captured.
+        Each step's post-state is rendered to a saved image whose path
+        lands in the step report; pass ``render=False`` inside tight
+        sweep loops to skip that. Exploratory only: nothing runs in the
+        environment.
 
         Without the joint belief, ``trials=N`` (N > 1) runs the SAME
         plan N times and returns a ``ProbeTrialsResult`` with the
@@ -1905,8 +1901,7 @@ class BeliefProbe:
         EVALUATOR, reporting per-trial ``solved``/``reward``. Reaching
         the goal atoms is NOT the same as being scored a solve - the
         evaluator can reject a goal-reaching route - so check ``solved``
-        counts here BEFORE submitting via ``submit_plan`` instead of
-        discovering rejections one submission at a time.
+        counts here BEFORE executing the plan in the environment.
 
         ``contacts=True`` (single-run mode only, ``trials=1``) records
         every physical contact during the rollout and reports, per step,
@@ -1922,7 +1917,7 @@ class BeliefProbe:
         parameter at the ends of its 95% interval with the others at
         their most likely values; without it, a grid spanning the
         +-1-sigma uncertainty range of the identified physical
-        parameters (the SAME points the capture gate checks) - each on
+        parameters - each on
         a fresh env at the base motion-planner seed, plus once at the
         fitted values, and returns a ``ProbeSweepResult`` with
         per-point outcomes. The
@@ -1933,31 +1928,23 @@ class BeliefProbe:
         it), so ``trials=`` at the fitted values CANNOT see this. A
         design near a feasibility boundary (e.g. the minimal block
         count) is exactly where such holes live: sweep it and add
-        margin until EVERY point passes before submitting, instead of
-        discovering PARAM-SENSITIVE rejections one capture at a time.
+        margin until EVERY point passes before executing it for real.
         Rollouts are deterministic per point, so each point costs one
         rollout and its outcome is a measurement, not a sample. The
         current state is NOT advanced and nothing is rendered.
 
         ``seed=S`` overrides the base motion-planner seed for this call.
         Trials report the planner seed each ran at (trial ``i`` runs at
-        ``S + i``; without ``seed=`` at ``base + i``), and
-        ``submit_plan``'s validation rollouts report theirs the
-        same way. A single run (``trials=1``) executes entirely at
-        ``S``; a physics sweep runs every point at ``S`` instead of the
-        base. Without ``seed=``, and from the task's unmodified initial
-        state (plain ``reset()``, no rollout since), ``trials=N`` runs
-        the IDENTICAL rollout set as ``submit_plan``'s N-rollout capture
-        gate (fresh env per rollout, planner seeds ``base..base+N-1``),
-        so a trials score here is exactly the gate's verdict on this
-        plan.
+        ``S + i``; without ``seed=`` at ``base + i``). A single run
+        (``trials=1``) executes entirely at ``S``; a physics sweep runs
+        every point at ``S`` instead of the base.
 
         SUBSTRATE: a default single run executes on the WARM shared
         session env from the probe's current state - a feature for
         mid-exploration probing (after ``reset(mods=...)`` or a partial
-        rollout), but a different physics substrate from trials,
-        validation rollouts, and the real episode, which all run on a
-        freshly constructed env. A warm pass at a seed where a fresh
+        rollout), but a different physics substrate from trials, physics
+        sweeps and the real episode, which all run on a freshly
+        constructed env. A warm pass at a seed where a fresh
         trial failed is evidence of shared-env optimism, not seed luck.
         ``fresh=True`` (single-run mode only) reproduces a failed
         trial's substrate exactly: ``run(plan, seed=<reported seed>,
@@ -2054,8 +2041,8 @@ class BeliefProbe:
         probe_task, sketch_steps, all_predicates, notices = \
             self._parse_sketch(plan_text)
         # Ground via the shared helper so an annotated Wait waits for
-        # its annotated atoms here exactly as in refine, submit_plan,
-        # and real execution (see submit_plan's grounding comment).
+        # its annotated atoms here exactly as in refine and real
+        # execution.
         grounded: List[Any] = []
         for st in sketch_steps:
             params = (st.initial_params if st.initial_params is not None else
@@ -2099,12 +2086,8 @@ class BeliefProbe:
                     "physics_sweep=True, but no identified physical "
                     "parameters with nonzero posterior width are deployed "
                     "this cycle, so there is no uncertainty range to "
-                    "sweep. (submit_plan's rule-parameter ensemble margin "
-                    "is a different, automatic gate over the learned rule "
-                    "constants - it still runs at submission and is not "
-                    "reachable through physics_sweep.) Use trials= to "
-                    "measure execution reliability at the current physics "
-                    "instead.")
+                    "sweep. Use trials= to measure execution reliability "
+                    "at the current physics instead.")
             point_dicts: List[Dict[str, Any]] = []
             all_points: List[Optional[Dict[str, float]]] = \
                 [None] + sweep_points
@@ -2116,8 +2099,7 @@ class BeliefProbe:
             def _one_point(
                     point: Optional[Dict[str, float]]) -> Dict[str, Any]:
                 # Base planner seed at every point (no
-                # decorrelated_rollout_seed), matching the capture
-                # gate's margin rollouts: with the seed held fixed, an
+                # decorrelated_rollout_seed): with the seed held fixed, an
                 # outcome flip between points is attributable to the
                 # physics perturbation alone.
                 with (sweep_scope() if point is None else sweep_scope(
@@ -2263,7 +2245,7 @@ class BeliefProbe:
                         stop_on_failure=True)
                     # Score INSIDE the scope: the evaluator's
                     # certificate probes at the (fresh) env the
-                    # rollout ran on, same as the capture path.
+                    # rollout ran on.
                     if collector is not None:
                         coarse = collector.coarse
                     if (collector is not None and not coarse
@@ -2423,8 +2405,8 @@ class BeliefProbe:
                         f"state exactly (features: {feats}) - a failure "
                         "here may partly reflect start-state "
                         "reconstruction error, not plan margin.")
-            # Same per-step audit image submit_plan saves; the
-            # env already sits at the post-step state here.
+            # Per-step audit image; the env already sits at the
+            # post-step state here.
             img = render_scene_image(
                 ctx,
                 f"probe_step_{i}_{outcome.option.name}") if render else None
@@ -2530,18 +2512,16 @@ class BeliefProbe:
 
         Policy-mode counterpart of ``run``: loads the sandbox's
         ``policy.py`` fresh (or executes ``source`` directly) and drives
-        its ``get_option(state, memory)`` through the belief model with
-        the same failure-surfacing semantics as ``submit_policy`` and
-        the real executor - option failures land in
-        ``memory['last_failure']`` and the policy is asked again;
-        get_option bugs end the episode.
+        its ``get_option(state, memory)`` through the belief model -
+        option failures land in ``memory['last_failure']`` and the
+        policy is asked again; get_option bugs end the episode.
 
         Starting from the CURRENT probe state is the point: perturb or
         advance the state first (``reset(mods=...)``, a partial ``run``)
         and check that the policy RECOVERS from off-nominal states, not
         just the initial one. ``trials=N`` repeats the rollout from the
         SAME current state on fresh envs (fresh policy memory per
-        trial). Never captures - deliver via ``submit_policy``. Also
+        trial). Nothing runs in the environment. Also
         available in learn sessions (probing a candidate simulator);
         there it runs against the candidate model.
         """
@@ -2846,17 +2826,18 @@ class BeliefProbe:
                 "alternatives cannot be ranked."
             ])
         if not ctx.info_seeking_active():
-            # Adaptive info-seeking: hold probing back until the capture
-            # gate has actually caught a fragile plan. Spending real steps
+            # Adaptive info-seeking: hold probing back until a physics
+            # sweep has actually found a fragile plan. Spending real steps
             # to reduce uncertainty before then is the step tax this mode
             # removes on easy levels.
             return ProbeSuggestResult([], [
-                "adaptive info-seeking: no plan has been refused as "
-                "parameter-sensitive yet, so probing is not worth real "
-                "steps. Submit your best plan; if the capture gate refuses "
-                "it because a parameter's uncertainty threatens the goal, "
-                "it will name that parameter and this call will then rank "
-                "the probes that reduce it."
+                "adaptive info-seeking: no physics sweep has found a "
+                "parameter-sensitive plan yet, so probing is not worth "
+                "real steps. Stress-test your best plan with "
+                "sim.run(plan, physics_sweep=True); if a parameter's "
+                "uncertainty threatens the goal, the sweep names that "
+                "parameter and this call will then rank the probes that "
+                "reduce it."
             ])
         probe_task, sketch_steps, all_predicates, notices = \
             self._parse_sketch(sketch_text)
@@ -2967,7 +2948,7 @@ class BeliefProbe:
                require_solved: bool = False) -> "ProbeRefineResult":
         """Backtracking parameter search for a sketch FROM THE CURRENT STATE.
 
-        Same grammar as ``submit_plan``, and composable:
+        Same grammar as ``skills_execute_plan``, and composable:
         refine a plan *suffix* from a snapshot where the
         prefix already executed, so the search budget goes to the step
         that matters instead of re-descending through the whole plan.
@@ -2983,7 +2964,7 @@ class BeliefProbe:
         current state. Returns best-found params (also on TIMEOUT - the
         refined prefix is reported as far as it got) plus per-step
         sample counts and the deepest near-miss. Exploratory only:
-        nothing is captured.
+        nothing runs in the environment.
 
         ``require_solved=True`` (implies ``require_goal``) additionally
         gates final-step acceptance on the TASK EVALUATOR's public

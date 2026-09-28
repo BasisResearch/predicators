@@ -744,8 +744,8 @@ def create_synthesis_tools(
                 "Applied to the planning base env: the most likely value of "
                 "every parameter the data moved (identified, weakly "
                 "identified or wide posterior). " + kept_note +
-                "submit_plan and sim.run(plan, physics_sweep=True) certify "
-                "a plan across each deployed parameter's belief interval; "
+                "sim.run(plan, physics_sweep=True) certifies a plan "
+                "across each deployed parameter's belief interval; "
                 "a plan that passes only part of an interval is reported "
                 "with the passing and failing ranges, which is the cue "
                 "that one real experiment narrowing that parameter is "
@@ -780,7 +780,8 @@ def create_synthesis_tools(
     surface = probe_surface or ProbeSurface()
     if surface.fit:
         protocol = (
-            " Nothing the probe runs is captured; the validation protocol "
+            " Nothing the probe runs acts in the environment; the "
+            "validation protocol "
             "before declaring the simulator done is: `sim.fit()` (canonical "
             "fit report), `sim.refine(plan, require_goal=True)` (params "
             "exist that reach each subgoal), then a continuous `sim.run` of "
@@ -788,7 +789,8 @@ def create_synthesis_tools(
             "means a rule is more permissive than the data).")
     elif surface.edit_model:
         protocol = (
-            " Nothing the probe runs is captured; the validation protocol "
+            " Nothing the probe runs acts in the environment; the "
+            "validation protocol "
             "before relying on the simulator is: `sim.validate()` (does the "
             "model explain the recordings at its declared values), "
             "`sim.refine(plan, require_goal=True)` (params exist that reach "
@@ -797,7 +799,8 @@ def create_synthesis_tools(
             "permissive than the data).")
     else:
         protocol = (
-            " Nothing the probe runs is captured; the rehearsal protocol "
+            " Nothing the probe runs acts in the environment; the "
+            "rehearsal protocol "
             "before acting is: `sim.refine(plan, require_goal=True)` "
             "(params exist that reach each subgoal), then a continuous "
             "`sim.run` of the refined plan.")

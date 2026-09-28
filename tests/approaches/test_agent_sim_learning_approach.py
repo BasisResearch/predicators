@@ -493,9 +493,8 @@ def test_fresh_validation_env_scope_disposes_crash_replacement(monkeypatch):
 
 
 def test_fresh_validation_env_scope_applies_physics_overrides(monkeypatch):
-    """``physical_overrides`` (the capture gate's physics-margin points) land
-    on the FRESH env on top of the identified params; the shared env is never
-    touched."""
+    """``physical_overrides`` (physics-sweep points) land on the FRESH env on
+    top of the identified params; the shared env is never touched."""
 
     class _MergingScopeEnv(_FakeScopeEnv):
         """Sticky per-param merge, matching the real override semantics."""

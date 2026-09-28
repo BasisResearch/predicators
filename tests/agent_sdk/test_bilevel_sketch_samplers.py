@@ -504,7 +504,7 @@ def test_execute_plan_forward_continues_past_zero_action_failure():
 
 
 def test_execute_plan_forward_stop_on_failure_aborts():
-    """With stop_on_failure (the submit_plan path), a 0-action step aborts
+    """With stop_on_failure (the probe's trials path), a 0-action step aborts
     execution like the real executor: later steps don't run and the goal is not
     reached."""
     plan = [

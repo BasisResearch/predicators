@@ -1,11 +1,10 @@
 """Tests for ``BeliefProbe.run(physics_sweep=True)``.
 
 The sweep re-runs a plan once per identified-physical-parameter grid
-point (the same points the capture gate's physics-margin check uses),
-each on a fresh env at the base planner seed, so the agent can find
-interior failure holes BEFORE submitting (run_20260724_140531: a capture
-passed both +-1-sigma endpoints and failed deterministically at the true
-value between them).
+point, each on a fresh env at the base planner seed, so the agent can
+find interior failure holes BEFORE executing the plan
+(run_20260724_140531: a plan passed both +-1-sigma endpoints and failed
+deterministically at the true value between them).
 """
 # pylint: disable=protected-access
 import contextlib

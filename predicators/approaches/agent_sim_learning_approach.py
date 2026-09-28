@@ -219,8 +219,8 @@ class AgentSimLearningApproach(AgentModelFreeApproach):
                          *args,
                          option_model=option_model,
                          **kwargs)
-        # Capture-validation rollouts each run on a freshly constructed env
-        # (see ToolContext.validation_env_scope): repeats on the shared
+        # Probe trials and sweep rollouts each run on a freshly constructed
+        # env (see ToolContext.validation_env_scope): repeats on the shared
         # ``_base_env`` are correlated across resets, so only fresh envs
         # sample the distribution the real episode will.
         self._tool_context.validation_env_scope = \
@@ -784,7 +784,7 @@ class AgentSimLearningApproach(AgentModelFreeApproach):
         # so that env is the one physics-needing task-evaluator
         # certificates (the domino counterfactual push probe) must run
         # against. Without this the probe is silently unavailable in the
-        # sandbox and captures are accepted on the pure rules only.
+        # sandbox and plans are scored on the pure rules only.
         model.sim_env = self._base_env
         # Belief-side verdicts predict the real evaluator, so the
         # certificate's verification replay must run the agent's FULL
@@ -2224,8 +2224,8 @@ class AgentSimLearningApproach(AgentModelFreeApproach):
 
             ``physics_sweep=True`` also scores the sequence at every
             point of the identified physical parameters' belief
-            interval (the same grid ``sim.run(physics_sweep=True)`` and
-            the capture gate use), each on a fresh env at that physics,
+            interval (the same grid ``sim.run(physics_sweep=True)``
+            uses), each on a fresh env at that physics,
             and adds ``sweep``: the per-point verdicts and the fraction
             scored solved. A verdict that replays physics can flip
             across the interval; a sequence is certified only when it

@@ -72,12 +72,11 @@ def test_published_fit_is_reused_for_the_fitted_file(tmp_path: Any) -> None:
         is None
 
 
-def test_reused_physics_fit_restores_the_margin_gate_state(
+def test_reused_physics_fit_restores_the_sweep_points(
         tmp_path: Any, monkeypatch: Any) -> None:
     """Deploying a published physics fit re-applies its physical values and
-    restores the cycle-applied snapshot and the physics-margin sigma points
-    (applying resets them), so the capture gate's margin sweep survives the
-    skip of the harness refit."""
+    restores the physics-margin sigma points (applying resets them), so the
+    physics sweep survives the skip of the harness refit."""
     utils.reset_config({
         "agent_explorer_info_seeking": False,
     })

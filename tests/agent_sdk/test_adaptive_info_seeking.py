@@ -1,9 +1,9 @@
-"""Adaptive info-seeking: the proactive apparatus stays dormant until the
-capture gate refuses a plan as parameter-sensitive.
+"""Adaptive info-seeking: the proactive apparatus stays dormant until a physics
+sweep finds a plan parameter-sensitive.
 
 Covers the run-context gate (``ToolContext.info_seeking_active``), which
 every consumer (``sim.suggest_probes``, the explorer guidance) reads,
-and the model-only play-prompt guidance that teaches the submit-first
+and the model-only play-prompt guidance that teaches the test-first
 protocol only when the flag is on.
 """
 # pylint: disable=protected-access
@@ -65,10 +65,10 @@ def test_gate_tracks_refusal_signal_when_adaptive():
 
 
 def test_prompt_guidance_only_under_adaptive_model_arm():
-    """The submit-first guidance appears only for the model arm with the
-    adaptive flag on; the always-on and model-free arms never see it."""
-    model_tools = ["env_observe", "run_python", "submit_plan"]
-    free_tools = ["env_observe", "submit_plan"]
+    """The test-first guidance appears only for the model arm with the adaptive
+    flag on; the always-on and model-free arms never see it."""
+    model_tools = ["env_observe", "run_python", "skills_execute_plan"]
+    free_tools = ["env_observe", "skills_execute_plan"]
 
     utils.reset_config({
         "agent_explorer_info_seeking": True,
