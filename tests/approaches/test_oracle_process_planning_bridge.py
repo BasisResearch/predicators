@@ -1,10 +1,10 @@
 """End-to-end test: oracle_process_planning solves a bridge task.
 
-Mirrors the config from ``predicatorv3/oracle.yaml`` +
-``predicatorv3/envs/all.yaml`` (bridge entry) + ``predicatorv3/common.yaml``
-so that a regression in the approach (process planning + bilevel
-refinement), the bridge env's glue/weld machinery, or the skill
-factories would surface here.
+Mirrors the retired phased config (``predicatorv3/oracle.yaml`` +
+``envs/all.yaml`` (bridge entry) + ``common.yaml`` at tag
+iclr-empiric-submission) so that a regression in the approach (process
+planning + bilevel refinement), the bridge env's glue/weld machinery, or
+the skill factories would surface here.
 
 Runs the smallest viable config (1 train task, 1 test task; 5 blocks,
 2 glue joints) and asserts:
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 def _oracle_bridge_config(n_spans: int = 3, pool: int = 0) -> dict:
-    """Flags from predicatorv3/{common,envs/all,oracle}.yaml flattened."""
+    """Flags from the retired predicatorv3/{common,envs/all,oracle}.yaml."""
     return {
         # --- env: bridge from envs/all.yaml ---
         "env":

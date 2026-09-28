@@ -29,7 +29,7 @@ This is a reduction in supplied domain implementation, not reconstruction from r
 
 ## Pilot
 
-The configuration is [continual_from_assets_pilot_r1.yaml](../../scripts/configs/predicatorv3/continual_from_assets_pilot_r1.yaml).
+The configuration is [continual_from_assets_pilot_r1.yaml](https://github.com/BasisResearch/predicators/blob/iclr-empiric-submission/scripts/configs/predicatorv3/continual_from_assets_pilot_r1.yaml).
 It runs Opus 5 on seeds 0 and 1 of Fan + ramp, four-span Bridge, Domino, Balloons and Boil.
 There are ten intended runs total, each with its training and test levels.
 Fan uses the previously reviewed 3 mm ramp with the 10 cm landing extension and the repaired shared skills, not Fan maze.
@@ -49,7 +49,7 @@ Bridge seeds 0-1 are array `23407427`; Fan maze seeds 0-1 are array `23407428`.
 The user immediately corrected Fan maze to Fan + ramp; both tasks of array `23407428` were cancelled with their logs preserved.
 The abandoned maze runs are not part of the intended pilot and must not be resumed or counted as task failures.
 Bridge array `23407427` remains unchanged.
-The [expansion-only configuration](../../scripts/configs/predicatorv3/continual_from_assets_expansion_r1.yaml) submits only the eight new tasks, with Bridge and Fan maze disabled to prevent duplicates.
+The [expansion-only configuration](https://github.com/BasisResearch/predicators/blob/iclr-empiric-submission/scripts/configs/predicatorv3/continual_from_assets_expansion_r1.yaml) submits only the eight new tasks, with Bridge and Fan maze disabled to prevent duplicates.
 Its runtime menus are pinned to the frozen implementation.
 The resolved Fan + ramp flags match the repaired EMPIRIC ramp cohort, apart from making the default fitting flag explicit.
 The eight replacement/additional tasks were submitted on account d as the following two-seed arrays:

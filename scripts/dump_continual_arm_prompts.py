@@ -9,7 +9,7 @@ descriptions, the first-round query and the continuation query. Nothing
 is sent to a model.
 
     python -m scripts.dump_continual_arm_prompts \
-        --config predicatorv3/continual_eight_agent_noisy_sweep.yaml \
+        --config empiric/benchmark.yaml \
         --domain balloons --out docs/prompt-review/2026-09-18-balloons
 """
 import argparse

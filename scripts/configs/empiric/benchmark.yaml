@@ -1,0 +1,29 @@
+# The EMPIRIC benchmark: the seven arms (approaches.yaml) on the five
+# settings (envs.yaml), five seeds each, with the principled joint belief
+# (common.yaml).
+#
+# Every launch names a round, which suffixes the experiment ids
+# (<env>-<arm>_<round>, the run folders under continual_runs_dir), so a
+# new round never auto-resumes an old one:
+#
+#   python scripts/engaging/launch.py -c empiric/benchmark.yaml \
+#       --round r2 --partition mit_preemptable --accounts b,c,d
+#
+# --envs, --approaches and --seeds launch a subset:
+#
+#   python scripts/engaging/launch.py -c empiric/benchmark.yaml \
+#       --round fan_fix_r1 --envs fan --approaches mb_opus --seeds 2-4
+#
+# A launch worth keeping on record gets its own file next to this one,
+# which includes this file and sets ROUND (and SKIP entries or seeds):
+#
+#   includes: [benchmark.yaml]
+#   ROUND: fan_fix_r1
+#   START_SEED: 2
+#   NUM_SEEDS: 3
+includes:
+  - common.yaml
+  - envs.yaml
+  - approaches.yaml
+START_SEED: 0
+NUM_SEEDS: 5

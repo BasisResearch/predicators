@@ -18,57 +18,17 @@ from scripts.cluster_utils import SingleSeedRunConfig, config_to_cmd_flags, \
 from tests.code_sim_learning.test_continual_oracle import _load
 
 
-def test_oracle_repair_pilot_is_six_new_preflight_off_runs() -> None:
-    """The pilot cannot launch other domains or resume historical seeds."""
-    runs = list(
-        generate_run_configs(
-            "predicatorv3/continual_oracle_validation_r2.yaml", False))
-    assert len(runs) == 6
-    assert {r.env for r in runs} == {"pybullet_bridge", "pybullet_domino"}
-    seeds = set()
-    for run in runs:
-        assert isinstance(run, SingleSeedRunConfig)
-        seeds.add(run.seed)
-        assert run.approach == "agent_continual_oracle_dynamics"
-        assert run.flags["continual_skill_preflight"] is False
-        assert "benchmark_r2" in run.experiment_id
-    assert seeds == {0, 1, 2}
-
-
-def test_empiric_r2_is_ten_new_shadow_runs() -> None:
-    """The prospective round has two fresh seeds, no mandatory gate."""
-    runs = list(
-        generate_run_configs(
-            "predicatorv3/continual_empiric_benchmark_r2.yaml", False))
-    assert len(runs) == 10
-    assert len({r.env for r in runs}) == 5
-    for run in runs:
-        assert isinstance(run, SingleSeedRunConfig)
-        assert run.seed in (3, 4)
-        assert run.approach == "agent_continual"
-        assert run.flags["continual_skill_preflight"] is False
-        assert run.flags["continual_validation_audit"] is True
-        assert run.flags["continual_validation_audit_seconds"] == 600.
-        assert run.experiment_id.endswith("-mb_opus_benchmark_r2")
-
-
 def test_transfer_comparisons_preserve_arm_contracts(monkeypatch: Any) -> None:
-    """The current eight-arm benchmark uses the four-span task consistently.
-
-    The old pilot launchers were removed when these settings became the
-    benchmark defaults; test the maintained menu-based launcher instead.
-    """
-    transfer = [
-        c for c in generate_run_configs(
-            "predicatorv3/continual_eight_agent_noisy_sweep.yaml", False)
-        if c.env == "pybullet_bridge"
-    ]
-    assert len(transfer) == 24
-    assert len({cfg.approach for cfg in transfer}) == 8
+    """Every arm of the benchmark plays the same four-span Bridge task, and the
+    launch command parses back to it."""
+    transfer = list(
+        generate_run_configs("empiric/benchmark.yaml", False, envs=["bridge"]))
+    assert len(transfer) == 7 * 5
+    assert len({cfg.approach for cfg in transfer}) == 6
     for cfg in transfer:
         assert isinstance(cfg, SingleSeedRunConfig)
         assert cfg.env == "pybullet_bridge"
-        assert cfg.seed in (0, 1, 2)
+        assert cfg.seed in range(5)
         assert cfg.flags["bridge_train_span_blocks"] == 3
         assert cfg.flags["bridge_test_span_blocks"] == 4
         assert cfg.flags["continual_steps_per_level"] == 10000

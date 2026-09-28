@@ -353,10 +353,12 @@ def test_scene_only_physical_calibration(domain: str) -> None:
         AgentContinualSceneOnlyApproach  # pylint: disable=import-outside-toplevel
     from scripts.cluster_utils import \
         generate_run_configs  # pylint: disable=import-outside-toplevel
+
+    # The benchmark's env and common flags; the scene-only class needs no
+    # arm flags of its own.
     config = next(c for c in generate_run_configs(
-        "predicatorv3/continual_eight_agent_noisy_sweep.yaml", False)
-                  if c.env == f"pybullet_{domain}"
-                  and c.approach == "agent_continual_scene_only")
+        "empiric/benchmark.yaml", False, approaches=["mb_opus"])
+                  if c.env == f"pybullet_{domain}")
     utils.reset_config({
         **{k: v
            for k, v in config.flags.items() if k != "log"}, "env": config.env,

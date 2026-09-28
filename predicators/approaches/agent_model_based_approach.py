@@ -766,8 +766,7 @@ class AgentModelBasedApproach(AgentModelFreeApproach):
         first passes the task through :meth:`_attach_initial_latent` so
         partially-observable approaches can seed ``task.init.latent``
         with the initial latent block. Used by mid-episode suffix
-        replans and by the offline replay scripts under
-        ``scripts/domino_debug/``.
+        replans.
 
         ``attempt`` perturbs the RNG so retries explore different
         samples - without it, refinement is deterministic in

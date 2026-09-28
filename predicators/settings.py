@@ -1097,9 +1097,10 @@ class GlobalSettings:
     # from [lo, hi] per attempt. None (default) = the legacy over_reach band
     # hardcoded in _make_turn_task (the low-friction arm); under_reach arms
     # MUST set these explicitly - the legacy under_reach band shipped
-    # agent-intractable pair-corner tasks. Probe candidate bands with
-    # scripts/domino_debug/probe_min_block_bands.py whenever the friction
-    # pair changes (the differentiating cells move with the frictions).
+    # agent-intractable pair-corner tasks. Probe candidate bands whenever
+    # the friction pair changes (the differentiating cells move with the
+    # frictions), with scripts/domino_debug/probe_min_block_bands.py from
+    # tag iclr-empiric-submission.
     domino_min_block_turn_entry_lo: Optional[float] = None
     domino_min_block_turn_entry_hi: Optional[float] = None
     domino_min_block_turn_exit_lo: Optional[float] = None
@@ -1166,8 +1167,8 @@ class GlobalSettings:
     fan_train_num_pos_y = 3
     # The historical 6 x 6 uniform test split. The loc bounds in
     # pybullet_fan.py admit at most 10 x 9 cells at the 8 cm pitch, which
-    # fills the arena up to the fan rows; the maze split in
-    # scripts/configs/predicatorv3/envs/all.yaml uses that full grid.
+    # fills the arena up to the fan rows; the historical maze split used
+    # that full grid.
     fan_test_num_pos_x = 6
     fan_test_num_pos_y = 6
     fan_train_num_walls_per_task = [1]
@@ -2353,9 +2354,8 @@ class GlobalSettings:
     # agent adds design margin in-session. Runs only when the approach
     # installs a fresh-env scope (perturbing the shared env would leak)
     # and a fit with nonzero posterior width has been applied. Default
-    # False so existing arms keep their behavior; the main arm
-    # (approaches/all.yaml sim_predicator)
-    # turns it on.
+    # False; no benchmark arm turns it on (the retired phased
+    # sim_predicator arm did).
     agent_plan_validation_physics_margin = False
     # Number of grid points the margin gate (and the sim.run physics
     # sweep) spreads evenly across the +-1-sigma range, endpoints

@@ -1,0 +1,136 @@
+# The five benchmark settings. Each key is the env half of the experiment
+# id (<env>-<arm>_<round>). Env FLAGS override the approach's and the
+# common ones, so per-domain noise levels and level budgets live here.
+ENVS:
+  # Balloons: composition test levels (every test level composes lifts
+  # the agent measured on training racks; the weakest-first release
+  # bursts) with the 25-step goal dwell.
+  balloons:
+    NAME: pybullet_balloons
+    FLAGS:
+      max_initial_demos: 0
+      horizon: 1500
+      sesame_check_expected_atoms: false
+      pybullet_birrt_path_subsample_ratio: 2
+      balloons_require_jam_decoy: false
+      balloons_goal_dwell_steps: 25
+      continual_obs_noise_position: 0.01
+      continual_obs_noise_orientation: 0.02
+      continual_obs_noise_scalar: 0.0
+      continual_steps_per_level: 5000
+      num_train_tasks: 2
+  # Bridge: a three-span training row and a four-span test row, with the
+  # Sept 16 four-span repairs (rigid grasp, lift-first transit, a
+  # certificate that waits for the robot to withdraw).
+  bridge:
+    NAME: pybullet_bridge
+    FLAGS:
+      max_initial_demos: 0
+      horizon: 3000
+      max_num_steps_interaction_request: 2000
+      skill_place_settle_preload_force: 3.0
+      process_planning_heuristic_weight: 10.0
+      process_planning_max_execution_replans: 3
+      wait_option_max_steps: 120
+      pybullet_birrt_contact_margin: -0.005
+      pybullet_pin_held_weld_assemblies: true
+      continual_obs_noise_position: 0.005
+      continual_obs_noise_orientation: 0.02
+      continual_obs_noise_scalar: 0.0
+      continual_steps_per_level: 10000
+      num_train_tasks: 1
+      bridge_train_span_blocks: 3
+      bridge_test_span_blocks: 4
+      pybullet_grasp_max_force: 10000.0
+      bridge_lift_before_transit: true
+      bridge_goal_robot_clearance: 0.01
+  # Boil: one jug in training, two jugs on the test level, with the 5 cm
+  # faucet tolerance.
+  boil:
+    NAME: pybullet_boil
+    FLAGS:
+      max_initial_demos: 0
+      excluded_objects_in_state_str: switch
+      max_num_steps_option_rollout: 100
+      horizon: 500
+      boil_goal: simple
+      boil_require_jug_full_to_heatup: true
+      script_option_file_name: boil.txt
+      boil_water_fill_speed: 0.0015
+      pybullet_birrt_path_subsample_ratio: 2
+      boil_num_jugs_train: [1]
+      boil_num_jugs_test: [2]
+      boil_num_burner_train: [1]
+      boil_num_burner_test: [1]
+      boil_faucet_align_threshold: 0.05
+      continual_obs_noise_position: 0.0125
+      continual_obs_noise_orientation: 0.05
+      continual_obs_noise_scalar: 0.07
+      continual_steps_per_level: 5000
+      num_train_tasks: 1
+  # Fan: uniform training positions, and a test level that turns on the
+  # exposed, inertial and ramp transfers (a 3 mm ramp with a longer
+  # landing).
+  fan:
+    NAME: pybullet_fan
+    FLAGS:
+      max_initial_demos: 0
+      excluded_objects_in_state_str: switch
+      terminate_on_goal_reached: true
+      process_planning_heuristic_weight: 10.0
+      horizon: 500
+      pybullet_birrt_path_subsample_ratio: 2
+      process_planning_max_execution_replans: 3
+      fan_train_num_pos_x: 3
+      fan_train_num_pos_y: 3
+      fan_exposed_transfer: true
+      fan_inertial_transfer: true
+      fan_ramp_transfer: true
+      fan_ramp_rise: 0.003
+      fan_ramp_landing_extension: 0.10
+      fan_train_num_walls_per_task: [0]
+      fan_test_num_walls_per_task: [0]
+      fan_test_num_pos_x: 3
+      fan_test_num_pos_y: 3
+      fan_train_task_generation: uniform
+      fan_test_task_generation: uniform
+      continual_obs_noise_position: 0.005
+      continual_obs_noise_orientation: 0.02
+      continual_obs_noise_scalar: 0.0
+      continual_steps_per_level: 5000
+      num_train_tasks: 1
+  # Domino: min-block friction tasks with a turn on the test level, true
+  # friction above the planner's belief.
+  domino_high_friction_turn:
+    NAME: pybullet_domino
+    FLAGS:
+      max_initial_demos: 0
+      excluded_objects_in_state_str: loc,rot,angle,direction
+      horizon: 500
+      domino_initialize_at_finished_state: false
+      domino_use_domino_blocks_as_target: true
+      domino_use_continuous_place: true
+      process_planning_heuristic_weight: 2.0
+      domino_has_glued_dominos: false
+      keep_failed_demos: true
+      predicate_invent_invent_derived_predicates: true
+      pybullet_birrt_extend_num_interp: 20
+      pybullet_birrt_path_subsample_ratio: 2
+      domino_min_block_tasks: true
+      domino_true_friction: 0.5
+      domino_planning_friction: 0.1
+      domino_min_block_span_lo: 0.29
+      domino_min_block_span_hi: 0.31
+      domino_min_block_turn_entry_lo: 0.21
+      domino_min_block_turn_entry_hi: 0.24
+      domino_min_block_turn_exit_lo: 0.17
+      domino_min_block_turn_exit_hi: 0.2
+      domino_min_block_num_blues: 4
+      domino_block_cost: 0.1
+      domino_test_turn_ratio: 1.0
+      online_learning_early_stopping_ignore_reward_bar: true
+      continual_obs_noise_position: 0.01
+      continual_obs_noise_orientation: 0.04
+      continual_obs_noise_scalar: 0.0
+      continual_steps_per_level: 5000
+      num_train_tasks: 1

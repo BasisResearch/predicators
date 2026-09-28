@@ -549,7 +549,8 @@ def test_golden_continual_system_ablation(arm):
     if arm == "no_uncertainty":
         flags["continual_obs_noise_declared"] = False
     # As the experiments run them: every arm but No uncertainty carries
-    # the joint belief (continual_common.yaml, approaches/continual.yaml).
+    # the joint belief (scripts/configs/empiric/common.yaml and
+    # approaches.yaml).
     flags["belief_joint_draws"] = 0 if arm == "no_uncertainty" else 16
     utils.reset_config(flags)
     tools = ["run_python"] + list(CONTINUAL_TOOL_NAMES)

@@ -1,23 +1,9 @@
-# Shared base of every continual-protocol launch (the agent plays levels
-# of one environment, train then test, through the sandboxed skills).
-# A launcher includes this file plus the menus envs/continual.yaml and
-# approaches/continual.yaml, un-parks one env and the arms it compares,
-# and gives each arm a round-specific experiment id with EXTENDS:
-#
-#   includes: [continual_common.yaml, envs/continual.yaml,
-#              approaches/continual.yaml]
-#   ENVS:
-#     balloons: {SKIP: False}
-#   APPROACHES:
-#     mb_opus_compose_r2: {EXTENDS: mb_opus}
-#     mf_opus_compose_r2: {EXTENDS: mf_opus}
-#
-# The experiment id is "<env key>-<approach key>" (the run directory under
-# continual_runs_dir). Env FLAGS override approach FLAGS, which override
-# these. Launch with
-#   python scripts/engaging/launch.py -c predicatorv3/<launcher>.yaml --partition mit_preemptable --accounts b,c
-START_SEED: 0
-NUM_SEEDS: 1
+# Arguments and flags every EMPIRIC run shares: the continual protocol
+# (the agent plays the levels of one environment, train then test,
+# through the sandboxed skills), observation noise, and the principled
+# joint belief that every arm but No uncertainty carries.
+# benchmark.yaml includes this file with envs.yaml and approaches.yaml.
+# Env FLAGS override approach FLAGS, which override these.
 ARGS:
 - debug
 - make_failure_videos

@@ -5,27 +5,33 @@ Each experiment (approach x env combo) is submitted as its own Slurm array
 job, with one array task per seed, so all experiments run concurrently on
 compute nodes rather than in the current terminal/login node.
 
-Usage example:
+Usage example (continual configs name a round, which suffixes the run
+folders so a new launch never resumes an earlier one):
 
-    python scripts/engaging/launch.py -c predicatorv3/exp_domino.yaml
+    python scripts/engaging/launch.py -c empiric/benchmark.yaml --round r2
 
 mit_normal is often saturated. To run on the much larger (but evictable)
 preemptable partition instead:
 
-    python scripts/engaging/launch.py -c predicatorv3/exp_domino.yaml \
+    python scripts/engaging/launch.py -c empiric/benchmark.yaml --round r2 \
         --partition mit_preemptable
+
+To launch a subset of the config's envs, approaches or seeds:
+
+    python scripts/engaging/launch.py -c empiric/benchmark.yaml \
+        --round fan_fix_r1 --envs fan --approaches mb_opus --seeds 2-4
 
 Agent runs draw on a Claude account's usage limit. To spread a launch's
 runs over several accounts (token files under ~/.claude-tokens, see
 claude_accounts.py):
 
-    python scripts/engaging/launch.py -c predicatorv3/exp_domino.yaml \
+    python scripts/engaging/launch.py -c empiric/benchmark.yaml --round r2 \
         --partition mit_preemptable --accounts a,b
 """
 import argparse
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional, Tuple
 
 # Add project root to sys.path so `scripts` is importable without PYTHONPATH=.
 # parents[0] = scripts/engaging, parents[1] = scripts, parents[2] = repo root
@@ -33,7 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 # pylint: disable=wrong-import-position
 from scripts.cluster_utils import BatchSeedRunConfig, config_to_cmd_flags, \
-    config_to_logfile, generate_run_configs
+    config_to_logfile, generate_run_configs, parse_seed_range
 from scripts.engaging.claude_accounts import resolve_accounts
 from scripts.engaging.submit_engaging_job import submit_engaging_job
 
@@ -70,21 +76,73 @@ def _main() -> None:
         "a token file ~/.claude-tokens/<name> or the reserved name 'login' "
         "(the CLI's stored login). Defaults to $PREDICATORS_CLAUDE_ACCOUNTS, "
         "else 'login'.")
+    parser.add_argument(
+        "--round",
+        type=str,
+        default=None,
+        help="Name of this launch's round, appended to every experiment id "
+        "(<env>-<approach>_<round>); overrides the config's ROUND. "
+        "Continual configs require one.")
+    parser.add_argument(
+        "--envs",
+        type=str,
+        default=None,
+        help="Comma-separated env keys of the config to launch, e.g. "
+        "fan,boil. Defaults to every env the config does not SKIP.")
+    parser.add_argument(
+        "--approaches",
+        type=str,
+        default=None,
+        help="Comma-separated approach keys of the config to launch, e.g. "
+        "mb_opus,mf_opus. Defaults to every approach the config does not "
+        "SKIP.")
+    parser.add_argument(
+        "--seeds",
+        type=str,
+        default=None,
+        help="Seeds to launch, N or N-M (e.g. 2-4); overrides the config's "
+        "START_SEED and NUM_SEEDS.")
     args = parser.parse_args()
-    _launch_experiments(args.config, args.partition, args.requeue,
-                        args.accounts)
+    _launch_experiments(
+        args.config,
+        args.partition,
+        args.requeue,
+        args.accounts,
+        round_name=args.round,
+        envs=_keys(args.envs),
+        approaches=_keys(args.approaches),
+        seeds=parse_seed_range(args.seeds) if args.seeds is not None else None)
+
+
+def _keys(text: Optional[str]) -> Optional[List[str]]:
+    """Split a comma-separated --envs or --approaches value."""
+    if text is None:
+        return None
+    return [key.strip() for key in text.split(",") if key.strip()]
 
 
 def _launch_experiments(config_file: str,
                         partition: Optional[str] = None,
                         requeue: Optional[bool] = None,
-                        accounts: Optional[str] = None) -> None:
-    # Validate the account list once, before anything is submitted.
+                        accounts: Optional[str] = None,
+                        round_name: Optional[str] = None,
+                        envs: Optional[List[str]] = None,
+                        approaches: Optional[List[str]] = None,
+                        seeds: Optional[Tuple[int, int]] = None) -> None:
+    # Validate the account list and resolve every run once, before
+    # anything is submitted.
     account_names = resolve_accounts(accounts)
+    run_configs = list(
+        generate_run_configs(config_file,
+                             batch_seeds=True,
+                             round_name=round_name,
+                             envs=envs,
+                             approaches=approaches,
+                             seeds=seeds,
+                             require_round=True))
     # Loop over run configs. The experiment's index staggers the account
     # round-robin across sibling experiments (claude_accounts.py).
-    for index, cfg in enumerate(
-            generate_run_configs(config_file, batch_seeds=True)):
+    for index, cfg in enumerate(run_configs):
         assert isinstance(cfg, BatchSeedRunConfig)
         cmd_flags = config_to_cmd_flags(cfg)
         log_dir = "logs"

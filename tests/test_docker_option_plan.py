@@ -28,7 +28,7 @@ import numpy as np
 import predicators.utils as pred_utils
 from predicators.settings import CFG
 
-# Config matching predicatorv3/predicator_v3.yaml (mf_agent approach)
+# Flags of the retired phased mf_agent config.
 _CFG_OVERRIDES = {
     "env": "pybullet_domino",
     "approach": "agent_model_free",

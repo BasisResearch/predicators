@@ -17,13 +17,14 @@ from scripts.cluster_utils import generate_run_configs
 
 @pytest.mark.parametrize("seed", [0, 1])
 @pytest.mark.parametrize("arm", [0, 1])
-@pytest.mark.parametrize("variant", ["transfer", "inertial", "ramp"])
-def test_launch_config_constructs_both_levels(seed, arm, variant):
-    """Resolve the actual launcher, including list overrides, before reset."""
+def test_launch_config_constructs_both_levels(seed, arm):
+    """Resolve the benchmark's Fan setting, including list flags, before
+    reset."""
     configs = list(
-        generate_run_configs(
-            f"predicatorv3/continual_fan_{variant}_pilot_r1.yaml",
-            batch_seeds=True))
+        generate_run_configs("empiric/benchmark.yaml",
+                             batch_seeds=True,
+                             envs=["fan"],
+                             approaches=["mb_opus", "mf_opus"]))
     assert len(configs) == 2
     config = configs[arm]
     flags = {

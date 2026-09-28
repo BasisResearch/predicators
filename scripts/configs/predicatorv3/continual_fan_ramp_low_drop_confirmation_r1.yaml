@@ -1,5 +1,0 @@
-# Additional EMPIRIC seeds on the unchanged lower-drop runtime.
-includes:
-  - /home/ycliang/predicators/logs/fan-ramp-low-drop-runtime-20260921/scripts/configs/predicatorv3/continual_fan_ramp_low_drop_r1.yaml
-START_SEED: 2
-NUM_SEEDS: 3

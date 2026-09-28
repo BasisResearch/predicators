@@ -54,22 +54,18 @@ def test_current_fan_is_only_ramp() -> None:
     assert plot.DISPLAY_TITLE["Fan (ramp transfer)"] == "Fan"
 
 
-def test_default_fan_config_preserves_archived_variants() -> None:
-    """The menu promotes the reviewed layout without altering old pilots."""
+def test_benchmark_fan_is_the_ramp_transfer() -> None:
+    """The benchmark's Fan setting is the reviewed ramp layout the paper
+    figures plot."""
     from scripts.cluster_utils import \
         parse_configs  # pylint: disable=import-outside-toplevel
-    config = next(parse_configs("predicatorv3/envs/continual.yaml"))
+    config = next(parse_configs("empiric/envs.yaml"))
     fan = config["ENVS"]["fan"]["FLAGS"]
     assert fan["fan_ramp_transfer"]
     assert fan["fan_inertial_transfer"]
     assert fan["fan_exposed_transfer"]
     assert fan["fan_ramp_rise"] == 0.003
     assert fan["fan_ramp_landing_extension"] == 0.10
-    for variant in ("transfer", "inertial", "ramp"):
-        pilot = next(
-            parse_configs(
-                f"predicatorv3/continual_fan_{variant}_pilot_r1.yaml"))
-        assert pilot["ENVS"][f"fan_{variant}"]["EXTENDS"] == "fan_maze"
 
 
 def test_oracle_r2_layout_and_scope() -> None:

@@ -1,5 +1,0 @@
-# Retry after account a rejected Claude subscription access before doing work.
-includes:
-  - continual_fan_oracle_prompt_r2.yaml
-START_SEED: 3
-NUM_SEEDS: 1

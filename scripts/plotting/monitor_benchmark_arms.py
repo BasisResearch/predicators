@@ -273,7 +273,8 @@ def report_text(original: str, rows: List[Row], plot: Dict[str, Any],
             "See the [illustrated task description]"
             "(../amps/fan-exposed-transfer.md) and "
             "[launch configuration]"
-            "(../../scripts/configs/predicatorv3/"
+            "(https://github.com/BasisResearch/predicators/blob/"
+            "iclr-empiric-submission/scripts/configs/predicatorv3/"
             "continual_fan_transfer_pilot_r1.yaml).\n"
             "This column is excluded from the paper figure and its "
             "data selection.\n\n")
