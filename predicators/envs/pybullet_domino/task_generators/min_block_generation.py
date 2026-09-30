@@ -70,8 +70,8 @@ def _domino_code_digest() -> str:
 # when no explicit differentiating band is configured - the natural-corner
 # region shared by the plain and heavy turn variants. Explicit differentiating
 # bands come from CFG.domino_min_block_turn_* (re-probe them when the friction
-# pair moves, with scripts/domino_debug/probe_min_block_bands.py from tag
-# iclr-empiric-submission).
+# pair moves, with scripts/domino_debug/probe_min_block_bands.py from commit
+# 72d7258ed).
 _DEFAULT_TURN_ENTRY_BAND = (0.26, 0.34)
 _DEFAULT_TURN_EXIT_BAND = (0.18, 0.26)
 # Heavy turn variant: legs from the 2026-07-25 canonical-anchor design
@@ -561,7 +561,7 @@ def _make_turn_task(env: "PyBulletDominoComposedEnv",
         # Explicitly configured bands - re-probe them when the friction
         # pair changes (the differentiating cells move with the
         # frictions), with scripts/domino_debug/probe_min_block_bands.py
-        # from tag iclr-empiric-submission. The benchmark's bands live in
+        # from commit 72d7258ed. The benchmark's bands live in
         # the domino_high_friction_turn entry of
         # scripts/configs/empiric/envs.yaml.
         assert CFG.domino_min_block_turn_entry_hi is not None
@@ -585,8 +585,8 @@ def _make_turn_task(env: "PyBulletDominoComposedEnv",
             "domino_min_block_turn_{entry,exit}_{lo,hi} flags (see the "
             "domino_high_friction_turn entry of "
             "scripts/configs/empiric/envs.yaml; probe new bands with "
-            "scripts/domino_debug/probe_min_block_bands.py from tag "
-            "iclr-empiric-submission).")
+            "scripts/domino_debug/probe_min_block_bands.py from commit "
+            "72d7258ed).")
     else:
         entry_leg = round(float(rng.uniform(*_DEFAULT_TURN_ENTRY_BAND)), 2)
         exit_leg = round(float(rng.uniform(*_DEFAULT_TURN_EXIT_BAND)), 2)
