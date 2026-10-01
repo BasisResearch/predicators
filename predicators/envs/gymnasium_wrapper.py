@@ -1,6 +1,6 @@
 """RoboDisco: a Gymnasium-API wrapper for predicators' PyBullet envs.
 
-RoboDisco (Robot Model Discovery Benchmark) exposes the 15 native
+RoboDisco (Robot Model Discovery Benchmark) exposes the 22 native
 ``predicators.envs.pybullet_*`` environments through a standard
 ``gymnasium.Env`` interface so the suite can be used as a robot
 model-discovery benchmark independent of the predicators planning
@@ -200,24 +200,37 @@ _ENV_REGISTRY: List[Tuple[str, str]] = [
     ("robodisco/Ants-v0", "predicators.envs.pybullet_ants:PyBulletAntsEnv"),
     ("robodisco/Balance-v0",
      "predicators.envs.pybullet_balance:PyBulletBalanceEnv"),
+    ("robodisco/Balloons-v0",
+     "predicators.envs.pybullet_balloons:PyBulletBalloonsEnv"),
     ("robodisco/Barrier-v0",
      "predicators.envs.pybullet_barrier:PyBulletBarrierEnv"),
     ("robodisco/Blocks-v0",
      "predicators.envs.pybullet_blocks:PyBulletBlocksEnv"),
     ("robodisco/Boil-v0", "predicators.envs.pybullet_boil:PyBulletBoilEnv"),
+    ("robodisco/Bridge-v0",
+     "predicators.envs.pybullet_bridge:PyBulletBridgeEnv"),
+    ("robodisco/BusyBoard-v0",
+     "predicators.envs.pybullet_busyboard:PyBulletBusyBoardEnv"),
     ("robodisco/Circuit-v0",
      "predicators.envs.pybullet_circuit:PyBulletCircuitEnv"),
     ("robodisco/Coffee-v0",
      "predicators.envs.pybullet_coffee:PyBulletCoffeeEnv"),
     ("robodisco/Cover-v0", "predicators.envs.pybullet_cover:PyBulletCoverEnv"),
+    ("robodisco/Crane-v0", "predicators.envs.pybullet_crane:PyBulletCraneEnv"),
     ("robodisco/Domino-v0",
      "predicators.envs.pybullet_domino.env:PyBulletDominoEnv"),
     ("robodisco/Fan-v0", "predicators.envs.pybullet_fan:PyBulletFanEnv"),
     ("robodisco/Float-v0", "predicators.envs.pybullet_float:PyBulletFloatEnv"),
     ("robodisco/Grow-v0", "predicators.envs.pybullet_grow:PyBulletGrowEnv"),
+    ("robodisco/IceRink-v0",
+     "predicators.envs.pybullet_icerink:PyBulletIceRinkEnv"),
     ("robodisco/Laser-v0", "predicators.envs.pybullet_laser:PyBulletLaserEnv"),
+    ("robodisco/Launcher-v0",
+     "predicators.envs.pybullet_launcher:PyBulletLauncherEnv"),
     ("robodisco/MagicBin-v0",
      "predicators.envs.pybullet_magic_bin:PyBulletMagicBinEnv"),
+    ("robodisco/Magnets-v0",
+     "predicators.envs.pybullet_magnets:PyBulletMagnetsEnv"),
     ("robodisco/Switch-v0",
      "predicators.envs.pybullet_switch:PyBulletSwitchEnv"),
 ]

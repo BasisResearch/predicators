@@ -35,18 +35,18 @@ def rgb_env():
 
 
 def test_register_all_environments_count():
-    """register_all_environments() registers all 15 envs."""
+    """register_all_environments() registers all 22 envs."""
     register_all_environments()
     rd_ids = {
         eid
         for eid in gymnasium.registry if eid.startswith("robodisco/")
     }
-    assert len(rd_ids) == 15
+    assert len(rd_ids) == 22
 
 
-def test_get_all_env_ids_returns_15():
-    """get_all_env_ids() returns exactly 15 ids."""
-    assert len(get_all_env_ids()) == 15
+def test_get_all_env_ids_returns_22():
+    """get_all_env_ids() returns exactly 22 ids."""
+    assert len(get_all_env_ids()) == 22
 
 
 def test_get_all_env_ids_prefix():
@@ -60,7 +60,7 @@ def test_register_is_idempotent():
     """register_all_environments() is safe to call multiple times."""
     register_all_environments()
     register_all_environments()
-    assert len(get_all_env_ids()) == 15
+    assert len(get_all_env_ids()) == 22
 
 
 # ---------------------------------------------------------------------------
