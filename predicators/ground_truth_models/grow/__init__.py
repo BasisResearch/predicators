@@ -1,4 +1,4 @@
-"""Ground-truth models for coffee environment and variants."""
+"""Ground-truth models for the grow environment."""
 
 from .nsrts import PyBulletGrowGroundTruthNSRTFactory
 from .options import PyBulletGrowGroundTruthOptionFactory
