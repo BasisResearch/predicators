@@ -27,7 +27,7 @@ utils.reset_config({"num_train_tasks": 1, "num_test_tasks": 1})
 robodisco.register_all_environments()
 env_ids = sorted(robodisco.get_all_env_ids())
 print(f"[1/6] Found {len(env_ids)} environments")
-assert len(env_ids) == 15, f"Expected 15 environments, got {len(env_ids)}"
+assert len(env_ids) == 22, f"Expected 22 environments, got {len(env_ids)}"
 for eid in env_ids:
     print(f"       {eid}")
 
@@ -132,7 +132,9 @@ for eid in env_ids:
 
 print(f"\nSummary: {len(ok)}/{len(env_ids)} envs reset cleanly.")
 if fail:
-    print("Failing envs (require additional CFG to instantiate):")
+    print("Failing envs (Circuit, Laser and Switch fail when another env "
+          "was built earlier in the same process; see "
+          "predicators/envs/README.md):")
     for eid, kind, msg in fail:
         print(f"  {eid}: {kind}: {msg}")
 
