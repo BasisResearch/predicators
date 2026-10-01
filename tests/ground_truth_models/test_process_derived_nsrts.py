@@ -3,13 +3,14 @@ process-planning envs whose NSRT factories are missing or stale."""
 from typing import Sequence, Set
 
 import numpy as np
+import pytest
 import torch
 from gym.spaces import Box
 
 from predicators import utils
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_nsrts, get_gt_options, \
-    nsrts_from_processes
+    get_gt_processes, nsrts_from_processes
 from predicators.structs import Action, Array, CausalProcess, \
     EndogenousProcess, ExogenousProcess, GroundAtom, LiftedAtom, Object, \
     Predicate, State, Type, Variable
@@ -71,3 +72,29 @@ def test_fan_gt_nsrts_come_from_the_processes() -> None:
         assert nsrt.option in options
         for atom in nsrt.preconditions | nsrt.add_effects:
             assert atom.predicate in env.predicates
+
+
+@pytest.mark.parametrize("domino_targets", [False, True])
+def test_domino_gt_processes_build_in_both_target_modes(
+        domino_targets: bool) -> None:
+    """The domino processes are well typed with the default hinged targets as
+    well as with domino targets, and get_gt_nsrts derives the NSRTs from them.
+
+    Toppled ranges over the targets, so a domino that falls flat adds it
+    only when dominoes are the targets.
+    """
+    utils.reset_config({
+        "env": "pybullet_domino",
+        "num_train_tasks": 1,
+        "num_test_tasks": 1,
+        "domino_use_domino_blocks_as_target": domino_targets,
+    })
+    env = create_new_env("pybullet_domino", do_cache=False, use_gui=False)
+    options = get_gt_options("pybullet_domino")
+    processes = get_gt_processes("pybullet_domino", env.predicates, options)
+    fall_flat = next(p for p in processes if p.name == "DominoTiltingDelete")
+    expected = {"Toppled"} if domino_targets else set()
+    assert {a.predicate.name for a in fall_flat.add_effects} == expected
+    nsrts = get_gt_nsrts("pybullet_domino", env.predicates, options)
+    nsrt_names = {n.name for n in nsrts}
+    assert {"PushStartBlock", "PickDomino", "PlaceDomino"} <= nsrt_names

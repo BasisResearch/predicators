@@ -9,6 +9,7 @@ from predicators import utils
 from predicators.code_sim_learning.base_simulator import base_simulator_class
 from predicators.code_sim_learning.commands import ApplyForce
 from predicators.envs.pybullet_fan import PyBulletFanEnv
+from predicators.ground_truth_models import augment_task_with_helper_objects
 from predicators.run.episode import EpisodeRunner, EpisodeState
 from predicators.settings import CFG
 from predicators.structs import Action
@@ -117,6 +118,19 @@ def test_transfer_evaluator_settling_and_fall(env):
     assert evaluator.terminated_trajectory([fallen])
     assert not evaluator.solved([fallen], None)
     assert evaluator.reward([fallen], None) == 0.0
+
+
+def test_grid_task_drops_the_evaluator_of_the_replaced_goal(env):
+    """The oracle's grid task replaces BallAtTarget with BallAtLoc, so it drops
+    the evaluator built for BallAtTarget instead of failing Task's check that
+    an evaluator judges the task's own goal."""
+    task = env.get_test_tasks()[0].task
+    assert task.evaluator is not None
+    grid_task = augment_task_with_helper_objects(task, "pybullet_fan")
+    goal_names = {atom.predicate.name for atom in grid_task.goal}
+    assert "BallAtLoc" in goal_names
+    assert "BallAtTarget" not in goal_names
+    assert grid_task.evaluator is None
 
 
 def test_real_episode_fall_is_game_over(env):
