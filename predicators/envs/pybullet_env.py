@@ -369,8 +369,9 @@ class PyBulletEnv(BaseEnv):
         if self._world_gap is not None:
             self._world_gap.configure_engine(self._physics_client_id)
         self._store_pybullet_bodies(pybullet_bodies)
-        # Public recordings contain names and features, never engine handles.
-        # Resolve their objects against this world's roster on restoration.
+        # This world's own Objects by name: the ones carrying its body ids.
+        # States from other worlds are resolved against this roster (see
+        # _keyed_by_own_objects).
         self._body_objects: Dict[str, Object] = {}
 
         def collect_objects(value: Any) -> None:
@@ -758,15 +759,9 @@ class PyBulletEnv(BaseEnv):
           a new skeleton or backtracking), or on the very first call
           before any reset() (_current_observation is None).
         """
+        state = self._keyed_by_own_objects(state)
         # Observable equality deliberately ignores latent. Restore memory
         # independently, including a sibling node with identical body poses.
-        if any(not obj.type.sim_features for obj in state):
-            rebound = state.copy()
-            rebound.data = {
-                self._body_objects.get(obj.name, obj): values
-                for obj, values in rebound.data.items()
-            }
-            state = rebound
         if has_model_state(type(self)):
             self._model_state = restored_model_state(type(self), state,
                                                      self._agent_param_values)
@@ -1623,6 +1618,33 @@ class PyBulletEnv(BaseEnv):
                 settled.set(obj, feat, placed.get(body, feat))
         return settled
 
+    def _keyed_by_own_objects(self, state: State) -> State:
+        """``state`` with its objects swapped for this world's own Objects.
+
+        Body ids live on Object instances, and each world assigns its
+        own. A state from another instance of this env (the executing
+        env's task, which a planner's world simulates) carries that
+        world's ids, and a public recording carries none, so writing
+        either through its own Objects would move the wrong bodies here,
+        and an env that recreates bodies per state (Coffee's cups) would
+        write this world's ids onto the other world's Objects. Objects
+        this world does not own are kept.
+        """
+        own: Dict[Object, Object] = {}
+        for obj in state:
+            mine = self._body_objects.get(obj.name)
+            if mine is not None and mine is not obj \
+                    and mine.type.name == obj.type.name:
+                own[obj] = mine
+        if not own:
+            return state
+        rebound = state.copy()
+        rebound.data = {
+            own.get(obj, obj): values
+            for obj, values in rebound.data.items()
+        }
+        return rebound
+
     def _set_state(self, state: State) -> None:
         """State -> PyBullet: write the requested State into the simulator.
 
@@ -1655,13 +1677,7 @@ class PyBulletEnv(BaseEnv):
         # that merged state); welds a rule still wants are re-emitted
         # and re-frozen at the restored poses, and welds the State
         # itself records are restored below.
-        if any(not obj.type.sim_features for obj in state):
-            rebound = state.copy()
-            rebound.data = {
-                self._body_objects.get(obj.name, obj): values
-                for obj, values in rebound.data.items()
-            }
-            state = rebound
+        state = self._keyed_by_own_objects(state)
         if has_model_state(type(self)):
             self._model_state = restored_model_state(type(self), state,
                                                      self._agent_param_values)
