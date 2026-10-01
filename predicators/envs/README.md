@@ -71,27 +71,28 @@ The Gymnasium wrapper exposes:
 ## Environments
 
 Status legend:
-- **Tasks** — the env's task generator produces multiple init states and goals (✅) versus only a single fixed configuration (❌).
-- **Skills** — `predicators/ground_truth_models/<env>/options.py` exposes a non-empty set of primitive options (✅) versus an empty set or no factory (❌).
-- **Demos** — `python predicators/main.py --env <env_name> --approach oracle --seed 0 --num_train_tasks 1 --num_test_tasks 1 --timeout 60` solves the test task end-to-end (✅) versus failing during planning, execution, or sampler grounding (❌).
+- **Preview** - one task being solved, by planning with ground-truth models or by a scripted skill sequence, from the [RoboDisco site](https://yichao-liang.github.io/robodisco-site/); click it for the environment's page.
+- **Tasks** - the env's task generator produces multiple init states and goals (✅) versus only a single fixed configuration (❌).
+- **Skills** - `predicators/ground_truth_models/<env>/options.py` exposes a non-empty set of primitive options (✅) versus an empty set or no factory (❌).
+- **Demos** - `python predicators/main.py --env <env_name> --approach oracle --seed 0 --num_train_tasks 1 --num_test_tasks 1 --timeout 60` solves the test task end-to-end (✅) versus failing during planning, execution, or sampler grounding (❌).
 
 | Environment | Preview | Description | Tasks | Skills | Demos |
 |---|---|---|:---:|:---:|:---:|
-| `robodisco/Ants-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_ants.gif) | Place food items near ants on a tabletop | ❌ | ✅ | ❌ |
-| `robodisco/Balance-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_balance.gif) | Balance blocks on a beam by pressing buttons | ✅ | ✅ | ❌ |
-| `robodisco/Barrier-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_barrier.gif) | Move blocks past barriers to target locations | ❌ | ❌ | ❌ |
-| `robodisco/Blocks-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_blocks.gif) | Stack and arrange blocks on a table | ✅ | ✅ | ✅ |
-| `robodisco/Boil-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_boil.gif) | Fill and boil water using a jug, faucet, and burner | ✅ | ✅ | ✅ |
-| `robodisco/Circuit-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_circuit.gif) | Assemble circuit components (batteries, wires, switch) | ❌ | ✅ | ✅ |
-| `robodisco/Coffee-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_coffee.gif) | Operate a coffee machine: plug in, brew, pour, serve | ✅ | ✅ | ❌ |
-| `robodisco/Cover-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_cover.gif) | Place blocks to cover target regions | ✅ | ✅ | ✅ |
-| `robodisco/Domino-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_domino.gif) | Set up domino chains with fans, balls, and ramps | ✅ | ✅ | ✅ |
-| `robodisco/Fan-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_fan.gif) | Use fans to blow lightweight objects to goals | ✅ | ✅ | ✅ |
-| `robodisco/Float-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_float.gif) | Float light blocks by filling a container with water | ❌ | ✅ | ✅ |
-| `robodisco/Grow-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_grow.gif) | Grow plants by watering them | ✅ | ✅ | ✅ |
-| `robodisco/Laser-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_laser.gif) | Align lasers and mirrors to hit targets | ❌ | ✅ | ❌ |
-| `robodisco/MagicBin-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_magic_bin.gif) | Sort objects into magic bins that transform them | ❌ | ❌ | ❌ |
-| `robodisco/Switch-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_switch.gif) | Toggle switches to open doors and move objects | ❌ | ❌ | ❌ |
+| `robodisco/Ants-v0` | [![](https://yichao-liang.github.io/robodisco-site/assets/gifs/ants.gif)](https://yichao-liang.github.io/robodisco-site/envs/ants.html) | Place food items near ants on a tabletop | ❌ | ✅ | ❌ |
+| `robodisco/Balance-v0` | [![](https://yichao-liang.github.io/robodisco-site/assets/gifs/balance.gif)](https://yichao-liang.github.io/robodisco-site/envs/balance.html) | Balance blocks on a beam by pressing buttons | ✅ | ✅ | ❌ |
+| `robodisco/Barrier-v0` | [![](https://yichao-liang.github.io/robodisco-site/assets/gifs/barrier.gif)](https://yichao-liang.github.io/robodisco-site/envs/barrier.html) | Move blocks past barriers to target locations | ❌ | ❌ | ❌ |
+| `robodisco/Blocks-v0` | [![](https://yichao-liang.github.io/robodisco-site/assets/gifs/blocks.gif)](https://yichao-liang.github.io/robodisco-site/envs/blocks.html) | Stack and arrange blocks on a table | ✅ | ✅ | ✅ |
+| `robodisco/Boil-v0` | [![](https://yichao-liang.github.io/robodisco-site/assets/gifs/boil.gif)](https://yichao-liang.github.io/robodisco-site/envs/boil.html) | Fill and boil water using a jug, faucet, and burner | ✅ | ✅ | ✅ |
+| `robodisco/Circuit-v0` | [![](https://yichao-liang.github.io/robodisco-site/assets/gifs/circuit.gif)](https://yichao-liang.github.io/robodisco-site/envs/circuit.html) | Assemble circuit components (batteries, wires, switch) | ❌ | ✅ | ✅ |
+| `robodisco/Coffee-v0` | [![](https://yichao-liang.github.io/robodisco-site/assets/gifs/coffee.gif)](https://yichao-liang.github.io/robodisco-site/envs/coffee.html) | Operate a coffee machine: plug in, brew, pour, serve | ✅ | ✅ | ❌ |
+| `robodisco/Cover-v0` | [![](https://yichao-liang.github.io/robodisco-site/assets/gifs/cover.gif)](https://yichao-liang.github.io/robodisco-site/envs/cover.html) | Place blocks to cover target regions | ✅ | ✅ | ✅ |
+| `robodisco/Domino-v0` | [![](https://yichao-liang.github.io/robodisco-site/assets/gifs/domino.gif)](https://yichao-liang.github.io/robodisco-site/envs/domino.html) | Set up domino chains with fans, balls, and ramps | ✅ | ✅ | ✅ |
+| `robodisco/Fan-v0` | [![](https://yichao-liang.github.io/robodisco-site/assets/gifs/fan.gif)](https://yichao-liang.github.io/robodisco-site/envs/fan.html) | Use fans to blow lightweight objects to goals | ✅ | ✅ | ✅ |
+| `robodisco/Float-v0` | [![](https://yichao-liang.github.io/robodisco-site/assets/gifs/float.gif)](https://yichao-liang.github.io/robodisco-site/envs/float.html) | Float light blocks by filling a container with water | ❌ | ✅ | ✅ |
+| `robodisco/Grow-v0` | [![](https://yichao-liang.github.io/robodisco-site/assets/gifs/grow.gif)](https://yichao-liang.github.io/robodisco-site/envs/grow.html) | Grow plants by watering them | ✅ | ✅ | ✅ |
+| `robodisco/Laser-v0` | [![](https://yichao-liang.github.io/robodisco-site/assets/gifs/laser.gif)](https://yichao-liang.github.io/robodisco-site/envs/laser.html) | Align lasers and mirrors to hit targets | ❌ | ✅ | ❌ |
+| `robodisco/MagicBin-v0` | [![](https://yichao-liang.github.io/robodisco-site/assets/gifs/magic-bin.gif)](https://yichao-liang.github.io/robodisco-site/envs/magic-bin.html) | Sort objects into magic bins that transform them | ❌ | ❌ | ❌ |
+| `robodisco/Switch-v0` | [![](https://yichao-liang.github.io/robodisco-site/assets/gifs/switch.gif)](https://yichao-liang.github.io/robodisco-site/envs/switch.html) | Toggle switches to open doors and move objects | ❌ | ❌ | ❌ |
 
 The Demos column was verified by running the oracle command above on
 every env. Failing envs typically need additional `CFG` overrides or
