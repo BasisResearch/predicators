@@ -540,6 +540,7 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
                 jointType=p.JOINT_FIXED,
                 parentFramePosition=[0, 0, 0],
                 childFramePosition=[0, 0, 0],
+                physicsClientId=self._physics_client_id,
             )
             # Update button color to "off" (but machine has power)
             p.changeVisualShape(self._button_id,
@@ -1121,7 +1122,8 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
                 parentFramePosition=[
                     -cls.cord_link_length / 2 - half_gap, 0, 0
                 ],
-                childFramePosition=[cls.cord_link_length / 2 + half_gap, 0, 0])
+                childFramePosition=[cls.cord_link_length / 2 + half_gap, 0, 0],
+                physicsClientId=physics_client_id)
             constraint_ids.append(constraint_id)
             # Adjust constraint parameters for softness
             # p.changeConstraint(

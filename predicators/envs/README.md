@@ -96,8 +96,7 @@ Status legend:
 | `robodisco/Switch-v0` | [![](https://yichao-liang.github.io/robodisco-site/assets/gifs/switch.gif)](https://yichao-liang.github.io/robodisco-site/envs/switch.html) | Set a light's colour with a power switch and a colour switch | ✅ | ❌ | ❌ |
 
 All columns were checked on October 1, 2026.
-Every environment builds, resets, steps and renders through the Gymnasium wrapper with the Quick Start configuration.
-Circuit, Laser and Switch fail with a PyBullet joint error when another environment was built earlier in the same process, so build them in a fresh process.
+Every environment builds, resets, steps and renders through the Gymnasium wrapper with the Quick Start configuration, including after other environments were built in the same process.
 
 \* Boil and Bridge solve with `oracle_process_planning` under the settings of their oracle tests ([`test_oracle_process_planning_boil.py`](../../tests/approaches/test_oracle_process_planning_boil.py), [`test_oracle_process_planning_bridge.py`](../../tests/approaches/test_oracle_process_planning_bridge.py)); they do not solve in the default configuration.
 

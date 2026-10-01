@@ -131,7 +131,8 @@ def dispose_env(env: Any) -> None:
     if callable(dispose):
         dispose()
         return
-    p.disconnect(env._physics_client_id)  # pylint: disable=protected-access
+    client_id = env._physics_client_id  # pylint: disable=protected-access
+    p.disconnect(physicsClientId=client_id)
 
 
 def rollout_states(
