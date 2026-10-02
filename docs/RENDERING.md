@@ -233,7 +233,41 @@ PYTHONPATH=.:scripts/paper_figures python scripts/paper_figures/render_run_video
     --domains Balloons Fan --out-dir logs/paper_run_videos
 ```
 
-A frame takes about a second, so render on a compute node; the project page uses these videos.
+A frame takes about a second, so render on a compute node.
+
+## Run videos with Blender Cycles
+
+Continual run videos and test videos can be rendered with Cycles, with the materials, lighting and cameras of the figures; the project page and the X thread show the paper runs this way, and the RoboDisco site shows its solves.
+`predicators/run/cycles_video.py` exports one scene per frame of the PyBullet video: the frames, their order, the panel labels and how long each frame is held are the PyBullet video's.
+A test or failure video records each frame's scene as the frame renders; a continual run's scenes are exported from its recorded states when it ends.
+Nothing renders during a run, since Cycles needs Blender's Python (bpy 4.5.3 on Python 3.11) and takes about three seconds a frame on a GPU and far longer on a CPU.
+
+```bash
+# During a run (default off): a continual run writes <run_dir>/cycles at run
+# end, and test and failure videos write <video_dir>/<video name>_cycles.
+python predicators/main.py ... --video_cycles_scenes True
+
+# Or for an earlier run, from its info.log flags.
+python scripts/continual_video.py --run_dir <run_dir> --cycles
+
+# On a GPU node: render every frame (skipping rendered ones), then write
+# <domain>.mp4 (with the panel) and <domain>-test-scene.mp4 beside the
+# manifest; a test video's manifest, which has no panel, gives <domain>-scene.mp4.
+python scripts/cycles_video.py <run_dir>/cycles/manifest-all.json
+
+# Split the frames across jobs; a split job does not assemble, so run once more
+# without --tasks when they have all finished.
+python scripts/cycles_video.py <manifest> --tasks 6 --task 0
+```
+
+`export_state_scenes` exports any recorded sequence of states the same way, such as an evaluation trajectory (`--save_eval_trajs`).
+`scripts/cycles_video.py` runs Blender through `uv run` unless `--blender-python` names a Python with bpy 4.5.3 and pycollada; `scripts/paper_figures/render_cycles_frames.py` is the Blender side, sharing `render_cycles_scene.py`'s materials and lights with the figures.
+
+Restoring a recorded state skips what only stepping draws, so the export redraws it: Boil's spill puddle, Boil water no higher than the rim, and Balloons' strings.
+Restoring a state also zeroes Boil's hidden heat, so the export re-accumulates it step by step with the environment's rule and asserts that it matches the recorded bubbling level; the water warms from blue to red as it did in the run.
+
+`scripts/paper_figures/export_run_video_scenes.py` exports the paper runs, adding Figure 1's moves of the Fan and Balloons states into the current layouts, and skipping Domino's turn-task generation, which takes minutes of probe simulations and which the restored recording replaces.
+On an L40S, a frame takes about 0.7 s to build and 1.9 s to render at 48 samples; Fan's scenes take about 5 s to build, since each frame re-imports its switch meshes.
 
 ## Real-world trajectory
 
