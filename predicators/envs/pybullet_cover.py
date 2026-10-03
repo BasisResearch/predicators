@@ -71,6 +71,13 @@ class PyBulletCoverEnv(PyBulletEnv, CoverEnv):
         fk_physics_id = p.connect(p.DIRECT)
         self._pybullet_robot_fk = self._create_pybullet_robot(fk_physics_id)
 
+    def dispose(self) -> None:
+        """Disconnect the forward-kinematics client and the world's client."""
+        if not self._disposed:
+            p.disconnect(
+                physicsClientId=self._pybullet_robot_fk.physics_client_id)
+        super().dispose()
+
     # -----------------------------------------------------------------------
     # Required Hooks
     # -----------------------------------------------------------------------

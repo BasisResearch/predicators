@@ -1,6 +1,7 @@
 """Test cases for PyBulletCoverEnv."""
 
 import numpy as np
+import pybullet as p
 import pytest
 
 from predicators import utils
@@ -202,3 +203,23 @@ def _disabled_test_pybullet_cover_pick_workspace_bounds(
         state = env.execute_option(option)
         # The block should now be held.
         assert state.get(block, "grasp") != -1
+
+
+def test_pybullet_cover_dispose_disconnects_both_clients():
+    """dispose() also disconnects the forward-kinematics robot's client, and a
+    repeated dispose() does nothing."""
+    utils.reset_config({
+        "env": "pybullet_cover",
+        "num_train_tasks": 1,
+        "num_test_tasks": 1,
+    })
+    env = PyBulletCoverEnv(use_gui=False)
+    # pylint: disable=protected-access
+    clients = [
+        env._physics_client_id, env._pybullet_robot_fk.physics_client_id
+    ]
+    # pylint: enable=protected-access
+    assert all(p.isConnected(physicsClientId=c) for c in clients)
+    env.dispose()
+    assert not any(p.isConnected(physicsClientId=c) for c in clients)
+    env.dispose()

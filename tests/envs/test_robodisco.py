@@ -3,6 +3,7 @@
 
 import gymnasium
 import numpy as np
+import pybullet as p
 import pytest
 
 from predicators import utils
@@ -164,3 +165,37 @@ def test_render_returns_rgb_frame(rgb_env):
     assert frame.ndim == 3
     assert frame.shape[2] == 3
     assert frame.dtype == np.uint8
+
+
+# ---------------------------------------------------------------------------
+# close()
+# ---------------------------------------------------------------------------
+
+
+def test_close_disconnects_the_pybullet_client():
+    """close() disconnects the env's PyBullet client, and a repeated close()
+    does not disconnect the next client, which PyBullet gives the same id."""
+    utils.reset_config({"num_train_tasks": 1, "num_test_tasks": 1})
+    env = make("robodisco/Blocks-v0")
+    # pylint: disable-next=protected-access
+    client = env.unwrapped._env._physics_client_id
+    assert p.isConnected(physicsClientId=client)
+    env.close()
+    assert not p.isConnected(physicsClientId=client)
+    # PyBullet connects each new client at the lowest free id.
+    newer = []
+    try:
+        for _ in range(client + 1):
+            newer.append(p.connect(p.DIRECT))
+            if newer[-1] == client:
+                break
+        assert newer[-1] == client
+        env.close()
+        # Gymnasium's env checker turns an error in a repeated close into a
+        # warning, so close the unwrapped env too.
+        env.unwrapped.close()
+        assert p.isConnected(physicsClientId=client)
+    finally:
+        for newer_client in newer:
+            if p.isConnected(physicsClientId=newer_client):
+                p.disconnect(physicsClientId=newer_client)
