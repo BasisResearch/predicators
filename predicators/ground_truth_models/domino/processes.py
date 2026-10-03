@@ -373,16 +373,19 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
             delay_distribution, torch.tensor(1.0))
         processes.add(domino_fall_process)
 
-        # Individual Domino Fall from Tilting to Fall flat
+        # Individual Domino Fall from Tilting to Fall flat. Toppled ranges
+        # over dominoes only when dominoes are the targets; otherwise it is
+        # the hinged targets' predicate, and no process here models a target
+        # falling, so a fallen domino just stops tilting.
         domino1 = Variable("?d1", domino_type)
         parameters = [domino1]
         condition_at_start = {
             LiftedAtom(Tilting, [domino1]),
         }
         condition_overall = condition_at_start.copy()
-        add_effects = {
-            LiftedAtom(Toppled, [domino1]),
-        }
+        add_effects = set()
+        if CFG.domino_use_domino_blocks_as_target:
+            add_effects.add(LiftedAtom(Toppled, [domino1]))
         delete_effects = {
             LiftedAtom(Tilting, [domino1]),
         }

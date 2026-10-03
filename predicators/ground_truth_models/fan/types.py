@@ -145,12 +145,15 @@ class PyBulletFanGroundTruthTypeFactory(GroundTruthTypeFactory):
                 new_goal.add(atom)
 
         # Preserve goal_nl: the agent-with-grid ablation surfaces it to the
-        # LLM even though the symbolic goal is now the grid BallAtLoc.
+        # LLM even though the symbolic goal is now the grid BallAtLoc. An
+        # evaluator judges the goal it was built for, BallAtTarget, so it
+        # goes with that goal; the process planner never reads it.
+        evaluator = task.evaluator if new_goal == task.goal else None
         return Task(new_init,
                     new_goal,
                     task.alt_goal,
                     goal_nl=task.goal_nl,
-                    evaluator=task.evaluator)
+                    evaluator=evaluator)
 
     @staticmethod
     def _get_ball_at_loc_predicate(ball_type: Type,
