@@ -546,8 +546,9 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         if not cache["features"]:
             return (head + "`./simulator.py` declares no RESIDUAL_FEATURES, "
                     "so it cannot be deployed. Declare RESIDUAL_FEATURES on "
-                    "the subclass (the observation features your dynamics "
-                    "own; `{}` if none) first.")
+                    "the subclass first: the observed features the fit "
+                    "scores your model on, such as the poses forces move "
+                    "and the readings your mechanisms change.")
         return None
 
     def _base_physics_probe_model(self) -> _OracleOptionModel:

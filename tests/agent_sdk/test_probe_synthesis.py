@@ -2,13 +2,14 @@
 
 Covers the ``ctx.probe_option_model_provider`` hook: model resolution
 (candidate provider vs. the solve-phase ``ctx.option_model`` fallback),
-the explicit-``task_idx`` guard on ``reset`` during synthesis, the
-provider's load/cache glue, and the phase-appropriate tool description.
+the current-level default of ``reset``, ``task`` and the goal queries,
+the provider's load/cache glue, the values an unfitted candidate starts
+at, the fit's scope, and the phase-appropriate tool description.
 """
 # pylint: disable=protected-access
 from __future__ import annotations
 
-from typing import cast
+from typing import Dict, List, cast
 
 import numpy as np
 import pytest
@@ -18,8 +19,11 @@ from predicators.agent_sdk.belief_probe import BeliefProbe, \
     build_probe_namespace
 from predicators.agent_sdk.tools import ToolContext, _ParamsView, \
     create_mcp_tools
+from predicators.agent_sdk.tools.synthesis import fit_scope
 from predicators.approaches.agent_sim_learning_approach import \
     AgentSimLearningApproach
+from predicators.approaches.synthesis_validation import edited_declarations
+from predicators.code_sim_learning.fit_space import FitResult, ParamSpec
 from predicators.option_model import _OptionModelBase
 from predicators.structs import Object, State, Task, Type
 
@@ -59,27 +63,28 @@ def test_probe_model_resolution_prefers_provider() -> None:
         sim._option_model()
 
 
-def test_probe_reset_requires_task_idx_during_synthesis() -> None:
-    """During synthesis, reset() must not silently fall back to the (stale,
-    solve-time) ctx.current_task: task_idx is required."""
-    task = _tiny_task()
+def test_probe_reset_defaults_to_the_current_level() -> None:
+    """Continual play binds ctx.current_task to the level in progress, so a
+    plain reset() stages it with or without a candidate model; task_idx indexes
+    the levels reached so far.
+
+    A guard that required task_idx with a candidate model sent agents on
+    a test level to task_idx=0, the first training level, in the Sept
+    21, 2026 from-assets pilot.
+    """
+    first, current = _tiny_task(), _tiny_task()
     ctx = ToolContext()
-    ctx.train_tasks = [task]
-    ctx.current_task = task
-
-    # Solve phase: current-task fallback works.
-    sim = BeliefProbe(ctx)
-    sim.reset()
-    assert sim._state is not None
-
-    # Synthesis phase: explicit task_idx required...
-    ctx.probe_option_model_provider = _fake_model
-    sim = BeliefProbe(ctx)
-    with pytest.raises(ValueError, match="task_idx explicitly"):
+    ctx.train_tasks = [first, current]
+    ctx.current_task = current
+    for provider in (None, _fake_model):
+        ctx.probe_option_model_provider = provider
+        sim = BeliefProbe(ctx)
         sim.reset()
-    # ...and accepted.
-    sim.reset(task_idx=0)
-    assert sim._state is not None
+        assert sim._base_task is current
+        sim.reset(task_idx=0)
+        assert sim._base_task is first
+        with pytest.raises(ValueError, match="levels reached so far"):
+            sim.reset(task_idx=2)
 
 
 def test_candidate_probe_model_provider_glue(tmp_path) -> None:
@@ -94,6 +99,8 @@ def test_candidate_probe_model_provider_glue(tmp_path) -> None:
     real file loader; only the option-model build layer below
     ``build_candidate_option_model`` is stubbed.
     """
+    # The status text reads CFG: an earlier test's flags must not leak in.
+    utils.reset_config({})
     approach = object.__new__(AgentSimLearningApproach)
     approach._fitted_params = {}
     approach._latent_init = None
@@ -160,20 +167,46 @@ def test_candidate_probe_model_provider_glue(tmp_path) -> None:
     assert approach._tool_context.probe_param_status.startswith("PARTIAL FIT")
     assert "2/3" in approach._tool_context.probe_param_status
 
-    # Changed content: rebuilt UNFITTED, carrying the last fit's value
-    # for a param that still exists inside its box.
+    # Changed content that keeps the declarations: rebuilt UNFITTED,
+    # carrying the last fit's value for a param that still exists inside
+    # its box.
     with open(simulator_file, "w", encoding="utf-8") as f:
-        f.write(valid.replace("1.0, lo", "1.5, lo"))
+        f.write(valid + "# an edit elsewhere\n")
     assert provider() is not model2
     assert approach._fitted_params == {"k": 1.7}
     status = approach._tool_context.probe_param_status
     assert status is not None and status.startswith("UNFITTED")
+
+    # An edited declared value takes effect over the carried one.
+    with open(simulator_file, "w", encoding="utf-8") as f:
+        f.write(valid.replace("1.0, lo", "1.5, lo"))
+    provider()
+    assert approach._fitted_params == {"k": 1.5}
 
     # A param renamed away falls back to its declared init value.
     with open(simulator_file, "w", encoding="utf-8") as f:
         f.write(valid.replace("'k'", "'k2'").replace("1.0, lo", "0.3, lo"))
     provider()
     assert approach._fitted_params == {"k2": 0.3}
+
+    # The file a fit was published for runs at that fit again after an
+    # edit of its declaration is reverted.
+    with open(simulator_file, "w", encoding="utf-8") as f:
+        f.write(valid)
+    provider()
+    approach._publish_probe_fit({"k": 1.2},
+                                "cycle_000_vers_009",
+                                simulator_file,
+                                fit_result=FitResult(["k"], np.array([[1.2]]),
+                                                     np.array([0.0])))
+    with open(simulator_file, "w", encoding="utf-8") as f:
+        f.write(valid.replace("1.0, lo", "0.4, lo"))
+    provider()
+    assert approach._fitted_params == {"k": 0.4}
+    with open(simulator_file, "w", encoding="utf-8") as f:
+        f.write(valid)
+    provider()
+    assert approach._fitted_params == {"k": pytest.approx(1.2)}
 
 
 def test_probe_descriptions_follow_phase() -> None:
@@ -213,7 +246,8 @@ def test_probe_descriptions_follow_phase() -> None:
 
     synth_desc = _run_python_desc()
     assert "CANDIDATE simulator" in synth_desc
-    assert "task_idx is required" in synth_desc
+    assert "the current level by default" in synth_desc
+    assert "task_idx is required" not in synth_desc
     assert "sim.fit" in synth_desc
     assert "sim.residuals" in synth_desc
     # The fit/refine/forward-run protocol replaced the old validation
@@ -245,19 +279,18 @@ def test_probe_namespace_contract() -> None:
 
 
 def test_probe_task_digest() -> None:
-    """sim.task() describes the current task in solve sessions, requires an
-    explicit train-task index during synthesis (stale-current-task guard, same
-    as reset), and only advertises the is_goal_state query in synthesis, whose
+    """sim.task() describes the current level under its index in every session,
+    and only advertises the is_goal_state query with a candidate model, whose
     exec namespace binds it."""
     utils.reset_config({})
-    task = _tiny_task()
+    first, current = _tiny_task(), _tiny_task()
     ctx = ToolContext()
-    ctx.train_tasks = [task]
-    ctx.current_task = task
+    ctx.train_tasks = [first, current]
+    ctx.current_task = current
     sim = BeliefProbe(ctx)
 
     solve_digest = sim.task()
-    assert "current solve task" in solve_digest
+    assert solve_digest.startswith("Task 1 (current level):")
     assert "thing0:thing" in solve_digest
     assert "is_goal_state" not in solve_digest
     assert sim.task(0).startswith("Task 0:")
@@ -265,10 +298,10 @@ def test_probe_task_digest() -> None:
         sim.task(3)
 
     ctx.probe_option_model_provider = _fake_model
-    with pytest.raises(ValueError, match="task_idx explicitly"):
-        sim.task()
-    synth_digest = sim.task(0)
-    assert "is_goal_state(state, 0)" in synth_digest
+    synth_digest = sim.task()
+    assert synth_digest.startswith("Task 1 (current level):")
+    assert "is_goal_state(state, 1)" in synth_digest
+    assert "is_goal_state(state, 0)" in sim.task(0)
 
 
 def test_probe_fit_gating_and_delegation() -> None:
@@ -369,3 +402,93 @@ def test_params_view_missing_key_names_available_parameters() -> None:
     assert "gap, k" in msg
     assert "ParamSpec" in msg
     assert "before any parameter fit" not in msg
+
+
+def test_goal_queries_default_to_the_current_level() -> None:
+    """is_goal_state and evaluate_trajectory score the level in progress unless
+    given an index: a default of 0 scored test-level plans against the first
+    training level's goal."""
+    first, current = _tiny_task(), _tiny_task()
+    approach = object.__new__(AgentSimLearningApproach)
+    approach._train_tasks = [first, current]
+    approach._tool_context = ToolContext()
+    approach._tool_context.current_task = current
+    assert approach._level_task(None) is current
+    assert approach._level_task(0) is first
+    with pytest.raises(ValueError, match="levels reached so far"):
+        approach._level_task(2)
+    # With no level bound, the first task, as before.
+    approach._tool_context.current_task = None
+    assert approach._level_task(None) is first
+
+
+class _DeclaredFriction:
+    """A loaded subclass model's declarations (only the specs are read)."""
+    AGENT_PARAM_SPECS = [
+        ParamSpec("friction", 0.7, lo=0.2, hi=3.0),
+        ParamSpec("mass", 0.1, lo=0.01, hi=1.0),
+    ]
+
+
+class _EditedFriction:
+    AGENT_PARAM_SPECS = [
+        ParamSpec("friction", 3.0, lo=0.2, hi=3.0),
+        ParamSpec("mass", 0.1, lo=0.01, hi=1.0),
+    ]
+
+
+def test_edited_declarations_take_effect_over_carried_values() -> None:
+    """A newly loaded model keeps a carried value while its declared init_value
+    is unchanged, starts an edited one at the new value, and the file the last
+    fit was published for runs at that fit's values.
+
+    Carrying regardless ran a Domino friction sweep by edits at the old
+    value, with identical rollouts (from-assets pilot, Sept 21, 2026).
+    """
+    assert edited_declarations(
+        _DeclaredFriction.AGENT_PARAM_SPECS,
+        _EditedFriction.AGENT_PARAM_SPECS) == ["friction"]
+    approach = object.__new__(AgentSimLearningApproach)
+    approach._identified_physical_params = {"friction": 1.1, "mass": 0.2}
+    approach._choose_starting_values(_DeclaredFriction, _EditedFriction,
+                                     "edited")
+    assert approach._identified_physical_params == {"mass": 0.2}
+    # An unchanged declaration keeps carrying.
+    approach._choose_starting_values(_EditedFriction, _EditedFriction,
+                                     "edited again")
+    assert approach._identified_physical_params == {"mass": 0.2}
+    # Reverting to the file the last fit was published for restores it.
+    approach._probe_fit_state().update(digest="fitted",
+                                       applied_physical={
+                                           "friction": 1.1,
+                                           "mass": 0.2
+                                       })
+    approach._choose_starting_values(_EditedFriction, _DeclaredFriction,
+                                     "fitted")
+    assert approach._identified_physical_params == {
+        "friction": 1.1,
+        "mass": 0.2
+    }
+
+
+def test_fit_scope_falls_back_from_an_empty_declaration() -> None:
+    """An empty RESIDUAL_FEATURES gives the fit nothing to score (every segment
+    read as unexplainable, RMS inf), so the fit scores the inferred features of
+    the scene's objects and says so; a declared scope is used as written."""
+    inferred: Dict[str, List[str]] = {
+        "domino": ["x", "yaw"],
+        "robot": ["fingers", "x"],
+        "table": []
+    }
+    assert fit_scope({"domino": ["z"]}, inferred) == ({
+        "domino": ["z"]
+    }, "declared")
+    for empty in ({}, {"domino": []}):
+        scope, note = fit_scope(empty, inferred)
+        # The commanded robot only dilutes a fit of the scene's physics.
+        assert scope == {"domino": ["x", "yaw"]}
+        assert note == "inferred (RESIDUAL_FEATURES is empty): domino: x, yaw"
+    scope, note = fit_scope(None, {})
+    assert scope == {}
+    assert note == ("inferred (RESIDUAL_FEATURES not declared): no recorded "
+                    "feature changed")

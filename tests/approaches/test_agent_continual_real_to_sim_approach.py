@@ -7,10 +7,14 @@ import pybullet as p
 import pytest
 
 from predicators.approaches import create_approach
+from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.code_sim_learning.scene_base import SceneBase, \
     scene_base_class
+from predicators.code_sim_learning.scene_manifest import build_scene_manifest
 from predicators.envs import create_new_env
+from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.ground_truth_models import get_gt_options
+from predicators.pybullet_helpers import studio_visuals
 from predicators.run.continual import ContinualRun
 from predicators.run.level_players import create_level_player
 from predicators.structs import Dataset
@@ -219,7 +223,12 @@ def test_agent_builds_the_scene_and_rehearses_in_it(tmp_path: Any,
     rehearsed inside the agent-built scene, and the gate accepting it."""
     env, approach = _make(tmp_path, from_assets)
     assert isinstance(approach._base_env, SceneBase)
-    assert approach._base_env.get_physical_param_info() == {}
+    # No domain parameter menu: only the generic materials of the bodies
+    # the bare base holds, the ground plane's.
+    assert set(approach._base_env.get_physical_param_info()) == {
+        "support_lateral_friction", "support_spinning_friction",
+        "support_rolling_friction", "support_restitution"
+    }
     assert approach._probe_surface().fit == from_assets
     assert approach._probe_surface().uncertainty == from_assets
     prompt = approach._get_agent_system_prompt()
@@ -353,3 +362,117 @@ def test_agent_builds_the_scene_and_rehearses_in_it(tmp_path: Any,
         fit = approach._last_fit_result
         assert fit is not None and fit.names == ["heat_rate"]
         assert fit.samples[0, 0] == pytest.approx(0.01)
+
+
+def test_scene_base_offers_engine_materials(tmp_path: Any) -> None:
+    """The base offers the engine materials of every observed type with bodies
+    and of the static support.
+
+    A declared one is set on every body of its group at each reset and
+    on change; an undeclared one, which a fit pins to its default, never
+    overrides the scene's own value.
+    """
+    _config(tmp_path, **_arm_flags())
+    env = create_new_env("pybullet_boil", do_cache=False, use_gui=False)
+    init = env.get_train_tasks()[0].task.init
+    names = [o.name for o in init if o.type.name != "robot"]
+    jugs = [o.name for o in init if o.type.name == "jug"]
+    base: Any = scene_base_class("pybullet_boil", env.types, str(tmp_path))
+
+    class Scene(base):  # type: ignore[misc,valid-type]
+        """Jugs as boxes on a table; every other object has no body."""
+        AGENT_PARAM_SPECS = [
+            ParamSpec("jug_spinning_friction", 0.3, lo=0.0, hi=0.8)
+        ]
+
+        @classmethod
+        def initialize_pybullet(cls, using_gui: bool) -> Any:
+            client, robot, bodies = super().initialize_pybullet(using_gui)
+            box = p.createCollisionShape(p.GEOM_BOX,
+                                         halfExtents=[0.03] * 3,
+                                         physicsClientId=client)
+            for name in names:
+                bodies[name] = (p.createMultiBody(
+                    0.2, box, physicsClientId=client)
+                                if name in jugs else None)
+            table = p.createCollisionShape(p.GEOM_BOX,
+                                           halfExtents=[0.4, 0.4, 0.2],
+                                           physicsClientId=client)
+            p.createMultiBody(0.0,
+                              table,
+                              basePosition=[0.75, 1.35, 0.2],
+                              physicsClientId=client)
+            return client, robot, bodies
+
+    world = Scene(use_gui=False, skip_residual_dynamics=False)
+    client = world._physics_client_id
+    world._set_state(init)
+    jug = world.body(jugs[0])
+
+    def dynamics(body: int) -> Any:
+        return p.getDynamicsInfo(body, -1, physicsClientId=client)
+
+    info = world.get_physical_param_info()
+    assert {
+        "jug_mass", "jug_lateral_friction", "jug_spinning_friction",
+        "jug_angular_damping", "support_lateral_friction"
+    } <= set(info)
+    assert "support_mass" not in info
+    assert info["jug_mass"]["default"] == pytest.approx(0.2)
+    # The declaration's own box wins over the menu's.
+    assert info["jug_spinning_friction"]["hi"] == pytest.approx(0.8)
+    assert dynamics(jug)[7] == pytest.approx(0.3)
+    world.apply_physical_param_overrides({"jug_spinning_friction": 0.6})
+    assert dynamics(jug)[7] == pytest.approx(0.6)
+    # A fit pins undeclared entries to their defaults; the scene's own
+    # value stays.
+    p.changeDynamics(jug, -1, lateralFriction=0.9, physicsClientId=client)
+    world.apply_physical_param_overrides(
+        {"jug_lateral_friction": info["jug_lateral_friction"]["default"]})
+    assert dynamics(jug)[1] == pytest.approx(0.9)
+    # A reset re-applies the declared value.
+    p.changeDynamics(jug, -1, spinningFriction=0.0, physicsClientId=client)
+    world._set_state(init)
+    assert dynamics(jug)[7] == pytest.approx(0.6)
+
+
+def test_manifest_lists_visual_only_bodies(tmp_path: Any) -> None:
+    """The manifest lists the bodies a camera sees without touching.
+
+    The Balloons ceiling that marks the burst height has no collision
+    shape and is listed with its visual shapes. The backdrop walls are
+    not listed: the scene base builds them itself, as it does the ground
+    plane.
+    """
+    _config(tmp_path,
+            env="pybullet_balloons",
+            approach="agent_continual_real_to_sim",
+            continual_render=False)
+    # The level comes from the deployment; the manifest describes it on a
+    # world of its visible physics, as the scene package does.
+    init = create_new_env("pybullet_balloons", do_cache=False,
+                          use_gui=False).get_train_tasks()[0].task.init
+    env = create_new_env("pybullet_balloons",
+                         do_cache=False,
+                         use_gui=False,
+                         skip_residual_dynamics=True)
+    assert isinstance(env, PyBulletEnv)
+    manifest, _ = build_scene_manifest(env, init)
+    assert "visual_only" in manifest["legend"]
+    visual = [b for b in manifest["bodies"] if b.get("visual_only")]
+    assert visual
+    for body in visual:
+        assert any(link.get("visual_shapes") for link in body["links"])
+    heights = [
+        b["base_pose"]["position"][2] for b in visual if b["object"] is None
+    ]
+    ceiling_z = type(env).ceiling_z  # type: ignore[attr-defined]
+    assert any(abs(z - ceiling_z) < 1e-6 for z in heights), heights
+    walls = [center for center, _ in studio_visuals.wall_specs(type(env))]
+    assert walls
+    for body in visual:
+        if body["object"] is None:
+            position = body["base_pose"]["position"]
+            assert all(
+                max(abs(a - b) for a, b in zip(position, center)) > 1e-6
+                for center in walls)

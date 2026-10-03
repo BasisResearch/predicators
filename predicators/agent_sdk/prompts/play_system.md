@@ -326,14 +326,14 @@ __AFTER_EDIT_LINE__
 | --- | --- |
 __FIT_ROWS__
 | Load predicates | `sim.predicates()` reloads and installs the current definitions and reports their behavior on recorded episodes. Call it after editing predicates. |
-| Choose a start | `sim.reset()` uses the current level's initial state; `sim.reset(current=True)` uses the latest real observation and available model-memory estimate. `sim.reset(task_idx=i, mods={...})` stages a chosen task and feature modifications. |
+| Choose a start | `sim.reset()` uses the current level's initial state; `sim.reset(current=True)` uses the latest real observation and available model-memory estimate. `sim.reset(task_idx=i, mods={...})` stages level `i` of `train_tasks`, the levels reached so far, with feature modifications. |
 | Refine and rehearse | __REFINE_CELL__ |
 __ROBUSTNESS_ROW__
 | Inspect and branch | `sim.render(label, annotations=[...])` visualizes a staged scene; `sim.snapshot()` and `sim.restore()` preserve branches. |
 
 ### Interpreting task verdicts
 
-`is_goal_state(state, task_idx)` and `evaluate_trajectory(states, actions=None, task_idx=0)` expose the task's reward model.
+`is_goal_state(state, task_idx=None)` and `evaluate_trajectory(states, actions=None, task_idx=None)` expose a level's reward model, the current level's by default.
 `sim.run(...).states` supplies a continuous predicted trajectory to score.
 Where evaluation includes a physical replay, it uses your candidate simulator; even a verdict on recorded states can depend on that model.
 Pass action labels for tasks whose evaluator replays an action: one `("Skill", ("obj", ...), (param, ...))` per transition, or `None` for an unlabeled transition.
@@ -396,14 +396,14 @@ __FIXED_LINE__
 | --- | --- |
 | Check recorded behavior | `sim.validate()` replays recordings under the fixed model and `sim.residuals()` locates its errors; use them to learn where the model is reliable, not to change it. |
 | Load predicates | `sim.predicates()` reloads and installs the current definitions and reports their behavior on recorded episodes. Call it after editing predicates. |
-| Choose a start | `sim.reset()` uses the current level's initial state; `sim.reset(current=True)` uses the latest real observation and available model-memory estimate. `sim.reset(task_idx=i, mods={...})` stages a chosen task and feature modifications. |
+| Choose a start | `sim.reset()` uses the current level's initial state; `sim.reset(current=True)` uses the latest real observation and available model-memory estimate. `sim.reset(task_idx=i, mods={...})` stages level `i` of `train_tasks`, the levels reached so far, with feature modifications. |
 | Refine and rehearse | __REFINE_CELL__ |
 __ROBUSTNESS_ROW__
 | Inspect and branch | `sim.render(label, annotations=[...])` visualizes a staged scene; `sim.snapshot()` and `sim.restore()` preserve branches. |
 
 ### Interpreting task verdicts
 
-`is_goal_state(state, task_idx)` and `evaluate_trajectory(states, actions=None, task_idx=0)` expose the task's reward model.
+`is_goal_state(state, task_idx=None)` and `evaluate_trajectory(states, actions=None, task_idx=None)` expose a level's reward model, the current level's by default.
 `sim.run(...).states` supplies a continuous predicted trajectory to score.
 Where evaluation includes a physical replay, it uses the model; even a verdict on recorded states can depend on it.
 Pass action labels for tasks whose evaluator replays an action: one `("Skill", ("obj", ...), (param, ...))` per transition, or `None` for an unlabeled transition.
@@ -531,6 +531,7 @@ You own scene construction, joint/readout mappings, mechanisms, parameters and i
 A scalar surviving a reset does not mean its dynamics or joint mapping are implemented.
 The manifest is supplied reconstructed geometry, not a calibrated dynamics model.
 Asset files can contain nominal physical constants; treat them as assumptions to validate, not identified values.
+An engine material you do not declare runs at its default, which can be far from the world's; declare the ones your tasks' contacts depend on.
 
 Declare uncertain constants with `AGENT_PARAM_SPECS`; the harness retains fitting, belief handling and uncertainty-aware rehearsal.
 Use `sim.fit()` and `sim.validate()` on recorded experience, and compare held-out action outcomes where available.

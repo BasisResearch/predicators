@@ -179,6 +179,44 @@ def moving_feature_scope(
     return {t: sorted(fs) for t, fs in out.items()}
 
 
+def fit_scope(
+        declared: Any,
+        inferred: Dict[str, List[str]]) -> Tuple[Dict[str, List[str]], str]:
+    """The features ``sim.fit`` scores, and a note saying where they came from.
+
+    A declared RESIDUAL_FEATURES that names features is the scope. One
+    that names none gives the fit nothing to score: every recorded
+    segment then reads as unexplainable at any parameters ("NO FIT RAN",
+    RMS inf), which hides that the scope, not the model, was empty. So
+    an empty declaration falls back to the inferred features (those the
+    recorded data shows changing), exactly as a missing one does, and
+    the note lists them. The robot's own features are left out: the arm
+    is commanded, so it reproduces at every candidate value, dilutes the
+    fit and keeps every recording from settling into segments.
+    """
+    if isinstance(declared, dict) and any(declared.values()):
+        return declared, "declared"
+    scope = {
+        type_name: list(features)
+        for type_name, features in inferred.items()
+        if features and type_name != "robot"
+    }
+    why = "is empty" if isinstance(declared, dict) else "not declared"
+    listed = "; ".join(f"{type_name}: {', '.join(features)}"
+                       for type_name, features in sorted(scope.items()))
+    return scope, (f"inferred (RESIDUAL_FEATURES {why}): "
+                   f"{listed or 'no recorded feature changed'}")
+
+
+def _scope_listing(scope: Dict[str, List[str]], note: str) -> str:
+    """The fit's scope for a report: the note, with the declared features."""
+    if note != "declared":
+        return note
+    listed = "; ".join(f"{type_name}: {', '.join(features)}"
+                       for type_name, features in sorted(scope.items()))
+    return f"declared: {listed}"
+
+
 # Ablation A3 (agent_sim_learn_declared_params_only): every estimation
 # surface refuses with the same note, so the agent is told once what
 # replaces it rather than left to discover a silently absent tool.
@@ -554,7 +592,8 @@ def create_synthesis_tools(
                 "recorded motion segments were unexplainable at ANY "
                 "candidate physical parameters (per-segment "
                 f"best-achievable RMS [{rms_str}] all above the "
-                f"trimming threshold {trim_threshold:.4g}).",
+                f"trimming threshold {trim_threshold:.4g}). Scored "
+                f"features: {_scope_listing(residual_features, scope_note)}.",
                 "",
                 "Parameters were left at their baselines; nothing was "
                 "applied to the planning base env.",
@@ -828,11 +867,11 @@ def create_synthesis_tools(
         "; physics_sweep=True also scores it at every point of the "
         "identified parameters' belief interval and reports the fraction "
         "scored solved" if surface.uncertainty else "")
-    eval_signature = ("evaluate_trajectory(states, actions=None, task_idx=0, "
-                      "physics_sweep=False) -> {reward, solved, note[, sweep]}"
-                      if surface.uncertainty else
-                      "evaluate_trajectory(states, actions=None, task_idx=0) "
-                      "-> {reward, solved, note}")
+    eval_signature = ("evaluate_trajectory(states, actions=None, "
+                      "task_idx=None, physics_sweep=False) -> {reward, "
+                      "solved, note[, sweep]}" if surface.uncertainty else
+                      "evaluate_trajectory(states, actions=None, "
+                      "task_idx=None) -> {reward, solved, note}")
     run_python = _make_python_exec_tool(
         tool,
         name="run_python",
@@ -842,7 +881,9 @@ def create_synthesis_tools(
             "variables: trajectories (List[LowLevelTrajectory]; each has "
             "`is_demo`, `train_task_idx`, `states`, `actions`), train_tasks "
             "(List[Task]; each has `init`, `goal`, `goal_holds(state)`), "
-            "is_goal_state (callable: state, task_idx -> bool - do the goal "
+            "is_goal_state (callable: state, task_idx=None -> bool; "
+            "task_idx indexes train_tasks, the levels reached so far, and "
+            "None is the current level - do the goal "
             "atoms hold in this one STATE; reaching the goal atoms does not "
             "by itself mean solved), describe_trajectory(traj_idx, "
             "include_states=True, include_atoms=False, max_timesteps=10) "
@@ -902,10 +943,8 @@ def create_synthesis_tools(
         if err:
             return str(err)
 
-        residual_features = (declared if isinstance(declared, dict) else
-                             inferred_residual_features)
-        scope_note = ("declared" if isinstance(declared, dict) else
-                      "inferred (RESIDUAL_FEATURES not declared)")
+        residual_features, scope_note = fit_scope(declared,
+                                                  inferred_residual_features)
         canonical = traj_idxs is None and not fixed
 
         native_model = loaded_native_model

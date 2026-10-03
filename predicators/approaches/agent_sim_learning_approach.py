@@ -34,7 +34,7 @@ from predicators.agent_sdk.tools import SYNTHESIS_TOOL_NAMES, \
 from predicators.agent_sdk.tools.digests import render_trajectory_digest
 from predicators.approaches.agent_base_approach import AgentBaseApproach
 from predicators.approaches.synthesis_validation import \
-    build_candidate_option_model, carry_over_params
+    build_candidate_option_model, carry_over_params, edited_declarations
 from predicators.code_sim_learning.active_experiment import laplace_ensemble, \
     mean_bernoulli_entropy, noisy_read_information, perturbation_ensemble, \
     subsample_ensemble
@@ -738,12 +738,17 @@ class AgentSimLearningApproach(AgentBaseApproach):
                 list((read_physical_param_specs(sim_ns) if isinstance(
                     sim_ns, dict) else None) or []), self._base_env)
         # The agent may have edited simulator.py after the last fit:
-        # pickled fitted params are only valid for matching spec names.
-        spec_names = {s.name for s in specs}
+        # pickled fitted params are only valid for matching spec names. A
+        # subclass model's fitted params are its AGENT_PARAM_SPECS values
+        # (see _sync_subclass_parameters), restored with the identified
+        # physical params above; its rule specs are empty.
+        declared = list(specs) + list(
+            getattr(residual_env_cls, "AGENT_PARAM_SPECS", []))
+        spec_names = {s.name for s in declared}
         if set(self._fitted_params) != spec_names:
             logger.warning(
                 "Checkpointed fitted params %s do not match the restored "
-                "simulator's PARAM_SPECS %s; falling back to declared "
+                "simulator's declared params %s; falling back to declared "
                 "init values.", sorted(self._fitted_params),
                 sorted(spec_names))
             self._fitted_params.clear()
@@ -1061,8 +1066,22 @@ class AgentSimLearningApproach(AgentBaseApproach):
                     "(exec error or missing simulator exports) - "
                     "fix the file and probe again.")
             # The candidate's rule parameters, which the joint belief
-            # covers beside AGENT_PARAM_SPECS (see parameter_belief).
+            # covers beside AGENT_PARAM_SPECS (see parameter_belief). As
+            # for the subclass form (_choose_starting_values), the fitted
+            # file runs at its fit and an edited declaration takes effect
+            # over a carried value.
+            previous_rule_specs = getattr(self, "_probe_rule_specs", None)
             setattr(self, "_probe_rule_specs", list(specs))
+            fit_result = fit_state.get("fit_result")
+            if fit_state.get("digest") == digest and fit_result is not None:
+                names = {s.name for s in specs}
+                self._fitted_params.update({
+                    n: float(v)
+                    for n, v in fit_result.point_estimate.items() if n in names
+                })
+            elif previous_rule_specs is not None:
+                for name in edited_declarations(previous_rule_specs, specs):
+                    self._fitted_params.pop(name, None)
             latent_init = read_latent_init(ns) if isinstance(ns,
                                                              dict) else None
             # The subclass model form: install the candidate's RESIDUAL_ENV
@@ -1097,8 +1116,7 @@ class AgentSimLearningApproach(AgentBaseApproach):
             else:
                 status = (
                     "UNFITTED for the current simulator.py - the candidate "
-                    "runs at the last fit's values where a param still "
-                    "exists (declared init values otherwise); run "
+                    f"runs at {self._unfitted_values_note()}; run "
                     "sim.fit() to fit and deploy the current file before "
                     "trusting quantitative results or a GO verdict")
             self._tool_context.probe_param_status = status
@@ -1335,7 +1353,7 @@ class AgentSimLearningApproach(AgentBaseApproach):
             "train_tasks":
             self._train_tasks,
             "is_goal_state":
-            lambda state, task_idx: self._train_tasks[task_idx].goal_holds(
+            lambda state, task_idx=None: self._level_task(task_idx).goal_holds(
                 state),
             "np":
             np,
@@ -2178,6 +2196,26 @@ class AgentSimLearningApproach(AgentBaseApproach):
         if only_b:
             logger.info("  only in %s: %s", b_label, only_b)
 
+    def _level_task(self, task_idx: Optional[int]) -> Task:
+        """The task ``is_goal_state`` and ``evaluate_trajectory`` score.
+
+        ``task_idx`` indexes ``train_tasks``, the levels reached so far;
+        None is the level in progress (the first task when no level is
+        bound). Defaulting to index 0 scored test-level plans against
+        the first training level's goal.
+        """
+        if task_idx is None:
+            current = self._tool_context.current_task
+            if current is not None:
+                return current
+            task_idx = 0
+        tasks = self._train_tasks
+        if not 0 <= task_idx < len(tasks):
+            raise ValueError(f"task_idx {task_idx} out of range "
+                             f"(0-{len(tasks) - 1}, the levels reached so "
+                             "far; omit it for the current level).")
+        return tasks[task_idx]
+
     def _make_evaluate_trajectory_fn(self) -> Any:
         """Build the ``evaluate_trajectory`` helper exposed in the synthesis
         exec namespace (next to ``is_goal_state``).
@@ -2200,14 +2238,15 @@ class AgentSimLearningApproach(AgentBaseApproach):
         ``None`` (no labels: a replaying certificate then falls back to
         its canonical action).
         """
-        tasks = self._train_tasks
 
         def evaluate_trajectory(states: Sequence[State],
                                 actions: Optional[Sequence[Any]] = None,
-                                task_idx: int = 0,
+                                task_idx: Optional[int] = None,
                                 physics_sweep: bool = False) -> Dict[str, Any]:
-            """Score ``states`` with the task's reward model.
+            """Score ``states`` with a level's reward model.
 
+            ``task_idx`` indexes ``train_tasks``, the levels reached so
+            far; omit it for the current level.
             ``states``: the sequence, ``states[t]`` before action ``t``.
             ``actions``: the recorded ``Action`` objects, or one label
             per transition, ``(option_name, (object_name, ...),
@@ -2233,13 +2272,10 @@ class AgentSimLearningApproach(AgentBaseApproach):
             """
             if physics_sweep and not CFG.continual_uncertainty_decisions:
                 raise ValueError("Explicit uncertainty sweeps are disabled.")
-            if not 0 <= task_idx < len(tasks):
-                raise ValueError(f"task_idx {task_idx} out of range "
-                                 f"(0-{len(tasks) - 1}).")
-            evaluator = tasks[task_idx].evaluator
+            evaluator = self._level_task(task_idx).evaluator
             if evaluator is None:
-                raise ValueError(
-                    f"Train task {task_idx} defines no task evaluator.")
+                which = "(current level)" if task_idx is None else task_idx
+                raise ValueError(f"Task {which} defines no task evaluator.")
             if not states:
                 raise ValueError("`states` must be a non-empty sequence.")
             step_options: Optional[Sequence[Any]] = None
@@ -2502,6 +2538,9 @@ class AgentSimLearningApproach(AgentBaseApproach):
                       and content_key is not None and content_key == cur_key))
         if unchanged:
             return
+        if residual_env_cls is not None:
+            self._choose_starting_values(cur_cls, residual_env_cls,
+                                         content_key)
         self._residual_env_cls = residual_env_cls
         self._residual_env_key = content_key
         self._identified_physical_sigma_points = []
@@ -2510,6 +2549,63 @@ class AgentSimLearningApproach(AgentBaseApproach):
             "Installing subclass model base env" if residual_env_cls
             is not None else "Restoring stock base env (no subclass model)")
         self._sync_subclass_parameters()
+
+    def _unfitted_values_note(self) -> str:
+        """The values an unfitted candidate runs at, for the probe status.
+
+        A subclass model lists them, marking each carried value with its
+        declaration, so the agent can see whether a value it set took
+        effect. The rule form keeps the general description.
+        """
+        cls = getattr(self, "_residual_env_cls", None)
+        specs = list(getattr(cls, "AGENT_PARAM_SPECS", []) or [])
+        if not specs:
+            return ("the last fit's values where a param still exists "
+                    "(declared init values otherwise)")
+        values = getattr(self._base_env, "_agent_param_values", {})
+        shown = []
+        for spec in specs[:12]:
+            value = float(values.get(spec.name, spec.init_value))
+            declared = float(spec.init_value)
+            shown.append(f"{spec.name}={value:.4g}" +
+                         ("" if value == declared else
+                          f" (carried; declared {declared:.4g})"))
+        if len(specs) > 12:
+            shown.append(f"and {len(specs) - 12} more")
+        return ("these values: " + ", ".join(shown) + ". A carried value "
+                "comes from the last fit or round and holds until you "
+                "edit that parameter's declared value")
+
+    def _choose_starting_values(self, previous_cls: Optional[type],
+                                residual_env_cls: type,
+                                content_key: Optional[str]) -> None:
+        """Settle the values a newly installed subclass model starts at.
+
+        The rebuild re-applies ``_identified_physical_params`` (see
+        :meth:`_rebuild_base_env`). The file the last canonical fit was
+        published for runs at that fit's values, so reverting to it
+        restores them. Any other file keeps a carried value only while
+        its parameter's declared ``init_value`` is unchanged since the
+        previous model: an edited declaration is the agent choosing a
+        value, and must take effect.
+        """
+        fit_state = self._probe_fit_state()
+        applied = fit_state.get("applied_physical") or {}
+        if content_key is not None and applied and \
+                fit_state.get("digest") == content_key:
+            self._identified_physical_params = dict(applied)
+            return
+        if previous_cls is None:
+            return
+        edited = edited_declarations(
+            getattr(previous_cls, "AGENT_PARAM_SPECS", []),
+            getattr(residual_env_cls, "AGENT_PARAM_SPECS", []))
+        for name in edited:
+            self._identified_physical_params.pop(name, None)
+        if edited:
+            logger.info(
+                "Declared values edited in simulator.py, taking effect "
+                "over the carried ones: %s", edited)
 
     def _sync_subclass_parameters(self) -> None:
         """Keep existing predicate and sampler views on the native model point.

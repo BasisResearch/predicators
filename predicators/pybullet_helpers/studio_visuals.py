@@ -101,13 +101,14 @@ def apply_floor(env_cls: Any, plane_id: int, physics_client_id: int) -> None:
                             physicsClientId=physics_client_id)
 
 
-def create_walls(env_cls: Any, physics_client_id: int) -> List[int]:
-    """Create visual-only backdrop walls (empty when disabled / no bounds).
+_Vec3 = Tuple[float, float, float]
 
-    Walls carry no collision shape and are not part of the symbolic
-    state; they exist purely so renders read like a room instead of an
-    infinite plane. Four walls fully enclose the workspace (no ceiling,
-    so overhead views still see in).
+
+def wall_specs(env_cls: Any) -> List[Tuple[_Vec3, _Vec3]]:
+    """(center, half extents) of the back (+y), front (-y), left (-x) and right
+    (+x) backdrop walls: a full enclosure with no ceiling.
+
+    Empty when the walls are disabled or the room has no bounds.
     """
     bounds = wall_bounds(env_cls)
     if not env_cls._use_studio_visuals or bounds is None:
@@ -118,14 +119,25 @@ def create_walls(env_cls: Any, physics_client_id: int) -> List[int]:
     cy = (bounds["y_min"] + bounds["y_max"]) / 2
     half_x = (bounds["x_max"] - bounds["x_min"]) / 2
     half_y = (bounds["y_max"] - bounds["y_min"]) / 2
-    # (center, half_extents) for the back (+y), front (-y), left (-x) and
-    # right (+x) walls -- a full enclosure with no ceiling.
-    specs = [
+    return [
         ((cx, bounds["y_max"], half_h), (half_x, half_t, half_h)),
         ((cx, bounds["y_min"], half_h), (half_x, half_t, half_h)),
         ((bounds["x_min"], cy, half_h), (half_t, half_y, half_h)),
         ((bounds["x_max"], cy, half_h), (half_t, half_y, half_h)),
     ]
+
+
+def create_walls(env_cls: Any, physics_client_id: int) -> List[int]:
+    """Create visual-only backdrop walls (empty when disabled / no bounds).
+
+    Walls carry no collision shape and are not part of the symbolic
+    state; they exist purely so renders read like a room instead of an
+    infinite plane. Four walls fully enclose the workspace (no ceiling,
+    so overhead views still see in).
+    """
+    specs = wall_specs(env_cls)
+    if not specs:
+        return []
     texture_id = None
     if env_cls.wall_texture_path is not None:
         texture_id = p.loadTexture(utils.get_env_asset_path(

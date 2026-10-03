@@ -3,6 +3,8 @@ offers."""
 # pylint: disable=protected-access,import-outside-toplevel,unused-import
 from __future__ import annotations
 
+import functools
+
 import numpy as np
 import pytest
 
@@ -64,7 +66,9 @@ def test_evaluate_trajectory_helper(approach_cls):
         Task(states[0], set(), evaluator=evaluator),
         Task(states[0], set()),
     ],
-                           _option_model=None)
+                           _option_model=None,
+                           _tool_context=SimpleNamespace(current_task=None))
+    stub._level_task = functools.partial(approach_cls._level_task, stub)
     fn = approach_cls._make_evaluate_trajectory_fn(stub)
     push = utils.SingletonParameterizedOption(
         "Push", lambda s, m, o, p: Action(np.zeros(1, dtype=np.float32)))
@@ -90,6 +94,12 @@ def test_evaluate_trajectory_helper(approach_cls):
         fn(states, None, task_idx=1)
     with pytest.raises(ValueError, match="out of range"):
         fn(states, None, task_idx=2)
+    # Without an index the helper scores the level in progress.
+    stub._tool_context.current_task = stub._train_tasks[1]
+    with pytest.raises(ValueError, match="no task evaluator"):
+        fn(states, None)
+    stub._tool_context.current_task = stub._train_tasks[0]
+    assert fn(states, [act])["solved"] is False
     with pytest.raises(ValueError, match="non-empty"):
         fn([], None, task_idx=0)
 
@@ -99,7 +109,6 @@ def test_evaluate_trajectory_physics_sweep(approach_cls):
     a fresh env at that physics and reports the fraction scored solved; with no
     points to sweep it says so."""
     import contextlib
-    import functools
     from types import SimpleNamespace
 
     from predicators.structs import TaskEvaluator
@@ -141,9 +150,11 @@ def test_evaluate_trajectory_physics_sweep(approach_cls):
         }, {
             "friction": 0.6
         }],
-        _fresh_validation_env_scope=_scope)
+        _fresh_validation_env_scope=_scope,
+        _tool_context=SimpleNamespace(current_task=None))
     stub._sweep_evaluation = functools.partial(approach_cls._sweep_evaluation,
                                                stub)
+    stub._level_task = functools.partial(approach_cls._level_task, stub)
     fn = approach_cls._make_evaluate_trajectory_fn(stub)
     plain = fn(states, None, task_idx=0)
     assert "sweep" not in plain and plain["solved"] is True

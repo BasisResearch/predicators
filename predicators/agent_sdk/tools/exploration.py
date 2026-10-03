@@ -39,9 +39,9 @@ def belief_probe_blurb(synthesis_probe: bool,
     the deployed belief model; synthesis sessions bind the same facade
     over the candidate simulator. One renderer so the two descriptions
     cannot drift. ``synthesis_probe`` selects the candidate-simulator
-    wording (task_idx-required resets, the model file, and the
-    validation protocol); ``surface`` trims the calls a comparison arm
-    refuses (:class:`ProbeSurface`).
+    wording (level-indexed resets, the model file, and the validation
+    protocol); ``surface`` trims the calls a comparison arm refuses
+    (:class:`ProbeSurface`).
     """
     surface = surface or ProbeSurface()
     if synthesis_probe:
@@ -68,18 +68,20 @@ def belief_probe_blurb(synthesis_probe: bool,
             sim_desc = (
                 "`sim` (a BeliefProbe over the CANDIDATE simulator: your "
                 "current simulator.py, rebuilt automatically when the file "
-                "changes, at the params of your last `sim.fit()` - it never "
+                "changes, at the params of your last `sim.fit()` (a "
+                "declared value you edit afterwards takes effect) - it never "
                 "fits on its own, and results carry a PARAMS UNFITTED "
                 "notice until you fit the current file; errors until a "
                 "loadable simulator.py exists)")
         reset_desc = (
-            "`sim.reset(task_idx, mods=None)` sets the current state "
-            "to a train task's init (task_idx is required in this "
-            "session), optionally with "
+            "`sim.reset(task_idx=None, mods=None)` sets the current state "
+            "to a level's initial observation (the current level by "
+            "default; `task_idx` indexes `train_tasks`, the levels "
+            "reached so far), optionally with "
             "feature overrides (`mods={'obj': {'x': 1.05}}`); ")
-        task_desc = ("`sim.task(task_idx)` describes a train task (goal, "
-                     "objects, initial atoms and state) without touching "
-                     "the current state; ")
+        task_desc = ("`sim.task(task_idx=None)` describes a level (goal, "
+                     "objects, initial atoms and state; the current level "
+                     "by default) without touching the current state; ")
         if surface.fit:
             task_desc += (
                 "`sim.fit(traj_idxs=None, fixed=None)` fits "
