@@ -366,6 +366,8 @@ class PyBulletEnv(BaseEnv):
         # Asset records a disconnected world left on this client id would
         # mislabel this world's bodies in a scene manifest.
         drop_stale_assets(self._physics_client_id, asset_build)
+        # True once dispose() has released this client.
+        self._disposed = False
         if self._world_gap is not None:
             self._world_gap.configure_engine(self._physics_client_id)
         self._store_pybullet_bodies(pybullet_bodies)
@@ -2873,10 +2875,18 @@ class PyBulletEnv(BaseEnv):
         return fresh
 
     def dispose(self) -> None:
-        """Disconnect this instance's PyBullet client."""
+        """Disconnect this instance's PyBullet client.
+
+        Only the first call releases anything. PyBullet gives a
+        disconnected client's id to the next client that connects, so a
+        repeated call would release that client's world.
+        """
+        if self._disposed:
+            return
+        self._disposed = True
         world_gap.release_world(self._physics_client_id)
         forget_client_assets(self._physics_client_id)
-        p.disconnect(self._physics_client_id)
+        p.disconnect(physicsClientId=self._physics_client_id)
 
     # ── Task Utilities ──────────────────────────────────────────
 

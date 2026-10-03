@@ -186,7 +186,11 @@ class RoboDiscoEnv(gymnasium.Env):
         return None
 
     def close(self) -> None:
-        pass
+        """Disconnect the wrapped env's PyBullet client.
+
+        Repeated calls do nothing, as Gymnasium requires.
+        """
+        self._env.dispose()
 
 
 # ---------------------------------------------------------------------------
