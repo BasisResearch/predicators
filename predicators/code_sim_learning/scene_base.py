@@ -14,16 +14,21 @@ exactly what a robot deployment knows without a domain model:
 - the observation schema (the types) and the render camera;
 - the binding of observed object names to the bodies the subclass's
   ``initialize_pybullet`` returns under those names, and a store that
-  round-trips the scalar features nothing in the engine backs.
+  round-trips the scalar features nothing in the engine backs;
+- the engine's material properties as fittable parameters, per
+  observed type and for the static support (``get_physical_param_info``).
 
 It has no scene, no mechanism and no calibration: every body, joint
-reading and force is the subclass's.
+reading and force is the subclass's, and a material property keeps the
+value the scene gives it until the subclass declares it.
 """
 from __future__ import annotations
 
 import os
 from typing import Any, ClassVar, Dict, Iterable, List, Optional, Set, Tuple
 from typing import Type as TypingType
+
+import pybullet as p
 
 from predicators import utils
 from predicators.envs.pybullet_env import PyBulletEnv
@@ -44,6 +49,36 @@ _ROBOT_ATTRIBUTES = ("robot_base_pos", "robot_base_orn", "robot_init_roll",
 _CAMERA_ATTRIBUTES = ("_camera_distance", "_camera_yaw", "_camera_pitch",
                       "_camera_target", "_camera_fov")
 
+# The engine's material properties of a body, offered for fitting as
+# ``<group>_<property>``: property -> (fit box lo, hi, scale, meaning).
+# A mass box is set around the scene's own value.
+MATERIALS: Dict[str, Tuple[Optional[float], Optional[float], str, str]] = {
+    "mass": (None, None, "log", "total mass in kg; inertia scales with it"),
+    "lateral_friction":
+    (0.01, 3.0, "log", "friction coefficient against sliding"),
+    "spinning_friction":
+    (0.0, 1.0, "linear", "friction against twisting about a contact normal"),
+    "rolling_friction": (0.0, 0.1, "linear", "friction against rolling"),
+    "restitution": (0.0, 1.0, "linear", "bounce of a contact"),
+    "linear_damping": (0.0, 1.0, "linear", "damping of linear velocity"),
+    "angular_damping": (0.0, 1.0, "linear", "damping of angular velocity"),
+}
+# Static bodies with no observed name (tables, walls, fixtures) form the
+# support group; mass and damping mean nothing for a body that never moves.
+SUPPORT_GROUP = "support"
+_CONTACT_MATERIALS = ("lateral_friction", "spinning_friction",
+                      "rolling_friction", "restitution")
+# PyBullet reports no damping back; this is its default for every body.
+_DEFAULT_DAMPING = 0.04
+_CHANGE_DYNAMICS_KEYS = {
+    "lateral_friction": "lateralFriction",
+    "spinning_friction": "spinningFriction",
+    "rolling_friction": "rollingFriction",
+    "restitution": "restitution",
+    "linear_damping": "linearDamping",
+    "angular_damping": "angularDamping",
+}
+
 
 class SceneBase(PyBulletEnv):
     """The concrete base an agent-built scene model subclasses.
@@ -59,6 +94,13 @@ class SceneBase(PyBulletEnv):
     subclass's: override ``_set_domain_specific_state`` and
     ``_get_domain_specific_feature`` and call ``super()`` for the rest.
     Mechanisms go in ``_domain_specific_step``.
+
+    The engine's material properties are fittable parameters named
+    ``<group>_<property>`` (``MATERIALS``): a group is an observed type
+    with bodies, or ``support`` for the static bodies without an observed
+    name. A name the subclass declares in ``AGENT_PARAM_SPECS`` is set
+    on every body of its group after each reset and whenever its value
+    changes; an undeclared one only describes the scene.
     """
     # Bound by scene_base_class.
     _scene_env_name: ClassVar[str] = "agent_scene"
@@ -74,6 +116,13 @@ class SceneBase(PyBulletEnv):
                  skip_residual_dynamics: bool = False) -> None:
         self._scene_bodies: Dict[str, Any] = {}
         self._feature_store: Dict[Tuple[str, str], float] = {}
+        # (group, property) -> the value the scene itself gave the group's
+        # first body, before any declared value was set.
+        self._material_baseline: Dict[Tuple[str, str], float] = {}
+        self._material_layout: Optional[Tuple[Tuple[int, int], Dict[str,
+                                                                    List[int]],
+                                              Dict[str, Tuple[str,
+                                                              str]]]] = None
         super().__init__(use_gui=use_gui,
                          skip_residual_dynamics=skip_residual_dynamics)
         self._robot = Object("robot", self._type_named("robot"))
@@ -172,6 +221,10 @@ class SceneBase(PyBulletEnv):
                 "body id from initialize_pybullet under its observed name, "
                 "or None under that name for an object with no body.")
         super()._set_state(rebound)
+        # Binding names the groups; a reset may have rebuilt bodies or
+        # restored the scene's own dynamics.
+        self._note_material_baselines()
+        self._apply_materials()
 
     def _set_domain_specific_state(self, state: State) -> None:
         """Round-trip every feature no body pose carries through the feature
@@ -203,6 +256,166 @@ class SceneBase(PyBulletEnv):
             obj.id for obj in self._objects
             if obj.id is not None and obj.id != robot_id
         ]
+
+    # -- Engine materials --------------------------------------------------
+
+    def get_physical_param_info(self) -> Dict[str, Dict]:
+        """The material menu of the current scene, then the declared parameters
+        (a declaration's own box wins over the menu's)."""
+        groups, menu = self._materials()
+        info: Dict[str, Dict] = {}
+        for name, (group, prop) in menu.items():
+            lo, hi, scale, meaning = MATERIALS[prop]
+            default = self._material_baseline.get(
+                (group, prop), self._read_material(groups[group][0], prop))
+            if prop == "mass":
+                lo, hi = default / 20.0, default * 20.0
+            entry: Dict[str, Any] = {
+                "default": default,
+                "lo": lo,
+                "hi": hi,
+                "description": f"{meaning}, of every {group} body",
+            }
+            if scale == "log":
+                entry["scale"] = "log"
+            info[name] = entry
+        info.update(super().get_physical_param_info())
+        return info
+
+    def apply_physical_param_overrides(self, params: Dict[str, float]) -> None:
+        """Set declared parameters, materials included.
+
+        An undeclared material is not a setter: a fit pins every
+        parameter it does not estimate to its default, which must not
+        override what the scene's own code set. Material names are known
+        from the observed types, so a fresh world that has bound no body
+        yet accepts the menu another world of the same scene reports.
+        """
+        materials = self._material_names()
+        declared = {spec.name for spec in type(self).AGENT_PARAM_SPECS}
+        super().apply_physical_param_overrides({
+            name: value
+            for name, value in params.items()
+            if name not in materials or name in declared
+        })
+        self._apply_materials()
+
+    @classmethod
+    def _material_names(cls) -> Set[str]:
+        """Every material name the menu can offer for this scene's types."""
+        names = {f"{SUPPORT_GROUP}_{prop}" for prop in _CONTACT_MATERIALS}
+        for scene_type in cls._scene_types:
+            if scene_type.name != "robot":
+                names.update(f"{scene_type.name}_{prop}" for prop in MATERIALS)
+        return names
+
+    def _materials(
+            self) -> Tuple[Dict[str, List[int]], Dict[str, Tuple[str, str]]]:
+        """The material groups (body ids per group) and the menu (parameter
+        name -> (group, property)) of the current scene.
+
+        A group is an observed type with bodies, or the support: every
+        static body without an observed name. A group whose bodies are
+        all static offers only its contact properties. Kept until a body
+        or an observed object is added.
+        """
+        client = self._physics_client_id
+        key = (len(self._body_objects), p.getNumBodies(physicsClientId=client))
+        if self._material_layout is not None and \
+                self._material_layout[0] == key:
+            return self._material_layout[1], self._material_layout[2]
+        robot_id = self._pybullet_robot.robot_id
+        groups: Dict[str, List[int]] = {}
+        for obj in self._body_objects.values():
+            if obj.id is not None and obj.id != robot_id:
+                groups.setdefault(obj.type.name, []).append(obj.id)
+        named = {body for bodies in groups.values() for body in bodies}
+        if SUPPORT_GROUP not in groups:
+            for index in range(p.getNumBodies(physicsClientId=client)):
+                body = p.getBodyUniqueId(index, physicsClientId=client)
+                if body != robot_id and body not in named and \
+                        self._read_material(body, "mass") == 0.0:
+                    groups.setdefault(SUPPORT_GROUP, []).append(body)
+        menu: Dict[str, Tuple[str, str]] = {}
+        for group, bodies in sorted(groups.items()):
+            moving = any(
+                self._read_material(body, "mass") > 0.0 for body in bodies)
+            for prop in (MATERIALS if moving else _CONTACT_MATERIALS):
+                menu[f"{group}_{prop}"] = (group, prop)
+        self._material_layout = (key, groups, menu)
+        return groups, menu
+
+    def _note_material_baselines(self) -> None:
+        """Record what the scene gives each newly seen group, before any
+        declared value is set on it."""
+        groups, menu = self._materials()
+        for group, prop in menu.values():
+            if (group, prop) not in self._material_baseline:
+                self._material_baseline[(group, prop)] = self._read_material(
+                    groups[group][0], prop)
+
+    def _apply_materials(self) -> None:
+        """Set every declared material parameter on its group's bodies."""
+        declared = [spec.name for spec in type(self).AGENT_PARAM_SPECS]
+        if not declared:
+            return
+        groups, menu = self._materials()
+        for name in declared:
+            if name in menu:
+                group, prop = menu[name]
+                for body in groups[group]:
+                    self._write_material(body, prop,
+                                         self._agent_param_values[name])
+
+    def _body_links(self, body: int) -> range:
+        return range(
+            -1, p.getNumJoints(body, physicsClientId=self._physics_client_id))
+
+    def _read_material(self, body: int, prop: str) -> float:
+        """A body's material property; its total over links for mass."""
+        client = self._physics_client_id
+        if prop == "mass":
+            return float(
+                sum(
+                    p.getDynamicsInfo(body, link, physicsClientId=client)[0]
+                    for link in self._body_links(body)))
+        if prop in ("linear_damping", "angular_damping"):
+            return _DEFAULT_DAMPING
+        info = p.getDynamicsInfo(body, -1, physicsClientId=client)
+        return float({
+            "lateral_friction": info[1],
+            "restitution": info[5],
+            "rolling_friction": info[6],
+            "spinning_friction": info[7],
+        }[prop])
+
+    def _write_material(self, body: int, prop: str, value: float) -> None:
+        """Set a material property on every link of a body.
+
+        A mass scales each moving link's mass and inertia; a static body
+        stays static.
+        """
+        client = self._physics_client_id
+        if prop == "mass":
+            total = self._read_material(body, "mass")
+            if total <= 0.0 or value == total:
+                return
+            factor = float(value) / total
+            for link in self._body_links(body):
+                info = p.getDynamicsInfo(body, link, physicsClientId=client)
+                if info[0] > 0.0:
+                    p.changeDynamics(
+                        body,
+                        link,
+                        mass=info[0] * factor,
+                        localInertiaDiagonal=[v * factor for v in info[2]],
+                        physicsClientId=client)
+            return
+        for link in self._body_links(body):
+            p.changeDynamics(body,
+                             link,
+                             physicsClientId=client,
+                             **{_CHANGE_DYNAMICS_KEYS[prop]: float(value)})
 
 
 def scene_base_class(env_name: str, types: Iterable[Type],

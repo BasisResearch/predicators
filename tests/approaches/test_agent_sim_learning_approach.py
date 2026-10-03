@@ -20,9 +20,11 @@ from predicators.agent_sdk.sketch_types import SketchStep as _SketchStep
 from predicators.approaches import agent_sim_learning_approach as asla
 from predicators.approaches.agent_sim_learning_approach import \
     AgentSimLearningApproach
+from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.code_sim_learning.utils import LearnedSimulator, \
     apply_rules, merge_updates
 from predicators.envs import create_new_env
+from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.envs.pybullet_fan import PyBulletFanEnv
 from predicators.ground_truth_models import get_gt_options
 from predicators.ground_truth_models.boil.gt_simulator import PARAM_SPECS, \
@@ -839,6 +841,62 @@ def test_rehydrate_rebuilds_simulator_from_restored_file(
             "lateral_friction": 0.5
         }), "ensemble"
     ]
+
+
+def test_rehydrate_keeps_a_subclass_models_parameters(tmp_path, monkeypatch,
+                                                      caplog):
+    """A subclass model's fitted params are its AGENT_PARAM_SPECS values, and
+    its rule PARAM_SPECS are empty: a restart keeps the values, with no warning
+    that they fell back to declared inits."""
+
+    class _Scene(PyBulletEnv):  # never built: only its specs are read
+        AGENT_PARAM_SPECS = [ParamSpec("k", 0.5, lo=0.0, hi=1.0)]
+
+    obj, sandbox = _make_checkpoint_stub(tmp_path, monkeypatch)
+    (sandbox / "simulator.py").write_text("RESIDUAL_ENV = None\n")
+    utils.reset_config({"agent_explorer_info_seeking": False})
+    obj._residual_rules = None
+    obj._learned_simulator = None
+    obj._latent_init = None
+    obj._fit_trajectories = []
+    obj._base_env = SimpleNamespace(get_physical_param_info=lambda: {})
+    obj._fitted_params = {"k": 0.9}
+    obj._identified_physical_params = {"k": 0.9}
+    monkeypatch.setattr(
+        AgentSimLearningApproach, "_resolve_synthesis_paths", lambda self:
+        SimpleNamespace(base=str(sandbox),
+                        simulator_file=str(sandbox / "simulator.py"),
+                        versions_dir=str(sandbox / "simulator_versions"),
+                        simulator_file_for_agent="./simulator.py",
+                        sandbox_dir_for_agent="."))
+    monkeypatch.setattr(AgentSimLearningApproach, "_get_all_trajectories",
+                        lambda self: [])
+    monkeypatch.setattr(AgentSimLearningApproach,
+                        "_load_simulator_from_module_file",
+                        lambda self, path, trajectories=None:
+                        ([], [], {
+                            "block": ["x"]
+                        }, {
+                            "RESIDUAL_ENV": _Scene
+                        }))
+    installed = []
+    monkeypatch.setattr(AgentSimLearningApproach,
+                        "_install_residual_env_cls",
+                        lambda self, cls, key=None: installed.append(cls))
+    monkeypatch.setattr(AgentSimLearningApproach, "_build_combined_simulator",
+                        lambda self, sim: (lambda s, a: s))
+    monkeypatch.setattr(AgentSimLearningApproach, "_build_option_model",
+                        lambda self, fn: SimpleNamespace())
+    monkeypatch.setattr(AgentSimLearningApproach,
+                        "_apply_identified_physical_params",
+                        lambda self, p: None)
+    monkeypatch.setattr(AgentSimLearningApproach, "_rebuild_param_ensemble",
+                        lambda self: None)
+    with caplog.at_level(logging.WARNING):
+        obj._rehydrate_from_artifacts()
+    assert installed == [_Scene]
+    assert obj._fitted_params == {"k": 0.9}
+    assert "do not match" not in caplog.text
 
 
 def test_rehydrate_without_simulator_is_graceful(tmp_path, monkeypatch):

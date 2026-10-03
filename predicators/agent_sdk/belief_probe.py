@@ -846,9 +846,9 @@ class BeliefProbe:
 
     Typical loop::
 
-        print(sim.task())      # goal + objects + init details (no state
-                               # change; pass task_idx in synthesis)
-        sim.reset()                                   # true task init
+        print(sim.task())      # the current level's goal, objects and
+                               # init details (no state change)
+        sim.reset()                                   # the level's start
         sim.reset(mods={"domino_1": {"x": 0.46}})     # modified copy
         sid = sim.snapshot()
         out = sim.run("Push(robot:robot, domino_0:domino)[0.05, 0.05]\\n"
@@ -923,6 +923,21 @@ class BeliefProbe:
             return ctx.probe_validation_env_scope
         return ctx.validation_env_scope
 
+    def _task_at(self, task_idx: Optional[int]) -> Task:
+        """The task at ``task_idx`` in ``train_tasks`` (the levels reached so
+        far), or the current level's task for None."""
+        ctx = self._ctx
+        if task_idx is None:
+            if ctx.current_task is None:
+                raise ValueError("No task_idx given and no current task set.")
+            return ctx.current_task
+        if not 0 <= task_idx < len(ctx.train_tasks):
+            raise ValueError(
+                f"Invalid task_idx {task_idx}. Available: "
+                f"0-{len(ctx.train_tasks) - 1}, the levels reached so far; "
+                "omit it for the current level.")
+        return ctx.train_tasks[task_idx]
+
     def reset(self,
               task_idx: Optional[int] = None,
               mods: Optional[Modifications] = None,
@@ -930,8 +945,9 @@ class BeliefProbe:
         """Set the current state to a task's initial state, optionally with
         object-feature overrides applied to a copy.
 
-        ``task_idx`` indexes the train tasks; ``None`` uses the current
-        solve-time task. ``current=True`` starts instead from the last
+        ``task_idx`` indexes ``train_tasks``, the levels reached so far
+        (0 is the first, the last is the current level); ``None`` uses
+        the current level. ``current=True`` starts instead from the last
         real observation the session recorded (every env tool result
         refreshes it), with inferred memory refreshed for the current
         model, so a rollout begins where the environment is now; the
@@ -967,22 +983,10 @@ class BeliefProbe:
             self._tracking_current_task = True
             self._pristine = False
             return self
-        if (task_idx is None and ctx.probe_option_model_provider is not None):
-            # Synthesis session: "current task" is a solve-time pointer
-            # and may dangle at whatever task the harness touched last -
-            # silently probing it is the stale-current-task bug class.
-            raise ValueError(
-                "During synthesis there is no current solve task; pass "
-                "task_idx explicitly, e.g. sim.reset(task_idx=0).")
-        if task_idx is not None:
-            if not 0 <= task_idx < len(ctx.train_tasks):
-                raise ValueError(f"Invalid task_idx {task_idx}. Available: "
-                                 f"0-{len(ctx.train_tasks) - 1}")
-            task = ctx.train_tasks[task_idx]
-        elif ctx.current_task is not None:
-            task = ctx.current_task
-        else:
-            raise ValueError("No task_idx given and no current task set.")
+        # Continual play binds ctx.current_task to the level in progress
+        # at every level start, so a plain reset() stages that level: on a
+        # test level, a forced task_idx=0 staged the first training level.
+        task = self._task_at(task_idx)
         state = task.init
         if mods:
             mod_list = self._normalize_mods(mods)
@@ -1060,37 +1064,35 @@ class BeliefProbe:
         """Describe a task: goal (NL preferred), initial atoms, objects, and
         initial-state details.
 
-        ``task_idx`` indexes the train tasks; ``None`` (solve sessions
-        only) describes the current solve-time task. Purely
-        informational - does not change the probe's current state. Use
+        ``task_idx`` indexes ``train_tasks``, the levels reached so far;
+        ``None`` describes the current level. Purely informational -
+        does not change the probe's current state. Use
         ``reset(task_idx)`` + ``render()`` for the scene image.
         """
         # pylint: disable-next=import-outside-toplevel
         from predicators.agent_sdk.tools.digests import render_task_digest
         ctx = self._ctx
-        if task_idx is None and ctx.probe_option_model_provider is not None:
-            raise ValueError(
-                "During synthesis there is no current solve task; pass "
-                "task_idx explicitly, e.g. sim.task(0).")
-        if task_idx is not None:
-            if not 0 <= task_idx < len(ctx.train_tasks):
-                raise ValueError(f"Invalid task_idx {task_idx}. Available: "
-                                 f"0-{len(ctx.train_tasks) - 1}")
-            task = ctx.train_tasks[task_idx]
-            label: Union[int, str] = task_idx
-        elif ctx.current_task is not None:
-            task = ctx.current_task
-            label = "(current solve task)"
-        else:
-            raise ValueError("No task_idx given and no current task set.")
+        task = self._task_at(task_idx)
+        # The current level is the last of train_tasks in continual play;
+        # its index is what task_idx, is_goal_state and train_tasks take.
+        index: Optional[int] = task_idx
+        if index is None:
+            for i, candidate in enumerate(ctx.train_tasks):
+                if candidate is task:
+                    index = i
+                    break
+        label: Union[int, str] = "(current level)" if index is None else index
         # The is_goal_state/train_tasks query hint only makes sense in
-        # synthesis sessions, whose exec namespace binds those names.
+        # sessions whose exec namespace binds those names, for a task in
+        # train_tasks.
         return render_task_digest(
             task,
             label,
             ctx.predicates,
-            include_goal_query_hint=(ctx.probe_option_model_provider
-                                     is not None))
+            include_goal_query_hint=(index is not None
+                                     and ctx.probe_option_model_provider
+                                     is not None),
+            current_level=task_idx is None)
 
     def fit(self,
             traj_idxs: Optional[List[int]] = None,

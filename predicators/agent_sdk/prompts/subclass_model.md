@@ -44,13 +44,18 @@ Import dependencies at module scope; `np` and `ParamSpec` are also pre-injected 
 
 Export `RESIDUAL_ENV`, a subclass of the supplied `SceneBase`, from `./simulator.py`.
 `SceneBase` is pre-injected when the file loads; its source is at `reference/base_sim/scene_base.py`, read-only.
-It supplies the robot, its home pose and gripper conventions, the observation types, the render camera, and the binding of observed object names to the bodies you load; it holds no scene, no mechanism and no calibration.
+It supplies the robot, its home pose and gripper conventions, the observation types, the render camera, the binding of observed object names to the bodies you load, and your bodies' engine materials as parameters; it holds no scene, no mechanism and no calibration.
 Override the classmethod `initialize_pybullet(cls, using_gui)`: call `super()` (it connects the engine and loads the ground plane and the robot), load every body the manifest lists with `p.loadURDF(cls.asset(path), globalScaling=scale, useFixedBase=..., physicsClientId=client)` or `p.createMultiBody` for primitive shapes, and return the bodies dict with each observed object's body id under its observed name (`None` under the name of an observed object that has no body).
+A body the manifest marks `visual_only` has no collision shape: nothing touches it, but it is part of the scene a camera sees, such as a ceiling or a target band, and its visual shapes give its place and size.
 Observed poses set body poses through the base; features no pose carries (a switch reading, a level, a flag) round-trip through the base's feature store unless you override `_set_domain_specific_state` and `_get_domain_specific_feature` to back them with joints or your own state, calling `super()` for the rest.
 Implement the mechanisms in `_domain_specific_step(self)`; ordinary Python functions and methods can keep simple mechanisms small.
 
-Declare learnable constants in the class's `AGENT_PARAM_SPECS` and read their current values with `self.agent_param(name)`; masses, frictions and other engine properties you set are constants of your scene until you declare them.
-Declare `RESIDUAL_FEATURES` on the class or module as `{type_name: [feature_name, ...]}` to name the observed quantities your model owns; the deployment gate requires it (`{}` if none).
+Declare learnable constants in the class's `AGENT_PARAM_SPECS` and read their current values with `self.agent_param(name)`.
+The base offers the engine materials of your bodies as parameters: for every observed type whose objects have bodies, `<type>_mass` (total mass, with inertia scaled to it), `<type>_lateral_friction`, `<type>_spinning_friction` (resistance to twisting about a contact), `<type>_rolling_friction`, `<type>_restitution`, `<type>_linear_damping` and `<type>_angular_damping`; and `support_lateral_friction`, `support_spinning_friction`, `support_rolling_friction` and `support_restitution` for the static bodies you load without an observed name.
+Declare any of these names in `AGENT_PARAM_SPECS` to make it a parameter of your model: the base sets it on every body of its group after each reset and whenever its value changes, so do not also set it in your own code.
+Undeclared, a material keeps the value your scene gives it, or PyBullet's default: lateral friction 0.5, spinning and rolling friction 0, restitution 0 and damping 0.04.
+Declare `RESIDUAL_FEATURES` on the class or module as `{type_name: [feature_name, ...]}` to select the observed quantities the fit scores your scene on: the poses that forces and contacts move and the readings your mechanisms change.
+The deployment gate requires it; an empty one scores every feature of the scene's objects that the recorded data shows changing.
 Export only `RESIDUAL_ENV` as the dynamics implementation.
 
 ```python

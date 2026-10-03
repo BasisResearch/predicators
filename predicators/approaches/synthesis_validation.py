@@ -13,7 +13,7 @@ surface they touch.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Sequence, Tuple
 
 from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.code_sim_learning.utils import LearnedSimulator, \
@@ -87,6 +87,23 @@ def carry_over_params(fitted: Dict[str, float],
         else:
             out[spec.name] = float(spec.init_value)
     return out
+
+
+def edited_declarations(previous: Sequence[ParamSpec],
+                        current: Sequence[ParamSpec]) -> List[str]:
+    """Parameters whose declared ``init_value`` changed between two loads of
+    the model file.
+
+    Editing a declared value is how the agent sets or sweeps a constant,
+    so a value carried over from the previous load must give way to the
+    new declaration. Otherwise the edit runs at the old value with no
+    sign of it: in the Sept 21, 2026 from-assets pilot a Domino friction
+    sweep by edits returned identical rollouts.
+    """
+    before = {spec.name: float(spec.init_value) for spec in previous}
+    return sorted(
+        spec.name for spec in current
+        if spec.name in before and before[spec.name] != float(spec.init_value))
 
 
 def _finish_candidate_model(approach: "SynthesisBackend", rules: List,

@@ -84,14 +84,14 @@ The run is one conversation. A round consists of one harness prompt and your res
 | Check recorded behavior | `sim.validate()` replays recordings at deployed values, including recordings rejected by a robust fit. `sim.residuals()` locates errors; read which parameter values its report scores. |
 | Compare hypotheses | `sim.fit(traj_idxs=[...])` reports a fit without publishing it. Pass those values to `sim.validate(traj_idxs=[...], params={...})` to compare candidates on identical data. |
 | Load predicates | `sim.predicates()` reloads and installs the current definitions and reports their behavior on recorded episodes. Call it after editing predicates. |
-| Choose a start | `sim.reset()` uses the current level's initial state; `sim.reset(current=True)` uses the latest real observation and available model-memory estimate. `sim.reset(task_idx=i, mods={...})` stages a chosen task and feature modifications. |
+| Choose a start | `sim.reset()` uses the current level's initial state; `sim.reset(current=True)` uses the latest real observation and available model-memory estimate. `sim.reset(task_idx=i, mods={...})` stages level `i` of `train_tasks`, the levels reached so far, with feature modifications. |
 | Refine and rehearse | `sim.refine(plan, require_goal=True)` searches skill parameters; run the refined plan continuously with `sim.run(plan, solved=True)`. |
 | Check reliability | Repeated rehearsals at the same state and dynamics (`trials>=2`) check controller reliability. Parameter sweeps, belief draws and `sim.belief()` are disabled in this run. |
 | Inspect and branch | `sim.render(label, annotations=[...])` visualizes a staged scene; `sim.snapshot()` and `sim.restore()` preserve branches. |
 
 ### Interpreting task verdicts
 
-`is_goal_state(state, task_idx)` and `evaluate_trajectory(states, actions=None, task_idx=0)` expose the task's reward model. `sim.run(...).states` supplies a continuous predicted trajectory to score. Where evaluation includes a physical replay, it uses your candidate simulator; even a verdict on recorded states can depend on that model. Pass action labels for tasks whose evaluator replays an action: one `("Skill", ("obj", ...), (param, ...))` per transition, or `None` for an unlabeled transition. Without labels the evaluator may use a canonical action; read the verdict's `note` to see what it actually scored.  Only the live environment's `WIN` certifies completion.
+`is_goal_state(state, task_idx=None)` and `evaluate_trajectory(states, actions=None, task_idx=None)` expose a level's reward model, the current level's by default. `sim.run(...).states` supplies a continuous predicted trajectory to score. Where evaluation includes a physical replay, it uses your candidate simulator; even a verdict on recorded states can depend on that model. Pass action labels for tasks whose evaluator replays an action: one `("Skill", ("obj", ...), (param, ...))` per transition, or `None` for an unlabeled transition. Without labels the evaluator may use a canonical action; read the verdict's `note` to see what it actually scored.  Only the live environment's `WIN` certifies completion.
 
 ## Model API reference
 

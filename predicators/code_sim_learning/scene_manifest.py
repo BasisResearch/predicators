@@ -13,12 +13,13 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 import pybullet as p
 
 from predicators import utils
 from predicators.envs.pybullet_env import PyBulletEnv
+from predicators.pybullet_helpers import studio_visuals
 from predicators.pybullet_helpers.objects import loaded_asset
 from predicators.settings import CFG
 from predicators.structs import State
@@ -51,8 +52,10 @@ LEGEND = {
              "observation; the others list their fixed base pose"),
     "omitted": ("masses, frictions, restitution and damping are not "
                 "recorded; model or estimate them"),
-    "not_listed": ("the ground plane and the robot, which SceneBase's "
-                   "initialize_pybullet loads itself"),
+    "visual_only": ("bodies with no collision shape: they are seen, never "
+                    "touched, and list their visual shapes instead"),
+    "not_listed": ("the ground plane, the backdrop walls and the robot, "
+                   "which SceneBase's initialize_pybullet loads itself"),
 }
 
 
@@ -116,6 +119,27 @@ def _shape_entries(body_id: int, link: int, client: int,
     return entries
 
 
+def _visual_entries(visuals: List[Any],
+                    files: Set[str]) -> List[Dict[str, Any]]:
+    """A link's visual shapes, in the collision shapes' format plus colour."""
+    entries = []
+    for visual in visuals:
+        entry: Dict[str, Any] = {
+            "geometry": _GEOMETRY_NAMES.get(visual[2], str(visual[2])),
+            "dimensions": [float(v) for v in visual[3]],
+            "local_position": [float(v) for v in visual[5]],
+            "local_orientation": [float(v) for v in visual[6]],
+            "rgba": [float(v) for v in visual[7]],
+        }
+        filename = _decode(visual[4])
+        if filename:
+            files.add(filename)
+            entry["file"] = _relative_asset(filename) or os.path.basename(
+                filename)
+        entries.append(entry)
+    return entries
+
+
 def _link_entry(body_id: int, link: int, name: str, visuals: Dict[int,
                                                                   List[Any]],
                 client: int, files: Set[str]) -> Dict[str, Any]:
@@ -128,6 +152,8 @@ def _link_entry(body_id: int, link: int, name: str, visuals: Dict[int,
                for visual in visuals.get(link, [])]
     if colours:
         entry["visual_rgba"] = colours[0] if len(colours) == 1 else colours
+    if not entry["shapes"] and visuals.get(link):
+        entry["visual_shapes"] = _visual_entries(visuals[link], files)
     return entry
 
 
@@ -183,6 +209,17 @@ def _body_entry(body_id: int, client: int, object_name: Optional[str],
     return entry
 
 
+def _offstage(position: Sequence[float], backdrop: List[Tuple[float, float,
+                                                              float]]) -> bool:
+    """Whether an unobserved body is a spare parked out of view or one of the
+    backdrop walls the scene base builds itself."""
+    if sum(v * v for v in position)**0.5 > _OUT_OF_VIEW_DISTANCE:
+        return True
+    return any(
+        max(abs(a - b) for a, b in zip(position, center)) < 1e-6
+        for center in backdrop)
+
+
 def build_scene_manifest(
         env: PyBulletEnv,
         state: State) -> Tuple[Dict[str, Any], Dict[str, str]]:
@@ -204,6 +241,8 @@ def build_scene_manifest(
     }
     files: Set[str] = set()
     bodies: List[Dict[str, Any]] = []
+    # The scene base builds the backdrop walls as the deployment does.
+    backdrop = [center for center, _ in studio_visuals.wall_specs(type(env))]
     for index in range(p.getNumBodies(physicsClientId=client)):
         body_id = p.getBodyUniqueId(index, physicsClientId=client)
         if body_id == robot_id:
@@ -211,17 +250,20 @@ def build_scene_manifest(
         object_name = names_by_body.get(body_id)
         position, _ = p.getBasePositionAndOrientation(body_id,
                                                       physicsClientId=client)
-        if object_name is None and (sum(v * v for v in position)**0.5 >
-                                    _OUT_OF_VIEW_DISTANCE):
+        if object_name is None and _offstage(position, backdrop):
             continue
         entry = _body_entry(body_id, client, object_name, files)
-        # Backdrop decoration has no collision shape and no observed
-        # object; it is not part of the scene. The ground plane is the
-        # scene base's own.
-        if object_name is None and (entry["body_name"] == "plane"
-                                    or not any(link["shapes"]
-                                               for link in entry["links"])):
+        # The ground plane is the scene base's own, like the backdrop. A
+        # body without a collision shape is still seen: a ceiling that
+        # marks a burst height, a target band, a pedestal post. A camera
+        # would report it, so it is listed with its visual shapes.
+        if object_name is None and entry["body_name"] == "plane":
             continue
+        if not any(link["shapes"] for link in entry["links"]):
+            if object_name is None and not any(
+                    link.get("visual_shapes") for link in entry["links"]):
+                continue
+            entry["visual_only"] = True
         bodies.append(entry)
     bodies.sort(
         key=lambda b: (b["object"] is None, b["object"] or "", b["body_name"]))

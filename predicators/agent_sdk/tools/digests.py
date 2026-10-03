@@ -59,17 +59,19 @@ def render_options_digest(options: Iterable[Any],
 def render_task_digest(task: Any,
                        task_idx: Union[int, str],
                        predicates: Collection[Any],
-                       include_goal_query_hint: bool = False) -> str:
+                       include_goal_query_hint: bool = False,
+                       current_level: bool = False) -> str:
     """Goal (NL preferred), initial atoms, objects, and init-state details for
     one task.
 
-    ``task_idx`` is the header label; a string (e.g. ``"(current solve
-    task)"``) is allowed for tasks outside the train list.
+    ``task_idx`` is the header label; a string (e.g. ``"(current
+    level)"``) is allowed for tasks outside the train list.
     ``include_goal_query_hint`` adds the ``is_goal_state`` /
     ``goal_holds`` pointer, which only makes sense (and is only
     numerically valid) in sessions whose exec namespace binds those
     names (synthesis ``run_python``), so pass it only with an integer
-    ``task_idx``.
+    ``task_idx``. ``current_level`` marks an integer ``task_idx`` as the
+    level in progress in the header.
     """
     if task.goal_nl:
         goal_line = f"  Goal (natural language): {task.goal_nl}"
@@ -89,7 +91,9 @@ def render_task_digest(task: Any,
         hint_line = (f"  Goal achievement: query "
                      f"`is_goal_state(state, {task_idx})` or "
                      f"`train_tasks[{task_idx}].goal_holds(state)`.\n")
-    return (f"Task {task_idx}:\n"
+    marker = (" (current level)"
+              if current_level and isinstance(task_idx, int) else "")
+    return (f"Task {task_idx}{marker}:\n"
             f"{goal_line}\n"
             f"{hint_line}"
             f"  Initial atoms: {{{atoms_str}}}\n"
