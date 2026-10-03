@@ -93,6 +93,22 @@ def test_benchmark_is_seven_arms_on_five_settings() -> None:
             assert flags["boil_num_jugs_test"] == [2]
 
 
+def test_from_assets_arm_runs_only_by_name() -> None:
+    """EMPIRIC from assets is parked: the default launch leaves it out, and
+    naming it runs EMPIRIC's flags under its own approach class."""
+    assert not any("from_assets" in r.experiment_id
+                   for r in _benchmark_runs(round_name="r9"))
+    runs = _benchmark_runs(round_name="r9",
+                           envs=["domino_high_friction_turn"],
+                           approaches=["mb_opus", "from_assets_opus"],
+                           seeds=(0, 1))
+    by_arm = {r.experiment_id.split("-", 1)[1]: r for r in runs}
+    assert set(by_arm) == {"mb_opus_r9", "from_assets_opus_r9"}
+    from_assets = by_arm["from_assets_opus_r9"]
+    assert from_assets.approach == "agent_continual_from_assets"
+    assert from_assets.flags == by_arm["mb_opus_r9"].flags
+
+
 def test_benchmark_subsets_and_rounds() -> None:
     """--envs, --approaches and --seeds pick a subset; --round names every
     experiment id."""

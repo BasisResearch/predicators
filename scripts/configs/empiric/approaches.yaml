@@ -1,13 +1,24 @@
-# The seven arms of the EMPIRIC benchmark. Each key is the approach half
-# of the experiment id (<env>-<arm>_<round>). The shared flags in
-# common.yaml give every arm the principled joint belief; No uncertainty
-# turns it off. Arms gated on a deployable model on the test level set
-# continual_require_model_on_test.
+# The seven arms of the EMPIRIC benchmark, and EMPIRIC from assets, which
+# is parked (SKIP): a launch runs it only when --approaches names it. Each
+# key is the approach half of the experiment id (<env>-<arm>_<round>). The
+# shared flags in common.yaml give every arm the principled joint belief;
+# No uncertainty turns it off. Arms gated on a deployable model on the
+# test level set continual_require_model_on_test.
 APPROACHES:
   # EMPIRIC: the agent writes a model of the world's physics, the harness
   # fits its parameters and keeps their uncertainty.
   mb_opus:
     NAME: agent_continual
+    FLAGS:
+      agent_sdk_model_name: claude-opus-5
+      continual_require_model_on_test: true
+  # EMPIRIC from assets: EMPIRIC with no supplied domain base. The agent
+  # builds its scene from SceneBase, the scene manifest and the asset files
+  # (docs/amps/empiric-from-assets.md); fitting and uncertainty are
+  # EMPIRIC's.
+  from_assets_opus:
+    NAME: agent_continual_from_assets
+    SKIP: true
     FLAGS:
       agent_sdk_model_name: claude-opus-5
       continual_require_model_on_test: true
