@@ -18,6 +18,8 @@ _GROW_DROP_Z = 0.55  # approximate table_height + jug_handle_height
 def _pick_sampler(state: State, goal: Set[GroundAtom],
                   rng: np.random.Generator, objs: Sequence[Object]) -> Array:
     """Return fixed grasp_z_offset for grow pick."""
+    if not CFG.grow_use_skill_factories:
+        return np.array([], dtype=np.float32)
     del state, goal, rng, objs
     return np.array([0.0], dtype=np.float32)
 

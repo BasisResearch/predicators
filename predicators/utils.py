@@ -64,8 +64,8 @@ from predicators.structs import NSRT, Action, Array, AtomOptionTrajectory, \
     EntToEntSub, GroundAtom, GroundAtomTrajectory, \
     GroundNSRTOrSTRIPSOperator, Image, LDLRule, LiftedAtom, \
     LiftedDecisionList, LiftedOrGroundAtom, LowLevelTrajectory, Mask, \
-    Metrics, NSRTOrSTRIPSOperator, Object, ObjectOrVariable, Observation, \
-    OptionSpec, ParameterizedOption, Predicate, Segment, State, \
+    Metrics, NSRTOrSTRIPSOperator, NSRTSampler, Object, ObjectOrVariable, \
+    Observation, OptionSpec, ParameterizedOption, Predicate, Segment, State, \
     STRIPSOperator, Task, Type, Variable, VarToObjSub, Video, VLMPredicate, \
     _GroundEndogenousProcess, _GroundLDLRule, _GroundNSRT, \
     _GroundSTRIPSOperator, _Option, _TypedEntity
@@ -4125,17 +4125,26 @@ def get_successors_from_ground_ops(
 def ops_and_specs_to_dummy_nsrts(
         strips_ops: Sequence[STRIPSOperator],
         option_specs: Sequence[OptionSpec]) -> Set[NSRT]:
-    """Create NSRTs from strips operators and option specs with dummy
-    samplers."""
+    """Create NSRTs from strips operators and option specs with dummy samplers,
+    which return zeros of their options' params shapes."""
     assert len(strips_ops) == len(option_specs)
     nsrts = set()
     for op, (param_option, option_vars) in zip(strips_ops, option_specs):
-        nsrt = op.make_nsrt(
-            param_option,
-            option_vars,  # dummy sampler
-            lambda s, g, rng, o: np.zeros(1, dtype=np.float32))
+        nsrt = op.make_nsrt(param_option, option_vars,
+                            _zeros_sampler(param_option.params_space.shape))
         nsrts.add(nsrt)
     return nsrts
+
+
+def _zeros_sampler(shape: Tuple[int, ...]) -> NSRTSampler:
+    """A dummy sampler that returns zeros of the given params shape."""
+
+    def _sampler(state: State, goal: Set[GroundAtom], rng: np.random.Generator,
+                 objects: Sequence[Object]) -> Array:
+        del state, goal, rng, objects  # unused
+        return np.zeros(shape, dtype=np.float32)
+
+    return _sampler
 
 
 # Note: create separate `heuristics.py` module if we need to add new
