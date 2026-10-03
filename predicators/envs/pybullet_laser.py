@@ -29,13 +29,10 @@ from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
     Predicate, State, Type
 
-# For storing the laser beams ids (when they are created as bodies instead of
-# debug lines)
-# The laser beam management is still not work properly when using bilevel
-# planning--the lasers created during planning are not removed when the policy
-# is evaluated. This results in the test videos being contaminated with the
-# beams generated during the planning phase. The current workaround is to use
-# bilevel_plan_without_sim=True.
+# The laser beam bodies (when beams are bodies rather than debug lines), as
+# (body id, creation time, PyBullet client id). Each beam lives in the world
+# of the env that drew it, so the planner's beams never reach the executing
+# env's world.
 _laser_ids: List[Tuple[int, float, int]] = []
 
 
@@ -257,11 +254,12 @@ class PyBulletLaserEnv(PyBulletEnv):
         return physics_client_id, pybullet_robot, bodies
 
     @staticmethod
-    def _get_joint_id(obj_id: int, joint_name: str) -> int:
+    def _get_joint_id(obj_id: int, joint_name: str,
+                      physics_client_id: int) -> int:
         """Helper: get the PyBullet joint ID given the joint name."""
-        num_joints = p.getNumJoints(obj_id)
+        num_joints = p.getNumJoints(obj_id, physicsClientId=physics_client_id)
         for j in range(num_joints):
-            info = p.getJointInfo(obj_id, j)
+            info = p.getJointInfo(obj_id, j, physicsClientId=physics_client_id)
             if info[1].decode("utf-8") == joint_name:
                 return j
         return -1
@@ -270,7 +268,8 @@ class PyBulletLaserEnv(PyBulletEnv):
         """Store references to the relevant PyBullet IDs."""
         self._station.id = pybullet_bodies["station_id"]
         self._station.joint_id = self._get_joint_id(self._station.id,
-                                                    "joint_0")
+                                                    "joint_0",
+                                                    self._physics_client_id)
         cap_switch_joint_travel(self._station.id, self._station.joint_id,
                                 self.station_joint_scale,
                                 self._physics_client_id)
@@ -381,7 +380,7 @@ class PyBulletLaserEnv(PyBulletEnv):
 
         # 2) Build a basic ray from station outward
         station_pos, station_orn = p.getBasePositionAndOrientation(
-            self._station.id, self._physics_client_id)
+            self._station.id, physicsClientId=self._physics_client_id)
         station_pos = (station_pos[0], station_pos[1],
                        self.table_height + self.light_height)
         # Example beam direction: facing station_orn z-axis
@@ -435,11 +434,13 @@ class PyBulletLaserEnv(PyBulletEnv):
                     lineWidth=self._laser_width,
                     lifeTime=self.
                     _laser_life_time,  # short lifetime so each step refreshes
+                    physicsClientId=self._physics_client_id,
                 )
             else:
                 laser_id = create_laser_cylinder(
                     start.tolist(),
                     end_pt.tolist(),
+                    self._physics_client_id,
                 )
                 logging.debug(f"created laser beam {laser_id} "
                               f"in sim{self._physics_client_id}, "
@@ -462,11 +463,13 @@ class PyBulletLaserEnv(PyBulletEnv):
                 lineColorRGB=self._laser_color,
                 lineWidth=self._laser_width,
                 lifeTime=self._laser_life_time,
+                physicsClientId=self._physics_client_id,
             )
         else:
             laser_id = create_laser_cylinder(
                 start.tolist(),
                 hit_point.tolist(),
+                self._physics_client_id,
             )
             logging.debug(f"created laser beam {laser_id} "
                           f"in sim{self._physics_client_id}, "
@@ -508,8 +511,8 @@ class PyBulletLaserEnv(PyBulletEnv):
         mirror's orientation."""
         # For simplicity, reflect across the mirror's local y-axis.
         # In a real environment you’d do actual local normal calculations.
-        _pos, orn = p.getBasePositionAndOrientation(mirror_id,
-                                                    self._physics_client_id)
+        _pos, orn = p.getBasePositionAndOrientation(
+            mirror_id, physicsClientId=self._physics_client_id)
         # Convert the quaternion to Euler angles
         euler = p.getEulerFromQuaternion(orn)
         euler = list(euler)
@@ -739,6 +742,7 @@ class PyBulletLaserEnv(PyBulletEnv):
 
 def create_laser_cylinder(start: Any,
                           end: Any,
+                          physics_client_id: int,
                           color: Tuple[float, float, float,
                                        float] = (1, 0, 0, 1),
                           radius: float = 0.001) -> int:
@@ -782,6 +786,7 @@ def create_laser_cylinder(start: Any,
         radius=radius,
         length=length,
         rgbaColor=color,  # e.g. (1,0,0,1) for red
+        physicsClientId=physics_client_id,
     )
 
     # Create a collision shape if you want it to be collidable
@@ -796,11 +801,13 @@ def create_laser_cylinder(start: Any,
         baseVisualShapeIndex=vis_id,
         basePosition=mid.tolist(),
         baseOrientation=orientation,
+        physicsClientId=physics_client_id,
     )
     p.setCollisionFilterGroupMask(body_id,
                                   -1,
                                   collisionFilterGroup=0,
-                                  collisionFilterMask=0)
+                                  collisionFilterMask=0,
+                                  physicsClientId=physics_client_id)
 
     # If you want this beam to vanish after `lifetime` seconds,
     # you can schedule a removal in your main loop, or store

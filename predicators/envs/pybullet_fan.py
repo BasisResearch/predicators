@@ -565,8 +565,8 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
     def _fan_wind_command(self, fan_id: int) -> ApplyForce:
         """The wind an on-fan blows: a held-mode world-frame force on the ball
         along the fan's +X (local frame), for the residual-command executor."""
-        _, orn_fan = p.getBasePositionAndOrientation(fan_id,
-                                                     self._physics_client_id)
+        _, orn_fan = p.getBasePositionAndOrientation(
+            fan_id, physicsClientId=self._physics_client_id)
 
         if CFG.fan_fans_blow_opposite_direction:
             local_dir = np.array([-1.0, 0.0, 0.0])
@@ -692,7 +692,8 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
                     self.table_height + self.debug_line_height
                 ], [1, 0, 0],
                                    parentObjectUniqueId=-1,
-                                   parentLinkIndex=-1)
+                                   parentLinkIndex=-1,
+                                   physicsClientId=self._physics_client_id)
 
         tasks = []  # pylint: disable=redefined-outer-name
         for _ in range(num_tasks):

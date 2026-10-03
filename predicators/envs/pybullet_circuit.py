@@ -267,11 +267,14 @@ class PyBulletCircuitEnv(PyBulletEnv):
         return physics_client_id, pybullet_robot, bodies
 
     @staticmethod
-    def _get_joint_id(obj_id: int, joint_name: str) -> int:
+    def _get_joint_id(obj_id: int, joint_name: str,
+                      physics_client_id: int) -> int:
         """Get the joint ID for a joint with a given name."""
-        num_joints = p.getNumJoints(obj_id)
+        num_joints = p.getNumJoints(obj_id, physicsClientId=physics_client_id)
         for joint_index in range(num_joints):
-            joint_info = p.getJointInfo(obj_id, joint_index)
+            joint_info = p.getJointInfo(obj_id,
+                                        joint_index,
+                                        physicsClientId=physics_client_id)
             if joint_info[1].decode('utf-8') == joint_name:
                 return joint_index
         return -1
@@ -280,7 +283,8 @@ class PyBulletCircuitEnv(PyBulletEnv):
         """Store references to PyBullet IDs for environment assets."""
         self._battery.id = pybullet_bodies["battery_id"]
         self._battery.joint_id = self._get_joint_id(self._battery.id,
-                                                    "joint_0")
+                                                    "joint_0",
+                                                    self._physics_client_id)
         self._battery.joint_scale = 0.1
         self._light.id = pybullet_bodies["light_id"]
         self._wire1.id = pybullet_bodies["wire_ids"][0]

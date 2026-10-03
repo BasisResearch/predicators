@@ -164,3 +164,27 @@ def test_render_returns_rgb_frame(rgb_env):
     assert frame.ndim == 3
     assert frame.shape[2] == 3
     assert frame.dtype == np.uint8
+
+
+# ---------------------------------------------------------------------------
+# Several envs in one process
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "env_id",
+    ["robodisco/Circuit-v0", "robodisco/Laser-v0", "robodisco/Switch-v0"])
+def test_env_builds_after_another_env(robodisco_env, env_id):
+    """An env built after another env in the same process resets and steps.
+
+    Each env owns a PyBullet client. These envs used to look up their
+    switch joints without naming theirs, which reads the first env's
+    world and failed with a PyBullet joint error.
+    """
+    del robodisco_env  # built first, so env_id does not get client 0
+    utils.reset_config({"num_train_tasks": 1, "num_test_tasks": 1})
+    env = make(env_id)
+    obs, _ = env.reset()
+    assert obs.shape == env.observation_space.shape
+    env.step(env.action_space.sample())
+    env.close()

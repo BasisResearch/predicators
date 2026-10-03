@@ -26,7 +26,7 @@ utils.reset_config({"num_train_tasks": 1, "num_test_tasks": 1})
 
 robodisco.register_all_environments()
 env_ids = sorted(robodisco.get_all_env_ids())
-print(f"[1/6] Found {len(env_ids)} environments")
+print(f"[1/7] Found {len(env_ids)} environments")
 assert len(env_ids) == 22, f"Expected 22 environments, got {len(env_ids)}"
 for eid in env_ids:
     print(f"       {eid}")
@@ -35,7 +35,7 @@ for eid in env_ids:
 
 env = robodisco.make("robodisco/Blocks-v0", render_mode="rgb_array")
 obs, info = env.reset()
-print("\n[2/6] Created robodisco/Blocks-v0")
+print("\n[2/7] Created robodisco/Blocks-v0")
 assert isinstance(obs, np.ndarray)
 assert obs.shape == env.observation_space.shape
 
@@ -44,7 +44,7 @@ assert obs.shape == env.observation_space.shape
 obs_shape = env.observation_space.shape
 act_shape = env.action_space.shape
 assert obs_shape is not None and act_shape is not None
-print(f"\n[3/6] Observation shape: {obs_shape}")
+print(f"\n[3/7] Observation shape: {obs_shape}")
 print(f"       Action shape:      {act_shape}")
 assert len(obs_shape) == 1
 assert obs_shape[0] > 0
@@ -63,7 +63,7 @@ state = info["state"]
 assert isinstance(state, State), f"Expected State, got {type(state)}"
 assert "goal_reached" in info
 assert isinstance(info["goal_reached"], bool)
-print(f"\n[4/6] Structured state OK — goal_reached={info['goal_reached']}")
+print(f"\n[4/7] Structured state OK — goal_reached={info['goal_reached']}")
 print(state.pretty_str())
 
 # ── 5. Rendering ─────────────────────────────────────────────────────────
@@ -75,7 +75,7 @@ assert frame.ndim == 3, f"Expected 3D image array, got shape {frame.shape}"
 assert frame.shape[2] == 3, f"Expected RGB (3 channels), got {frame.shape[2]}"
 img_path = OUT_DIR / "blocks_initial.png"
 Image.fromarray(frame).save(img_path)  # type: ignore[no-untyped-call]
-print(f"\n[5/6] Render OK — frame shape {frame.shape}, saved to {img_path}")
+print(f"\n[5/7] Render OK — frame shape {frame.shape}, saved to {img_path}")
 
 # ── 6. Multi-step rollout with rendering ─────────────────────────────────
 
@@ -110,7 +110,7 @@ pil_frames[0].save(
     loop=0,
 )
 print(
-    f"\n[6/6] Rollout OK — collected {len(frames)} frames, saved to {gif_path}"
+    f"\n[6/7] Rollout OK — collected {len(frames)} frames, saved to {gif_path}"
 )
 
 env.close()
@@ -132,9 +132,7 @@ for eid in env_ids:
 
 print(f"\nSummary: {len(ok)}/{len(env_ids)} envs reset cleanly.")
 if fail:
-    print("Failing envs (Circuit, Laser and Switch fail when another env "
-          "was built earlier in the same process; see "
-          "predicators/envs/README.md):")
+    print("Failing envs:")
     for eid, kind, msg in fail:
         print(f"  {eid}: {kind}: {msg}")
 

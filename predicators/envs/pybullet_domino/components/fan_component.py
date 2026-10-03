@@ -421,12 +421,15 @@ class FanComponent(DominoEnvComponent):
                                   orientation=p.getQuaternionFromEuler(rot),
                                   physics_client_id=self._physics_client_id)
 
-    @staticmethod
-    def _get_joint_id(obj_id: int, joint_name: str) -> int:
+    def _get_joint_id(self, obj_id: int, joint_name: str) -> int:
         """Get joint ID by name from PyBullet object."""
-        num_joints = p.getNumJoints(obj_id)
+        assert self._physics_client_id is not None
+        num_joints = p.getNumJoints(obj_id,
+                                    physicsClientId=self._physics_client_id)
         for j in range(num_joints):
-            info = p.getJointInfo(obj_id, j)
+            info = p.getJointInfo(obj_id,
+                                  j,
+                                  physicsClientId=self._physics_client_id)
             if info[1].decode("utf-8") == joint_name:
                 return j
         return -1

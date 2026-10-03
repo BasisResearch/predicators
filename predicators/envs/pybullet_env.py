@@ -2876,7 +2876,7 @@ class PyBulletEnv(BaseEnv):
         """Disconnect this instance's PyBullet client."""
         world_gap.release_world(self._physics_client_id)
         forget_client_assets(self._physics_client_id)
-        p.disconnect(self._physics_client_id)
+        p.disconnect(physicsClientId=self._physics_client_id)
 
     # ── Task Utilities ──────────────────────────────────────────
 
