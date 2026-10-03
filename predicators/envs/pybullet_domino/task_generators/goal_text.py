@@ -8,16 +8,20 @@ instruction; the heavy variant also names the gray heavy blocks as fixed
 scenery.
 """
 
-# The evaluator's counterfactual verification, stated in the goal text
-# so every enforced rule is inferable up front: without it, an agent
-# whose rollouts pass only with the arm's help sees nothing but opaque
-# solved=False verdicts (run_20260718_141716 burned two 45-minute
-# attempts theorizing about an "unknown evaluator criterion").
+# The evaluator's counterfactual verification and its push-owns-the-goal
+# rule, stated in the goal text so every enforced rule is inferable up
+# front: without it, an agent whose rollouts pass only with the arm's
+# help sees nothing but opaque solved=False verdicts (run_20260718_141716
+# burned two 45-minute attempts theorizing about an "unknown evaluator
+# criterion").
 CASCADE_VERIFICATION_NL = (
     " A solve only counts if the push itself causes the cascade: it is "
     "verified by replaying your push with every robot link except the "
     "fingertips made intangible, and the built layout must still cascade "
-    "to the goal - topples that needed the arm's body earn nothing.")
+    "to the goal - topples that needed the arm's body earn nothing. After "
+    "the push the robot may only wait: if the goal starts to topple only "
+    "after the robot acts again (pushing the green a second time, running "
+    "any other skill or moving the arm), the solve does not count.")
 
 MIN_BLOCK_GOAL_NL = (
     "Arrange the blue dominoes so that when the green domino is pushed, "

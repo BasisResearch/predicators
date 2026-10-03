@@ -197,9 +197,12 @@ class DominoEvaluator(TaskEvaluator):
                 "able to touch anything (the arm's body is intangible): the "
                 "layout you built must cascade to the goal under the legal "
                 "fingertip push alone - topples that needed the arm's body "
-                "earn nothing. Extra consumed blues cost reward but never "
-                "invalidate a success, so a robust over-built cascade "
-                "always outscores a failed minimal one.")
+                "earn nothing. After the push the robot may only wait: a "
+                "goal that starts to topple only after the robot acts again "
+                "(pushing the green a second time, running any other skill "
+                "or moving the arm) earns nothing. Extra consumed blues "
+                "cost reward but never invalidate a success, so a robust "
+                "over-built cascade always outscores a failed minimal one.")
 
 
 class PyBulletDominoComposedEnv(PyBulletDominoBaseEnv):

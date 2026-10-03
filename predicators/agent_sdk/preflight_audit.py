@@ -15,7 +15,7 @@ import logging
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from predicators.agent_sdk.plan_execution import execute_plan_forward
 from predicators.agent_sdk.restoration import restoration_report
@@ -27,7 +27,7 @@ from predicators.run.interaction import ExecutePlan, ExecutePolicy, \
     ExecuteSkill, ExecutionProgress, ExecutionRequest, PrimitiveAction, \
     RequestReset
 from predicators.settings import CFG
-from predicators.structs import Task, step_option_labels
+from predicators.structs import StepOption, Task, step_option_labels
 
 
 class PreflightAudit:
@@ -119,7 +119,8 @@ class PreflightAudit:
             row["sim_rollouts"] = 1
             if isinstance(request, PrimitiveAction):
                 after = env.simulate(current, copy.deepcopy(request.action))
-                states, labels = [current, after], [None]
+                states = [current, after]
+                labels: List[StepOption] = [None]
                 row.update(status="accepted", sim_steps=1)
                 row["controller_status"] = "not_applicable"
             else:
