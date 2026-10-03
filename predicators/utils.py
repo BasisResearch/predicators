@@ -933,14 +933,20 @@ class LinearChainParameterizedOption(ParameterizedOption):
         assert len(children) > 0
         self._children = children
 
-        # Make sure that the types and params spaces are consistent.
+        # Make sure that the types and params spaces are consistent. Compare
+        # the shapes first, since np.allclose broadcasts: the bounds of a (0,)
+        # space and a (1,) space would compare equal.
         types = children[0].types
         params_space = children[0].params_space
         for i in range(1, len(self._children)):
             child = self._children[i]
             assert types == child.types
-            assert np.allclose(params_space.low, child.params_space.low)
-            assert np.allclose(params_space.high, child.params_space.high)
+            assert params_space.shape == child.params_space.shape and \
+                np.allclose(params_space.low, child.params_space.low) and \
+                np.allclose(params_space.high, child.params_space.high), \
+                (f"{name}: child {child.name} has params space "
+                 f"{child.params_space}, but {children[0].name} has "
+                 f"{params_space}")
 
         super().__init__(name,
                          types,
