@@ -1,10 +1,13 @@
-"""Ground-truth NSRTs for the coffee environment."""
+"""Ground-truth NSRTs for the grow environment."""
 
 from typing import Dict, Sequence, Set
 
 import numpy as np
 
 from predicators.ground_truth_models import GroundTruthNSRTFactory
+from predicators.ground_truth_models.grow.processes import _pick_sampler, \
+    _place_sampler
+from predicators.settings import CFG
 from predicators.structs import NSRT, Array, GroundAtom, LiftedAtom, Object, \
     ParameterizedOption, Predicate, State, Type, Variable
 from predicators.utils import null_sampler
@@ -38,6 +41,24 @@ class PyBulletGrowGroundTruthNSRTFactory(GroundTruthNSRTFactory):
 
         nsrts = set()
 
+        def putontable_sampler(state: State, goal: Set[GroundAtom],
+                               rng: np.random.Generator,
+                               objs: Sequence[Object]) -> Array:
+            del state, goal, objs  # unused
+            # Note: normalized coordinates w.r.t. workspace.
+            x = rng.uniform()
+            y = rng.uniform(0.5, 0.5)
+            return np.array([x, y], dtype=np.float32)
+
+        # The skill-factory options (the default) take a grasp height for
+        # PickJug and a world (x, y, release_z, yaw) target for Place, the
+        # parameters the processes sample; the legacy options take none for
+        # PickJug and a normalized (x, y) for Place.
+        if CFG.grow_use_skill_factories:
+            pick_sampler, place_sampler = _pick_sampler, _place_sampler
+        else:
+            pick_sampler, place_sampler = null_sampler, putontable_sampler
+
         # PickJug
         robot = Variable("?robot", robot_type)
         jug = Variable("?jug", jug_type)
@@ -57,7 +78,7 @@ class PyBulletGrowGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         pick_jug_from_table_nsrt = NSRT("PickJugFromTable", parameters,
                                         preconditions, add_effects,
                                         delete_effects, set(), option,
-                                        option_vars, null_sampler)
+                                        option_vars, pick_sampler)
         nsrts.add(pick_jug_from_table_nsrt)
 
         # Pour
@@ -94,19 +115,8 @@ class PyBulletGrowGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         delete_effects = {
             LiftedAtom(Holding, [robot, jug]),
         }
-
-        def putontable_sampler(state: State, goal: Set[GroundAtom],
-                               rng: np.random.Generator,
-                               objs: Sequence[Object]) -> Array:
-            del state, goal, objs  # unused
-            # Note: normalized coordinates w.r.t. workspace.
-            x = rng.uniform()
-            y = rng.uniform(0.5, 0.5)
-            return np.array([x, y], dtype=np.float32)
-
-        place = NSRT("PlaceJug",
-                     parameters, preconditions, add_effects, delete_effects,
-                     set(), option, option_vars, putontable_sampler)
+        place = NSRT("PlaceJug", parameters, preconditions, add_effects,
+                     delete_effects, set(), option, option_vars, place_sampler)
         nsrts.add(place)
 
         return nsrts

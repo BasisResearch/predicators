@@ -1,4 +1,4 @@
-"""Ground-truth options for the coffee environment."""
+"""Ground-truth options for the grow environment."""
 
 from typing import ClassVar, Dict, Sequence, Set, Tuple
 from typing import Type as TypingType

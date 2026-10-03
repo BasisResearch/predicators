@@ -5,6 +5,8 @@ from typing import Dict, Sequence, Set
 import numpy as np
 
 from predicators.ground_truth_models import GroundTruthNSRTFactory
+from predicators.ground_truth_models.coffee.processes import _pick_sampler, \
+    _place_jug_in_machine_sampler, _push_sampler
 from predicators.settings import CFG
 from predicators.structs import NSRT, Array, GroundAtom, LiftedAtom, Object, \
     ParameterizedOption, Predicate, State, Type, Variable
@@ -61,6 +63,17 @@ class CoffeeGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         Pour = options["Pour"]
 
         nsrts = set()
+
+        # The PyBullet skill-factory options (the default) take a grasp
+        # height for PickJug, a placement for PlaceJugInMachine and a button
+        # press for TurnMachineOn, the parameters the processes sample; the
+        # 2D env's options and the legacy PyBullet ones take none.
+        if env_name == "pybullet_coffee" and CFG.coffee_use_skill_factories:
+            pick_sampler = _pick_sampler
+            place_sampler = _place_jug_in_machine_sampler
+            push_sampler = _push_sampler
+        else:
+            pick_sampler = place_sampler = push_sampler = null_sampler
 
         if CFG.coffee_machine_has_plug:
             # PlugIn
@@ -181,7 +194,7 @@ class CoffeeGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         pick_jug_from_table_nsrt = NSRT("PickJugFromTable", parameters,
                                         preconditions, add_effects,
                                         delete_effects, set(), option,
-                                        option_vars, null_sampler)
+                                        option_vars, pick_sampler)
         nsrts.add(pick_jug_from_table_nsrt)
 
         # PlaceJugInMachine
@@ -204,7 +217,7 @@ class CoffeeGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         place_jug_in_machine_nsrt = NSRT("PlaceJugInMachine", parameters,
                                          preconditions, add_effects,
                                          delete_effects, set(), option,
-                                         option_vars, null_sampler)
+                                         option_vars, place_sampler)
         nsrts.add(place_jug_in_machine_nsrt)
 
         # TurnMachineOn
@@ -230,7 +243,7 @@ class CoffeeGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         delete_effects = set()
         turn_machine_on_nsrt = NSRT("TurnMachineOn", parameters,
                                     preconditions, add_effects, delete_effects,
-                                    set(), option, option_vars, null_sampler)
+                                    set(), option, option_vars, push_sampler)
         nsrts.add(turn_machine_on_nsrt)
 
         # PickJugFromMachine
@@ -256,7 +269,7 @@ class CoffeeGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         pick_jug_from_machine_nsrt = NSRT("PickJugFromMachine", parameters,
                                           preconditions, add_effects,
                                           delete_effects, set(), option,
-                                          option_vars, null_sampler)
+                                          option_vars, pick_sampler)
         nsrts.add(pick_jug_from_machine_nsrt)
 
         # PourFromNowhere
