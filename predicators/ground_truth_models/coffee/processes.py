@@ -19,6 +19,8 @@ _COFFEE_DROP_Z = 0.5  # z_lb (0.4) + jug_handle_height (0.1)
 
 def _pick_sampler(state: State, goal: Set[GroundAtom],
                   rng: np.random.Generator, objs: Sequence[Object]) -> Array:
+    if not CFG.coffee_use_skill_factories:
+        return np.array([], dtype=np.float32)
     del state, goal, rng, objs
     return np.array([0.0], dtype=np.float32)
 
@@ -46,6 +48,19 @@ def _place_jug_in_machine_sampler(state: State, goal: Set[GroundAtom],
             PyBulletCoffeeEnv.robot_init_wrist
         ],  # 0.98, 1.4, 0.5, -1.57
         dtype=np.float32)
+
+
+def _twist_jug_sampler(state: State, goal: Set[GroundAtom],
+                       rng: np.random.Generator,
+                       objs: Sequence[Object]) -> Array:
+    """Return the TwistJug amount, drawn as the TwistJug NSRT draws it.
+
+    The option takes the amount only with coffee_twist_sampler.
+    """
+    if not CFG.coffee_twist_sampler:
+        return np.array([], dtype=np.float32)
+    del state, goal, objs
+    return np.array(rng.uniform(-1, 1, size=(1, )), dtype=np.float32)
 
 
 def _pour_sampler(state: State, goal: Set[GroundAtom],
@@ -203,7 +218,7 @@ class PyBulletCoffeeGroundTruthProcessFactory(GroundTruthProcessFactory):
                 twist_jug_process = EndogenousProcess(
                     "TwistJug", parameters, condition_at_start, set(), set(),
                     add_effects, delete_effects, delay_distribution,
-                    torch.tensor(1.0), option, option_vars, null_sampler)
+                    torch.tensor(1.0), option, option_vars, _twist_jug_sampler)
                 processes.add(twist_jug_process)
 
         # PickJugFromTable
