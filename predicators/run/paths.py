@@ -13,7 +13,12 @@ the same ``CFG.run_subdir``), holding:
 * ``agent/``, the agent arm's stable directory: the system prompt, one
   transcript per session, and its sandbox;
 * ``run.mp4``, the labelled replay video written at run end under
-  ``continual_make_video`` or by ``scripts/continual_video.py``.
+  ``continual_make_video`` or by ``scripts/continual_video.py``;
+* ``cycles/``, one Blender Cycles scene per frame of that video, written
+  at run end under ``video_cycles_scenes`` or by
+  ``scripts/continual_video.py --cycles``, and the videos
+  ``scripts/cycles_video.py`` renders from them
+  (``predicators/run/cycles_video.py``).
 
 A launch is a new run directory unless it resumes (``--auto_resume``,
 section 6.6 of docs/protocol/design.md): then it adopts the newest
@@ -35,6 +40,7 @@ from predicators.settings import CFG
 
 SCORECARD_FILENAME = "scorecard.json"
 VIDEO_FILENAME = "run.mp4"
+CYCLES_DIRNAME = "cycles"
 AGENT_DIRNAME = "agent"
 RUN_DIR_RE = re.compile(r"^run_\d{8}_\d{6}$")
 
@@ -115,6 +121,11 @@ def scorecard_path(run_directory: str) -> str:
 def video_path(run_directory: str) -> str:
     """The run's labelled replay video."""
     return os.path.join(run_directory, VIDEO_FILENAME)
+
+
+def cycles_dir(run_directory: str) -> str:
+    """The run's Blender Cycles scenes and the videos rendered from them."""
+    return os.path.join(run_directory, CYCLES_DIRNAME)
 
 
 def agent_dir(run_directory: str) -> str:
