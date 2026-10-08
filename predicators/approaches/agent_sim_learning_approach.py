@@ -524,9 +524,11 @@ class AgentSimLearningApproach(AgentBaseApproach):
     # artifacts the agent wrote (simulator.py / predicates.py / ...),
     # which are embedded as file CONTENTS - run dirs are minted per run
     # and pruned, so a path reference to the old run's sandbox would be
-    # fragile. Closures (_residual_rules, _learned_simulator, the option
-    # model, learned predicates) are never pickled: they are
-    # rebuilt from the restored files in _rehydrate_from_artifacts.
+    # fragile. A load writes them only where the sandbox lacks them
+    # (_restore_sandbox_artifacts). Closures (_residual_rules,
+    # _learned_simulator, the option model, learned predicates) are never
+    # pickled: they are rebuilt from the sandbox's files in
+    # _rehydrate_from_artifacts.
 
     _save_suffix: str = "AgentSimLearner"
 
@@ -582,21 +584,34 @@ class AgentSimLearningApproach(AgentBaseApproach):
         return files
 
     def _restore_sandbox_artifacts(self, files: Dict[str, bytes]) -> None:
-        """Write embedded sandbox files into THIS run's sandbox.
+        """Write the embedded sandbox files that THIS run's sandbox lacks.
+
+        A load into a fresh run directory gets every file. A load into
+        the directory the checkpoint came from (``--auto_resume`` adopts
+        the run's directory) keeps the files the sandbox holds: the
+        checkpoint is taken when a round starts, so a file the round
+        edited before a restart cut it off is newer than the embedded
+        copy, and the resumed conversation remembers the edit.
 
         Safe against the lazy sandbox setup: ``setup_sandbox_directory``
         only writes reference/CLAUDE.md/hooks and seeds notes.md when
         missing, so restoring first never gets clobbered.
         """
         base = self._checkpoint_sandbox_dir()
-        for rel, content in files.items():
+        missing = [
+            rel for rel in files
+            if not os.path.lexists(os.path.join(base, rel))
+        ]
+        for rel in missing:
             fpath = os.path.join(base, rel)
             os.makedirs(os.path.dirname(fpath), exist_ok=True)
             with open(fpath, "wb") as f:
-                f.write(content)
+                f.write(files[rel])
         if files:
-            logger.info("Restored %d sandbox artifact(s) into %s.", len(files),
-                        base)
+            logger.info(
+                "Restored %d sandbox artifact(s) into %s; kept the %d the "
+                "sandbox holds.", len(missing), base,
+                len(files) - len(missing))
 
     def _extra_save_state(self) -> Dict[str, Any]:
         return {
@@ -719,9 +734,10 @@ class AgentSimLearningApproach(AgentBaseApproach):
         # whose dynamics live on the class); coerce a None the guard let
         # through (subclass present) so the downstream step_fn sees a list.
         rules = rules or []
-        # The deployed model is the restored file. A checkpoint taken at a
-        # round's start names the version before the round's edits, or
-        # none if the agent first wrote the file in that round.
+        # The deployed model is the sandbox's file, which the round a
+        # restart cut off may have edited: a checkpoint taken at a round's
+        # start names the version before the round's edits, or none if the
+        # agent first wrote the file in that round.
         self._current_simulator_version = restored_version(
             paths.simulator_file, paths.versions_dir,
             self._learning_cycle_index(), "simulator",

@@ -579,6 +579,108 @@ def test_resume_rebuilds_the_workbench_from_the_recording(
     assert seen["out"].startswith("2 [2, 1]")
 
 
+def _counter_model(gain: str) -> str:
+    """A subclass model; versions of it differ only by ``gain``."""
+    return f'''
+class Counter(BaseSimulator):
+    AGENT_PARAM_SPECS = [ParamSpec("rate", .25, lo=0.0, hi=1.0)]
+    MODEL_STATE_INIT = {{"charge": 0.0}}
+    RESIDUAL_FEATURES = {{}}
+
+    @classmethod
+    def update_model_state(cls, observation, model_state, params, action):
+        model_state["charge"] += params["rate"] * {gain}
+
+RESIDUAL_ENV = Counter
+'''
+
+
+@pytest.mark.slow
+def test_resume_keeps_the_sandbox_a_killed_round_edited(tmp_path: Any) -> None:
+    """A run killed mid-round, after the agent edited its model and its
+    journal, resumes the round on the files as the agent left them.
+
+    The checkpoint is taken when a round starts, so it holds the files
+    from before the round's edits; the relaunch adopts the run's
+    directory and keeps the sandbox the resumed conversation remembers
+    editing. The snapshots the killed round took keep their contents:
+    the resumed round, which has the same round number, numbers its
+    snapshots after them.
+    """
+    # pylint: disable=protected-access
+    _config(tmp_path)
+    env, approach = _make_approach()
+    sandbox = os.path.join(approach._get_log_dir(), "sandbox")
+    first_note = "- gain 1.0 is a first guess\n"
+    second_note = "- gain 2.0 matches the burner\n"
+
+    def write(name: str, text: str) -> None:
+        with open(os.path.join(sandbox, name), "w", encoding="utf-8") as f:
+            f.write(text)
+
+    def killed_query(message: str, **kwargs: Any) -> List[Dict[str, Any]]:
+        del message, kwargs
+        if approach._rounds_played == 0:
+            # What the session manager records when the CLI opens the
+            # run's conversation.
+            info = os.path.join(approach._get_log_dir(), "session_info.json")
+            with open(info, "w", encoding="utf-8") as f:
+                json.dump({"session_id": "conv-1"}, f)
+            write("simulator.py", _counter_model("1.0"))
+            _call(approach, "run_python", code="print(sim.validate())")
+            write("journal.md", first_note)
+            return _result()
+        write("simulator.py", _counter_model("2.0"))
+        _call(approach, "run_python", code="print(sim.validate())")
+        write("journal.md", first_note + second_note)
+        raise _Killed()
+
+    approach._query_agent_sync = killed_query  # type: ignore[method-assign]
+    approach.prepare_for_continual(Dataset([]))
+    with pytest.raises(_Killed):
+        ContinualRun(env, approach, create_level_player(env, approach)).run()
+
+    _config(tmp_path, auto_resume=True)
+    env2, approach2 = _make_approach()
+    approach2.load(0)
+    seen: Dict[str, Any] = {}
+
+    def resumed_query(message: str, **kwargs: Any) -> List[Dict[str, Any]]:
+        del kwargs
+        seen["message"] = message
+        with open(os.path.join(sandbox, "simulator.py"),
+                  encoding="utf-8") as f:
+            seen["model"] = f.read()
+        write("simulator.py", _counter_model("3.0"))
+        _call(approach2, "run_python", code="print(sim.validate())")
+        _call(approach2, "give_up", note="done")
+        return _result()
+
+    approach2._query_agent_sync = resumed_query  # type: ignore[method-assign]
+    approach2.prepare_for_continual(Dataset([]))
+    card = ContinualRun(env2, approach2, create_level_player(env2,
+                                                             approach2)).run()
+    assert card.end_reason == "agent_ended"
+    assert "resumes after compute preemption" in seen["message"]
+    assert seen["model"] == _counter_model("2.0")
+    # The query names the version of the model the agent left and shows
+    # the journal with its last note.
+    assert "`simulator.py` cycle_001_vers_001" in seen["message"]
+    assert second_note.strip() in seen["message"]
+    with open(os.path.join(sandbox, "journal.md"), encoding="utf-8") as f:
+        assert f.read() == first_note + second_note
+    versions = os.path.join(sandbox, "simulator_versions")
+    held = {}
+    for name in os.listdir(versions):
+        with open(os.path.join(versions, name), encoding="utf-8") as f:
+            held[name] = f.read()
+    assert held == {
+        "cycle_000_vers_001_simulator.py": _counter_model("1.0"),
+        "cycle_001_vers_001_simulator.py": _counter_model("2.0"),
+        "cycle_001_vers_002_simulator.py": _counter_model("3.0"),
+    }
+
+
 @pytest.mark.slow
 def test_model_gate_on_a_test_level(tmp_path: Any) -> None:
     """Under ``continual_require_model_on_test`` the skill tools refuse on a
