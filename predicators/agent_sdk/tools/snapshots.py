@@ -158,6 +158,29 @@ def finalize_versioned_snapshot(
     return f"cycle_{cycle_label}_vers_{new_vers:03d}"
 
 
+def restored_version(live_file: str, versions_dir: str, cycle_idx: int,
+                     artifact_name: str,
+                     checkpoint_tag: Optional[str]) -> Optional[str]:
+    """The version tag of an artifact restored from a checkpoint.
+
+    The checkpoint's tag when its snapshot holds the restored file;
+    otherwise (a checkpoint taken before the file's last edit, or before
+    it existed) the tag :func:`finalize_versioned_snapshot` gives it.
+    ``None`` if ``live_file`` does not exist.
+    """
+    if checkpoint_tag is not None and os.path.isfile(live_file):
+        snapshot = os.path.join(versions_dir,
+                                f"{checkpoint_tag}_{artifact_name}.py")
+        if os.path.isfile(snapshot):
+            with open(snapshot, "rb") as f:
+                held = f.read()
+            with open(live_file, "rb") as f:
+                if f.read() == held:
+                    return checkpoint_tag
+    return finalize_versioned_snapshot(live_file, versions_dir, cycle_idx,
+                                       artifact_name)
+
+
 class _ArtifactSnapshotter:
     """Per-call versioned snapshotting for one artifact file.
 

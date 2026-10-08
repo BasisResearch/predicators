@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, FrozenSet, List, \
 from predicators.agent_sdk import journal as journal_mod
 from predicators.agent_sdk.fit_status import format_fit_status
 from predicators.agent_sdk.preflight_audit import PreflightAudit
+from predicators.agent_sdk.sandbox_setup import ReferenceFiles
 from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES, \
     play_tool_names
 from predicators.agent_sdk.tools.exploration import ProbeSurface
@@ -755,7 +756,7 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         # The workbench's own base-sim world, released with the round.
         return self._workbench_env(), False
 
-    def _get_sandbox_reference_files(self) -> Dict[str, str]:
+    def _get_sandbox_reference_files(self) -> ReferenceFiles:
         files = super()._get_sandbox_reference_files()
         if CFG.continual_provide_scene_package:
             files.update(self._scene_package_files())
@@ -808,8 +809,10 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         return state
 
     def _load_extra_save_state(self, save_dict: Dict[str, Any]) -> None:
-        super()._load_extra_save_state(save_dict)
+        # The loop's counters first: rehydrating the model names the
+        # restored files' versions by round.
         self._load_continual_save_state(save_dict)
+        super()._load_extra_save_state(save_dict)
         self._episodes_at_last_fit = int(
             save_dict.get("episodes_at_last_fit", 0))
 
@@ -851,7 +854,7 @@ class AgentContinualModelFreeApproach(ContinualPlayMixin, ScenePackageMixin,
 
     # -- The scene package ------------------------------------------------
 
-    def _get_sandbox_reference_files(self) -> Dict[str, str]:
+    def _get_sandbox_reference_files(self) -> ReferenceFiles:
         files = super()._get_sandbox_reference_files()
         if CFG.continual_provide_scene_package:
             files.update(self._scene_package_files())

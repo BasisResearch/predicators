@@ -58,3 +58,7 @@ class AgentContinualRealToSimApproach(AgentContinualFromAssetsApproach,
                             sealed=False,
                             alt_params=True,
                             uncertainty=False)
+
+    def _no_model_section(self) -> str:
+        # The scene to build, and declared values only: nothing is fitted.
+        return "no_model_scene"

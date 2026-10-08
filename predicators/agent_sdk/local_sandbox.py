@@ -42,8 +42,8 @@ from typing import Any, Dict, List, Optional
 from predicators.agent_sdk.config import SessionConfig
 from predicators.agent_sdk.log_formatter import format_conversation_markdown
 from predicators.agent_sdk.sandbox_prompts import build_sandbox_system_prompt
-from predicators.agent_sdk.sandbox_setup import export_trajectories, \
-    git_commit_all, pyguard_env
+from predicators.agent_sdk.sandbox_setup import ReferenceFiles, \
+    export_trajectories, git_commit_all, pyguard_env
 from predicators.agent_sdk.session_base import SandboxSessionManagerBase, \
     build_agent_options, build_sandbox_mcp, max_session_log_number
 from predicators.agent_sdk.tools import ToolContext, session_log_filename
@@ -81,7 +81,7 @@ class LocalSandboxSessionManager(SandboxSessionManagerBase):
         model_name: str,
         tool_context: ToolContext,
         tool_names: Optional[List[str]] = None,
-        extra_reference_files: Optional[Dict[str, str]] = None,
+        extra_reference_files: Optional[ReferenceFiles] = None,
         phase: Optional[str] = None,
         config: Optional[SessionConfig] = None,
         query_count_floor: int = 0,

@@ -195,32 +195,34 @@ def test_minimal_agent_plays_raw_actions(tmp_path: Path, name: str) -> None:
     assert approach._option_model is None
 
 
+# Picks the block, then places it on the target: a cover win in 2 steps.
+_COVER_POLICY = ("def get_action(observation, memory):\n"
+                 "    objects = observation['objects'].values()\n"
+                 "    block = next(o['features'] for o in objects\n"
+                 "                 if o['type'] == 'block')\n"
+                 "    target = next(o['features'] for o in objects\n"
+                 "                  if o['type'] == 'target')\n"
+                 "    pose = (block['pose'] if block['grasp'] == -1\n"
+                 "            else target['pose'])\n"
+                 "    return [pose]\n")
+_COVER = {
+    "cover_num_blocks": 1,
+    "cover_num_targets": 1,
+    "cover_block_widths": [0.1],
+    "cover_target_widths": [0.05],
+    "cover_initial_holding_prob": 0.0,
+}
+
+
 @pytest.mark.parametrize("name", ARMS)
 def test_policy_wins_and_stops_at_terminal(tmp_path: Path, name: str) -> None:
     """A closed-loop raw controller wins cover and cannot act after WIN."""
-    env, approach = _setup(tmp_path,
-                           name,
-                           "cover",
-                           cover_num_blocks=1,
-                           cover_num_targets=1,
-                           cover_block_widths=[0.1],
-                           cover_target_widths=[0.05],
-                           cover_initial_holding_prob=0.0)
+    env, approach = _setup(tmp_path, name, "cover", **_COVER)
 
     def query(message: str, **kwargs: Any) -> List[Dict[str, Any]]:
         del message, kwargs
         sandbox = Path(approach._tool_context.sandbox_dir)
-        (sandbox / "policy.py").write_text(
-            "def get_action(observation, memory):\n"
-            "    objects = observation['objects'].values()\n"
-            "    block = next(o['features'] for o in objects\n"
-            "                 if o['type'] == 'block')\n"
-            "    target = next(o['features'] for o in objects\n"
-            "                  if o['type'] == 'target')\n"
-            "    pose = (block['pose'] if block['grasp'] == -1\n"
-            "            else target['pose'])\n"
-            "    return [pose]\n",
-            encoding="utf-8")
+        (sandbox / "policy.py").write_text(_COVER_POLICY, encoding="utf-8")
         result = _call(approach,
                        "env_run_policy",
                        path="policy.py",
@@ -233,6 +235,61 @@ def test_policy_wins_and_stops_at_terminal(tmp_path: Path, name: str) -> None:
     approach._query_agent_sync = query
     card = ContinualRun(env, approach, approach).run()
     assert card.levels[0].won and card.total_steps == 2
+
+
+class _Killed(BaseException):
+    """The kill of a requeued job, delivered mid-round."""
+
+
+def test_restart_after_a_won_level_opens_the_next_level(
+        tmp_path: Path) -> None:
+    """A run killed after its round won level 1, before the round ended,
+    resumes on level 2 with a round of that level: the query says the level
+    begins, and the attempts record keeps the round the kill cut off."""
+    name = "agent_continual_model_free_minimal"
+    levels = {"continual_levels": "train_then_test", **_COVER}
+    env, approach = _setup(tmp_path, name, "cover", **levels)
+
+    def killed(message: str, **kwargs: Any) -> List[Dict[str, Any]]:
+        del message, kwargs
+        # The session manager records the conversation it opened.
+        Path(approach._get_log_dir(), "session_info.json").write_text(
+            json.dumps({"session_id": "old-session"}), encoding="utf-8")
+        sandbox = Path(approach._tool_context.sandbox_dir)
+        (sandbox / "policy.py").write_text(_COVER_POLICY, encoding="utf-8")
+        assert "[episode] WIN" in _call(approach,
+                                        "env_run_policy",
+                                        path="policy.py",
+                                        max_steps=10)
+        raise _Killed()
+
+    approach._query_agent_sync = killed
+    with pytest.raises(_Killed):
+        ContinualRun(env, approach, approach).run()
+
+    env2, approach2 = _setup(tmp_path,
+                             name,
+                             "cover",
+                             auto_resume=True,
+                             **levels)
+    approach2.load(0)
+    seen: List[str] = []
+
+    def resumed(message: str, **kwargs: Any) -> List[Dict[str, Any]]:
+        del kwargs
+        seen.append(message)
+        _call(approach2, "give_up", note="done")
+        return _result()
+
+    approach2._query_agent_sync = resumed
+    card = ContinualRun(env2, approach2, approach2).run()
+    assert card.levels[0].won and card.end_note == "done"
+    assert "Round 2 of the run: level 2 begins" in seen[0]
+    assert "resumes after compute preemption" not in seen[0]
+    attempts = seen[0][seen[0].index("## Attempts record"):]
+    assert "### Round 1" in attempts
+    assert "Level 1; cut off by a restart" in attempts
+    assert "- win" in attempts
 
 
 def test_policy_worker_timeout(tmp_path: Path) -> None:

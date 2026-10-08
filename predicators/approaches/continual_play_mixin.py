@@ -143,6 +143,12 @@ class ContinualPlayMixin:
     _rounds_played: int = 0
     _level_rounds: int = 0
     _round_in_flight: bool = False
+    # The level's index length when the round in flight began, so a
+    # resumed or interrupted round's record covers all of it.
+    _round_entries_before: Optional[int] = None
+    # A level whose last round a restart cut off after the level ended;
+    # recorded when the next round opens the sandbox.
+    _interrupted_level: Optional[int] = None
 
     # -- What the arm declares -------------------------------------------
 
@@ -310,6 +316,9 @@ class ContinualPlayMixin:
                                  None)
         if ensure_sandbox is not None:
             ensure_sandbox()
+        if self._interrupted_level is not None:
+            self._record_interrupted_round(session, self._interrupted_level)
+            self._interrupted_level = None
         if preempted and conversation is not None:
             kind = "resumed"
         elif self._rounds_played == 0:
@@ -320,11 +329,15 @@ class ContinualPlayMixin:
             kind = "continue"
         query = self._build_query(session, kind)
         round_number = self._rounds_played + 1
+        # A resumed round's record starts where the interrupted one did.
+        entries_before = len(session.index_entries())
+        if preempted and self._round_entries_before is not None:
+            entries_before = min(entries_before, self._round_entries_before)
+        self._round_entries_before = entries_before
         # No per-round budget: the run's wall-clock cap is the only one.
         ctx.begin_attempt()
         self._round_in_flight = True
         self.save(session.level_index)
-        entries_before = len(session.index_entries())
         started = time.time()
         try:
             responses = self._query_agent_sync(query, kind=SESSION_KIND)
@@ -440,6 +453,12 @@ class ContinualPlayMixin:
     def _begin_level(self, session: ProtocolSession) -> None:
         k = session.level_index
         if self._continual_level != k:
+            if self._round_in_flight and self._continual_level is not None:
+                # A restart cut off the last round of a level that has
+                # since ended. That round is not this level's to resume:
+                # this level opens with a round of its own.
+                self._interrupted_level = self._continual_level
+                self._round_in_flight = False
             self._continual_level = k
             self._level_rounds = 0
         # Only the levels reached so far are visible to the arm.
@@ -567,11 +586,9 @@ class ContinualPlayMixin:
         session.record_sandbox("llm_cost_usd", cost)
         session.record_sandbox("sim_rollouts", rollouts)
 
-    def _record_round(self, session: ProtocolSession, number: int,
-                      entries_before: int, state: PlayState, seconds: float,
-                      responses: List[Dict[str, Any]]) -> None:
-        """Append the harness's account of the round to attempts.md."""
-        entries = session.index_entries()[entries_before:]
+    @staticmethod
+    def _entry_lines(entries: List[Dict[str, Any]]) -> List[str]:
+        """The attempts record's lines for a round's recording entries."""
         lines = []
         for e in entries:
             event = e.get("event")
@@ -588,6 +605,30 @@ class ContinualPlayMixin:
                 lines.append(line)
             elif event in ("reset", "win", "game_over"):
                 lines.append(f"- {event} {e.get('reason', '')}".rstrip())
+        return lines
+
+    def _record_interrupted_round(self, session: ProtocolSession,
+                                  level_index: int) -> None:
+        """Append to attempts.md the round a restart cut off after its level
+        ended, and count it."""
+        start = self._round_entries_before or 0
+        entries = session.previous_level_index_entries(level_index)[start:]
+        lines = self._entry_lines(entries)
+        body = (f"Level {level_index + 1}; cut off by a restart before the "
+                "round ended.\n" +
+                ("\n".join(lines) if lines else "- no environment action"))
+        journal_mod.append_entry(self._tool_context.sandbox_dir
+                                 or self._get_log_dir(),
+                                 f"Round {self._rounds_played + 1}",
+                                 body,
+                                 filename=journal_mod.ATTEMPTS_FILENAME)
+        self._rounds_played += 1
+
+    def _record_round(self, session: ProtocolSession, number: int,
+                      entries_before: int, state: PlayState, seconds: float,
+                      responses: List[Dict[str, Any]]) -> None:
+        """Append the harness's account of the round to attempts.md."""
+        lines = self._entry_lines(session.index_entries()[entries_before:])
         subtype = next((e.get("subtype")
                         for e in responses if e.get("type") == "result"), None)
         errored = any(e.get("type") == "error" for e in responses)
@@ -617,6 +658,7 @@ class ContinualPlayMixin:
                 "rounds_played": self._rounds_played,
                 "level_rounds": self._level_rounds,
                 "round_in_flight": self._round_in_flight,
+                "round_entries_before": self._round_entries_before,
             }
         }
 
@@ -627,3 +669,5 @@ class ContinualPlayMixin:
         self._rounds_played = int(cont.get("rounds_played", 0))
         self._level_rounds = int(cont.get("level_rounds", 0))
         self._round_in_flight = bool(cont.get("round_in_flight", False))
+        before = cont.get("round_entries_before")
+        self._round_entries_before = None if before is None else int(before)

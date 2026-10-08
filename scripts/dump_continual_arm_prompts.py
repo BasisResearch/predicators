@@ -21,6 +21,7 @@ from typing import Any, Dict, List
 from predicators import utils
 from predicators.agent_sdk.local_sandbox import _LOCAL_SANDBOX_SYSTEM_PROMPT
 from predicators.agent_sdk.sandbox_prompts import build_claude_md
+from predicators.agent_sdk.sandbox_setup import GeneratedReference
 from predicators.agent_sdk.tools.assembly import create_mcp_tools
 from predicators.approaches import create_approach
 from predicators.envs import create_new_env
@@ -37,6 +38,13 @@ def _tool_rows(tools: List[Any]) -> str:
         desc = " ".join(str(tool.description).split())
         rows.append(f"| `{tool.name}` | {desc} |")
     return "\n".join(rows)
+
+
+def _reference_source(source: Any) -> str:
+    """Where a sandbox reference comes from, for the listing."""
+    if isinstance(source, GeneratedReference):
+        return f"generated from {source.origin}"
+    return f"from `{source}`"
 
 
 def _scripted_result() -> List[Dict[str, Any]]:
@@ -142,7 +150,7 @@ def dump_arm(cfg: RunConfig, seed: int, work_dir: str, out_dir: str) -> str:
         "",
         "# Reference files",
         "",
-        "\n".join(f"- `reference/{dst}` from `{src}`"
+        "\n".join(f"- `reference/{dst}` {_reference_source(src)}"
                   for dst, src in sorted(references.items())) or "(none)",
         "",
         "# Tools",

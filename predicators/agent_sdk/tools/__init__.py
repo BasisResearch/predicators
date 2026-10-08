@@ -41,7 +41,7 @@ from predicators.agent_sdk.tools.scene import agent_render_resolution, \
     apply_state_modifications, draw_pybullet_annotation, format_object_poses, \
     render_pybullet_image, render_scene_image
 from predicators.agent_sdk.tools.snapshots import _SnapshotTarget, \
-    finalize_versioned_snapshot, make_write_snapshot_hook
+    finalize_versioned_snapshot, make_write_snapshot_hook, restored_version
 from predicators.agent_sdk.tools.synthesis import create_synthesis_tools
 from predicators.agent_sdk.tools.verdicts import _resolve_task_evaluator, \
     evaluate_states_with, load_ground_sampler_fns, make_solved_check
@@ -63,6 +63,7 @@ __all__ = [
     "draw_pybullet_annotation",
     "evaluate_states_with",
     "finalize_versioned_snapshot",
+    "restored_version",
     "format_object_poses",
     "get_allowed_tool_list",
     "list_session_tool_names",

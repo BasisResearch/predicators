@@ -1,5 +1,6 @@
 """The agentic real-to-sim arm: the agent builds the simulator itself."""
 import json
+import re
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Set
 
@@ -249,6 +250,19 @@ def test_agent_builds_the_scene_and_rehearses_in_it(tmp_path: Any,
         sandbox = Path(ctx.sandbox_dir)
         assert "sim` has no world until" in message
         assert "visible base physics" not in message
+        # The no-model status says what this arm can do.
+        assert ("call `sim.fit()`" in message) == from_assets
+        assert ("the harness fits nothing" in message) != from_assets
+        # The references are built before the system prompt, which counts
+        # the manifest it lists; nothing is staged in the log directory,
+        # and the level's recording keeps the manifest the agent read.
+        log_dir = Path(approach._get_log_dir())
+        system = (log_dir / "full_system_prompt_solve.md").read_text()
+        bodies = re.search(r"scene_manifest\.json \((\d+) bodies\)", system)
+        assert bodies is not None and int(bodies.group(1)) > 0, system
+        assert not (log_dir / "reference_sources").exists()
+        assert (log_dir.parent / "L01" / "scene_manifest.json").read_text() \
+            == (sandbox / "reference/scene/scene_manifest.json").read_text()
         # References: engine sources, the manifest and the assets, and no
         # domain source.
         refs = sorted(
