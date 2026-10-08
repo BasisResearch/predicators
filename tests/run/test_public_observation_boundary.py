@@ -34,7 +34,9 @@ def test_skill_reference_is_public_documentation() -> None:
     approach = object.__new__(AgentContinualModelFreeApproach)
     references = approach._get_sandbox_reference_files()
     assert references
-    assert all(path.endswith('.md') for path in references.values())
+    assert all(
+        isinstance(path, str) and path.endswith('.md')
+        for path in references.values())
     assert 'options.py' not in references
 
 

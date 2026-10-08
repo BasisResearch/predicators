@@ -17,7 +17,7 @@ from predicators.agent_sdk.sandbox_setup import trajectories_path
 from predicators.approaches import create_approach
 from predicators.approaches.agent_continual_approach import \
     AgentContinualApproach
-from predicators.code_sim_learning.fit_space import FitResult
+from predicators.code_sim_learning.fit_space import FitResult, ParamSpec
 from predicators.code_sim_learning.latent_tracker import \
     make_subclass_latent_tracker
 from predicators.envs import create_new_env
@@ -124,6 +124,19 @@ def test_fit_status_text_is_a_point_estimate_line() -> None:
     empty: Any = SimpleNamespace(_last_fit_result=None,
                                  _probe_fit_state=lambda: {})
     assert render(empty) == "no fit result"
+
+    # A subclass model before any fit, as after a restart that cut off the
+    # round its model was written in: its AGENT_PARAM_SPECS are unfitted.
+    def subclass(specs: List[ParamSpec]) -> Any:
+        return SimpleNamespace(_last_fit_result=None,
+                               _param_specs=[],
+                               _physical_param_specs=specs,
+                               _residual_env_cls=object,
+                               _probe_fit_state=lambda: {})
+
+    rate = ParamSpec("rate", 0.1, lo=0.0, hi=1.0)
+    assert render(subclass([rate])).startswith("UNFITTED")
+    assert render(subclass([])) == "no learnable parameters"
 
 
 def test_predicates_install_refreshes_the_session(tmp_path: Any) -> None:

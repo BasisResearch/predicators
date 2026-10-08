@@ -778,7 +778,11 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         parameter and the posterior sample count, never the raw result (its
         Jacobian dump is noise to the agent)."""
         result = getattr(self, "_last_fit_result", None)
-        if result is None and getattr(self, "_param_specs", []):
+        # A rule model's parameters are its PARAM_SPECS; a subclass model's
+        # are its AGENT_PARAM_SPECS, which become the physical specs.
+        declared = (list(getattr(self, "_param_specs", [])) +
+                    list(getattr(self, "_physical_param_specs", [])))
+        if result is None and declared:
             return ("UNFITTED for the current simulator.py; using carried "
                     "or declared parameter values. Call sim.fit() to fit")
         if result is None and getattr(self, "_residual_env_cls", None):

@@ -77,7 +77,7 @@ class ScenePackageMixin:
         for original, replacement in rebinds.items():
             if text.count(original) == 1:
                 text = text.replace(original, replacement)
-        origin = sources[name].relative_to(package.parent)
+        origin = sources[name].relative_to(Path(__file__).resolve().parents[2])
         return GeneratedReference(
             text, f"{origin}, its imports pointed at reference/base_sim")
 
