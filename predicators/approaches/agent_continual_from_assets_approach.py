@@ -6,13 +6,20 @@ mechanisms, parameters and inferred memory.
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+import numpy as np
+
 from predicators.agent_sdk.sandbox_setup import ReferenceFiles
 from predicators.approaches.agent_continual_approach import \
     AgentContinualApproach
+from predicators.code_sim_learning.fit_space import ParamSpec
+from predicators.code_sim_learning.orchestrator import prior_parameter_belief
+from predicators.code_sim_learning.parameter_belief import BeliefConfig, \
+    ParameterBelief, join_beliefs, stable_seed
 from predicators.code_sim_learning.scene_base import SceneBase, \
     scene_base_class
 from predicators.code_sim_learning.utils import read_residual_env
@@ -24,8 +31,21 @@ class AgentContinualFromAssetsApproach(AgentContinualApproach):
     """Build the scene twin from the engine, the manifest and the assets."""
 
     _save_suffix = "AgentContinualFromAssets"
+    # The model's physics starts from the agent's guesses: the fit's prior
+    # spans each declared range (code_sim_learning_prior_spans_bounds), and
+    # rehearsal samples the engine materials the model does not declare.
+    # The real-to-sim comparison fits nothing and samples nothing.
+    _belief_over_guesses = True
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
+        if self._belief_over_guesses and \
+                not CFG.code_sim_learning_prior_spans_bounds:
+            raise ValueError(
+                "EMPIRIC from assets fits parameters that start from the "
+                "agent's guesses; run it with "
+                "code_sim_learning_prior_spans_bounds (as the "
+                "from_assets_opus entry of scripts/configs/empiric/"
+                "approaches.yaml does)")
         self._scene_base: Optional[type] = None
         super().__init__(*args, **kwargs)
         # The domain twin never renders or predicts for this arm: the
@@ -103,7 +123,10 @@ class AgentContinualFromAssetsApproach(AgentContinualApproach):
         return {"scene_built": True}
 
     def _play_model_contract(self, **options: Any) -> str:
-        return super()._play_model_contract(scene_built=True, **options)
+        return super()._play_model_contract(
+            scene_built=True,
+            sampled_materials=self._belief_over_guesses,
+            **options)
 
     def _physical_params_prompt_section(self) -> str:
         # No supplied base, no supplied parameter menu.
@@ -111,6 +134,51 @@ class AgentContinualFromAssetsApproach(AgentContinualApproach):
 
     def _no_model_section(self) -> str:
         return "no_model_assets"
+
+    # -- Materials the model does not declare -------------------------------
+
+    def _sampled_material_specs(self) -> List[ParamSpec]:
+        """The engine materials of the agent's scene it does not declare, as
+        rehearsal samples them; none before the scene loads."""
+        if not self._belief_over_guesses or \
+                getattr(self, "_residual_env_cls", None) is None:
+            return []
+        sampler = getattr(self._base_env, "sampled_material_specs", None)
+        return list(sampler()) if callable(sampler) else []
+
+    def _physical_param_names(self) -> Set[str]:
+        return super()._physical_param_names() | {
+            spec.name
+            for spec in self._sampled_material_specs()
+        }
+
+    def parameter_belief(self) -> Optional[ParameterBelief]:
+        """The model's belief joined with a factor for each engine material it
+        does not declare: never fitted, its prior over a plausible range.
+
+        A plan whose success hangs on such a material then fails on some
+        joint draws, and a physics sweep tests the ends of its range.
+        """
+        belief = super().parameter_belief()
+        sampled = self._sampled_material_specs()
+        if belief is None or not sampled:
+            return belief
+        ranges = tuple(
+            (spec.name, spec.init_value, spec.lo, spec.hi) for spec in sampled)
+        fitted = hashlib.sha256(
+            repr(belief.names).encode() +
+            np.ascontiguousarray(belief.draws).tobytes()).hexdigest()
+        key = ("sampled materials", fitted, ranges)
+        cache = self._belief_cache()
+        if key not in cache:
+            if len(cache) > 8:
+                cache.clear()
+            prior = prior_parameter_belief(sampled, {},
+                                           BeliefConfig.from_cfg(),
+                                           seed=stable_seed(
+                                               CFG.seed, "materials", ranges))
+            cache[key] = join_beliefs(belief, prior)
+        return cache[key]
 
     # -- No domain twin behind the probe -------------------------------------
 

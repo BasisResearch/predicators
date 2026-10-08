@@ -22,6 +22,9 @@ APPROACHES:
     FLAGS:
       agent_sdk_model_name: claude-opus-5
       continual_require_model_on_test: true
+      # Its starting values are the agent's guesses: a parameter the data
+      # do not constrain keeps its whole declared range in the belief.
+      code_sim_learning_prior_spans_bounds: true
   # Model-free: the same agent with the model-side machinery switched
   # off, so the two differ only in the model.
   mf_opus:

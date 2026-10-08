@@ -2401,6 +2401,16 @@ class GlobalSettings:
     # data-equivalence tolerance as the grid flat set, so a genuinely
     # identified param (whose revert destroys the SSE) is never touched.
     code_sim_learning_rollout_anchor_ablation = True
+    # The fit's Gaussian prior on each parameter is at least as wide as
+    # the parameter's declared range (fit space), instead of 0.75x its
+    # starting value. That prior width suits starting values that are
+    # calibrated defaults (a supplied domain base); for an arm whose
+    # starting values are the agent's guesses (EMPIRIC from assets), a
+    # parameter the recordings do not constrain must keep a posterior as
+    # wide as its range, or the belief claims a knowledge it lacks
+    # (2026-10-04: a spinning friction started at 0.05 came out
+    # 0.057-0.12 with the world at 0.5).
+    code_sim_learning_prior_spans_bounds = False
     # Goodness-of-fit trimming threshold for rollout sysID, as a
     # multiple of the fit's noise_sigma (0 disables): a segment whose
     # best-achievable RMS over the candidate param grid exceeds

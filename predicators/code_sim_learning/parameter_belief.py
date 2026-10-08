@@ -362,6 +362,40 @@ class ParameterBelief:
                    })
 
 
+def join_beliefs(first: ParameterBelief,
+                 second: ParameterBelief) -> ParameterBelief:
+    """The product of two beliefs over disjoint parameters, draw ``i`` of each
+    paired into joint draw ``i``.
+
+    ``second`` must carry at least ``first``'s number of draws.
+    """
+    overlap = sorted(set(first.names) & set(second.names))
+    if overlap:
+        raise ValueError(f"Joined beliefs share parameters {overlap}.")
+    num = first.num_draws
+    if second.num_draws < num:
+        raise ValueError(f"Joining {num} draws needs as many from each "
+                         f"factor; got {second.num_draws}.")
+    return ParameterBelief(names=list(first.names) + list(second.names),
+                           scales=list(first.scales) + list(second.scales),
+                           map_estimate={
+                               **first.map_estimate,
+                               **second.map_estimate
+                           },
+                           lines={
+                               **first.lines,
+                               **second.lines
+                           },
+                           noise_scale=first.noise_scale,
+                           draws=np.hstack([first.draws, second.draws[:num]]),
+                           held=list(first.held) + list(second.held),
+                           evaluations=first.evaluations + second.evaluations,
+                           discrete={
+                               **first.discrete,
+                               **second.discrete
+                           })
+
+
 def stable_seed(*parts: Any) -> int:
     """A 63-bit seed from ``parts``, stable across processes."""
     text = "|".join(repr(p) for p in parts).encode()

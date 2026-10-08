@@ -27,6 +27,23 @@ The generic wrapper still supplies the robot controller, grasp conventions, gene
 The scalar store does not implement domain dynamics or joint/readout mappings.
 This is a reduction in supplied domain implementation, not reconstruction from raw vision or a bare-engine-only benchmark.
 
+## Belief over the scene's physics
+
+Added October 2026, after seed 1 of the Domino round `fixes_r1` lost its test level.
+That agent never declared the dominoes' spinning and rolling friction, so its model ran both at PyBullet's 0 while the world uses 0.5 and 0.006.
+Its rehearsals predicted a cascade that the world did not produce.
+Its level-1 recording, a straight chain, could not have identified either value.
+Two settings keep this arm's belief from claiming knowledge the data do not give:
+
+- The fit's prior on each parameter spans the parameter's declared range (`code_sim_learning_prior_spans_bounds`, set by the `from_assets_opus` menu entry and required by the arm).
+  Under the anchored prior of the supplied-base arms, 0.75 times the starting value, a spinning friction started at 0.05 came out with a 68% interval of 0.057 to 0.12 on data that said nothing about it.
+- Rehearsal samples every engine material the scene does not declare.
+  `SceneBase.sampled_material_specs` gives each one a plausible range around the scene's own value (`SAMPLED_MATERIALS`), and the arm joins these prior-only factors to its belief.
+  Joint draws and physics sweeps vary them; they are never fitted, so they cost no replays.
+
+The supplied-base arms keep the anchored prior: their starting values are the base's calibrated defaults.
+The real-to-sim comparison fits nothing and samples nothing.
+
 ## Pilot
 
 The configuration is [continual_from_assets_pilot_r1.yaml](https://github.com/BasisResearch/predicators/blob/72d7258ed3992728c8501c615ca1261ec3f49feb/scripts/configs/predicatorv3/continual_from_assets_pilot_r1.yaml).

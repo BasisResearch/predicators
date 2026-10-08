@@ -43,6 +43,7 @@ REAL_TO_SIM_FLAGS = {
 FROM_ASSETS_FLAGS = {
     "agent_sim_learn_declared_params_only": False,
     "continual_uncertainty_decisions": True,
+    "code_sim_learning_prior_spans_bounds": True,
 }
 # The agent's simulator for the Boil training scene, written the way the
 # prompt describes: a SceneBase subclass whose initialize_pybullet loads
@@ -326,9 +327,14 @@ def test_agent_builds_the_scene_and_rehearses_in_it(tmp_path: Any,
         if from_assets:
             # EMPIRIC's joint belief rehearses on its joint draws, each on a
             # fresh world at its own planner seed; this replaces trials.
+            # Each draw also samples the materials the scene leaves
+            # undeclared.
             code = ("r = sim.reset(current=True).run('Wait(robot:robot)[2]')\n"
                     "seeds = {d['planner_seed'] for d in r.draws}\n"
                     "assert len(r.draws) > 1 and len(seeds) == len(r.draws)\n"
+                    "spins = {d['params']['jug_spinning_friction'] "
+                    "for d in r.draws}\n"
+                    "assert len(spins) > 1, spins\n"
                     "print('independent')")
         else:
             code = ("r = sim.reset(current=True).run("
@@ -351,6 +357,23 @@ def test_agent_builds_the_scene_and_rehearses_in_it(tmp_path: Any,
         worlds[0].apply_physical_param_overrides({"heat_rate": 0.07})
         assert worlds[0].agent_param("heat_rate") == pytest.approx(0.07)
         assert worlds[1].agent_param("heat_rate") == pytest.approx(0.01)
+
+        # A draw's value for an undeclared material reaches its world only.
+        def spin(world: Any) -> float:
+            return p.getDynamicsInfo(
+                world.body("jug0"),
+                -1,
+                physicsClientId=world._physics_client_id)[7]
+
+        own = spin(worlds[1])
+        worlds[0].apply_physical_param_overrides(
+            {"jug_spinning_friction": own + 0.5})
+        assert spin(worlds[0]) == pytest.approx(own + 0.5)
+        assert spin(worlds[1]) == pytest.approx(own)
+        sampled = {s.name for s in approach._sampled_material_specs()}
+        assert ("jug_spinning_friction" in sampled) == from_assets
+        assert (sampled <= approach._physical_param_names()) and \
+            (bool(sampled) == from_assets)
         if from_assets:
             assert "step applied" in _call(approach,
                                            "env_step",
@@ -383,8 +406,9 @@ def test_scene_base_offers_engine_materials(tmp_path: Any) -> None:
     and of the static support.
 
     A declared one is set on every body of its group at each reset and
-    on change; an undeclared one, which a fit pins to its default, never
-    overrides the scene's own value.
+    on change. An undeclared one keeps the scene's own value until an
+    override sets it, as a rehearsal draw does, and is offered as a
+    sampled parameter over a plausible range.
     """
     _config(tmp_path, **_arm_flags())
     env = create_new_env("pybullet_boil", do_cache=False, use_gui=False)
@@ -438,16 +462,49 @@ def test_scene_base_offers_engine_materials(tmp_path: Any) -> None:
     assert dynamics(jug)[7] == pytest.approx(0.3)
     world.apply_physical_param_overrides({"jug_spinning_friction": 0.6})
     assert dynamics(jug)[7] == pytest.approx(0.6)
-    # A fit pins undeclared entries to their defaults; the scene's own
-    # value stays.
-    p.changeDynamics(jug, -1, lateralFriction=0.9, physicsClientId=client)
+    # The undeclared materials are sampled over plausible ranges around
+    # the scene's own values; the declared one is not.
+    sampled = {spec.name: spec for spec in world.sampled_material_specs()}
+    assert "jug_spinning_friction" not in sampled
+    assert {"jug_mass", "jug_rolling_friction", "support_lateral_friction"
+            } <= set(sampled)
+    assert "support_mass" not in sampled
+    assert (sampled["jug_mass"].lo, sampled["jug_mass"].hi) == \
+        pytest.approx((0.2 / 3, 0.6))
+    assert sampled["jug_rolling_friction"].init_value == pytest.approx(0.0)
+    assert sampled["jug_lateral_friction"].init_value == pytest.approx(
+        info["jug_lateral_friction"]["default"])
+    # A value set on an undeclared material, as a draw sets one, holds
+    # after each reset; a fit pinning it to its default sets the scene's
+    # own value.
+    world.apply_physical_param_overrides({"jug_rolling_friction": 0.01})
+    assert dynamics(jug)[6] == pytest.approx(0.01)
+    world._set_state(init)
+    assert dynamics(jug)[6] == pytest.approx(0.01)
     world.apply_physical_param_overrides(
-        {"jug_lateral_friction": info["jug_lateral_friction"]["default"]})
-    assert dynamics(jug)[1] == pytest.approx(0.9)
+        {"jug_rolling_friction": info["jug_rolling_friction"]["default"]})
+    assert dynamics(jug)[6] == pytest.approx(0.0)
     # A reset re-applies the declared value.
     p.changeDynamics(jug, -1, spinningFriction=0.0, physicsClientId=client)
     world._set_state(init)
     assert dynamics(jug)[7] == pytest.approx(0.6)
+
+
+def test_from_assets_needs_the_range_prior(tmp_path: Any) -> None:
+    """EMPIRIC from assets refuses to start without the prior its guessed
+    starting values need."""
+    flags = _benchmark_flags("pybullet_bridge")
+    flags.update(FROM_ASSETS_FLAGS,
+                 approach="agent_continual_from_assets",
+                 env="pybullet_boil",
+                 code_sim_learning_prior_spans_bounds=False)
+    _config(tmp_path, **flags)
+    env = create_new_env("pybullet_boil", do_cache=False, use_gui=False)
+    with pytest.raises(ValueError, match="prior_spans_bounds"):
+        create_approach("agent_continual_from_assets", env.predicates,
+                        get_gt_options(env.get_name()), env.types,
+                        env.action_space,
+                        [t.task for t in env.get_train_tasks()])
 
 
 def test_manifest_lists_visual_only_bodies(tmp_path: Any) -> None:

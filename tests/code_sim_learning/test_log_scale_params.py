@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 import predicators.approaches  # noqa: F401  # pylint: disable=unused-import
+from predicators import utils
 from predicators.code_sim_learning.active_experiment import laplace_ensemble, \
     perturbation_ensemble
 from predicators.code_sim_learning.fit_space import FitResult, ParamSpec, \
@@ -85,6 +86,19 @@ def test_prior_widths_log_param_is_constant_in_log_space():
     assert np.isclose(widths[0], 0.75)
     # Linear param with init ~0 falls back to half the bound range.
     assert np.isclose(widths[1], 0.3)
+
+
+def test_prior_widths_span_the_declared_range_for_guessed_starts():
+    """Under code_sim_learning_prior_spans_bounds no prior is narrower than its
+    parameter's declared range, in fit space."""
+    specs = _mixed_specs() + [ParamSpec("spin", 0.05, lo=0.0, hi=1.0)]
+    utils.reset_config({"code_sim_learning_prior_spans_bounds": True})
+    widths = prior_widths(specs, 0.75)
+    assert np.isclose(widths[0], np.log(2.0) - np.log(0.01))
+    assert np.isclose(widths[1], 0.6)
+    assert np.isclose(widths[2], 1.0)
+    utils.reset_config({"code_sim_learning_prior_spans_bounds": False})
+    assert np.isclose(prior_widths(specs, 0.75)[2], 0.0375)
 
 
 # ── Grid candidates ───────────────────────────────────────────────
