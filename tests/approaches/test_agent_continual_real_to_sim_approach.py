@@ -436,10 +436,15 @@ def test_scene_base_offers_engine_materials(tmp_path: Any) -> None:
             table = p.createCollisionShape(p.GEOM_BOX,
                                            halfExtents=[0.4, 0.4, 0.2],
                                            physicsClientId=client)
-            p.createMultiBody(0.0,
-                              table,
-                              basePosition=[0.75, 1.35, 0.2],
-                              physicsClientId=client)
+            table_id = p.createMultiBody(0.0,
+                                         table,
+                                         basePosition=[0.75, 1.35, 0.2],
+                                         physicsClientId=client)
+            # The scene gives the table a friction of its own.
+            p.changeDynamics(table_id,
+                             -1,
+                             lateralFriction=0.7,
+                             physicsClientId=client)
             return client, robot, bodies
 
     world = Scene(use_gui=False, skip_residual_dynamics=False)
@@ -484,6 +489,20 @@ def test_scene_base_offers_engine_materials(tmp_path: Any) -> None:
     world.apply_physical_param_overrides(
         {"jug_rolling_friction": info["jug_rolling_friction"]["default"]})
     assert dynamics(jug)[6] == pytest.approx(0.0)
+    # A group the scene made different (the ground and the table) takes a
+    # set value on every body, and each body's own value back at the
+    # default.
+    support = world._materials()[0]["support"]
+    own = [dynamics(body)[1] for body in support]
+    assert len(set(own)) > 1, own
+    world.apply_physical_param_overrides({"support_lateral_friction": 1.4})
+    assert [dynamics(body)[1] for body in support] == \
+        pytest.approx([1.4] * len(support))
+    world.apply_physical_param_overrides({
+        "support_lateral_friction":
+        info["support_lateral_friction"]["default"]
+    })
+    assert [dynamics(body)[1] for body in support] == pytest.approx(own)
     # A reset re-applies the declared value.
     p.changeDynamics(jug, -1, spinningFriction=0.0, physicsClientId=client)
     world._set_state(init)

@@ -198,8 +198,6 @@ def test_config_reads_the_flags():
 
 def test_prior_belief_is_the_bounded_prior():
     """Before any fit, the factor is the declared prior within the box."""
-    # pylint: disable-next=import-outside-toplevel
-    from predicators.code_sim_learning.parameter_belief import prior_belief
     specs = [
         ParamSpec("mass", 1.0, lo=0.2, hi=5.0, scale="log"),
         ParamSpec("slot", 1.0, lo=0.0, hi=3.0, discrete=True)

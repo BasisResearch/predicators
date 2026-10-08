@@ -139,6 +139,9 @@ class SceneBase(PyBulletEnv):
                                                                     List[int]],
                                               Dict[str, Tuple[str,
                                                               str]]]] = None
+        # (body, property) -> the value the scene itself gave the body,
+        # restored when an undeclared material is set back to its default.
+        self._body_baseline: Dict[Tuple[int, str], float] = {}
         # Values set on undeclared materials (a rehearsal draw's).
         self._sampled_materials: Dict[str, float] = {}
         super().__init__(use_gui=use_gui,
@@ -304,24 +307,42 @@ class SceneBase(PyBulletEnv):
         """Set declared parameters and materials.
 
         A value for an undeclared material (a rehearsal draw's) is set
-        on its group's bodies like a declared one; a fit that pins it to
-        its default sets the scene's own value. Material names are known
-        from the observed types, so a fresh world that has bound no body
-        yet accepts the menu another world of the same scene reports.
+        on its group's bodies like a declared one. Its default, which a
+        fit pins every parameter it does not estimate to, stands for the
+        scene's own values: each body gets its own back, so a group of
+        bodies the scene made different (the ground and a table) stays
+        so. Material names are known from the observed types, so a fresh
+        world that has bound no body yet accepts the menu another world
+        of the same scene reports.
         """
         materials = self._material_names()
         declared = {spec.name for spec in type(self).AGENT_PARAM_SPECS}
-        self._sampled_materials.update({
-            name: float(value)
-            for name, value in params.items()
-            if name in materials and name not in declared
-        })
+        groups, menu = self._materials()
+        for name, value in params.items():
+            if name not in materials or name in declared:
+                continue
+            if name in menu:
+                group, prop = menu[name]
+                default = self._material_baseline.get(
+                    (group, prop), self._read_material(groups[group][0], prop))
+                if float(value) == float(default):
+                    if self._sampled_materials.pop(name, None) is not None:
+                        self._restore_own_materials(groups[group], prop)
+                    continue
+            self._sampled_materials[name] = float(value)
         super().apply_physical_param_overrides({
             name: value
             for name, value in params.items()
             if name not in materials or name in declared
         })
         self._apply_materials()
+
+    def _restore_own_materials(self, bodies: List[int], prop: str) -> None:
+        """Give each body the value the scene itself gave it."""
+        for body in bodies:
+            own = self._body_baseline.get((body, prop))
+            if own is not None:
+                self._write_material(body, prop, own)
 
     def sampled_material_specs(self) -> List[ParamSpec]:
         """The materials of the scene the model does not declare, as the
@@ -392,13 +413,17 @@ class SceneBase(PyBulletEnv):
         return groups, menu
 
     def _note_material_baselines(self) -> None:
-        """Record what the scene gives each newly seen group, before any
-        declared value is set on it."""
+        """Record what the scene gives each newly seen group and body, before
+        any declared or sampled value is set on it."""
         groups, menu = self._materials()
         for group, prop in menu.values():
             if (group, prop) not in self._material_baseline:
                 self._material_baseline[(group, prop)] = self._read_material(
                     groups[group][0], prop)
+            for body in groups[group]:
+                if (body, prop) not in self._body_baseline:
+                    self._body_baseline[(body, prop)] = self._read_material(
+                        body, prop)
 
     def _apply_materials(self) -> None:
         """Set every declared material parameter, and every value set on an
