@@ -17,17 +17,17 @@ utils.import_submodules(__path__, __name__)
 
 
 def _get_approach_cls_from_name(name: str) -> TypingType[BaseApproach]:
-    for cls in utils.get_all_subclasses(BaseApproach):
-        if not cls.__abstractmethods__ and cls.get_name() == name:
-            return cls
-    raise NotImplementedError(f"Unknown approach: {name}")
+    cls = utils.get_registered_subclass(BaseApproach, name)
+    if cls is None:
+        raise NotImplementedError(f"Unknown approach: {name}")
+    return cls
 
 
 def _get_wrapper_cls_from_name(name: str) -> TypingType[BaseApproachWrapper]:
-    for cls in utils.get_all_subclasses(BaseApproachWrapper):
-        if not cls.__abstractmethods__ and cls.get_name() == name:
-            return cls
-    raise NotImplementedError(f"Unknown wrapper approach: {name}")
+    cls = utils.get_registered_subclass(BaseApproachWrapper, name)
+    if cls is None:
+        raise NotImplementedError(f"Unknown wrapper approach: {name}")
+    return cls
 
 
 def create_approach(name: str, initial_predicates: Set[Predicate],

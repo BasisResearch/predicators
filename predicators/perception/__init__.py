@@ -11,10 +11,7 @@ utils.import_submodules(__path__, __name__)
 
 def create_perceiver(name: str, ) -> BasePerceiver:
     """Create a perceiver given its name."""
-    for cls in utils.get_all_subclasses(BasePerceiver):
-        if not cls.__abstractmethods__ and cls.get_name() == name:
-            perceiver = cls()
-            break
-    else:
+    cls = utils.get_registered_subclass(BasePerceiver, name)
+    if cls is None:
         raise NotImplementedError(f"Unrecognized perceiver: {name}")
-    return perceiver
+    return cls()

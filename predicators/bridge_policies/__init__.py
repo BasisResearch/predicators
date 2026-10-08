@@ -18,10 +18,7 @@ def create_bridge_policy(name: str, types: Set[Type],
                          options: Set[ParameterizedOption],
                          nsrts: Set[NSRT]) -> BaseBridgePolicy:
     """Create a bridge policy given its name."""
-    for cls in utils.get_all_subclasses(BaseBridgePolicy):
-        if not cls.__abstractmethods__ and cls.get_name() == name:
-            bridge_policy = cls(types, predicates, options, nsrts)
-            break
-    else:
+    cls = utils.get_registered_subclass(BaseBridgePolicy, name)
+    if cls is None:
         raise NotImplementedError(f"Unknown bridge policy: {name}")
-    return bridge_policy
+    return cls(types, predicates, options, nsrts)

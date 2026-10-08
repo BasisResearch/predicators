@@ -29,11 +29,9 @@ def _skill_robot_env_cls(env_name: str) -> TypingType[PyBulletEnv]:
     """
     # pylint: disable=import-outside-toplevel  # local: avoid import cycle
     from predicators.envs.base_env import BaseEnv
-    from predicators.utils import get_all_subclasses
-    for c in get_all_subclasses(BaseEnv):
-        if not c.__abstractmethods__ and c.get_name() == env_name:
-            return c  # type: ignore[return-value]
-    return PyBulletDominoEnv
+    from predicators.utils import get_registered_subclass
+    cls = get_registered_subclass(BaseEnv, env_name)
+    return PyBulletDominoEnv if cls is None else cls
 
 
 class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,

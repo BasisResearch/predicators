@@ -240,10 +240,10 @@ class LatentVariableSkillCompetenceModel(SkillCompetenceModel):
 
 def _get_competence_model_cls_from_name(
         name: str) -> TypingType[SkillCompetenceModel]:
-    for cls in utils.get_all_subclasses(SkillCompetenceModel):
-        if not cls.__abstractmethods__ and cls.get_name() == name:
-            return cls
-    raise NotImplementedError(f"Unknown competence model: {name}")
+    cls = utils.get_registered_subclass(SkillCompetenceModel, name)
+    if cls is None:
+        raise NotImplementedError(f"Unknown competence model: {name}")
+    return cls
 
 
 def create_competence_model(model_name: str,

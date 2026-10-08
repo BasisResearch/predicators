@@ -354,21 +354,12 @@ def _get_shadow_robot_for_env() -> SingleArmPyBulletRobot:
     ground plane, and ask the env class for a robot.
     """
     # pylint: disable=import-outside-toplevel
-    from predicators.envs.base_env import BaseEnv
     from predicators.envs.pybullet_env import PyBulletEnv
 
     # pylint: enable=import-outside-toplevel
 
     env_name = CFG.env
-    env_cls = None
-    for cls in utils.get_all_subclasses(BaseEnv):
-        if cls.__abstractmethods__:
-            continue
-        if not issubclass(cls, PyBulletEnv):
-            continue
-        if cls.get_name() == env_name:
-            env_cls = cls
-            break
+    env_cls = utils.get_registered_subclass(PyBulletEnv, env_name)
     if env_cls is None:
         raise NotImplementedError(
             f"human_low_level_control: no PyBulletEnv subclass registered "
