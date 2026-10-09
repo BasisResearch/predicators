@@ -64,11 +64,12 @@ MATERIALS: Dict[str, Tuple[Optional[float], Optional[float], str, str]] = {
     "linear_damping": (0.0, 1.0, "linear", "damping of linear velocity"),
     "angular_damping": (0.0, 1.0, "linear", "damping of angular velocity"),
 }
-# The range rehearsal samples an undeclared material over, when the model
-# does not fit it: what a body of unknown make plausibly has, narrower than
-# the fit boxes above (property -> lo, hi, scale). A mass is relative to the
-# scene's own value.
-SAMPLED_MATERIALS: Dict[str, Tuple[float, float, str]] = {
+# What a body of unknown make plausibly has, narrower than the fit boxes
+# above (property -> lo, hi, scale); a mass is relative to the model's own
+# mass, the declared value or else the scene's. Rehearsal samples an
+# undeclared material over this range, and a scene base bound with
+# ``plausible_floor`` widens a declared material's box to cover it.
+PLAUSIBLE_MATERIALS: Dict[str, Tuple[float, float, str]] = {
     "mass": (1.0 / 3.0, 3.0, "log"),
     "lateral_friction": (0.1, 1.5, "log"),
     "spinning_friction": (0.0, 1.0, "linear"),
@@ -77,6 +78,30 @@ SAMPLED_MATERIALS: Dict[str, Tuple[float, float, str]] = {
     "linear_damping": (0.0, 0.2, "linear"),
     "angular_damping": (0.0, 0.2, "linear"),
 }
+
+
+def _plausible_range(prop: str, value: float) -> Tuple[float, float]:
+    """The plausible range of one material property (``PLAUSIBLE_MATERIALS``);
+    a mass is relative to ``value``, the model's own mass."""
+    lo, hi, _scale = PLAUSIBLE_MATERIALS[prop]
+    if prop == "mass":
+        return value * lo, value * hi
+    return lo, hi
+
+
+def plausible_materials_text() -> str:
+    """``PLAUSIBLE_MATERIALS`` in words, for the scene contract."""
+    parts = []
+    for prop, (lo, hi, _scale) in PLAUSIBLE_MATERIALS.items():
+        words = prop.replace("_", " ")
+        if prop == "mass":
+            parts.append(f"{words} {lo:.2g} to {hi:g} times its value in your "
+                         "model")
+        else:
+            parts.append(f"{words} {lo:g} to {hi:g}")
+    return ", ".join(parts)
+
+
 # Static bodies with no observed name (tables, walls, fixtures) form the
 # support group; mass and damping mean nothing for a body that never moves.
 SUPPORT_GROUP = "support"
@@ -116,10 +141,13 @@ class SceneBase(PyBulletEnv):
     on every body of its group after each reset and whenever its value
     changes. An undeclared one keeps the scene's own value unless an
     override sets it: rehearsal samples it as one of
-    :meth:`sampled_material_specs`.
+    :meth:`sampled_material_specs`. Bound with ``plausible_floor``, the
+    registry names each declared material's plausible range, and a
+    declared box narrower than that is widened to it.
     """
     # Bound by scene_base_class.
     _scene_env_name: ClassVar[str] = "agent_scene"
+    _plausible_floor: ClassVar[bool] = False
     _scene_types: ClassVar[Tuple[Type, ...]] = ()
     _robot_home_orn: ClassVar[Optional[Quaternion]] = None
     _asset_dir: ClassVar[str] = ""
@@ -282,13 +310,19 @@ class SceneBase(PyBulletEnv):
 
     def get_physical_param_info(self) -> Dict[str, Dict]:
         """The material menu of the current scene, then the declared parameters
-        (a declaration's own box wins over the menu's)."""
+        (a declaration's own box wins over the menu's).
+
+        Bound with ``plausible_floor``, each declared material also
+        names its ``plausible`` (lo, hi) range, which
+        ``stamp_physical_spec_scales`` widens a narrower declared box
+        to. It comes from the name and the declaration alone, so a world
+        that has bound no body yet reports the same range.
+        """
         groups, menu = self._materials()
         info: Dict[str, Dict] = {}
         for name, (group, prop) in menu.items():
             lo, hi, scale, meaning = MATERIALS[prop]
-            default = self._material_baseline.get(
-                (group, prop), self._read_material(groups[group][0], prop))
+            default = self._scene_value(groups, group, prop)
             if prop == "mass":
                 lo, hi = default / 20.0, default * 20.0
             entry: Dict[str, Any] = {
@@ -301,7 +335,27 @@ class SceneBase(PyBulletEnv):
                 entry["scale"] = "log"
             info[name] = entry
         info.update(super().get_physical_param_info())
+        if type(self)._plausible_floor:
+            for spec in type(self).AGENT_PARAM_SPECS:
+                material = type(self)._material_property(spec.name)
+                if material is not None:
+                    info[spec.name]["plausible"] = _plausible_range(
+                        material, float(spec.init_value))
         return info
+
+    def _scene_value(self, groups: Dict[str, List[int]], group: str,
+                     prop: str) -> float:
+        """The value the scene itself gave a group's first body."""
+        return self._material_baseline.get(
+            (group, prop), self._read_material(groups[group][0], prop))
+
+    @classmethod
+    def _material_property(cls, name: str) -> Optional[str]:
+        """The material property a parameter name sets, or None for a name that
+        is no material of this scene's types."""
+        if name not in cls._material_names():
+            return None
+        return next(prop for prop in MATERIALS if name.endswith(f"_{prop}"))
 
     def apply_physical_param_overrides(self, params: Dict[str, float]) -> None:
         """Set declared parameters and materials.
@@ -323,8 +377,7 @@ class SceneBase(PyBulletEnv):
                 continue
             if name in menu:
                 group, prop = menu[name]
-                default = self._material_baseline.get(
-                    (group, prop), self._read_material(groups[group][0], prop))
+                default = self._scene_value(groups, group, prop)
                 if float(value) == float(default):
                     if self._sampled_materials.pop(name, None) is not None:
                         self._restore_own_materials(groups[group], prop)
@@ -346,25 +399,23 @@ class SceneBase(PyBulletEnv):
 
     def sampled_material_specs(self) -> List[ParamSpec]:
         """The materials of the scene the model does not declare, as the
-        parameters rehearsal samples: each ranges over ``SAMPLED_MATERIALS``
-        and starts at the scene's own value, moved into that range."""
+        parameters rehearsal samples: each ranges over its plausible range
+        (``PLAUSIBLE_MATERIALS``) and starts at the scene's own value, moved
+        into that range."""
         declared = {spec.name for spec in type(self).AGENT_PARAM_SPECS}
         groups, menu = self._materials()
         specs = []
         for name, (group, prop) in sorted(menu.items()):
             if name in declared:
                 continue
-            lo, hi, scale = SAMPLED_MATERIALS[prop]
-            own = self._material_baseline.get(
-                (group, prop), self._read_material(groups[group][0], prop))
-            if prop == "mass":
-                lo, hi = own * lo, own * hi
+            own = self._scene_value(groups, group, prop)
+            lo, hi = _plausible_range(prop, own)
             specs.append(
                 ParamSpec(name,
                           min(max(own, lo), hi),
                           lo=lo,
                           hi=hi,
-                          scale=scale))
+                          scale=PLAUSIBLE_MATERIALS[prop][2]))
         return specs
 
     @classmethod
@@ -493,13 +544,16 @@ class SceneBase(PyBulletEnv):
                              **{_CHANGE_DYNAMICS_KEYS[prop]: float(value)})
 
 
-def scene_base_class(env_name: str, types: Iterable[Type],
-                     asset_dir: str) -> TypingType[SceneBase]:
+def scene_base_class(env_name: str,
+                     types: Iterable[Type],
+                     asset_dir: str,
+                     plausible_floor: bool = False) -> TypingType[SceneBase]:
     """The ``SceneBase`` bound to one deployment: its robot, its observation
     types and the sandbox's asset directory.
 
     The robot facts come from the deployment's env class, never from an
-    instance, so no scene is built here.
+    instance, so no scene is built here. ``plausible_floor`` keeps every
+    declared material's box at least as wide as its plausible range.
     """
     # pylint: disable=protected-access
     candidates = [
@@ -520,6 +574,7 @@ def scene_base_class(env_name: str, types: Iterable[Type],
         "_scene_types": scene_types,
         "_robot_home_orn": tuple(env_cls.get_robot_ee_home_orn()),
         "_asset_dir": os.path.abspath(asset_dir),
+        "_plausible_floor": plausible_floor,
     }
     declared = env_cls._declared_robot_init_pos()
     for attr, value in zip(("robot_init_x", "robot_init_y", "robot_init_z"),

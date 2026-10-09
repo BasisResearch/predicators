@@ -2,7 +2,7 @@
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Set
+from typing import Any, Dict, Iterator, List, Set, Tuple
 
 import pybullet as p
 import pytest
@@ -12,6 +12,7 @@ from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.code_sim_learning.scene_base import SceneBase, \
     scene_base_class
 from predicators.code_sim_learning.scene_manifest import build_scene_manifest
+from predicators.code_sim_learning.utils import stamp_physical_spec_scales
 from predicators.envs import create_new_env
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.ground_truth_models import get_gt_options
@@ -79,7 +80,9 @@ def _load(cls, client, body):
 
 
 class BoilScene(SceneBase):
-    AGENT_PARAM_SPECS = [ParamSpec("heat_rate", 0.01, lo=0.0, hi=0.1)]
+    AGENT_PARAM_SPECS = [ParamSpec("heat_rate", 0.01, lo=0.0, hi=0.1),
+                         ParamSpec("jug_spinning_friction", 0.005, lo=0.0,
+                                   hi=0.05)]
     RESIDUAL_FEATURES = {"jug": ["water_volume"]}
     MODEL_STATE_INIT = {"ticks": 0}
 
@@ -324,17 +327,36 @@ def test_agent_builds_the_scene_and_rehearses_in_it(tmp_path: Any,
             "assert r['attachments_preserved'], r\nprint('restored')")
         assert "restored" in restored and not restored.startswith(
             "ERROR"), restored
+        # The declared spinning friction's box: EMPIRIC from assets widens
+        # it to the plausible range, says so in the model status, and its
+        # prior and physics sweep use the wider box; real-to-sim keeps it.
+        spin = next(s for s in approach._physical_param_specs
+                    if s.name == "jug_spinning_friction")
+        status = approach._fit_status_text()
+        if from_assets:
+            assert (spin.lo, spin.hi) == pytest.approx((0.0, 1.0))
+            assert "jug_spinning_friction [0, 0.05] -> [0, 1]" in status, \
+                status
+            belief = approach.parameter_belief()
+            column = belief.names.index("jug_spinning_friction")
+            assert belief.draws[:, column].max() > 0.05
+            assert max(point["jug_spinning_friction"]
+                       for point in approach._stress_points()) > 0.05
+        else:
+            assert (spin.lo, spin.hi) == pytest.approx((0.0, 0.05))
+            assert "widened" not in status
         if from_assets:
             # EMPIRIC's joint belief rehearses on its joint draws, each on a
             # fresh world at its own planner seed; this replaces trials.
-            # Each draw also samples the materials the scene leaves
-            # undeclared.
+            # Each draw varies the declared spinning friction and samples
+            # the materials the scene leaves undeclared.
             code = ("r = sim.reset(current=True).run('Wait(robot:robot)[2]')\n"
                     "seeds = {d['planner_seed'] for d in r.draws}\n"
                     "assert len(r.draws) > 1 and len(seeds) == len(r.draws)\n"
-                    "spins = {d['params']['jug_spinning_friction'] "
-                    "for d in r.draws}\n"
-                    "assert len(spins) > 1, spins\n"
+                    "for name in ('jug_spinning_friction', "
+                    "'jug_rolling_friction'):\n"
+                    "    values = {d['params'][name] for d in r.draws}\n"
+                    "    assert len(values) > 1, (name, values)\n"
                     "print('independent')")
         else:
             code = ("r = sim.reset(current=True).run("
@@ -359,19 +381,20 @@ def test_agent_builds_the_scene_and_rehearses_in_it(tmp_path: Any,
         assert worlds[1].agent_param("heat_rate") == pytest.approx(0.01)
 
         # A draw's value for an undeclared material reaches its world only.
-        def spin(world: Any) -> float:
+        def roll(world: Any) -> float:
             return p.getDynamicsInfo(
                 world.body("jug0"),
                 -1,
-                physicsClientId=world._physics_client_id)[7]
+                physicsClientId=world._physics_client_id)[6]
 
-        own = spin(worlds[1])
+        own = roll(worlds[1])
         worlds[0].apply_physical_param_overrides(
-            {"jug_spinning_friction": own + 0.5})
-        assert spin(worlds[0]) == pytest.approx(own + 0.5)
-        assert spin(worlds[1]) == pytest.approx(own)
+            {"jug_rolling_friction": own + 0.01})
+        assert roll(worlds[0]) == pytest.approx(own + 0.01)
+        assert roll(worlds[1]) == pytest.approx(own)
         sampled = {s.name for s in approach._sampled_material_specs()}
-        assert ("jug_spinning_friction" in sampled) == from_assets
+        assert ("jug_rolling_friction" in sampled) == from_assets
+        assert "jug_spinning_friction" not in sampled
         assert (sampled <= approach._physical_param_names()) and \
             (bool(sampled) == from_assets)
         if from_assets:
@@ -397,8 +420,9 @@ def test_agent_builds_the_scene_and_rehearses_in_it(tmp_path: Any,
     # (the stand-in result's first sample).
     if not from_assets:
         fit = approach._last_fit_result
-        assert fit is not None and fit.names == ["heat_rate"]
-        assert fit.samples[0, 0] == pytest.approx(0.01)
+        assert fit is not None
+        assert fit.names == ["heat_rate", "jug_spinning_friction"]
+        assert fit.samples[0] == pytest.approx([0.01, 0.005])
 
 
 def test_scene_base_offers_engine_materials(tmp_path: Any) -> None:
@@ -507,6 +531,79 @@ def test_scene_base_offers_engine_materials(tmp_path: Any) -> None:
     p.changeDynamics(jug, -1, spinningFriction=0.0, physicsClientId=client)
     world._set_state(init)
     assert dynamics(jug)[7] == pytest.approx(0.6)
+
+
+def test_declared_material_ranges_cover_the_plausible_range(
+        tmp_path: Any) -> None:
+    """Bound with the plausible floor (EMPIRIC from assets), the base names
+    each declared material's plausible range, a mass's relative to the declared
+    value, and stamping widens a narrower declared box to it; a wider box and a
+    parameter that is no material stay. The range comes from the declaration
+    alone: a world that has bound no body yet, as the approach's is when it
+    loads a model, reports the same.
+
+    Bound without it (real-to-sim), every declared box stands.
+    """
+    _config(tmp_path, **_arm_flags())
+    env = create_new_env("pybullet_boil", do_cache=False, use_gui=False)
+    init = env.get_train_tasks()[0].task.init
+    names = [o.name for o in init if o.type.name != "robot"]
+    jugs = [o.name for o in init if o.type.name == "jug"]
+    declared = [
+        ParamSpec("jug_spinning_friction", 0.005, lo=0.0, hi=0.05),
+        ParamSpec("jug_lateral_friction", 0.5, lo=0.01, hi=3.0, scale="log"),
+        ParamSpec("jug_mass", 0.3, lo=0.25, hi=0.35, scale="log"),
+        ParamSpec("heat_rate", 0.01, lo=0.0, hi=0.1),
+    ]
+
+    def registry(plausible_floor: bool) -> Tuple[Dict[str, Dict], Dict]:
+        base: Any = scene_base_class("pybullet_boil",
+                                     env.types,
+                                     str(tmp_path),
+                                     plausible_floor=plausible_floor)
+
+        class Scene(base):  # type: ignore[misc,valid-type]
+            """Jugs as boxes; every other object has no body."""
+            AGENT_PARAM_SPECS = declared
+
+            @classmethod
+            def initialize_pybullet(cls, using_gui: bool) -> Any:
+                client, robot, bodies = super().initialize_pybullet(using_gui)
+                box = p.createCollisionShape(p.GEOM_BOX,
+                                             halfExtents=[0.03] * 3,
+                                             physicsClientId=client)
+                for name in names:
+                    bodies[name] = (p.createMultiBody(
+                        0.2, box, physicsClientId=client)
+                                    if name in jugs else None)
+                return client, robot, bodies
+
+        world = Scene(use_gui=False, skip_residual_dynamics=False)
+        unbound = stamp_physical_spec_scales(declared, world)
+        world._set_state(init)
+        stamped = stamp_physical_spec_scales(declared, world)
+        assert [(s.lo, s.hi) for s in unbound] == \
+            [(s.lo, s.hi) for s in stamped]
+        return world.get_physical_param_info(), {
+            spec.name: (spec.lo, spec.hi)
+            for spec in stamped
+        }
+
+    info, boxes = registry(plausible_floor=True)
+    assert info["jug_spinning_friction"]["plausible"] == pytest.approx(
+        (0.0, 1.0))
+    assert info["jug_mass"]["plausible"] == pytest.approx((0.1, 0.9))
+    for undeclared in ("jug_rolling_friction", "support_rolling_friction"):
+        assert "plausible" not in info[undeclared]
+    assert "plausible" not in info["heat_rate"]
+    assert boxes["jug_spinning_friction"] == pytest.approx((0.0, 1.0))
+    assert boxes["jug_lateral_friction"] == pytest.approx((0.01, 3.0))
+    assert boxes["jug_mass"] == pytest.approx((0.1, 0.9))
+    assert boxes["heat_rate"] == pytest.approx((0.0, 0.1))
+    info, boxes = registry(plausible_floor=False)
+    assert not any("plausible" in entry for entry in info.values())
+    assert boxes["jug_spinning_friction"] == pytest.approx((0.0, 0.05))
+    assert boxes["jug_mass"] == pytest.approx((0.25, 0.35))
 
 
 def test_from_assets_needs_the_range_prior(tmp_path: Any) -> None:

@@ -534,6 +534,7 @@ Asset files can contain nominal physical constants; treat them as assumptions to
 An engine material you do not declare is not fitted: rehearsal samples it over a plausible range, so a plan that works only near its default fails on some draws.
 Declare the materials your tasks' contacts depend on, so the recordings can fit them.
 A declared parameter's prior spans its declared range, and one the recordings do not constrain keeps that whole range in the belief: declare ranges you can defend.
+A declared material's range never stays narrower than its plausible range; the scene contract lists those ranges.
 
 Declare uncertain constants with `AGENT_PARAM_SPECS`; the harness retains fitting, belief handling and uncertainty-aware rehearsal.
 Use `sim.fit()` and `sim.validate()` on recorded experience, and compare held-out action outcomes where available.

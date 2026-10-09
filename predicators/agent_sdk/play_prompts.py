@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any, Iterable, List, Mapping, Sequence
 
 from predicators.agent_sdk.prompt_templates import render
+from predicators.code_sim_learning.scene_base import plausible_materials_text
 from predicators.observation_noise import ObservationNoise
 from predicators.settings import CFG
 
@@ -402,7 +403,8 @@ def build_model_contract(
     replaces the domain-twin subclass contract with the ``SceneBase``
     one: the agent loads the scene itself. ``sampled_materials`` (EMPIRIC
     from assets) says rehearsal samples the materials the scene leaves
-    undeclared; otherwise they keep the scene's values.
+    undeclared and a declared material keeps at least its plausible range;
+    otherwise undeclared materials keep the scene's values.
     """
     if supplied_model:
         parts = [
@@ -413,12 +415,14 @@ def build_model_contract(
             parts.append(render("play_model_contract", "predicates_latent"))
         return _join_contract(parts)
     if scene_built:
-        simulator = render(
-            "subclass_model",
-            "simulator_scene",
-            undeclared_materials=render(
-                "subclass_model", "undeclared_materials_sampled"
-                if sampled_materials else "undeclared_materials_kept"))
+        undeclared = (render("subclass_model",
+                             "undeclared_materials_sampled",
+                             plausible_ranges=plausible_materials_text())
+                      if sampled_materials else render(
+                          "subclass_model", "undeclared_materials_kept"))
+        simulator = render("subclass_model",
+                           "simulator_scene",
+                           undeclared_materials=undeclared)
     else:
         simulator = render("subclass_model", "simulator")
     parts = [

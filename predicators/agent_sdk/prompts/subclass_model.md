@@ -88,8 +88,11 @@ When a level's scene changes, edit `initialize_pybullet` to load the new bodies;
 Undeclared, a material keeps the value your scene gives it, or PyBullet's default: lateral friction 0.5, spinning and rolling friction 0, restitution 0 and damping 0.04.
 
 <!-- section: undeclared_materials_sampled -->
-Undeclared, a material is not fitted: each joint draw of `sim.run` samples it over a plausible range around the value your scene gives it, or PyBullet's default (lateral friction 0.5, spinning and rolling friction 0, restitution 0 and damping 0.04), and `physics_sweep` tests the ends of that range.
-Declare it to fit it to the recordings; declare it with a narrow range to fix it.
+Undeclared, a material is not fitted: each joint draw of `sim.run` samples it over its plausible range around the value your scene gives it, or PyBullet's default (lateral friction 0.5, spinning and rolling friction 0, restitution 0 and damping 0.04), and `physics_sweep` tests the ends of that range.
+The plausible ranges are __PLAUSIBLE_RANGES__.
+Declare a material to fit it to the recordings.
+A declared material's range covers at least its plausible range: a narrower declared range is widened to it, and the model status lists each one widened.
+The recordings narrow the range only where they test the material, so put your best value in `init_value`.
 
 <!-- section: dynamics -->
 ## Step and restoration behavior
