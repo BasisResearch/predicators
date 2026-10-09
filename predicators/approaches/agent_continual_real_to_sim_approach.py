@@ -40,6 +40,7 @@ class AgentContinualRealToSimApproach(AgentContinualFromAssetsApproach,
     """Agent-built scenes without harness fitting or uncertainty."""
 
     _save_suffix = "AgentContinualRealToSim"
+    _belief_over_guesses = False
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         wrong = [name for name in _UNCERTAINTY_FLAGS if getattr(CFG, name)]

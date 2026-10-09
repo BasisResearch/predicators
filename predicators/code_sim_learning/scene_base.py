@@ -31,6 +31,7 @@ from typing import Type as TypingType
 import pybullet as p
 
 from predicators import utils
+from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.pybullet_helpers.geometry import Quaternion
 from predicators.pybullet_helpers.robots.single_arm import \
@@ -62,6 +63,19 @@ MATERIALS: Dict[str, Tuple[Optional[float], Optional[float], str, str]] = {
     "restitution": (0.0, 1.0, "linear", "bounce of a contact"),
     "linear_damping": (0.0, 1.0, "linear", "damping of linear velocity"),
     "angular_damping": (0.0, 1.0, "linear", "damping of angular velocity"),
+}
+# The range rehearsal samples an undeclared material over, when the model
+# does not fit it: what a body of unknown make plausibly has, narrower than
+# the fit boxes above (property -> lo, hi, scale). A mass is relative to the
+# scene's own value.
+SAMPLED_MATERIALS: Dict[str, Tuple[float, float, str]] = {
+    "mass": (1.0 / 3.0, 3.0, "log"),
+    "lateral_friction": (0.1, 1.5, "log"),
+    "spinning_friction": (0.0, 1.0, "linear"),
+    "rolling_friction": (0.0, 0.02, "linear"),
+    "restitution": (0.0, 0.5, "linear"),
+    "linear_damping": (0.0, 0.2, "linear"),
+    "angular_damping": (0.0, 0.2, "linear"),
 }
 # Static bodies with no observed name (tables, walls, fixtures) form the
 # support group; mass and damping mean nothing for a body that never moves.
@@ -100,7 +114,9 @@ class SceneBase(PyBulletEnv):
     with bodies, or ``support`` for the static bodies without an observed
     name. A name the subclass declares in ``AGENT_PARAM_SPECS`` is set
     on every body of its group after each reset and whenever its value
-    changes; an undeclared one only describes the scene.
+    changes. An undeclared one keeps the scene's own value unless an
+    override sets it: rehearsal samples it as one of
+    :meth:`sampled_material_specs`.
     """
     # Bound by scene_base_class.
     _scene_env_name: ClassVar[str] = "agent_scene"
@@ -123,6 +139,11 @@ class SceneBase(PyBulletEnv):
                                                                     List[int]],
                                               Dict[str, Tuple[str,
                                                               str]]]] = None
+        # (body, property) -> the value the scene itself gave the body,
+        # restored when an undeclared material is set back to its default.
+        self._body_baseline: Dict[Tuple[int, str], float] = {}
+        # Values set on undeclared materials (a rehearsal draw's).
+        self._sampled_materials: Dict[str, float] = {}
         super().__init__(use_gui=use_gui,
                          skip_residual_dynamics=skip_residual_dynamics)
         self._robot = Object("robot", self._type_named("robot"))
@@ -283,22 +304,68 @@ class SceneBase(PyBulletEnv):
         return info
 
     def apply_physical_param_overrides(self, params: Dict[str, float]) -> None:
-        """Set declared parameters, materials included.
+        """Set declared parameters and materials.
 
-        An undeclared material is not a setter: a fit pins every
-        parameter it does not estimate to its default, which must not
-        override what the scene's own code set. Material names are known
-        from the observed types, so a fresh world that has bound no body
-        yet accepts the menu another world of the same scene reports.
+        A value for an undeclared material (a rehearsal draw's) is set
+        on its group's bodies like a declared one. Its default, which a
+        fit pins every parameter it does not estimate to, stands for the
+        scene's own values: each body gets its own back, so a group of
+        bodies the scene made different (the ground and a table) stays
+        so. Material names are known from the observed types, so a fresh
+        world that has bound no body yet accepts the menu another world
+        of the same scene reports.
         """
         materials = self._material_names()
         declared = {spec.name for spec in type(self).AGENT_PARAM_SPECS}
+        groups, menu = self._materials()
+        for name, value in params.items():
+            if name not in materials or name in declared:
+                continue
+            if name in menu:
+                group, prop = menu[name]
+                default = self._material_baseline.get(
+                    (group, prop), self._read_material(groups[group][0], prop))
+                if float(value) == float(default):
+                    if self._sampled_materials.pop(name, None) is not None:
+                        self._restore_own_materials(groups[group], prop)
+                    continue
+            self._sampled_materials[name] = float(value)
         super().apply_physical_param_overrides({
             name: value
             for name, value in params.items()
             if name not in materials or name in declared
         })
         self._apply_materials()
+
+    def _restore_own_materials(self, bodies: List[int], prop: str) -> None:
+        """Give each body the value the scene itself gave it."""
+        for body in bodies:
+            own = self._body_baseline.get((body, prop))
+            if own is not None:
+                self._write_material(body, prop, own)
+
+    def sampled_material_specs(self) -> List[ParamSpec]:
+        """The materials of the scene the model does not declare, as the
+        parameters rehearsal samples: each ranges over ``SAMPLED_MATERIALS``
+        and starts at the scene's own value, moved into that range."""
+        declared = {spec.name for spec in type(self).AGENT_PARAM_SPECS}
+        groups, menu = self._materials()
+        specs = []
+        for name, (group, prop) in sorted(menu.items()):
+            if name in declared:
+                continue
+            lo, hi, scale = SAMPLED_MATERIALS[prop]
+            own = self._material_baseline.get(
+                (group, prop), self._read_material(groups[group][0], prop))
+            if prop == "mass":
+                lo, hi = own * lo, own * hi
+            specs.append(
+                ParamSpec(name,
+                          min(max(own, lo), hi),
+                          lo=lo,
+                          hi=hi,
+                          scale=scale))
+        return specs
 
     @classmethod
     def _material_names(cls) -> Set[str]:
@@ -346,26 +413,34 @@ class SceneBase(PyBulletEnv):
         return groups, menu
 
     def _note_material_baselines(self) -> None:
-        """Record what the scene gives each newly seen group, before any
-        declared value is set on it."""
+        """Record what the scene gives each newly seen group and body, before
+        any declared or sampled value is set on it."""
         groups, menu = self._materials()
         for group, prop in menu.values():
             if (group, prop) not in self._material_baseline:
                 self._material_baseline[(group, prop)] = self._read_material(
                     groups[group][0], prop)
+            for body in groups[group]:
+                if (body, prop) not in self._body_baseline:
+                    self._body_baseline[(body, prop)] = self._read_material(
+                        body, prop)
 
     def _apply_materials(self) -> None:
-        """Set every declared material parameter on its group's bodies."""
-        declared = [spec.name for spec in type(self).AGENT_PARAM_SPECS]
-        if not declared:
+        """Set every declared material parameter, and every value set on an
+        undeclared material, on its group's bodies."""
+        values = dict(self._sampled_materials)
+        values.update({
+            spec.name: self._agent_param_values[spec.name]
+            for spec in type(self).AGENT_PARAM_SPECS
+        })
+        if not values:
             return
         groups, menu = self._materials()
-        for name in declared:
+        for name, value in values.items():
             if name in menu:
                 group, prop = menu[name]
                 for body in groups[group]:
-                    self._write_material(body, prop,
-                                         self._agent_param_values[name])
+                    self._write_material(body, prop, value)
 
     def _body_links(self, body: int) -> range:
         return range(

@@ -5,7 +5,8 @@ import pytest
 
 from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.code_sim_learning.parameter_belief import BeliefConfig, \
-    LinePosterior, ParameterBelief, build_parameter_belief, stable_seed
+    LinePosterior, ParameterBelief, build_parameter_belief, join_beliefs, \
+    prior_belief, stable_seed
 
 _SIGMA_N = 0.05
 
@@ -197,8 +198,6 @@ def test_config_reads_the_flags():
 
 def test_prior_belief_is_the_bounded_prior():
     """Before any fit, the factor is the declared prior within the box."""
-    # pylint: disable-next=import-outside-toplevel
-    from predicators.code_sim_learning.parameter_belief import prior_belief
     specs = [
         ParamSpec("mass", 1.0, lo=0.2, hi=5.0, scale="log"),
         ParamSpec("slot", 1.0, lo=0.0, hi=3.0, discrete=True)
@@ -223,3 +222,31 @@ def test_prior_belief_is_the_bounded_prior():
     freq = np.array([np.mean(belief.draws[:, 1] == v) for v in values])
     assert np.allclose(freq, expected, atol=0.03)
     assert belief.noise_scale == 1.0 and belief.evaluations == 0
+
+
+def test_joined_beliefs_pair_their_draws():
+    """Joining a fitted belief with a prior-only one keeps each factor's draws
+    and lines, pairs draw i with draw i, and refuses overlapping or short
+    factors."""
+    config = BeliefConfig(num_draws=8)
+    fitted = _build([ParamSpec("a", 0.0, lo=-1.0, hi=1.0)], {"a": 0.0},
+                    _gaussian_residuals(["a"], [0.0], [[1.0]]),
+                    config=config)
+    spin = ParamSpec("spin", 0.0, lo=0.0, hi=1.0)
+    prior = prior_belief([spin], {"spin": 0.0}, {"spin": 1.0},
+                         config=config,
+                         seed=1)
+    joined = join_beliefs(fitted, prior)
+    assert joined.names == ["a", "spin"]
+    assert joined.num_draws == 8
+    assert np.allclose(joined.draws[:, 0], fitted.draws[:, 0])
+    assert np.allclose(joined.draws[:, 1], prior.draws[:, 0])
+    assert joined.interval("spin", 0.95) == prior.interval("spin", 0.95)
+    assert all(set(d) == {"a", "spin"} for d in joined.draw_dicts())
+    with pytest.raises(ValueError, match="share"):
+        join_beliefs(joined, prior)
+    short = prior_belief([spin], {"spin": 0.0}, {"spin": 1.0},
+                         config=BeliefConfig(num_draws=4),
+                         seed=1)
+    with pytest.raises(ValueError, match="as many"):
+        join_beliefs(fitted, short)

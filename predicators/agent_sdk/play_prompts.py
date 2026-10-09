@@ -384,6 +384,7 @@ def build_model_contract(
     frozen: bool = False,
     supplied_model: bool = False,
     scene_built: bool = False,
+    sampled_materials: bool = False,
 ) -> str:
     """The contract of the model files, for the model arm's system prompt
     (``play_model_contract.md``).
@@ -399,7 +400,9 @@ def build_model_contract(
     dynamics) keeps only the predicate contract: the agent never writes
     ``simulator.py``. ``scene_built`` (the agentic real-to-sim arm)
     replaces the domain-twin subclass contract with the ``SceneBase``
-    one: the agent loads the scene itself.
+    one: the agent loads the scene itself. ``sampled_materials`` (EMPIRIC
+    from assets) says rehearsal samples the materials the scene leaves
+    undeclared; otherwise they keep the scene's values.
     """
     if supplied_model:
         parts = [
@@ -409,10 +412,18 @@ def build_model_contract(
         if partially_observable:
             parts.append(render("play_model_contract", "predicates_latent"))
         return _join_contract(parts)
+    if scene_built:
+        simulator = render(
+            "subclass_model",
+            "simulator_scene",
+            undeclared_materials=render(
+                "subclass_model", "undeclared_materials_sampled"
+                if sampled_materials else "undeclared_materials_kept"))
+    else:
+        simulator = render("subclass_model", "simulator")
     parts = [
         render("play_model_contract", "intro"),
-        render("subclass_model",
-               "simulator_scene" if scene_built else "simulator"),
+        simulator,
         render("subclass_model", "dynamics"),
     ]
     noise = ObservationNoise.from_cfg()

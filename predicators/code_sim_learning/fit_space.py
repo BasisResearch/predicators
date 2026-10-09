@@ -193,6 +193,10 @@ def fit_space_bounds(
 def prior_widths(param_specs: List[ParamSpec], scale: float) -> np.ndarray:
     """Positive Gaussian-prior width (sigma) per parameter, in FIT space.
 
+    Under ``code_sim_learning_prior_spans_bounds`` no width is narrower
+    than the parameter's declared range (in fit space), for arms whose
+    starting values are guesses rather than calibrated defaults.
+
     Linear parameters scale by ``|init|`` so a signed (negative-init)
     parameter gets a positive width, falling back to half the (finite)
     bound range when ``init`` is ~0 so a zero-centred parameter still
@@ -209,7 +213,17 @@ def prior_widths(param_specs: List[ParamSpec], scale: float) -> np.ndarray:
     fallback = np.where(finite, 0.5 * (hi - lo), 1.0)
     linear_sigma = np.where(sigma > 1e-9, sigma, fallback)
     log_mask = np.array([is_log(s) for s in param_specs], dtype=bool)
-    return np.where(log_mask, float(scale), linear_sigma)
+    widths = np.where(log_mask, float(scale), linear_sigma)
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.settings import CFG
+    if CFG.code_sim_learning_prior_spans_bounds and param_specs:
+        # Starting values that are guesses: the prior spans the declared
+        # range, so data that do not constrain a parameter leave its
+        # posterior as wide as that range.
+        lo_fit, hi_fit = fit_space_bounds(param_specs)
+        span = hi_fit - lo_fit
+        widths = np.where(np.isfinite(span), np.maximum(widths, span), widths)
+    return widths
 
 
 def scalar_to_fit_space(spec: ParamSpec, value: float) -> float:

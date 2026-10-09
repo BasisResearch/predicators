@@ -235,7 +235,7 @@ class AgentSimLearningApproach(AgentBaseApproach):
         # ones the env applies and the rule parameters read through the
         # draw scope.
         self._tool_context.physical_param_names_provider = \
-            lambda: {s.name for s in self._physical_param_specs}
+            self._physical_param_names
         self._tool_context.joint_draw_scope = self.joint_draw_scope
         # Env predicates surfaced to the agent (see
         # KEPT_INITIAL_PREDICATE_NAMES). Computed once here; everything
@@ -953,7 +953,7 @@ class AgentSimLearningApproach(AgentBaseApproach):
         belief = self.parameter_belief()
         if belief is None:
             return []
-        physical = {s.name for s in self._physical_param_specs}
+        physical = self._physical_param_names()
         base = {
             n: float(belief.map_estimate[n])
             for n in belief.names if n in physical
@@ -964,6 +964,11 @@ class AgentSimLearningApproach(AgentBaseApproach):
                 if not np.isclose(value, base[name]):
                     points.append({**base, name: float(value)})
         return points
+
+    def _physical_param_names(self) -> Set[str]:
+        """The parameters a rollout world applies; a joint draw's other
+        parameters are rule parameters, read through the draw scope."""
+        return {s.name for s in self._physical_param_specs}
 
     def _current_simulator_digest(self) -> Optional[str]:
         """The hash of the current ``simulator.py``, or None without one."""

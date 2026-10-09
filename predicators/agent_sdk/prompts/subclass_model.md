@@ -53,7 +53,7 @@ Implement the mechanisms in `_domain_specific_step(self)`; ordinary Python funct
 Declare learnable constants in the class's `AGENT_PARAM_SPECS` and read their current values with `self.agent_param(name)`.
 The base offers the engine materials of your bodies as parameters: for every observed type whose objects have bodies, `<type>_mass` (total mass, with inertia scaled to it), `<type>_lateral_friction`, `<type>_spinning_friction` (resistance to twisting about a contact), `<type>_rolling_friction`, `<type>_restitution`, `<type>_linear_damping` and `<type>_angular_damping`; and `support_lateral_friction`, `support_spinning_friction`, `support_rolling_friction` and `support_restitution` for the static bodies you load without an observed name.
 Declare any of these names in `AGENT_PARAM_SPECS` to make it a parameter of your model: the base sets it on every body of its group after each reset and whenever its value changes, so do not also set it in your own code.
-Undeclared, a material keeps the value your scene gives it, or PyBullet's default: lateral friction 0.5, spinning and rolling friction 0, restitution 0 and damping 0.04.
+__UNDECLARED_MATERIALS__
 Declare `RESIDUAL_FEATURES` on the class or module as `{type_name: [feature_name, ...]}` to select the observed quantities the fit scores your scene on: the poses that forces and contacts move and the readings your mechanisms change.
 The deployment gate requires it; an empty one scores every feature of the scene's objects that the recorded data shows changing.
 Export only `RESIDUAL_ENV` as the dynamics implementation.
@@ -83,6 +83,13 @@ RESIDUAL_ENV = MyScene
 `widget` and `update_widgets` above illustrate the structure; use this environment's manifest, types and features.
 A URDF may place a body's origin away from the observed pose reference; check that `sim.reset(current=True)` reconstructs the initial observation before relying on the scene.
 When a level's scene changes, edit `initialize_pybullet` to load the new bodies; the harness rebuilds your world when the file changes.
+
+<!-- section: undeclared_materials_kept -->
+Undeclared, a material keeps the value your scene gives it, or PyBullet's default: lateral friction 0.5, spinning and rolling friction 0, restitution 0 and damping 0.04.
+
+<!-- section: undeclared_materials_sampled -->
+Undeclared, a material is not fitted: each joint draw of `sim.run` samples it over a plausible range around the value your scene gives it, or PyBullet's default (lateral friction 0.5, spinning and rolling friction 0, restitution 0 and damping 0.04), and `physics_sweep` tests the ends of that range.
+Declare it to fit it to the recordings; declare it with a narrow range to fix it.
 
 <!-- section: dynamics -->
 ## Step and restoration behavior
