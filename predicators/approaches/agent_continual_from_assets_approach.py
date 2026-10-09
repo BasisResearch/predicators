@@ -135,7 +135,7 @@ class AgentContinualFromAssetsApproach(AgentContinualApproach):
     # -- The prompt ---------------------------------------------------------
 
     def _play_prompt_options(self) -> Dict[str, Any]:
-        return {"scene_built": True}
+        return {"scene_built": True, "fit_gate": self._belief_over_guesses}
 
     def _play_model_contract(self, **options: Any) -> str:
         return super()._play_model_contract(
@@ -159,6 +159,18 @@ class AgentContinualFromAssetsApproach(AgentContinualApproach):
             return status
         return (f"{status}; declared ranges widened to the engine's "
                 f"plausible range: {', '.join(widened)}")
+
+    def _fit_readiness(self, head: str, digest: str) -> Optional[str]:
+        """On a test level, a model with parameters acts only once its current
+        file is fitted: the starting values are the agent's guesses, and the
+        belief that chooses the plan should come from the recordings."""
+        if not self._belief_over_guesses or \
+                self._probe_fit_state().get("digest") == digest:
+            return None
+        return (head + "`./simulator.py` has not been fitted in its current "
+                "form. Call `sim.fit()` in run_python and read its report "
+                "before invoking a skill; every edit of the file needs a new "
+                "fit.")
 
     # -- Materials the model declares ----------------------------------------
 

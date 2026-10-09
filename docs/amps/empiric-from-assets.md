@@ -45,7 +45,10 @@ Three settings keep this arm's belief from claiming knowledge the data do not gi
   The model status lists each widened range.
   Added after seed 0 of the round `fixes_r2` declared spinning friction on 0 to 0.05 and rolling friction on 0 to 0.002, while the world has 0.5 and 0.006: its 16 joint draws all predicted a cascade, and the world's chain stalled at its second bridge.
 
-The supplied-base arms keep the anchored prior: their starting values are the base's calibrated defaults.
+On a test level the arm acts only on a fitted model: `skills_invoke` and `skills_execute_plan` refuse until `sim.fit()` has run on the current content of `simulator.py` (`_fit_readiness`), so the belief that chooses the plan comes from the recordings.
+Seed 0 of `fixes_r2` found the level-1 fit slow and uninformative, tuned its values by hand, and played the test level unfitted.
+
+The supplied-base arms keep the anchored prior and leave fitting to the agent: their starting values are the base's calibrated defaults.
 The real-to-sim comparison fits nothing, samples nothing and keeps the declared ranges.
 
 ## Pilot

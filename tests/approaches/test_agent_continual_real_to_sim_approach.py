@@ -244,6 +244,9 @@ def test_agent_builds_the_scene_and_rehearses_in_it(tmp_path: Any,
         assert "EMPIRIC from assets" in prompt
         assert "harness fits nothing" not in prompt
         assert "visible physics from the first round" not in prompt
+    # The test-level gate also waits for a fit in EMPIRIC from assets.
+    assert ("Test levels require a fitted model" in prompt) == from_assets
+    assert ("Test levels require a loaded model" in prompt) != from_assets
     assert "visible base physics" not in prompt
     assert "physical parameter menu" not in prompt.lower()
     seen: List[str] = []
@@ -368,8 +371,15 @@ def test_agent_builds_the_scene_and_rehearses_in_it(tmp_path: Any,
         # The world behind sim is the agent's class, not the twin.
         assert type(approach._base_env).__name__ == "BoilScene"
         assert approach._tool_context.env is approach._base_env
-        assert approach._model_readiness(str(sandbox / "simulator.py"),
-                                         []) is None
+        # EMPIRIC from assets acts on a test level only once the current
+        # file is fitted; the fit below opens the gate. Real-to-sim fits
+        # nothing and needs only a loadable model.
+        readiness = approach._model_readiness(str(sandbox / "simulator.py"),
+                                              [])
+        if from_assets:
+            assert readiness is not None and "sim.fit()" in readiness
+        else:
+            assert readiness is None
         # Parameter changes, independent fit worlds and reset isolation use
         # the scene class, not a supplied domain simulator.
         worlds = [approach._get_rollout_fit_env()() for _ in range(2)]
@@ -406,6 +416,13 @@ def test_agent_builds_the_scene_and_rehearses_in_it(tmp_path: Any,
             assert not fitted.startswith("ERROR"), fitted
             assert approach._probe_fit_state().get(
                 "fit_result") is not None, fitted
+            assert approach._model_readiness(str(sandbox / "simulator.py"),
+                                             []) is None
+            # An edit needs a new fit.
+            with open(sandbox / "simulator.py", "a", encoding="utf-8") as f:
+                f.write("\n# edited\n")
+            assert "sim.fit()" in approach._model_readiness(
+                str(sandbox / "simulator.py"), [])
         assert "Give-up recorded" in _call(approach, "give_up", note="done")
         return _result()
 

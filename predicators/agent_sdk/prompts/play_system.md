@@ -184,6 +184,15 @@ The refusal says which condition is unmet.
 Train levels are not gated: collect evidence there first.
 Loading a model does not itself enable automatic rehearsal; use `sim` to check plans before execution.
 
+<!-- section: model_gate_fit -->
+### Test levels require a fitted model
+
+On a test level, `skills_invoke` and `skills_execute_plan` refuse, charging nothing, until `./simulator.py` loads, declares `RESIDUAL_FEATURES` and, when it declares parameters, has been fitted with `sim.fit()` in its current form.
+Every edit of the file needs a new fit before the next skill on a test level, so finish editing first.
+The refusal says which condition is unmet.
+Train levels are not gated: collect evidence there first.
+Loading a model does not itself enable automatic rehearsal; use `sim` to check plans before execution.
+
 <!-- section: skill_preflight -->
 ### Every skill request is rehearsed first
 
