@@ -22,12 +22,10 @@ def create_new_env(name: str,
     If do_cache is True, then cache this env instance so that it can
     later be loaded using get_or_create_env().
     """
-    for cls in utils.get_all_subclasses(BaseEnv):
-        if not cls.__abstractmethods__ and cls.get_name() == name:
-            env = cls(use_gui, **kwargs)
-            break
-    else:
+    cls = utils.get_registered_subclass(BaseEnv, name)
+    if cls is None:
         raise NotImplementedError(f"Unknown env: {name}")
+    env = cls(use_gui, **kwargs)
     if do_cache:
         _MOST_RECENT_ENV_INSTANCE[name] = env
     return env

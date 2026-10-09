@@ -12,10 +12,7 @@ utils.import_submodules(__path__, __name__)
 
 def create_refinement_estimator(name: str) -> BaseRefinementEstimator:
     """Create an approach given its name."""
-    for cls in utils.get_all_subclasses(BaseRefinementEstimator):
-        if not cls.__abstractmethods__ and cls.get_name() == name:
-            estimator = cls()
-            break
-    else:
+    cls = utils.get_registered_subclass(BaseRefinementEstimator, name)
+    if cls is None:
         raise NotImplementedError(f"Unknown refinement cost estimator: {name}")
-    return estimator
+    return cls()

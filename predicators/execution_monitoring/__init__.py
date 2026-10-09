@@ -12,10 +12,7 @@ utils.import_submodules(__path__, __name__)
 
 def create_execution_monitor(name: str, ) -> BaseExecutionMonitor:
     """Create an execution monitor given its name."""
-    for cls in utils.get_all_subclasses(BaseExecutionMonitor):
-        if not cls.__abstractmethods__ and cls.get_name() == name:
-            execution_monitor = cls()
-            break
-    else:
+    cls = utils.get_registered_subclass(BaseExecutionMonitor, name)
+    if cls is None:
         raise NotImplementedError(f"Unrecognized execution monitor: {name}")
-    return execution_monitor
+    return cls()

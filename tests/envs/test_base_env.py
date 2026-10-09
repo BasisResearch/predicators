@@ -9,6 +9,7 @@ import pytest
 import predicators.envs
 from predicators import utils
 from predicators.envs import BaseEnv, create_new_env, get_or_create_env
+from predicators.envs.cover import CoverEnv
 from tests.approaches.test_oracle_approach import ENV_NAME_AND_CLS
 
 _MODULE_PATH = predicators.envs.__name__
@@ -40,6 +41,25 @@ def test_env_creation():
             env.get_task("not a real task category", 0)
     with pytest.raises(NotImplementedError):
         create_new_env("Not a real env")
+
+
+def test_env_creation_ignores_subclasses_that_inherit_the_name():
+    """A test's instrumented env never stands in for the env it extends."""
+
+    class _InstrumentedCoverEnv(CoverEnv):
+        """Inherits the name ``cover``."""
+
+    utils.reset_config({
+        "env": "cover",
+        "num_train_tasks": 1,
+        "num_test_tasks": 1
+    })
+    # The instrumented class first, as set order sometimes has it.
+    with patch.object(utils,
+                      "get_all_subclasses",
+                      return_value=[_InstrumentedCoverEnv, CoverEnv]):
+        env = create_new_env("cover", do_cache=False)
+    assert env.__class__ is CoverEnv
 
 
 @pytest.mark.parametrize("env_name", ("cover", "sandwich"))

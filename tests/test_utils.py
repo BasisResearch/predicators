@@ -3810,3 +3810,61 @@ def test_pkl_dump_all_or_nothing_writes_nothing_when_it_fails(
     assert "_abc_data" in str(excinfo.value), \
         "a genuinely unpicklable object must still report why"
     assert path.stat().st_size == 0, "a failed dump left a partial file"
+
+
+def test_get_registered_subclass(monkeypatch):
+    """A name resolves to the most general concrete class that claims it."""
+
+    class _Base(abc.ABC):
+
+        @classmethod
+        @abc.abstractmethod
+        def get_name(cls) -> str:
+            """The registry name."""
+
+    class _Named(_Base):
+
+        @classmethod
+        def get_name(cls) -> str:
+            return "named"
+
+    class _Instrumented(_Named):
+        """Inherits the name, as a test's instrumented env does."""
+
+    class _AbstractNamed(_Base):
+
+        @classmethod
+        def get_name(cls) -> str:
+            return "abstract_named"
+
+        @abc.abstractmethod
+        def run(self) -> None:
+            """Left to subclasses."""
+
+    class _Concrete(_AbstractNamed):
+
+        def run(self) -> None:
+            """Nothing to run."""
+
+    class _First(_Base):
+
+        @classmethod
+        def get_name(cls) -> str:
+            return "claimed_twice"
+
+    class _Second(_Base):
+
+        @classmethod
+        def get_name(cls) -> str:
+            return "claimed_twice"
+
+    assert utils.get_registered_subclass(_Base, "named") is _Named
+    assert utils.get_registered_subclass(_Base, "abstract_named") is _Concrete
+    assert utils.get_registered_subclass(_Base, "unknown") is None
+    with pytest.raises(ValueError, match="Unrelated classes claim"):
+        utils.get_registered_subclass(_Base, "claimed_twice")
+    # Set order differs between processes; the subclass coming first must
+    # not change the answer.
+    monkeypatch.setattr(utils, "get_all_subclasses",
+                        lambda _: [_Instrumented, _Named])
+    assert utils.get_registered_subclass(_Base, "named") is _Named

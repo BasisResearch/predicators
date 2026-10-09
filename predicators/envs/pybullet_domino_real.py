@@ -123,11 +123,9 @@ class RealSceneGeometryMixin:
     perceived scene, while :class:`PyBulletDominoRealGeometryEnv` pairs it
     with the ordinary generated tasks.
 
-    Deliberately NOT a ``BaseEnv`` subclass. ``create_new_env`` resolves an
-    env by scanning ``get_all_subclasses(BaseEnv)`` for a matching
-    ``get_name()``, so an intermediate env class here would inherit
-    ``PyBulletDominoEnv.get_name()`` and shadow the real
-    ``pybullet_domino``. A plain mixin never enters that scan.
+    Deliberately NOT a ``BaseEnv`` subclass: it adds geometry to whichever
+    domino env it is mixed into and has no env name or tasks of its own,
+    so it stays out of the env registry that ``create_new_env`` reads.
     """
 
     # Annotations only, no values: these ClassVars belong to the domino env

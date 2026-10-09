@@ -5162,6 +5162,34 @@ def get_all_subclasses(cls: Any) -> Set[Any]:
         [s for c in cls.__subclasses__() for s in get_all_subclasses(c)])
 
 
+def get_registered_subclass(base: Any, name: str) -> Optional[Any]:
+    """The concrete subclass of ``base`` registered under ``name``.
+
+    The name belongs to the most general concrete subclass whose
+    ``get_name()`` returns it. A subclass that inherits the name, such
+    as a test's instrumented env, never resolves in its place: picking
+    the first match of ``get_all_subclasses`` would follow set order,
+    which differs from process to process. Returns None when no concrete
+    subclass has the name, and raises ValueError when unrelated
+    subclasses claim it.
+    """
+    matches = [
+        cls for cls in get_all_subclasses(base)
+        if not cls.__abstractmethods__ and cls.get_name() == name
+    ]
+    roots = [
+        cls for cls in matches
+        if not any(other is not cls and issubclass(cls, other)
+                   for other in matches)
+    ]
+    if len(roots) > 1:
+        claimants = sorted(f"{cls.__module__}.{cls.__qualname__}"
+                           for cls in roots)
+        raise ValueError(f"Unrelated classes claim the name {name!r}: "
+                         f"{', '.join(claimants)}")
+    return roots[0] if roots else None
+
+
 class _DummyFile(io.StringIO):
     """Dummy file object used by nostdout()."""
 
