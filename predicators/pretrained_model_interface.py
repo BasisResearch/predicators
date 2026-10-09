@@ -263,9 +263,11 @@ class GoogleGeminiLLM(LargeLanguageModel, GoogleGeminiModel):
     necessary API key to query the particular model name.
     """
 
+    # tenacity (9.2 on) types a decorated method as a callable object,
+    # which mypy does not accept as an override of a plain method.
     @retry(wait=wait_random_exponential(min=1, max=60),
            stop=stop_after_attempt(10))
-    def _sample_completions(
+    def _sample_completions(  # type: ignore[override]
             self,
             prompt: str,
             imgs: Optional[List[PIL.Image.Image]],
@@ -294,9 +296,11 @@ class GoogleGeminiVLM(VisionLanguageModel, GoogleGeminiModel):
     necessary API key to query the particular model name.
     """
 
+    # tenacity (9.2 on) types a decorated method as a callable object,
+    # which mypy does not accept as an override of a plain method.
     @retry(wait=wait_random_exponential(min=1, max=60),
            stop=stop_after_attempt(20))
-    def _sample_completions(
+    def _sample_completions(  # type: ignore[override]
             self,
             prompt: str,
             imgs: Optional[List[PIL.Image.Image]],
