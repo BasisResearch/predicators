@@ -3,13 +3,17 @@
 
 Reads every run's ``scorecard.json`` under the runs root (one directory
 per run, ``predicators/run/paths.py``; ``predicators/run/scorecard.py``
-for the card) and writes two CSVs plus a Markdown summary:
+for the card) and writes three CSVs plus a Markdown summary:
 
 * ``runs.csv``: one row per run with the run-level totals and the end
   reason;
 * ``levels.csv``: one row per (run, level) with the section 4.4 base
   metrics, so any aggregate can be recomputed later without touching the
   harness;
+* ``accounts.csv``: one row per (run, Claude account) in the order the
+  run used its accounts (a resume may move a run to another account),
+  with the LLM spend charged to each, which is what per-account spend
+  sums over;
 * ``summary.md``: per env, one table with one row per arm: runs, mean
   levels won, mean steps, mean resets, mean steps before the first win
   over won levels, and the count of runs that won every level.
@@ -33,11 +37,11 @@ from typing import Any, Callable, Dict, List, Sequence
 
 RUN_COLUMNS = [
     "run_id", "env", "arm", "seed", "config", "git_sha", "claude_account",
-    "obs_noise_position", "obs_noise_orientation", "obs_noise_scalar",
-    "obs_noise_declared", "end_reason", "levels_total", "levels_completed",
-    "total_steps", "total_resets", "total_skill_invocations",
-    "total_wall_clock", "total_downtime", "total_llm_cost", "step_cap",
-    "started_at", "finished_at"
+    "claude_accounts", "obs_noise_position", "obs_noise_orientation",
+    "obs_noise_scalar", "obs_noise_declared", "end_reason", "levels_total",
+    "levels_completed", "total_steps", "total_resets",
+    "total_skill_invocations", "total_wall_clock", "total_downtime",
+    "total_llm_cost", "step_cap", "started_at", "finished_at"
 ]
 
 LEVEL_COLUMNS = [
@@ -48,6 +52,11 @@ LEVEL_COLUMNS = [
     "resets_before_first_win", "preemptions", "resumes", "downtime",
     "harness_resets", "interrupted_invocations", "episodes", "llm_cost_usd",
     "sim_rollouts", "fits", "rounds"
+]
+
+ACCOUNT_COLUMNS = [
+    "run_id", "env", "arm", "seed", "config", "order", "account",
+    "llm_cost_usd"
 ]
 
 
@@ -67,17 +76,53 @@ def load_cards(root: str) -> List[Dict[str, Any]]:
     return cards
 
 
+def account_records(card: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The Claude accounts a run was charged to, in order, each with its LLM
+    spend; a card written before the account history has its one account,
+    charged with all of the run's spend (as ``RunCard.from_dict`` reads it)."""
+    records = card.get("claude_accounts")
+    if isinstance(records, list):
+        return records
+    spend = sum(
+        float((lv.get("sandbox") or {}).get("llm_cost_usd", 0.0))
+        for lv in card.get("levels", []))
+    return [{
+        "account": card.get("claude_account") or "",
+        "llm_cost_usd": spend
+    }]
+
+
 def run_rows(cards: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """One row per run."""
     rows = []
     for card in cards:
         totals = card.get("totals") or {}
         row = {k: card.get(k, "") for k in RUN_COLUMNS}
+        row["claude_accounts"] = ";".join(
+            str(r.get("account", "")) for r in account_records(card))
         for key in ("levels_total", "levels_completed", "total_steps",
                     "total_resets", "total_skill_invocations",
                     "total_wall_clock", "total_downtime", "total_llm_cost"):
             row[key] = totals.get(key, "")
         rows.append(row)
+    return rows
+
+
+def account_rows(cards: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """One row per (run, Claude account), in the order the run used them."""
+    rows = []
+    for card in cards:
+        for order, record in enumerate(account_records(card), start=1):
+            rows.append({
+                "run_id": card["run_id"],
+                "env": card.get("env", ""),
+                "arm": card.get("arm", ""),
+                "seed": card.get("seed", ""),
+                "config": card.get("config", ""),
+                "order": order,
+                "account": record.get("account", ""),
+                "llm_cost_usd": record.get("llm_cost_usd", 0.0),
+            })
     return rows
 
 
@@ -225,16 +270,18 @@ def write_csv(path: str, columns: Sequence[str],
 
 
 def aggregate(runs: str, out: str) -> Dict[str, str]:
-    """Write the three outputs; returns their paths."""
+    """Write the four outputs; returns their paths."""
     cards = load_cards(runs)
     os.makedirs(out, exist_ok=True)
     paths = {
         "runs": os.path.join(out, "runs.csv"),
         "levels": os.path.join(out, "levels.csv"),
+        "accounts": os.path.join(out, "accounts.csv"),
         "summary": os.path.join(out, "summary.md"),
     }
     write_csv(paths["runs"], RUN_COLUMNS, run_rows(cards))
     write_csv(paths["levels"], LEVEL_COLUMNS, level_rows(cards))
+    write_csv(paths["accounts"], ACCOUNT_COLUMNS, account_rows(cards))
     with open(paths["summary"], "w", encoding="utf-8") as f:
         f.write(summary_markdown(cards))
     return paths
@@ -250,7 +297,8 @@ def main() -> None:
     paths = aggregate(args.runs, args.out)
     with open(paths["summary"], "r", encoding="utf-8") as f:
         print(f.read())
-    print(f"wrote {paths['runs']}, {paths['levels']}, {paths['summary']}")
+    print(f"wrote {paths['runs']}, {paths['levels']}, {paths['accounts']}, "
+          f"{paths['summary']}")
 
 
 if __name__ == "__main__":

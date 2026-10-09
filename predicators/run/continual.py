@@ -38,7 +38,8 @@ from predicators.run.episode import EpisodeOver, EpisodeRunner, EpisodeState, \
 from predicators.run.interaction import InteractionExecutor
 from predicators.run.recording import LevelRecording, restore_actions, \
     sanitize_state, states_close
-from predicators.run.scorecard import EpisodeRecord, LevelCard, RunCard
+from predicators.run.scorecard import EpisodeRecord, LevelCard, RunCard, \
+    launch_claude_account
 from predicators.settings import CFG
 from predicators.structs import Action, Dataset, EnvironmentTask, \
     EpisodeEvaluation, GroundAtom, ParameterizedOption, Predicate, State, \
@@ -1278,7 +1279,7 @@ class ContinualRun:
         the card: sandbox work happens between env events, and the card on disk
         is what a viewer reads to tell a working run from a stalled one."""
         _, lv = self._require_level()
-        lv.add_sandbox(key, delta)
+        self._card.add_sandbox(lv.index, key, delta)
         self._card.save(self._card_path)
 
     @property
@@ -1758,7 +1759,9 @@ class ContinualRun:
         found here when ``--auto_resume`` adopted the directory
         (``paths.resumable_run_subdir``), and one whose level list no
         longer matches the env is an error, not a fresh start on top of
-        another run's recordings.
+        another run's recordings. A resumed run is charged to this
+        launch's Claude account from here on (a requeue may pick another
+        one, scripts/engaging/claude_accounts.py).
         """
         if os.path.isfile(self._card_path):
             card = RunCard.load(self._card_path)
@@ -1776,6 +1779,13 @@ class ContinualRun:
                     "a new run.")
             logging.info("[Continual] --auto_resume: resuming %s at level %s",
                          self._card_path, card.current_level_index())
+            account = launch_claude_account()
+            if account != card.claude_account:
+                logging.info(
+                    "[Continual] --auto_resume: the run moves from Claude "
+                    "account %s to %s", card.claude_account or "(none)",
+                    account or "(none)")
+            card.use_claude_account(account)
             return card
         levels = [
             LevelCard(index=s.index,

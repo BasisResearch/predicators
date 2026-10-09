@@ -21,6 +21,10 @@ from typing import Any, Dict, List, Optional
 
 SCHEMA_VERSION = 1
 
+# The sandbox-usage counter that is money: the LLM spend in USD, which is
+# also charged to the Claude account the run is on.
+LLM_COST_KEY = "llm_cost_usd"
+
 
 @dataclass
 class EpisodeRecord:
@@ -98,6 +102,24 @@ class LevelCard:
         self.sandbox[key] = self.sandbox.get(key, 0.0) + delta
 
 
+@dataclass
+class AccountRecord:
+    """One stretch of a run on one Claude account: from the launch that started
+    the run, or the resume that moved it onto the account, to the resume that
+    moved it to another."""
+    # The account as the Engaging launcher exports it
+    # (scripts/engaging/claude_accounts.py); empty for a launch without one.
+    account: str
+    # LLM spend in USD charged to the account over the stretch.
+    llm_cost_usd: float = 0.0
+
+
+def launch_claude_account() -> str:
+    """The Claude account this process's LLM calls are charged to, as the
+    Engaging launcher exports it; empty when launched without one."""
+    return os.environ.get("PREDICATORS_CLAUDE_ACCOUNT", "")
+
+
 def _git_sha() -> str:
     try:
         out = subprocess.run(["git", "rev-parse", "--short=12", "HEAD"],
@@ -122,11 +144,13 @@ class RunCard:
     wall_clock_cap: float
     config: str = ""
     git_sha: str = field(default_factory=_git_sha)
-    # The Claude account the run's LLM calls are charged to, as exported
-    # by the Engaging launcher (scripts/engaging/claude_accounts.py);
-    # empty when launched without one.
-    claude_account: str = field(default_factory=lambda: os.environ.get(
-        "PREDICATORS_CLAUDE_ACCOUNT", ""))
+    # Every Claude account the run's LLM calls were charged to, in the
+    # order the run used them, each with the spend charged to it. A new
+    # card starts on the launching process's account; a launch that
+    # resumes the run on another account adds a record
+    # (use_claude_account). claude_account is the last one.
+    claude_accounts: List[AccountRecord] = field(
+        default_factory=lambda: [AccountRecord(launch_claude_account())])
     # The observation-noise channel the run played under
     # (predicators/observation_noise.py): sigmas in metres and radians,
     # 0 for exact, and whether the agent's contract declared them.
@@ -184,7 +208,7 @@ class RunCard:
     @property
     def total_llm_cost(self) -> float:
         """LLM spend in USD across all levels."""
-        return sum(lv.sandbox.get("llm_cost_usd", 0.0) for lv in self.levels)
+        return sum(lv.sandbox.get(LLM_COST_KEY, 0.0) for lv in self.levels)
 
     @property
     def steps_remaining(self) -> int:
@@ -196,6 +220,13 @@ class RunCard:
         """Whether the run has ended."""
         return self.end_reason is not None
 
+    @property
+    def claude_account(self) -> str:
+        """The Claude account the run is charged to now, the last one it used;
+        empty when launched without one."""
+        return self.claude_accounts[-1].account if self.claude_accounts \
+            else ""
+
     def current_level_index(self) -> Optional[int]:
         """The first level not yet won, or ``None`` when all are won."""
         for lv in self.levels:
@@ -203,11 +234,31 @@ class RunCard:
                 return lv.index
         return None
 
+    # -- Updates ---------------------------------------------------------
+
+    def use_claude_account(self, account: str) -> None:
+        """Charge the run's LLM calls from here on to ``account``: a resume on
+        another account than the last one starts a new record, a resume on the
+        same one continues it."""
+        if not self.claude_accounts or self.claude_account != account:
+            self.claude_accounts.append(AccountRecord(account))
+
+    def add_sandbox(self, level: int, key: str, delta: float) -> None:
+        """Accumulate one sandbox-usage counter on a level; LLM spend is also
+        charged to the account the run is on."""
+        self.levels[level].add_sandbox(key, delta)
+        if key == LLM_COST_KEY:
+            if not self.claude_accounts:
+                self.claude_accounts.append(AccountRecord(""))
+            self.claude_accounts[-1].llm_cost_usd += delta
+
     # -- Serialisation ---------------------------------------------------
 
     def to_dict(self) -> Dict[str, Any]:
-        """A JSON-ready dict: the stored fields plus the derived totals."""
+        """A JSON-ready dict: the stored fields plus the derived account the
+        run is on now and the derived totals."""
         d = dataclasses.asdict(self)
+        d["claude_account"] = self.claude_account
         d["totals"] = {
             "levels_total": self.levels_total,
             "levels_completed": self.levels_completed,
@@ -223,16 +274,32 @@ class RunCard:
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "RunCard":
-        """Inverse of :meth:`to_dict` (the derived block is ignored)."""
+        """Inverse of :meth:`to_dict` (the derived entries are ignored).
+
+        A card written before the account history loads with the one
+        account it recorded, charged with all of the run's spend.
+        """
         levels = []
         for lv in d["levels"]:
             episodes = [EpisodeRecord(**ep) for ep in lv.get("episodes", [])]
             lv = dict(lv)
             lv["episodes"] = episodes
             levels.append(LevelCard(**lv))
+        if "claude_accounts" in d:
+            accounts = [AccountRecord(**a) for a in d["claude_accounts"]]
+        else:
+            accounts = [
+                AccountRecord(
+                    str(d.get("claude_account") or ""),
+                    sum(lv.sandbox.get(LLM_COST_KEY, 0.0) for lv in levels))
+            ]
         fields = {f.name for f in dataclasses.fields(cls)}
-        kwargs = {k: v for k, v in d.items() if k in fields and k != "levels"}
-        return cls(levels=levels, **kwargs)
+        kwargs = {
+            k: v
+            for k, v in d.items()
+            if k in fields and k not in ("levels", "claude_accounts")
+        }
+        return cls(levels=levels, claude_accounts=accounts, **kwargs)
 
     def save(self, path: str) -> None:
         """Atomically write the card as JSON."""

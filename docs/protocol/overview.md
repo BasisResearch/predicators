@@ -139,7 +139,7 @@ Launch (name the round; `--envs`, `--approaches` and `--seeds` pick a subset; ea
 PYTHONPATH=. python scripts/engaging/launch.py -c empiric/benchmark.yaml --round r2 --envs balloons --partition mit_preemptable
 ```
 
-Add `--accounts a,b` to spread the runs over several Claude accounts (one token file per account under `~/.claude-tokens/`, see `scripts/engaging/claude_accounts.py`); each seed is assigned round-robin and the scorecard records which account it used.
+Add `--accounts a,b` to spread the runs over several Claude accounts (one token file per account under `~/.claude-tokens/`, see `scripts/engaging/claude_accounts.py`); each seed picks an account when its job starts, a requeue may pick another, and the scorecard records every account the run used, in order (`claude_accounts`).
 
 View:
 

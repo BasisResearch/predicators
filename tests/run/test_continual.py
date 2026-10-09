@@ -29,7 +29,7 @@ from predicators.run.level_players import OracleLevelPlayer, \
     RandomPrimitiveLevelPlayer, RandomSkillsLevelPlayer, create_level_player
 from predicators.run.recording import LevelRecording, sanitize_state, \
     states_close
-from predicators.run.scorecard import RunCard
+from predicators.run.scorecard import LevelCard, RunCard
 from predicators.settings import CFG
 from predicators.structs import Action, Object, State, Type
 
@@ -771,23 +771,57 @@ def test_no_episode_horizon_by_default(tmp_path: Any) -> None:
     assert lv.steps == card.step_cap == 12
 
 
-def test_scorecard_records_the_claude_account(monkeypatch) -> None:
-    """The launcher exports the run's Claude account; the card keeps it, and
-    cards written before the field existed load with it empty."""
+def test_scorecard_records_the_claude_accounts(monkeypatch) -> None:
+    """The launcher exports the run's Claude account.
+
+    A new card starts on it; a resume on another account adds a record
+    and one on the same account does not; LLM spend is charged to the
+    account the run is on; the card round-trips without reading the
+    environment; and cards written before the account history load with
+    their one account, charged with the run's spend.
+    """
     monkeypatch.setenv("PREDICATORS_CLAUDE_ACCOUNT", "b")
     card = RunCard(run_id="r",
                    env="cover",
                    seed=0,
                    arm="oracle",
-                   levels=[],
+                   levels=[
+                       LevelCard(index=0,
+                                 split="train",
+                                 task_idx=0,
+                                 goal=["Covers(b0, t0)"])
+                   ],
                    step_cap=10,
                    wall_clock_cap=1.0)
     assert card.claude_account == "b"
-    assert RunCard.from_dict(card.to_dict()).claude_account == "b"
-    monkeypatch.delenv("PREDICATORS_CLAUDE_ACCOUNT")
-    old = card.to_dict()
+    card.add_sandbox(0, "llm_cost_usd", 2.0)
+    card.add_sandbox(0, "turns", 3)
+    card.use_claude_account("b")
+    card.use_claude_account("c")
+    card.add_sandbox(0, "llm_cost_usd", 0.5)
+    card.use_claude_account("b")
+    assert card.claude_account == "b"
+    assert [(a.account, a.llm_cost_usd)
+            for a in card.claude_accounts] == [("b", 2.0), ("c", 0.5),
+                                               ("b", 0.0)]
+    assert card.levels[0].sandbox == {"llm_cost_usd": 2.5, "turns": 3}
+    saved = json.loads(json.dumps(card.to_dict()))
+    assert saved["claude_account"] == "b"
+    assert saved["claude_accounts"][1] == {"account": "c", "llm_cost_usd": 0.5}
+    monkeypatch.setenv("PREDICATORS_CLAUDE_ACCOUNT", "z")
+    assert RunCard.from_dict(saved).to_dict() == saved
+    old = dict(saved)
+    del old["claude_accounts"]
+    assert [(a.account, a.llm_cost_usd)
+            for a in RunCard.from_dict(old).claude_accounts] == [("b", 2.5)]
     del old["claude_account"]
-    assert RunCard.from_dict(old).claude_account == ""
+    oldest = RunCard.from_dict(old)
+    assert oldest.claude_account == ""
+    assert [(a.account, a.llm_cost_usd)
+            for a in oldest.claude_accounts] == [("", 2.5)]
+    # A resume of an old card continues its history.
+    oldest.use_claude_account("z")
+    assert [a.account for a in oldest.claude_accounts] == ["", "z"]
 
 
 def test_observation_noise_channel(tmp_path: Any, monkeypatch: Any) -> None:
