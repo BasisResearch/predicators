@@ -21,7 +21,7 @@ from predicators.code_sim_learning.config import SysIdConfig
 from predicators.code_sim_learning.fit_space import ParamSpec, to_fit_space
 from predicators.code_sim_learning.lm import solve_lm
 from predicators.code_sim_learning.rollout_env import RolloutTrajectory, \
-    add_rollouts_run, rollout_states
+    add_rollouts_run, fork_template, rollout_states
 from predicators.code_sim_learning.trajectory_prep import ResidualScaling
 from predicators.settings import CFG
 from predicators.structs import Action, State
@@ -422,10 +422,12 @@ def _prefetch_trajectory_terms(
 ) -> Optional[List[Optional[List[float]]]]:
     """Fan per-trajectory scoring out to forked children when enabled.
 
-    Factory envs only: each rollout builds (and disposes) its own fresh
-    world whichever process runs it, so a child's term list is
-    bit-identical to what the serial path would compute - which is what
-    the LM finite-difference Jacobian requires of repeated same-theta
+    Factory envs only: each rollout runs in a fresh world whichever
+    process runs it (a child's copy of the wave's
+    :func:`~predicators.code_sim_learning.rollout_env.fork_template`
+    world, or one it builds), so a child's term list is bit-identical
+    to what the serial path would compute - which is what the LM
+    finite-difference Jacobian requires of repeated same-theta
     evaluations. A shared env instance keeps the serial path untouched
     (its rollouts mutate the caller's env, which must happen in this
     process).
@@ -448,7 +450,8 @@ def _prefetch_trajectory_terms(
         functools.partial(score_fn, states, actions)
         for states, actions in trajectories
     ]
-    results = prefetch_parallel(jobs, "sysid objective", quiet=True)
+    with fork_template(base_env):
+        results = prefetch_parallel(jobs, "sysid objective", quiet=True)
     done = sum(1 for r in results if r is not None)
     if done == 0:
         return None
@@ -502,7 +505,8 @@ def trajectory_terms_by_point(
             functools.partial(scorer.per_step_terms, states, actions)
             for scorer in scorers for states, actions in trajectories
         ]
-        results = prefetch_parallel(jobs, "sysid batch", quiet=True)
+        with fork_template(base_env):
+            results = prefetch_parallel(jobs, "sysid batch", quiet=True)
         for k, terms in enumerate(results):
             if terms is not None:
                 out[k // n][k % n] = np.asarray(terms, dtype=float)

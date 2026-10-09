@@ -43,7 +43,7 @@ from predicators.code_sim_learning.physical_sysid import \
     _ROLLOUT_PRIOR_SIGMA_SCALE, _explainability_cache_key, \
     fit_params_rollout_trimmed
 from predicators.code_sim_learning.rollout_env import RolloutTrajectory, \
-    num_rollouts_run
+    fork_template, num_rollouts_run
 from predicators.code_sim_learning.rollout_objective import \
     compute_rollout_residuals, compute_rollout_sse, \
     rollout_residuals_by_point
@@ -203,9 +203,12 @@ def run_rollout_sysid(
 
     from_cache = core is not None
     if core is None:
-        core = _compute_fit(fit_env, rollouts, physical_specs,
-                            residual_features, rules, rule_specs, latent_init,
-                            anchors, rms_cache, config, belief_config)
+        # One template world serves every fork wave of the fit.
+        with fork_template(fit_env):
+            core = _compute_fit(fit_env, rollouts, physical_specs,
+                                residual_features, rules, rule_specs,
+                                latent_init, anchors, rms_cache, config,
+                                belief_config)
         if fit_cache is not None and cache_key is not None:
             fit_cache[cache_key] = core
 

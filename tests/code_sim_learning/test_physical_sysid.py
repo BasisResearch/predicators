@@ -7,6 +7,8 @@ trajectory truncation, and the fresh-env-per-rollout plumbing.
 """
 # pylint: disable=protected-access,import-outside-toplevel
 
+import os
+
 import numpy as np
 import pybullet as p
 import pytest
@@ -1764,6 +1766,152 @@ def test_rollout_lm_fit_is_the_same_with_and_without_workers(monkeypatch):
     fast_theta, fast_jac = fits[1]
     assert np.array_equal(theta, fast_theta)
     assert jac is not None and np.array_equal(jac, fast_jac)
+    assert all(not env.connected for env in built)
+
+
+class _DominoRowEnv:
+    """A real DIRECT PyBullet world with contact: a row of six dominoes on a
+    plane, the first pushed near its top on every physics step.
+
+    ``k`` is every domino's lateral friction; ``r0`` reports the first
+    domino's x and ``d0`` the last one's, so the residual sees the whole
+    cascade. Only ``builder_pid`` may build one: a forked child of a
+    template wave must replay on its copy of the template world.
+    """
+
+    def __init__(self, log, builder_pid):
+        if os.getpid() != builder_pid:
+            raise RuntimeError("a forked child built a world")
+        cid = p.connect(p.DIRECT)
+        self._physics_client_id = cid
+        log.append(self)
+        p.setGravity(0.0, 0.0, -9.81, physicsClientId=cid)
+        p.createMultiBody(0,
+                          p.createCollisionShape(p.GEOM_PLANE,
+                                                 physicsClientId=cid),
+                          physicsClientId=cid)
+        shape = p.createCollisionShape(p.GEOM_BOX,
+                                       halfExtents=[0.005, 0.03, 0.05],
+                                       physicsClientId=cid)
+        self._bodies = [
+            p.createMultiBody(0.05,
+                              shape,
+                              basePosition=[0.06 * i, 0.0, 0.05],
+                              physicsClientId=cid) for i in range(6)
+        ]
+        self._domino = Object("d0", _DOMINO_TYPE)
+        self._robot = Object("r0", _ROBOT_TYPE)
+
+    def apply_physical_param_overrides(self, params):
+        """Set every domino's lateral friction to ``k``."""
+        for body in self._bodies:
+            p.changeDynamics(body,
+                             -1,
+                             lateralFriction=float(params.get("k", 0.5)),
+                             physicsClientId=self._physics_client_id)
+
+    def _set_state(self, state):
+        """Space the row evenly from ``r0``'s x to ``d0``'s x."""
+        first = float(state.get(self._robot, "x"))
+        last = float(state.get(self._domino, "x"))
+        for i, body in enumerate(self._bodies):
+            x = first + i * (last - first) / (len(self._bodies) - 1)
+            p.resetBasePositionAndOrientation(
+                body, [x, 0.0, 0.05], [0.0, 0.0, 0.0, 1.0],
+                physicsClientId=self._physics_client_id)
+
+    def step(self, action):
+        """Push the first domino for 24 physics steps; report the row's
+        ends."""
+        del action
+        cid = self._physics_client_id
+        for _ in range(24):
+            p.applyExternalForce(self._bodies[0],
+                                 -1, [0.05, 0.0, 0.0], [0.0, 0.0, 0.04],
+                                 p.LINK_FRAME,
+                                 physicsClientId=cid)
+            p.stepSimulation(physicsClientId=cid)
+        ends = [
+            p.getBasePositionAndOrientation(body, physicsClientId=cid)[0][0]
+            for body in (self._bodies[0], self._bodies[-1])
+        ]
+        return State({
+            self._robot: np.array([ends[0]], dtype=float),
+            self._domino: np.array([ends[1]], dtype=float),
+        })
+
+    @property
+    def connected(self):
+        """Whether this world's PyBullet client is still connected."""
+        return bool(
+            p.getConnectionInfo(self._physics_client_id)["isConnected"])
+
+
+def test_forked_children_replay_on_copies_of_one_template_world(monkeypatch):
+    """A fork wave builds one template world, and every forked child replays on
+    its copy of it instead of building a world; the terms equal fresh-world
+    rollouts bit for bit on contact-rich physics.
+
+    Building dominates a short rollout of a real scene, and a fresh
+    world per rollout is what keeps the fit deterministic, so a copy
+    that differs from a fresh world in any bit would change fits. A
+    template around several waves (as around a whole fit) serves them
+    all, and a rollout in the building process still gets a fresh world.
+    """
+    from predicators.agent_sdk.parallel_rollouts import \
+        parallel_rollouts_available
+    from predicators.settings import CFG
+    if not parallel_rollouts_available():
+        pytest.skip("fork not available on this platform")
+    features = {"domino": ["x"], "robot": ["x"]}
+    trajectories = [
+        _trajectory([0.30] * 8, robot_xs=[0.0] * 8),
+        _trajectory([0.325] * 8, robot_xs=[0.0] * 8),
+        _trajectory([0.275] * 8, robot_xs=[0.0] * 8),
+    ]
+    builder = os.getpid()
+    built = []
+
+    def factory():
+        return _DominoRowEnv(built, builder)
+
+    def terms_by_point():
+        return rollout_objective.trajectory_terms_by_point(
+            factory, trajectories, points, features, ["k"])
+
+    def assert_same(got, want):
+        for got_row, want_row in zip(got, want):
+            assert len(got_row) == len(want_row)
+            for got_terms, want_terms in zip(got_row, want_row):
+                assert np.array_equal(got_terms, want_terms)
+
+    points = [{"k": k} for k in (0.2, 0.5, 0.9)]
+    pairs = len(points) * len(trajectories)
+    monkeypatch.setattr(CFG, "agent_validation_parallel_workers", 0)
+    fresh = terms_by_point()
+    assert len(built) == pairs  # no template without forks
+    # The cascade reaches the far end and depends on the friction.
+    assert not np.array_equal(fresh[0][0], fresh[-1][0])
+
+    monkeypatch.setattr(CFG, "agent_validation_parallel_workers", 3)
+    assert_same(terms_by_point(), fresh)
+    # Only the wave's template was built here: no child built a world
+    # (one that tried would raise and be rescored here, building more).
+    assert len(built) == pairs + 1
+
+    with rollout_env.fork_template(factory):
+        assert len(built) == pairs + 2
+        for _ in range(2):
+            assert_same(terms_by_point(), fresh)
+        assert len(built) == pairs + 2  # both waves used the outer one
+        serial = rollout_objective.compute_rollout_residuals(
+            factory,
+            trajectories[:1],
+            points[0],
+            features, ["k"],
+            episode_count=len(trajectories))
+        assert len(built) == pairs + 3  # this process built a fresh world
+        assert np.array_equal(serial, fresh[0][0])
     assert all(not env.connected for env in built)
 
 

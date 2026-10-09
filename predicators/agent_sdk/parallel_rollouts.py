@@ -46,6 +46,21 @@ def parallel_rollouts_available() -> bool:
     return sys.platform.startswith("linux") and hasattr(os, "fork")
 
 
+def parallel_workers() -> int:
+    """How many forked children a wave may run at once.
+
+    One or fewer means waves run nothing in parallel: the setting
+    ``CFG.agent_validation_parallel_workers`` is at most 1, or this
+    platform cannot fork.
+    """
+    # Deferred: settings must stay import-cycle-free from tool modules.
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.settings import CFG
+    if not parallel_rollouts_available():
+        return 0
+    return int(CFG.agent_validation_parallel_workers)
+
+
 def prefetch_parallel(jobs: Sequence[Callable[[], Any]],
                       label: str,
                       quiet: bool = False) -> List[Optional[Any]]:
@@ -63,11 +78,8 @@ def prefetch_parallel(jobs: Sequence[Callable[[], Any]],
     objective calls this once per candidate theta, hundreds of times
     per fit, and one log line each would drown the run's info.log.
     """
-    # Deferred: settings must stay import-cycle-free from tool modules.
-    # pylint: disable-next=import-outside-toplevel
-    from predicators.settings import CFG
-    workers = min(int(CFG.agent_validation_parallel_workers), len(jobs))
-    if workers <= 1 or len(jobs) <= 1 or not parallel_rollouts_available():
+    workers = min(parallel_workers(), len(jobs))
+    if workers <= 1:
         return [None] * len(jobs)
     logger.log(logging.DEBUG if quiet else logging.INFO,
                "[%s] prefetching %d rollouts across %d forked children.",
