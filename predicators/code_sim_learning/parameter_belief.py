@@ -34,7 +34,8 @@ from __future__ import annotations
 import hashlib
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Generator, Iterator, List, Optional, \
+    Sequence, Tuple
 
 import numpy as np
 import numpy.typing as npt
@@ -55,6 +56,8 @@ _SUBDIVISIONS = 16
 
 # One pass of the fit's objective: the residual vector at params.
 ResidualsFn = Callable[[Dict[str, float]], np.ndarray]
+# Scores a list of parameter dicts together, each as a ResidualsFn would.
+BatchResidualsFn = Callable[[List[Dict[str, float]]], List[np.ndarray]]
 
 
 @dataclass(frozen=True)
@@ -411,13 +414,17 @@ def build_parameter_belief(
     prior_sigmas: Dict[str, float],
     config: BeliefConfig,
     seed: int,
+    batch_residuals: Optional[BatchResidualsFn] = None,
 ) -> ParameterBelief:
     """Build ``q(theta)`` around ``map_params`` and draw from it.
 
     ``residuals`` is the fit's objective (scaled residuals over the
     segments it pooled) and ``noise_sigma`` the Gaussian width it scores
     them with; ``prior_centers`` / ``prior_sigmas`` (fit space) are the
-    Gaussian prior it folded in.
+    Gaussian prior it folded in. ``batch_residuals``, when given, scores
+    a list of parameter dicts together, each as ``residuals`` would; the
+    lines are then traced in lockstep (:func:`_trace_lines`), with the
+    same result.
     """
     assert noise_sigma > 0.0, noise_sigma
     at_map = np.asarray(residuals(dict(map_params)), dtype=float)
@@ -432,6 +439,7 @@ def build_parameter_belief(
     lines: Dict[str, LinePosterior] = {}
     discrete: Dict[str, DiscretePosterior] = {}
     held: List[str] = []
+    traced: List[Tuple[ParamSpec, _LineEvaluator, float, float]] = []
     for spec in specs:
         center = prior_centers.get(spec.name)
         sigma_p = prior_sigmas.get(spec.name)
@@ -453,7 +461,14 @@ def build_parameter_belief(
                 values, neg_log)
             continue
         lo_arr, hi_arr = fit_space_bounds([spec])
-        _trace_line(line, float(lo_arr[0]), float(hi_arr[0]), config)
+        traced.append((spec, line, float(lo_arr[0]), float(hi_arr[0])))
+    if batch_residuals is not None:
+        _trace_lines([(line, lo, hi) for _spec, line, lo, hi in traced],
+                     config, batch_residuals)
+    else:
+        for _spec, line, lo, hi in traced:
+            _trace_line(line, lo, hi, config)
+    for spec, line, _lo, _hi in traced:
         evaluations += line.count
         grid = line.points()
         lines[spec.name] = LinePosterior.from_neg_log(grid,
@@ -590,14 +605,23 @@ class _LineEvaluator:
         center, sigma = self.prior
         return 0.5 * ((z - center) / sigma)**2
 
+    def params_at(self, z: float) -> Dict[str, float]:
+        """The MAP with only this parameter moved to fit-space ``z``."""
+        params = dict(self.map_params)
+        params[self.spec.name] = scalar_from_fit_space(self.spec, float(z))
+        return params
+
+    def record(self, z: float, residuals: np.ndarray) -> None:
+        """Store the objective's residuals at ``z``, however they were
+        scored."""
+        res = np.asarray(residuals, dtype=float)
+        self.sse[float(z)] = float(np.dot(res, res))
+        self.count += 1
+
     def __call__(self, z: float) -> float:
         z = float(z)
         if z not in self.sse:
-            params = dict(self.map_params)
-            params[self.spec.name] = scalar_from_fit_space(self.spec, z)
-            res = np.asarray(self.residuals(params), dtype=float)
-            self.sse[z] = float(np.dot(res, res))
-            self.count += 1
+            self.record(z, self.residuals(self.params_at(z)))
         return ((self.sse[z] - self.sse_min) * self.k + self._prior(z) -
                 self._prior(self.z0))
 
@@ -606,15 +630,26 @@ class _LineEvaluator:
         return sorted(self.sse)
 
 
-def _trace_line(line: _LineEvaluator, lo: float, hi: float,
-                config: BeliefConfig) -> None:
-    """Evaluate a parameter's line until its posterior mass is resolved.
+def _line_points(line: _LineEvaluator, lo: float, hi: float,
+                 config: BeliefConfig) -> Iterator[float]:
+    """The points :func:`_trace_line` evaluates, as a generator.
+
+    It yields each point the line has not scored yet and resumes once the
+    point is scored (``line.record``), so driving it alone
+    (:func:`_trace_line`) or together with other lines
+    (:func:`_trace_lines`) evaluates the same points.
 
     Each side is probed outward from the MAP, first shrinking the step
     until a probe falls inside the cutoff, then doubling it until the
     cutoff or the declared bound is reached. The remaining budget
     bisects the grid interval holding the most mass.
     """
+
+    def value(z: float) -> Generator[float, None, float]:
+        if float(z) not in line.sse:
+            yield float(z)
+        return line(z)
+
     z0 = line.z0
     if line.sigma_p is not None:
         h0 = 0.25 * line.sigma_p
@@ -629,24 +664,27 @@ def _trace_line(line: _LineEvaluator, lo: float, hi: float,
         if (edge - z0) * side <= 0.0:
             continue
 
-        def probe(step: float,
-                  edge: float = edge,
-                  side: float = side) -> Tuple[float, float]:
+        def probe(
+                step: float,
+                edge: float = edge,
+                side: float = side
+        ) -> Generator[float, None, Tuple[float, float]]:
             z = z0 + side * step
             if (z - edge) * side > 0.0:
                 z = edge
-            return z, line(z)
+            g = yield from value(z)
+            return z, g
 
         step = h0
-        z, g = probe(step)
+        z, g = yield from probe(step)
         shrinks = 0
         while g > cutoff and shrinks < _MAX_SHRINKS and line.count < budget:
             step /= 4.0
-            z, g = probe(step)
+            z, g = yield from probe(step)
             shrinks += 1
         while g <= cutoff and z != edge and line.count < budget:
             step *= 2.0
-            z, g = probe(step)
+            z, g = yield from probe(step)
     while line.count < budget:
         grid = np.array(line.points())
         if grid.size < 2:
@@ -663,4 +701,41 @@ def _trace_line(line: _LineEvaluator, lo: float, hi: float,
         mid = 0.5 * (grid[widest] + grid[widest + 1])
         if mid in (grid[widest], grid[widest + 1]):
             return
-        line(float(mid))
+        yield from value(float(mid))
+
+
+def _trace_line(line: _LineEvaluator, lo: float, hi: float,
+                config: BeliefConfig) -> None:
+    """Evaluate a parameter's line until its posterior mass is resolved
+    (:func:`_line_points`), one point at a time."""
+    for z in _line_points(line, lo, hi, config):
+        line(z)
+
+
+def _trace_lines(traced: Sequence[Tuple[_LineEvaluator, float,
+                                        float]], config: BeliefConfig,
+                 batch_residuals: BatchResidualsFn) -> None:
+    """Trace several lines in lockstep: each round scores every unfinished
+    line's next point in one ``batch_residuals`` call.
+
+    The lines are independent (each moves one parameter off the MAP), so
+    each evaluates exactly the points it would alone, while a round
+    costs one batch where tracing line by line costs a call per point.
+    """
+    generators = [
+        _line_points(line, lo, hi, config) for line, lo, hi in traced
+    ]
+    pending: Dict[int, float] = {}
+    for i, generator in enumerate(generators):
+        z = next(generator, None)
+        if z is not None:
+            pending[i] = z
+    while pending:
+        order = list(pending)
+        results = batch_residuals(
+            [traced[i][0].params_at(pending[i]) for i in order])
+        for i, residuals in zip(order, results):
+            traced[i][0].record(pending.pop(i), residuals)
+            z = next(generators[i], None)
+            if z is not None:
+                pending[i] = z

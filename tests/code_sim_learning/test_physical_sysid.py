@@ -480,6 +480,20 @@ def test_select_trustworthy_params_weakly_identified_applies():
     assert applied == {"friction": 0.12}
 
 
+def _batched(fake_rms):
+    """A trajectory_terms_by_point stand-in built from a per_trajectory_rms
+    stub: each candidate's terms are one residual per trajectory, of the
+    stubbed RMS."""
+
+    def fake_terms(env, trajectories, points, *args, **kwargs):
+        return [[
+            np.array([r])
+            for r in fake_rms(env, trajectories, point, *args, **kwargs)
+        ] for point in points]
+
+    return fake_terms
+
+
 def _patch_fit_and_rms(monkeypatch, fit_thetas, rms_by_count):
     """Stub the heavy PyBullet fit/residual calls for trimming tests.
 
@@ -502,9 +516,10 @@ def _patch_fit_and_rms(monkeypatch, fit_thetas, rms_by_count):
 
     monkeypatch.setattr(physical_sysid, "fit_params_rollout", fake_fit)
     monkeypatch.setattr(physical_sysid, "per_trajectory_rms", fake_rms)
-    # min_explainable_rms (called by the trimmed fit) evaluates its
-    # candidate grid through grid_seed's namespace.
-    monkeypatch.setattr(grid_seed, "per_trajectory_rms", fake_rms)
+    # min_explainable_rms (called by the trimmed fit) scores its
+    # candidate grid in one batch through grid_seed's namespace.
+    monkeypatch.setattr(grid_seed, "trajectory_terms_by_point",
+                        _batched(fake_rms))
     # The stub trajectories are plain strings; skip the data-derived
     # residual scaling (exercised by its own tests).
     monkeypatch.setattr(physical_sysid, "compute_residual_scaling",
@@ -580,7 +595,8 @@ def test_consistency_loop_drops_disagreeing_survivor(monkeypatch):
 
     monkeypatch.setattr(physical_sysid, "fit_params_rollout", fake_fit)
     monkeypatch.setattr(physical_sysid, "per_trajectory_rms", fake_rms)
-    monkeypatch.setattr(grid_seed, "per_trajectory_rms", fake_rms)
+    monkeypatch.setattr(grid_seed, "trajectory_terms_by_point",
+                        _batched(fake_rms))
     monkeypatch.setattr(physical_sysid, "compute_residual_scaling",
                         lambda *_a, **_k: None)
     result, survivors, _rms, hull = fit_params_rollout_trimmed(
@@ -1169,7 +1185,12 @@ def _run_sweep(monkeypatch, sse_fn, specs, anchors, **flags):
     def fake_sse(_env, _trajs, params, *_args, **_kwargs):
         return sse_fn(params)
 
+    def fake_batch(_env, _trajs, points, *_args, **_kwargs):
+        return [sse_fn(params) for params in points]
+
     monkeypatch.setattr(grid_seed, "compute_rollout_sse", fake_sse)
+    # A pool's new candidates are scored together.
+    monkeypatch.setattr(grid_seed, "rollout_sse_by_point", fake_batch)
     seeded, info = grid_seed._grid_seed_physical_specs(None, ["traj"],
                                                        specs,
                                                        {"domino": ["x"]}, [],
@@ -1654,6 +1675,95 @@ def test_rollout_residuals_parallel_matches_serial(monkeypatch):
     # child failure) was recomputed serially here.
     assert rollout_env.num_rollouts_run() - n0 == len(trajectories)
     # Every parent-built env was disposed (children build their own).
+    assert all(not env.connected for env in built)
+
+
+def test_batched_points_match_point_by_point(monkeypatch):
+    """Scoring many points in one fork wave returns every (point, trajectory)
+    pair's serial terms, and each point's SSE equals compute_rollout_sse
+    exactly, with workers or without.
+
+    The grid sweep and the explainability sweep score their candidates
+    this way; any value difference would change fits.
+    """
+    from predicators.agent_sdk.parallel_rollouts import \
+        parallel_rollouts_available
+    from predicators.settings import CFG
+    if not parallel_rollouts_available():
+        pytest.skip("fork not available on this platform")
+    trajectories = [
+        _trajectory([0.0, 0.1, 0.2]),
+        _trajectory([0.0, 0.2, 0.4]),
+        _trajectory([0.0, 0.05, 0.1]),
+    ]
+    built = []
+
+    def factory():
+        return _LinearParamEnv(built)
+
+    points = [{"k": k} for k in (0.0, 0.05, 0.1, 0.2)]
+    monkeypatch.setattr(CFG, "agent_validation_parallel_workers", 0)
+    want_terms = [[
+        rollout_objective.compute_rollout_residuals(
+            factory, [traj],
+            point,
+            _RESIDUAL_FEATURES, ["k"],
+            episode_count=len(trajectories)) for traj in trajectories
+    ] for point in points]
+    want_sse = [
+        rollout_objective.compute_rollout_sse(factory, trajectories, point,
+                                              _RESIDUAL_FEATURES, ["k"])
+        for point in points
+    ]
+    for workers in (0, 3):
+        monkeypatch.setattr(CFG, "agent_validation_parallel_workers", workers)
+        n0 = rollout_env.num_rollouts_run()
+        terms = rollout_objective.trajectory_terms_by_point(
+            factory, trajectories, points, _RESIDUAL_FEATURES, ["k"])
+        # Every pair is credited once, in a child or here.
+        assert rollout_env.num_rollouts_run() - n0 == \
+            len(points) * len(trajectories)
+        for got_row, want_row in zip(terms, want_terms):
+            assert len(got_row) == len(want_row)
+            for got, want in zip(got_row, want_row):
+                assert np.array_equal(got, want)
+        assert rollout_objective.rollout_sse_by_point(factory, trajectories,
+                                                      points,
+                                                      _RESIDUAL_FEATURES,
+                                                      ["k"]) == want_sse
+    assert all(not env.connected for env in built)
+
+
+def test_rollout_lm_fit_is_the_same_with_and_without_workers(monkeypatch):
+    """The rollout LM fit returns the same MAP and Jacobian whether its
+    Jacobian columns are scored together in forked children or one by one in
+    this process."""
+    from predicators.agent_sdk.parallel_rollouts import \
+        parallel_rollouts_available
+    from predicators.settings import CFG
+    if not parallel_rollouts_available():
+        pytest.skip("fork not available on this platform")
+    trajectories = [
+        _trajectory([0.0, 0.1, 0.2]),
+        _trajectory([0.0, 0.2, 0.4]),
+        _trajectory([0.0, 0.05, 0.1]),
+    ]
+    built = []
+
+    def factory():
+        return _LinearParamEnv(built)
+
+    specs = [ParamSpec("k", 0.3, lo=0.0, hi=1.0)]
+    fits = []
+    for workers in (0, 3):
+        monkeypatch.setattr(CFG, "agent_validation_parallel_workers", workers)
+        fits.append(
+            rollout_objective.fit_map_lm_rollout(factory, trajectories, specs,
+                                                 _RESIDUAL_FEATURES))
+    theta, jac = fits[0]
+    fast_theta, fast_jac = fits[1]
+    assert np.array_equal(theta, fast_theta)
+    assert jac is not None and np.array_equal(jac, fast_jac)
     assert all(not env.connected for env in built)
 
 

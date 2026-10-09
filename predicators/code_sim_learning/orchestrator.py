@@ -45,7 +45,8 @@ from predicators.code_sim_learning.physical_sysid import \
 from predicators.code_sim_learning.rollout_env import RolloutTrajectory, \
     num_rollouts_run
 from predicators.code_sim_learning.rollout_objective import \
-    compute_rollout_residuals, compute_rollout_sse
+    compute_rollout_residuals, compute_rollout_sse, \
+    rollout_residuals_by_point
 from predicators.code_sim_learning.trajectory_prep import \
     compute_residual_scaling
 
@@ -401,9 +402,16 @@ def _compute_fit(
                                              residual_features, physical_names,
                                              rules, latent_init, scaling)
 
+        def rollout_residuals_batch_fn(
+                points: List[Dict[str, float]]) -> List[np.ndarray]:
+            return rollout_residuals_by_point(fit_env, survivors, points,
+                                              residual_features,
+                                              physical_names, rules,
+                                              latent_init, scaling)
+
         belief = _build_belief(result, all_specs, anchors,
                                rollout_residuals_fn, belief_config,
-                               len(survivors))
+                               len(survivors), rollout_residuals_batch_fn)
     return _FitComputation(fit_result=result,
                            report=report,
                            num_survivors=len(survivors),
@@ -452,11 +460,16 @@ def prior_parameter_belief(all_specs: Sequence[ParamSpec],
                         seed=seed)
 
 
-def _build_belief(result: FitResult, all_specs: Sequence[ParamSpec],
-                  anchors: Dict[str, float],
-                  residuals_fn: Callable[[Dict[str, float]], np.ndarray],
-                  belief_config: BeliefConfig,
-                  num_survivors: int) -> ParameterBelief:
+def _build_belief(
+    result: FitResult,
+    all_specs: Sequence[ParamSpec],
+    anchors: Dict[str, float],
+    residuals_fn: Callable[[Dict[str, float]], np.ndarray],
+    belief_config: BeliefConfig,
+    num_survivors: int,
+    batch_residuals_fn: Optional[Callable[[List[Dict[str, float]]],
+                                          List[np.ndarray]]] = None
+) -> ParameterBelief:
     """The parameter factor around ``result``'s MAP, under its own prior.
 
     The prior is the one the fit folded in: centred on each parameter's
@@ -486,4 +499,5 @@ def _build_belief(result: FitResult, all_specs: Sequence[ParamSpec],
             for s, sigma in zip(all_specs, sigmas)
         },
         config=belief_config,
-        seed=stable_seed(CFG.seed, sorted(fitted.items()), num_survivors))
+        seed=stable_seed(CFG.seed, sorted(fitted.items()), num_survivors),
+        batch_residuals=batch_residuals_fn)

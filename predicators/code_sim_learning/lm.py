@@ -11,7 +11,7 @@ reuses the LM Jacobian.
 from __future__ import annotations
 
 import logging
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -328,6 +328,63 @@ def bracket_search_zero_gradient_params(
     return z, sse, notes
 
 
+def _batched_jacobian(
+    residuals_z: Callable[[np.ndarray], np.ndarray],
+    batch_z: Callable[[List[np.ndarray]], List[np.ndarray]],
+    lo: np.ndarray,
+    hi: np.ndarray,
+    diff_step: Optional[float],
+) -> Tuple[Callable[[np.ndarray], np.ndarray], Callable[..., np.ndarray]]:
+    """least_squares' own 2-point Jacobian, its column points scored in one
+    batch; returns ``(residuals, jacobian)`` to pass to least_squares.
+
+    At each point, scipy's ``approx_derivative`` (the helper
+    least_squares calls for ``jac='2-point'``) runs twice: first with a
+    stand-in that only records where it would evaluate, then, once
+    ``batch_z`` has scored all those points together, with the cached
+    residuals. The Jacobian is therefore exactly the one least_squares
+    would compute, and least_squares counts no Jacobian evaluation in
+    ``nfev`` either way. ``residuals`` caches by point, so the Jacobian
+    reuses the residuals least_squares already took there.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from scipy.optimize._numdiff import approx_derivative
+    cache: Dict[bytes, np.ndarray] = {}
+
+    def residuals(z: np.ndarray) -> np.ndarray:
+        key = np.asarray(z, dtype=float).tobytes()
+        if key not in cache:
+            cache[key] = residuals_z(z)
+        return cache[key]
+
+    def jacobian(z: np.ndarray, *_args: Any, **_kwargs: Any) -> np.ndarray:
+        z = np.asarray(z, dtype=float)
+        f0 = residuals(z)
+        wanted: List[np.ndarray] = []
+
+        def record(x: np.ndarray) -> np.ndarray:
+            wanted.append(np.array(x, dtype=float))
+            return f0
+
+        approx_derivative(record,
+                          z,
+                          method="2-point",
+                          rel_step=diff_step,
+                          f0=f0,
+                          bounds=(lo, hi))
+        missing = [x for x in wanted if x.tobytes() not in cache]
+        for x, res in zip(missing, batch_z(missing)):
+            cache[x.tobytes()] = np.asarray(res, dtype=float)
+        return approx_derivative(residuals,
+                                 z,
+                                 method="2-point",
+                                 rel_step=diff_step,
+                                 f0=f0,
+                                 bounds=(lo, hi))
+
+    return residuals, jacobian
+
+
 def solve_lm(
     residuals_fn: Callable[[np.ndarray], np.ndarray],
     param_specs: List[ParamSpec],
@@ -337,6 +394,8 @@ def solve_lm(
     notes_out: Optional[List[str]] = None,
     n_prior_rows: int = 0,
     flat_params_out: Optional[List[str]] = None,
+    batch_residuals_fn: Optional[Callable[[List[np.ndarray]],
+                                          List[np.ndarray]]] = None,
 ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
     """Shared Levenberg-Marquardt core for the per-transition, recurrent, and
     rollout (``physical_sysid``) MAP fits.
@@ -382,6 +441,12 @@ def solve_lm(
     collects the names of parameters the search measured flat across
     their whole box (box-wide insensitivity evidence for the
     identifiability report).
+
+    ``batch_residuals_fn`` scores a list of (external) thetas together,
+    each as ``residuals_fn`` would. When given, the finite-difference
+    Jacobian scores its column points in one batch
+    (:func:`_batched_jacobian`), with exactly the values of the
+    ``diff_step`` 2-point Jacobian least_squares computes itself.
     """
     from scipy.optimize import \
         least_squares  # pylint: disable=import-outside-toplevel
@@ -395,8 +460,20 @@ def solve_lm(
     safe_hi = np.where(np.isfinite(hi), hi - 1e-9, np.inf)
     init = np.minimum(init, safe_hi)
 
-    def internal_residuals(z: np.ndarray) -> np.ndarray:
+    def residuals_at(z: np.ndarray) -> np.ndarray:
         return residuals_fn(from_fit_space(param_specs, z))
+
+    internal_residuals: Callable[[np.ndarray], np.ndarray] = residuals_at
+    # How least_squares differentiates; ``jac`` below is the result's.
+    jac_method: Any = "2-point"
+    if batch_residuals_fn is not None:
+        batch = batch_residuals_fn
+
+        def internal_batch(zs: List[np.ndarray]) -> List[np.ndarray]:
+            return batch([from_fit_space(param_specs, z) for z in zs])
+
+        internal_residuals, jac_method = _batched_jacobian(
+            residuals_at, internal_batch, lo, hi, diff_step)
 
     init_residuals = internal_residuals(init)
     if init_residuals.size == 0:
@@ -410,6 +487,7 @@ def solve_lm(
     try:
         result = least_squares(internal_residuals,
                                init,
+                               jac=jac_method,
                                method='trf',
                                bounds=(lo, hi),
                                diff_step=diff_step,
@@ -450,6 +528,7 @@ def solve_lm(
             try:
                 polished = least_squares(internal_residuals,
                                          z_new,
+                                         jac=jac_method,
                                          method='trf',
                                          bounds=(lo, hi),
                                          diff_step=diff_step,

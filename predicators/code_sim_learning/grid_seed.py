@@ -20,7 +20,7 @@ from predicators.code_sim_learning.fit_space import ParamSpec, is_log, \
     scalar_from_fit_space, scalar_to_fit_space
 from predicators.code_sim_learning.rollout_env import RolloutTrajectory
 from predicators.code_sim_learning.rollout_objective import \
-    compute_rollout_sse, per_trajectory_rms
+    compute_rollout_sse, rollout_sse_by_point, trajectory_terms_by_point
 from predicators.code_sim_learning.trajectory_prep import ResidualScaling
 
 logger = logging.getLogger(__name__)
@@ -286,6 +286,22 @@ def _grid_seed_physical_specs(
                                             rules, latent_init, scaling)
         return memo[key]
 
+    def _score_pool(spec: ParamSpec, values: Sequence[float]) -> None:
+        """Score a pool's new candidates together (rollout_sse_by_point), with
+        the SSEs _sse_for would compute one by one."""
+        trials: Dict[Tuple[float, ...], Dict[str, float]] = {}
+        for value in values:
+            trial = dict(current)
+            trial[spec.name] = float(value)
+            key = tuple(trial[n] for n in names)
+            if key not in memo:
+                trials[key] = trial
+        sses = rollout_sse_by_point(base_env, trajectories,
+                                    list(trials.values()), residual_features,
+                                    physical_names, rules, latent_init,
+                                    scaling)
+        memo.update(zip(trials, sses))
+
     pools: Dict[str, List[Tuple[float, float]]] = {}
     for pass_idx in range(num_passes):
         moved_any = False
@@ -297,6 +313,7 @@ def _grid_seed_physical_specs(
                 float(spec.init_value), anchor_of[spec.name],
                 current[spec.name]
             ]
+            _score_pool(spec, list(dict.fromkeys(values)))
             pool = [(v, _sse_for(spec, v)) for v in dict.fromkeys(values)]
             pools[spec.name] = pool
             flat, _best, tol = _flat_candidates(pool, noise_floor, flat_frac,
@@ -457,11 +474,15 @@ def min_explainable_fits(
         n: float(base[n])
         for n in physical_names
     } for _ in trajectories]
-    for params in candidates:
-        rms = per_trajectory_rms(base_env, trajectories, params,
-                                 residual_features, physical_names, rules,
-                                 latent_init, scaling)
-        for i, r in enumerate(rms):
+    # Every candidate's trajectories in one batch; the same per-trajectory
+    # terms per_trajectory_rms scores, each candidate's RMS computed alike.
+    per_candidate = trajectory_terms_by_point(base_env, trajectories,
+                                              candidates, residual_features,
+                                              physical_names, rules,
+                                              latent_init, scaling)
+    for params, per_trajectory in zip(candidates, per_candidate):
+        for i, res in enumerate(per_trajectory):
+            r = float(np.sqrt(np.mean(res**2))) if res.size else float("inf")
             if r < best[i]:
                 best[i] = r
                 best_params[i] = {n: float(params[n]) for n in physical_names}
