@@ -450,8 +450,13 @@ def _prefetch_trajectory_terms(
         functools.partial(score_fn, states, actions)
         for states, actions in trajectories
     ]
+    # The longest segments start first (run_forked_rollouts' costs).
+    lengths = [len(actions) for _states, actions in trajectories]
     with fork_template(base_env):
-        results = prefetch_parallel(jobs, "sysid objective", quiet=True)
+        results = prefetch_parallel(jobs,
+                                    "sysid objective",
+                                    quiet=True,
+                                    costs=lengths)
     done = sum(1 for r in results if r is not None)
     if done == 0:
         return None
@@ -505,8 +510,13 @@ def trajectory_terms_by_point(
             functools.partial(scorer.per_step_terms, states, actions)
             for scorer in scorers for states, actions in trajectories
         ]
+        # The longest segments start first (run_forked_rollouts' costs).
+        lengths = [len(actions) for _states, actions in trajectories]
         with fork_template(base_env):
-            results = prefetch_parallel(jobs, "sysid batch", quiet=True)
+            results = prefetch_parallel(jobs,
+                                        "sysid batch",
+                                        quiet=True,
+                                        costs=lengths * len(scorers))
         for k, terms in enumerate(results):
             if terms is not None:
                 out[k // n][k % n] = np.asarray(terms, dtype=float)

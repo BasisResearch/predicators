@@ -16,10 +16,11 @@ Two rules learned from benchmark run 21335464 (see
 ``scripts/parallel_rollout_bench.py``), both load-bearing:
 
 * Children exit with ``os._exit`` right after a SYNCHRONOUS
-  ``SimpleQueue.put``. Normal interpreter teardown runs PyBullet's
-  atexit handler against the forked copy of the parent's live client
-  and lags exit by seconds; ``mp.Queue`` would instead hand the result
-  to a feeder thread that ``os._exit`` could kill mid-write.
+  ``SimpleQueue.put`` (or :class:`_ResultChannel`'s, the same locked
+  pipe). Normal interpreter teardown runs PyBullet's atexit handler
+  against the forked copy of the parent's live client and lags exit by
+  seconds; ``mp.Queue`` would instead hand the result to a feeder
+  thread that ``os._exit`` could kill mid-write.
 * The parent's window is bookkept by OUTSTANDING RESULTS, never by
   process liveness: a child that delivered its result frees its slot
   even while its exit lags, and a liveness-based window deadlocks.
@@ -61,9 +62,11 @@ def parallel_workers() -> int:
     return int(CFG.agent_validation_parallel_workers)
 
 
-def prefetch_parallel(jobs: Sequence[Callable[[], Any]],
-                      label: str,
-                      quiet: bool = False) -> List[Optional[Any]]:
+def prefetch_parallel(
+        jobs: Sequence[Callable[[], Any]],
+        label: str,
+        quiet: bool = False,
+        costs: Optional[Sequence[float]] = None) -> List[Optional[Any]]:
     """Pre-run independent rollout jobs as forked children when enabled.
 
     Returns an index-aligned result list, or all-``None`` when parallel
@@ -77,6 +80,8 @@ def prefetch_parallel(jobs: Sequence[Callable[[], Any]],
     ``quiet`` demotes the per-call INFO line to DEBUG: the sysID
     objective calls this once per candidate theta, hundreds of times
     per fit, and one log line each would drown the run's info.log.
+    ``costs`` orders the children's starts (see
+    :func:`run_forked_rollouts`).
     """
     workers = min(parallel_workers(), len(jobs))
     if workers <= 1:
@@ -84,7 +89,34 @@ def prefetch_parallel(jobs: Sequence[Callable[[], Any]],
     logger.log(logging.DEBUG if quiet else logging.INFO,
                "[%s] prefetching %d rollouts across %d forked children.",
                label, len(jobs), workers)
-    return run_forked_rollouts(jobs, workers, label)
+    return run_forked_rollouts(jobs, workers, label, costs=costs)
+
+
+class _ResultChannel:
+    """The locked pipe of ``SimpleQueue``, which the parent can also wait on
+    with a timeout."""
+
+    def __init__(self, ctx: Any) -> None:
+        self._reader, self._writer = ctx.Pipe(duplex=False)
+        self._lock = ctx.Lock()
+
+    def put(self, obj: Any) -> None:
+        """Send ``obj`` whole (a child's only write)."""
+        with self._lock:
+            self._writer.send(obj)
+
+    def wait(self, timeout: float) -> bool:
+        """Whether a result arrived within ``timeout`` seconds."""
+        return bool(self._reader.poll(timeout))
+
+    def get(self) -> Any:
+        """The next result (call after :meth:`wait` said one arrived)."""
+        return self._reader.recv()
+
+    def close(self) -> None:
+        """Close both ends in this process."""
+        self._reader.close()
+        self._writer.close()
 
 
 def _child_main(idx: int, job: Callable[[], Any], q: Any,
@@ -117,6 +149,7 @@ def run_forked_rollouts(
     label: str,
     per_job_timeout: float = 900.0,
     quiet_child_logging: bool = True,
+    costs: Optional[Sequence[float]] = None,
 ) -> List[Optional[Any]]:
     """Run ``jobs`` in forked children, at most ``max_workers`` at once.
 
@@ -126,37 +159,42 @@ def run_forked_rollouts(
     be picklable; jobs must not depend on each other or on shared
     mutable state surviving into the parent (child-side mutations stay
     in the child).
+
+    ``costs`` (an estimate per job, such as its rollout's length) starts
+    the costliest jobs first, so a wave's longest job never waits for a
+    worker behind short ones; ties keep the job order. The parent takes
+    each result the moment it arrives and starts the next job before
+    the finished child has exited.
     """
     n = len(jobs)
     if n == 0:
         return []
     assert max_workers >= 1
+    order = list(range(n))
+    if costs is not None:
+        assert len(costs) == n
+        order.sort(key=lambda k: -float(costs[k]))
     ctx = mp.get_context("fork")
-    q = ctx.SimpleQueue()
+    q = _ResultChannel(ctx)
     procs: dict = {}
+    exiting: list = []
     out: List[Optional[Any]] = [None] * n
     got = 0
-    next_idx = 0
+    started = 0
     outstanding = 0
     deadline = time.monotonic() + per_job_timeout * max(
         1, (n + max_workers - 1) // max_workers)
     try:
         while got < n:
-            while next_idx < n and outstanding < max_workers:
+            while started < n and outstanding < max_workers:
+                idx = order[started]
                 p = ctx.Process(target=_child_main,
-                                args=(next_idx, jobs[next_idx], q,
-                                      quiet_child_logging))
+                                args=(idx, jobs[idx], q, quiet_child_logging))
                 p.start()
-                procs[next_idx] = p
+                procs[idx] = p
                 outstanding += 1
-                next_idx += 1
-            timed_out = False
-            while q.empty():
-                if time.monotonic() > deadline:
-                    timed_out = True
-                    break
-                time.sleep(0.05)
-            if timed_out:
+                started += 1
+            if not q.wait(max(0.0, deadline - time.monotonic())):
                 logger.warning(
                     "[%s] parallel rollouts deadline exceeded with %d/%d "
                     "results; abandoning %d outstanding children.", label, got,
@@ -170,12 +208,18 @@ def run_forked_rollouts(
             else:
                 logger.warning("[%s] parallel rollout %d failed in child:\n%s",
                                label, idx, payload)
+            # The child exits right after its send: reap it once it has
+            # (is_alive reaps), never waiting for it here.
             done = procs.pop(idx, None)
             if done is not None:
-                done.join(timeout=30)
+                exiting.append(done)
+            exiting = [p for p in exiting if p.is_alive()]
     finally:
         for p in procs.values():
             if p.is_alive():
                 p.terminate()
             p.join(timeout=10)
+        for p in exiting:
+            p.join(timeout=30)
+        q.close()
     return out

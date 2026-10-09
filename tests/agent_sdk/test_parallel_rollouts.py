@@ -1,6 +1,7 @@
 """Tests for the fork-based parallel rollout helper."""
 
 import time
+from typing import Tuple
 
 import pytest
 
@@ -26,6 +27,29 @@ def test_results_are_index_aligned() -> None:
                               max_workers=4,
                               label="test")
     assert out == [0, 10, 20, 30]
+
+
+def test_costliest_jobs_start_first() -> None:
+    """With costs, the costliest jobs start first (ties in job order), and
+    results stay at their job's index."""
+    if not parallel_rollouts_available():
+        pytest.skip("fork not available on this platform")
+
+    def make_job(i: int):
+
+        def job() -> Tuple[int, float]:
+            return i, time.monotonic()
+
+        return job
+
+    out = run_forked_rollouts([make_job(i) for i in range(4)],
+                              max_workers=1,
+                              label="test",
+                              costs=[1.0, 3.0, 2.0, 3.0])
+    assert [result[0] for result in out if result is not None] == [0, 1, 2, 3]
+    starts = [result[1] for result in out if result is not None]
+    # One worker runs the jobs one after another, in start order.
+    assert sorted(range(4), key=lambda k: starts[k]) == [1, 3, 2, 0]
 
 
 def test_child_exception_yields_none_slot() -> None:
