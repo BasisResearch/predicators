@@ -758,6 +758,32 @@ def test_sandbox_artifacts_round_trip(tmp_path, monkeypatch):
             "cycle_001_vers_001.py").read_text() == "V1"
 
 
+def test_restore_keeps_the_live_sandbox_files(tmp_path, monkeypatch):
+    """Restoring into the sandbox the checkpoint was taken from (a resume that
+    adopts the run's directory) writes only the files the sandbox lacks.
+
+    The checkpoint is taken when a round starts, so a file the round
+    edited before a restart cut it off is newer than the checkpoint's
+    copy, and the resumed conversation remembers the edit.
+    """
+    obj, sandbox = _make_checkpoint_stub(tmp_path, monkeypatch)
+    (sandbox / "simulator.py").write_text("SIM")
+    (sandbox / "journal.md").write_text("JOURNAL")
+    (sandbox / "strategy.md").write_text("STRATEGY")
+    (sandbox / "simulator_versions").mkdir()
+    (sandbox / "simulator_versions" / "cycle_001_vers_001.py").write_text("V1")
+    files = obj._collect_sandbox_artifacts()
+    (sandbox / "simulator.py").write_text("SIM EDITED")
+    (sandbox / "journal.md").write_text("JOURNAL\nMORE")
+    (sandbox / "strategy.md").unlink()
+    obj._restore_sandbox_artifacts(files)
+    assert (sandbox / "simulator.py").read_text() == "SIM EDITED"
+    assert (sandbox / "journal.md").read_text() == "JOURNAL\nMORE"
+    assert (sandbox / "strategy.md").read_text() == "STRATEGY"
+    assert (sandbox / "simulator_versions" /
+            "cycle_001_vers_001.py").read_text() == "V1"
+
+
 def test_extra_save_state_round_trip_defers_sigma_points(
         tmp_path, monkeypatch):
     """Plain fields round-trip; sigma points restore AFTER rehydration."""

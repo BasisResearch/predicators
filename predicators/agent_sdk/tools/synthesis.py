@@ -389,7 +389,7 @@ def create_synthesis_tools(
         ``PHYSICAL_PARAM_SPECS`` export (system identification); when
         present, a physics-only artifact is valid and missing
         rules/specs default to empty lists. Snapshots are deduped by
-        SHA256, so repeated calls on unchanged content reuse the prior
+        content, so repeated calls on unchanged content reuse the prior
         ``cycle_XXX_vers_YYY`` tag.
         """
         nonlocal loaded_native_model
