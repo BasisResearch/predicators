@@ -10,10 +10,10 @@ from typing import List
 import numpy as np
 import pytest
 
-from predicators.agent_sdk.sandbox_setup import export_trajectories, \
-    find_repo_root, git_commit_all, pyguard_env, rollback_sandbox, \
-    setup_sandbox_directory, snapshot_sandbox, trajectories_path, \
-    write_pyguard
+from predicators.agent_sdk.sandbox_setup import GeneratedReference, \
+    export_trajectories, find_repo_root, git_commit_all, pyguard_env, \
+    rollback_sandbox, setup_sandbox_directory, snapshot_sandbox, \
+    trajectories_path, write_pyguard
 from predicators.structs import LowLevelTrajectory
 
 
@@ -47,6 +47,31 @@ def test_reopened_sandbox_removes_retired_controller_source(tmp_path) -> None:
         log_dir=str(tmp_path))
     assert sorted(p.name for p in ref.iterdir()) == ["skills.md"]
     assert (ref / "skills.md").read_text().startswith("# Skill API")
+
+
+def test_generated_references_are_written_into_the_sandbox(tmp_path) -> None:
+    """A generated reference lands in the sandbox as its text, beside the
+    copied ones, and nothing is staged in the log directory."""
+    sandbox = tmp_path / "sandbox"
+    log_dir = tmp_path / "log"
+    setup_sandbox_directory(
+        sandbox_dir=str(sandbox),
+        repo_root=str(find_repo_root()),
+        extra_reference_files={
+            "skills.md":
+            "predicators/agent_sdk/prompts/public_skills.md",
+            "scene/scene_manifest.json":
+            GeneratedReference('{"bodies": []}\n', "a test scene"),
+        },
+        claude_md_content="public contract",
+        system_prompt="public contract",
+        log_dir=str(log_dir))
+    ref = sandbox / "reference"
+    assert (ref / "scene" / "scene_manifest.json").read_text() == \
+        '{"bodies": []}\n'
+    assert (ref / "skills.md").read_text().startswith("# Skill API")
+    assert sorted(p.name
+                  for p in log_dir.iterdir()) == ["full_system_prompt.md"]
 
 
 def test_pyguard_blocks_hidden_modules_and_sources(tmp_path) -> None:

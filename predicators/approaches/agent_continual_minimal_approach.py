@@ -11,12 +11,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Set
+from typing import TYPE_CHECKING, Any, List, Set
 
 from gym.spaces import Box
 
 from predicators.agent_sdk.play_prompts import build_minimal_play_system_prompt
 from predicators.agent_sdk.primitive_policy import primitive_observation
+from predicators.agent_sdk.sandbox_setup import GeneratedReference, \
+    ReferenceFiles
 from predicators.agent_sdk.tools.continual_tools import PRIMITIVE_TOOL_NAMES
 from predicators.approaches.agent_continual_approach import \
     AgentContinualModelFreeApproach
@@ -52,7 +54,7 @@ class AgentContinualModelFreeMinimalApproach(AgentContinualModelFreeApproach):
     def _continual_tool_names(self) -> List[str]:
         return list(PRIMITIVE_TOOL_NAMES)
 
-    def _get_sandbox_reference_files(self) -> Dict[str, str]:
+    def _get_sandbox_reference_files(self) -> ReferenceFiles:
         return {}
 
     def _sync_tool_context(self) -> None:
@@ -88,7 +90,7 @@ class AgentContinualModelBasedMinimalApproach(
     def _play_system_prompt(self) -> str:
         return build_minimal_play_system_prompt(model_based=True)
 
-    def _get_sandbox_reference_files(self) -> Dict[str, str]:
+    def _get_sandbox_reference_files(self) -> ReferenceFiles:
         # Import the copied BaseEnv, avoiding predicators.envs' registry,
         # which imports every domain class. The sandbox guard stays intact.
         package = Path(__file__).resolve().parents[1]
@@ -100,11 +102,11 @@ class AgentContinualModelBasedMinimalApproach(
                              "the standalone reference binding")
         source = source.replace(
             original, "from reference.base_sim.base_env import BaseEnv\n")
-        directory = Path(self._get_log_dir()) / "reference_sources"
-        directory.mkdir(parents=True, exist_ok=True)
-        standalone = directory / "pybullet_env.py"
-        standalone.write_text(source, encoding="utf-8")
         return {
-            "base_sim/pybullet_env.py": str(standalone),
-            "base_sim/base_env.py": str(package / "envs" / "base_env.py"),
+            "base_sim/pybullet_env.py":
+            GeneratedReference(
+                source, "predicators/envs/pybullet_env.py, its BaseEnv "
+                "import pointed at reference/base_sim"),
+            "base_sim/base_env.py":
+            str(package / "envs" / "base_env.py"),
         }

@@ -305,13 +305,9 @@ def build_scene_manifest(
     return manifest, assets
 
 
-def write_scene_manifest(manifest: Dict[str, Any], path: str) -> str:
-    """Write the manifest as indented JSON and return ``path``."""
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as stream:
-        json.dump(manifest, stream, indent=1, sort_keys=False)
-        stream.write("\n")
-    return path
+def scene_manifest_text(manifest: Dict[str, Any]) -> str:
+    """The manifest as the indented JSON the agent reads."""
+    return json.dumps(manifest, indent=1, sort_keys=False) + "\n"
 
 
-__all__ = ["build_scene_manifest", "referenced_files", "write_scene_manifest"]
+__all__ = ["build_scene_manifest", "referenced_files", "scene_manifest_text"]

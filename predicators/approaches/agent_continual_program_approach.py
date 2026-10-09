@@ -9,6 +9,7 @@ import numpy as np
 
 from predicators.agent_sdk.play_prompts import render_tool_list
 from predicators.agent_sdk.prompt_templates import render
+from predicators.agent_sdk.sandbox_setup import ReferenceFiles
 from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES
 from predicators.agent_sdk.tools.program_synthesis import \
     STANDALONE_PROBE_DISABLED, STANDALONE_RUN_PYTHON_DESCRIPTION, \
@@ -64,7 +65,7 @@ class AgentContinualProgramWorldModelApproach(ContinualPlayMixin,
         # scoring and engine renders of predicted states are withheld.
         return STANDALONE_PROBE_DISABLED
 
-    def _get_sandbox_reference_files(self) -> Dict[str, str]:
+    def _get_sandbox_reference_files(self) -> ReferenceFiles:
         return {
             key: value
             for key, value in super()._get_sandbox_reference_files().items()
@@ -233,5 +234,7 @@ class AgentContinualProgramWorldModelApproach(ContinualPlayMixin,
         return state
 
     def _load_extra_save_state(self, save_dict: Dict[str, Any]) -> None:
-        super()._load_extra_save_state(save_dict)
+        # The loop's counters first: rehydrating the model names the
+        # restored files' versions by round.
         self._load_continual_save_state(save_dict)
+        super()._load_extra_save_state(save_dict)

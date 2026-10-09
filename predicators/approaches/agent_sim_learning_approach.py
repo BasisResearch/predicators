@@ -27,10 +27,11 @@ from gym.spaces import Box
 from predicators import utils
 from predicators.agent_sdk.fit_status import format_fit_status
 from predicators.agent_sdk.play_prompts import render_physical_params_section
+from predicators.agent_sdk.sandbox_setup import ReferenceFiles
 from predicators.agent_sdk.session_base import max_session_log_number
 from predicators.agent_sdk.tools import SYNTHESIS_TOOL_NAMES, \
     _SnapshotTarget, evaluate_states_with, finalize_versioned_snapshot, \
-    make_write_snapshot_hook
+    make_write_snapshot_hook, restored_version
 from predicators.agent_sdk.tools.digests import render_trajectory_digest
 from predicators.approaches.agent_base_approach import AgentBaseApproach
 from predicators.approaches.synthesis_validation import \
@@ -391,7 +392,7 @@ class AgentSimLearningApproach(AgentBaseApproach):
 
     # ── Agent session hooks ──────────────────────────────────────
 
-    def _get_sandbox_reference_files(self) -> Dict[str, str]:
+    def _get_sandbox_reference_files(self) -> ReferenceFiles:
         files = super()._get_sandbox_reference_files()
         # Base-sim source rides the standard reference channel so every
         # session (solve, explore, synthesis) gets the same copies.
@@ -718,6 +719,13 @@ class AgentSimLearningApproach(AgentBaseApproach):
         # whose dynamics live on the class); coerce a None the guard let
         # through (subclass present) so the downstream step_fn sees a list.
         rules = rules or []
+        # The deployed model is the restored file. A checkpoint taken at a
+        # round's start names the version before the round's edits, or
+        # none if the agent first wrote the file in that round.
+        self._current_simulator_version = restored_version(
+            paths.simulator_file, paths.versions_dir,
+            self._learning_cycle_index(), "simulator",
+            self._current_simulator_version)
         self._install_residual_env_cls(residual_env_cls)
         self._residual_rules = rules
         if declared_features:

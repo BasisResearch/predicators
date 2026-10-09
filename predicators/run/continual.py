@@ -465,6 +465,11 @@ class ProtocolSession:
         """A finished level's episodes, read from its recording."""
         return self._run.previous_level_episodes(level_index)
 
+    def previous_level_index_entries(self,
+                                     level_index: int) -> List[Dict[str, Any]]:
+        """A finished level's recording index."""
+        return self._run.previous_level_index_entries(level_index)
+
     def index_entries(self) -> List[Dict[str, Any]]:
         """The recording index of the level in progress."""
         return self._run.index_entries()
@@ -1312,6 +1317,18 @@ class ContinualRun:
                 rec.terminated if rec is not None else None,
             })
         return out
+
+    def previous_level_index_entries(self,
+                                     level_index: int) -> List[Dict[str, Any]]:
+        """A finished level's recording index."""
+        path = paths.level_dir(self._run_dir, level_index)
+        if not os.path.isdir(path):
+            return []
+        rec = LevelRecording(path)
+        try:
+            return rec.read_index()
+        finally:
+            rec.close()
 
     def previous_level_episodes(self,
                                 level_index: int) -> List[Dict[str, Any]]:

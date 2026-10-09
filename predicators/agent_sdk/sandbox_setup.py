@@ -11,8 +11,9 @@ import os
 import pickle
 import shutil
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 from predicators.agent_sdk.tools.sandbox_guard import \
     SANDBOX_HIDDEN_MODULES_PATTERN, SANDBOX_INTROSPECTION, \
@@ -547,10 +548,28 @@ def git_commit_all(sandbox_dir: str,
     )
 
 
+@dataclass(frozen=True)
+class GeneratedReference:
+    """A reference file the harness writes from text when the sandbox opens.
+
+    For files that exist nowhere on disk in the form the agent reads: a
+    module rewritten to import its copies under ``reference/``, or a
+    document built from the level being played (the scene manifest).
+    ``origin`` says what it was made from, for listings.
+    """
+    text: str
+    origin: str
+
+
+# Sandbox reference path -> a source file (relative to the repo root, or
+# absolute) or text the harness generates.
+ReferenceFiles = Dict[str, Union[str, GeneratedReference]]
+
+
 def setup_sandbox_directory(
     sandbox_dir: str,
     repo_root: str,
-    extra_reference_files: Dict[str, str],
+    extra_reference_files: ReferenceFiles,
     claude_md_content: str,
     system_prompt: str,
     log_dir: str,
@@ -572,7 +591,8 @@ def setup_sandbox_directory(
         sandbox_dir: Absolute path to the sandbox directory.
         repo_root: Absolute path to the predicators repository root.
         extra_reference_files: Mapping of destination paths (relative to
-            ``sandbox/reference/``) to source paths (relative to repo root).
+            ``sandbox/reference/``) to source paths (relative to repo root)
+            or to :class:`GeneratedReference` text, written as is.
         claude_md_content: Content for the ``CLAUDE.md`` file.
         system_prompt: Full system prompt to log for inspection.
         log_dir: Directory for host-visible logs.
@@ -593,12 +613,18 @@ def setup_sandbox_directory(
         ref_dir.unlink()
     elif ref_dir.exists():
         shutil.rmtree(ref_dir)
-    for dest_rel, src_rel in registry.items():
-        src = Path(repo_root) / src_rel
+    written = 0
+    for dest_rel, source in registry.items():
         dest = ref_dir / dest_rel
         dest.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(source, GeneratedReference):
+            dest.write_text(source.text, encoding="utf-8")
+            written += 1
+            continue
+        src = Path(repo_root) / source
         if src.exists():
             shutil.copy2(str(src), str(dest))
+            written += 1
         else:
             logger.warning("Reference file not found: %s", src)
 
@@ -656,10 +682,7 @@ def setup_sandbox_directory(
     if need_initial_commit:
         git_commit_all(str(sandbox), "sandbox init", check=True)
 
-    logger.info(
-        "Sandbox directory ready: %d reference files copied",
-        sum(1 for d, s in registry.items() if (Path(repo_root) / s).exists()),
-    )
+    logger.info("Sandbox directory ready: %d reference files written", written)
 
 
 # ---------------------------------------------------------------------------

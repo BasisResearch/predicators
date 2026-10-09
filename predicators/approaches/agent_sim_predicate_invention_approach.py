@@ -33,7 +33,8 @@ import os
 from typing import Any, Dict, FrozenSet, List, Set, Tuple
 
 from predicators.agent_sdk.tools import _SnapshotTarget, \
-    finalize_versioned_snapshot, make_predicate_quality_loader
+    finalize_versioned_snapshot, make_predicate_quality_loader, \
+    restored_version
 from predicators.approaches.agent_sim_learning_approach import \
     AgentSimLearningApproach
 from predicators.settings import CFG
@@ -86,6 +87,11 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
         predicates_file = os.path.join(base, "predicates.py")
         if not os.path.isfile(predicates_file):
             return
+        # As for simulator.py: name the version of the restored file.
+        self._current_predicates_version = restored_version(
+            predicates_file, os.path.join(base, "predicates_versions"),
+            self._learning_cycle_index(), "predicates",
+            self._current_predicates_version)
         self._learned_predicates = self._load_predicates_from_module_file(
             predicates_file)
         logger.info("Rehydrated %d learned predicate(s) from checkpoint.",

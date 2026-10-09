@@ -18,7 +18,7 @@ from types import SimpleNamespace
 # Bootstrap circular imports before pulling from predicators.agent_sdk.
 import predicators.utils  # noqa: F401 — required for import side effects
 from predicators.agent_sdk.tools.snapshots import _SnapshotTarget, \
-    finalize_versioned_snapshot, make_write_snapshot_hook
+    finalize_versioned_snapshot, make_write_snapshot_hook, restored_version
 
 # ── finalize_versioned_snapshot ──────────────────────────────────────
 
@@ -291,3 +291,37 @@ def test_write_hook_uses_cycle_provider_at_call_time(tmp_path):
         "cycle_001_vers_001_simulator.py",
         "cycle_002_vers_001_simulator.py",
     ]
+
+
+# ── restored_version ─────────────────────────────────────────────────
+
+
+def test_restored_version_keeps_a_matching_checkpoint_tag(tmp_path):
+    """A checkpoint tag whose snapshot holds the restored file is kept, under
+    any current cycle, and nothing new is written."""
+    versions = tmp_path / "simulator_versions"
+    versions.mkdir()
+    (versions / "cycle_003_vers_002_simulator.py").write_text("SIM")
+    live = tmp_path / "simulator.py"
+    live.write_text("SIM")
+    tag = restored_version(str(live), str(versions), 0, "simulator",
+                           "cycle_003_vers_002")
+    assert tag == "cycle_003_vers_002"
+    assert sorted(p.name for p in versions.iterdir()) == [
+        "cycle_003_vers_002_simulator.py"
+    ]
+
+
+def test_restored_version_names_a_file_the_checkpoint_did_not_hold(tmp_path):
+    """A checkpoint taken before the file existed, or before its last edit,
+    gets the file snapshotted under the current cycle."""
+    versions = tmp_path / "simulator_versions"
+    live = tmp_path / "simulator.py"
+    live.write_text("SIM")
+    assert restored_version(str(live), str(versions), 2, "simulator",
+                            None) == "cycle_002_vers_001"
+    live.write_text("EDITED")
+    assert restored_version(str(live), str(versions), 2, "simulator",
+                            "cycle_002_vers_001") == "cycle_002_vers_002"
+    assert restored_version(str(tmp_path / "missing.py"), str(versions), 2,
+                            "simulator", "cycle_002_vers_001") is None

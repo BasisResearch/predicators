@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import logging
 import os
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from predicators.agent_sdk.sandbox_setup import ReferenceFiles
 from predicators.approaches.agent_continual_approach import \
     AgentContinualApproach
 from predicators.code_sim_learning.scene_base import SceneBase, \
@@ -84,14 +84,12 @@ class AgentContinualFromAssetsApproach(AgentContinualApproach):
                 return None, None, None, None
         return result
 
-    def _get_sandbox_reference_files(self) -> Dict[str, str]:
+    def _get_sandbox_reference_files(self) -> ReferenceFiles:
         # The scene package plus the scene base the simulator subclasses;
         # no domain twin, so none of the twin's core modules.
         files = self._scene_package_files()
-        files["base_sim/scene_base.py"] = str(
-            self._standalone_source(
-                "scene_base.py",
-                Path(self._get_log_dir()) / "reference_sources"))
+        files["base_sim/scene_base.py"] = self._standalone_source(
+            "scene_base.py")
         return files
 
     def _base_sim_reference_paths(self) -> List[str]:
@@ -112,7 +110,7 @@ class AgentContinualFromAssetsApproach(AgentContinualApproach):
         return ""
 
     def _no_model_section(self) -> str:
-        return "no_model_scene"
+        return "no_model_assets"
 
     # -- No domain twin behind the probe -------------------------------------
 

@@ -16,6 +16,7 @@ from gym.spaces import Box
 
 from predicators import utils
 from predicators.agent_sdk.config import SessionConfig
+from predicators.agent_sdk.sandbox_setup import ReferenceFiles
 from predicators.agent_sdk.session_manager import AgentSessionManager, \
     SessionManagerProtocol, run_async_sync, run_query_sync
 from predicators.agent_sdk.tools import ALL_TOOL_NAMES, ToolContext, \
@@ -149,11 +150,11 @@ class AgentBaseApproach(BaseApproach):
         """
         return []
 
-    def _get_sandbox_reference_files(self) -> Dict[str, str]:
+    def _get_sandbox_reference_files(self) -> ReferenceFiles:
         """Document public control semantics without exporting implementation.
 
         Maps destination paths (relative to ``/sandbox/reference/``) to
-        source paths (relative to the repo root).
+        source paths (relative to the repo root) or to generated text.
         """
         return {"skills.md": "predicators/agent_sdk/prompts/public_skills.md"}
 
@@ -279,13 +280,17 @@ class AgentBaseApproach(BaseApproach):
         if config.use_local_sandbox:
             from predicators.agent_sdk.local_sandbox import \
                 LocalSandboxSessionManager  # pylint: disable=import-outside-toplevel
+
+            # The references first: building them describes the level's
+            # scene, which the system prompt's reference list reports.
+            references = self._get_sandbox_reference_files()
             session = LocalSandboxSessionManager(
                 system_prompt=self._get_agent_system_prompt(),
                 log_dir=self._get_log_dir(),
                 model_name=config.model_name,
                 tool_context=self._tool_context,
                 tool_names=tool_names,
-                extra_reference_files=self._get_sandbox_reference_files(),
+                extra_reference_files=references,
                 phase=phase,
                 config=config,
                 query_count_floor=self._resume_query_count,
