@@ -58,6 +58,38 @@ def test_line_posterior_moments_and_sampling():
     assert np.all(point.sample(np.random.default_rng(0), 3) == 0.4)
 
 
+def test_highest_density_interval_holds_a_mode_at_a_bound():
+    """A density that falls away from a bound has its mode at the bound: the
+    central interval excludes it, the highest-density interval starts there and
+    holds at least the same mass."""
+    line = LinePosterior.from_neg_log([0.0, 1.0, 2.0], [0.0, 1.0, 2.0])
+    assert line.mode() == 0.0
+    assert line.quantile(0.16) > 0.0
+    lo, hi = line.highest_density_interval(0.68)
+    assert lo == 0.0
+    inside = (line.grid >= lo) & (line.grid <= hi)
+    mass = np.trapz(line.density[inside], line.grid[inside])
+    assert 0.68 <= mass <= 0.72
+    # A narrower interval with the same mass does not exist.
+    assert hi - lo <= line.quantile(0.84) - line.quantile(0.16)
+
+
+def test_report_names_a_point_estimate_outside_the_belief():
+    """The report gives the belief's own most likely value and 68% interval,
+    and names the fit's point estimate when it lies outside that interval."""
+    specs = [ParamSpec("a", 0.0, lo=-1.0, hi=1.0)]
+    residuals = _gaussian_residuals(["a"], [0.3], [[20.0]])
+    off = _build(specs, {"a": 0.0}, residuals)
+    lo, hi = off.highest_density_interval("a")
+    assert lo <= off.most_likely("a") <= hi
+    assert off.most_likely("a") == pytest.approx(0.3, abs=0.02)
+    assert not lo <= 0.0 <= hi
+    text = "\n".join(off.describe())
+    assert "the fit's point estimate 0 lies outside it" in text
+    on = _build(specs, {"a": 0.3}, residuals)
+    assert "point estimate" not in "\n".join(on.describe())
+
+
 def test_gaussian_lines_recover_conditional_variances():
     """Each line has the mean-field variance ``1 / Lambda_jj``."""
     specs = [

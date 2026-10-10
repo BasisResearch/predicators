@@ -734,10 +734,10 @@ def create_synthesis_tools(
                     "not a parameter value.")
             else:
                 lines.append(
-                    "Applied to the planning base env: the most likely value "
-                    "of every parameter. sim.run, sim.refine, experiment "
-                    "scores and execution monitoring draw the parameters "
-                    "from this belief.")
+                    "Applied to the planning base env: the fit's point "
+                    "estimate of every parameter. sim.run, sim.refine, "
+                    "experiment scores and execution monitoring draw the "
+                    "parameters from this belief.")
             return "\n".join(lines)
         interval_belief = CFG.code_sim_learning_interval_belief
         if interval_belief:
