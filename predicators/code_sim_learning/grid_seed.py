@@ -260,7 +260,7 @@ def _grid_seed_physical_specs(
     num_points = config.grid_seed_points
     num_passes = max(1, config.grid_sweep_passes)
     refine_evals = config.grid_refine_evals
-    flat_frac = config.grid_flat_frac
+    flat_frac = config.flat_band_frac
     physical_names = [s.name for s in physical_specs]
     all_specs = list(physical_specs) + list(rule_specs)
     names = [s.name for s in all_specs]

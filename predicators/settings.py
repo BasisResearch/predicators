@@ -2410,6 +2410,13 @@ class GlobalSettings:
     # wide as its range, or the belief claims a knowledge it lacks
     # (2026-10-04: a spinning friction started at 0.05 came out
     # 0.057-0.12 with the world at 0.5).
+    # Guesses earn no deference beyond that prior either: the grid's flat
+    # band drops its relative term (SysIdConfig.flat_band_frac), so
+    # data-equivalence is the likelihood floor the belief scores with,
+    # and the anchor ablation does not run. With the band, a spinning
+    # friction whose best candidate (0.67, world 0.5) beat the guessed
+    # 0.005 by 2.8 nats stayed at 0.005, outside the belief's own 68%
+    # interval of 0.39 to 0.71 (2026-10-09).
     code_sim_learning_prior_spans_bounds = False
     # Goodness-of-fit trimming threshold for rollout sysID, as a
     # multiple of the fit's noise_sigma (0 disables): a segment whose
