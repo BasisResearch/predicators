@@ -53,7 +53,8 @@ from predicators.approaches.agent_sim_predicate_invention_approach import \
 from predicators.approaches.continual_play_mixin import ContinualPlayMixin
 from predicators.approaches.scene_package_mixin import ScenePackageMixin
 from predicators.code_sim_learning.rollout_env import dispose_env
-from predicators.code_sim_learning.utils import LearnedSimulator, apply_rules
+from predicators.code_sim_learning.utils import LearnedSimulator, \
+    apply_rules, read_residual_env
 from predicators.envs import create_new_env
 from predicators.observation_noise import ObservationNoise
 from predicators.option_model import _OptionModelBase, _OracleOptionModel
@@ -517,9 +518,11 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         file exists and execs, and it declares ``RESIDUAL_FEATURES``
         (the deploy asserts it; Boil and Fan Sonnet runs on Sept 16,
         2026 wrote models without it and ran on base physics). Fitting
-        is the agent's call: a round deploys an unfitted model at its
-        carried or declared values. Loads are cached by content digest
-        so a sweep of ``skills_invoke`` calls execs the file once.
+        is the agent's call here: a round deploys an unfitted model at
+        its carried or declared values. An arm whose parameters start
+        from guesses also asks for a fit (:meth:`_fit_readiness`). Loads
+        are cached by content digest so a sweep of ``skills_invoke``
+        calls execs the file once.
         """
         head = "Test level: this arm acts through its model. "
         if not os.path.isfile(simulator_file):
@@ -533,13 +536,17 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
             cache = {}
             setattr(self, "_readiness_cache_store", cache)
         if cache.get("digest") != digest:
-            rules, specs, features, _ns = \
+            rules, specs, features, ns = \
                 self._load_simulator_from_module_file(
                     simulator_file, trajectories)
+            subclass = (read_residual_env(ns)
+                        if isinstance(ns, dict) else None)
             cache.clear()
             cache.update(digest=digest,
                          loadable=rules is not None and specs is not None,
-                         features=features is not None)
+                         features=features is not None,
+                         params=bool(specs)
+                         or bool(getattr(subclass, "AGENT_PARAM_SPECS", [])))
         if not cache["loadable"]:
             return (head + "`./simulator.py` does not load (run "
                     "`sim.reset(current=True)` in run_python to see the "
@@ -550,6 +557,16 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
                     "the subclass first: the observed features the fit "
                     "scores your model on, such as the poses forces move "
                     "and the readings your mechanisms change.")
+        if cache["params"]:
+            return self._fit_readiness(head, digest)
+        return None
+
+    def _fit_readiness(  # pylint: disable=useless-return
+            self, head: str, digest: str) -> Optional[str]:
+        """Why a loadable model with parameters must not act yet, given the
+        digest of its file, or None; the supplied-base arms leave fitting to
+        the agent."""
+        del head, digest
         return None
 
     def _base_physics_probe_model(self) -> _OracleOptionModel:

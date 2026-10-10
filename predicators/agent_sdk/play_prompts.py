@@ -121,7 +121,8 @@ def build_play_system_prompt(tool_names: Sequence[str],
                              frozen_model_supplied: bool = False,
                              oracle_dynamics: bool = False,
                              scene_built: bool = False,
-                             scene_package: bool = False) -> str:
+                             scene_package: bool = False,
+                             fit_gate: bool = False) -> str:
     """The system prompt of the run's conversation.
 
     The tool surface selects the variant: an arm with ``run_python``
@@ -152,6 +153,8 @@ def build_play_system_prompt(tool_names: Sequence[str],
     engine, the manifest and the assets) describes that reference
     listing instead; for the model-free arm it adds that listing as
     plain files to use however the agent likes, with no simulator.
+    ``fit_gate`` (EMPIRIC from assets) says the test-level gate also
+    waits for a fit of the current ``simulator.py``.
     """
     names = set(tool_names)
     model = "run_python" in names
@@ -252,7 +255,9 @@ def build_play_system_prompt(tool_names: Sequence[str],
         if oracle_dynamics:
             sections.append(render("play_system", "oracle_discrepancies"))
         if CFG.continual_require_model_on_test:
-            sections.append(render("play_system", "model_gate"))
+            sections.append(
+                render("play_system",
+                       "model_gate_fit" if fit_gate else "model_gate"))
         if CFG.continual_skill_preflight:
             sections.append(render("play_system", "skill_preflight"))
         if CFG.agent_model_repair and not frozen:
