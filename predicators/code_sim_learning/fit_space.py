@@ -129,6 +129,10 @@ class FitResult:
     # error that persists through the recordings. None = no multi-start
     # ran.
     misfit: Optional[float] = None
+    # How the whole-box search stopped short of its full design and starts
+    # to keep the fit call inside its time budget, for the report; empty
+    # when it ran in full or did not run.
+    search_note: str = ""
 
     @property
     def point_estimate(self) -> Dict[str, float]:
