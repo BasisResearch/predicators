@@ -117,6 +117,12 @@ class FitResult:
     # verdict reports it as anchored rather than identified. None =
     # ablation not run or nothing reverted.
     anchor_ablation: Optional[Dict[str, Dict[str, float]]] = None
+    # Distinct local optima the global multi-start found that fit the
+    # data within the model's own misfit of the point estimate, best
+    # first, each as (parameter values in external units, its SSE, its
+    # mixture weight); the first is the point estimate. The parameter
+    # belief mixes them. None = no multi-start ran.
+    basins: Optional[List[Tuple[Dict[str, float], float, float]]] = None
 
     @property
     def point_estimate(self) -> Dict[str, float]:

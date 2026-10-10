@@ -268,6 +268,11 @@ class ParameterBelief:
     held: List[str] = field(default_factory=list)
     evaluations: int = 0
     discrete: Dict[str, DiscretePosterior] = field(default_factory=dict)
+    # A mixture over basins (mix_beliefs): each draw comes from one
+    # component, picked by weight, and the factors above are the
+    # components' weighted mixtures. Empty for a single basin.
+    components: List["ParameterBelief"] = field(default_factory=list)
+    weights: List[float] = field(default_factory=list)
 
     @property
     def num_draws(self) -> int:
@@ -284,8 +289,18 @@ class ParameterBelief:
         """``num`` new joint draws (fresh, independent of ``draws``).
 
         Used to re-estimate a plan chosen on the stored draws, where the
-        selection biases the estimate on those same draws.
+        selection biases the estimate on those same draws. A mixture
+        picks a component per draw and samples it jointly.
         """
+        if self.components:
+            picks = rng.choice(len(self.components), size=num, p=self.weights)
+            mixed: List[Dict[str, float]] = [{} for _ in range(num)]
+            for k, component in enumerate(self.components):
+                chosen = np.flatnonzero(picks == k)
+                for i, row in zip(chosen,
+                                  component.sample(rng, int(chosen.size))):
+                    mixed[int(i)] = row
+            return mixed
         rows: List[Dict[str, float]] = [{} for _ in range(num)]
         for j, name in enumerate(self.names):
             if name in self.held or (name not in self.lines
@@ -358,6 +373,12 @@ class ParameterBelief:
         interval.
         """
         lines = []
+        if len(self.components) > 1:
+            lines.append(
+                f"The recordings fit {len(self.components)} distinct "
+                "parameter sets about as well as the model fits them at "
+                "all; the belief mixes them, and each draw comes from one "
+                "of them.")
         if self.noise_scale > 1.0:
             lines.append(
                 f"The program misfits the recordings {self.noise_scale:.3g}x "
@@ -402,29 +423,115 @@ class ParameterBelief:
                 n: [d.values.tolist(), d.probs.tolist()]
                 for n, d in self.discrete.items()
             },
+            "components": [c.to_dict() for c in self.components],
+            "weights": list(self.weights),
         }
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> ParameterBelief:
         """Inverse of :meth:`to_dict`."""
-        return cls(names=list(data["names"]),
-                   scales=list(data["scales"]),
-                   map_estimate=dict(data["map_estimate"]),
-                   lines={
-                       n: LinePosterior(np.asarray(g, dtype=float),
-                                        np.asarray(d, dtype=float))
-                       for n, (g, d) in data["lines"].items()
-                   },
-                   noise_scale=float(data["noise_scale"]),
-                   draws=np.asarray(data["draws"], dtype=float).reshape(
-                       -1, len(data["names"])),
-                   held=list(data.get("held", [])),
-                   evaluations=int(data.get("evaluations", 0)),
-                   discrete={
-                       n: DiscretePosterior(np.asarray(v, dtype=float),
-                                            np.asarray(p, dtype=float))
-                       for n, (v, p) in data.get("discrete", {}).items()
-                   })
+        return cls(
+            names=list(data["names"]),
+            scales=list(data["scales"]),
+            map_estimate=dict(data["map_estimate"]),
+            lines={
+                n: LinePosterior(np.asarray(g, dtype=float),
+                                 np.asarray(d, dtype=float))
+                for n, (g, d) in data["lines"].items()
+            },
+            noise_scale=float(data["noise_scale"]),
+            draws=np.asarray(data["draws"],
+                             dtype=float).reshape(-1, len(data["names"])),
+            held=list(data.get("held", [])),
+            evaluations=int(data.get("evaluations", 0)),
+            discrete={
+                n: DiscretePosterior(np.asarray(v, dtype=float),
+                                     np.asarray(p, dtype=float))
+                for n, (v, p) in data.get("discrete", {}).items()
+            },
+            components=[cls.from_dict(c) for c in data.get("components", [])],
+            weights=[float(w) for w in data.get("weights", [])])
+
+
+def _mix_lines(lines: Sequence[LinePosterior],
+               weights: Sequence[float]) -> LinePosterior:
+    """The weighted mixture of line densities on the union of their grids; a
+    point mass becomes a narrow triangle."""
+    parts = []
+    for line, weight in zip(lines, weights):
+        if line.is_point:
+            value = float(line.grid[0])
+            eps = 1e-9 * max(1.0, abs(value))
+            parts.append((np.array([value - eps, value, value + eps]),
+                          np.array([0.0, 1.0 / eps, 0.0]), weight))
+        else:
+            parts.append((line.grid, line.density, weight))
+    grid = np.unique(np.concatenate([g for g, _d, _w in parts]))
+    density = np.zeros_like(grid)
+    for g, d, weight in parts:
+        density += weight * np.interp(grid, g, d, left=0.0, right=0.0)
+    mass = float(np.trapz(density, grid))
+    if not np.isfinite(mass) or mass <= 0.0:
+        return lines[0]
+    return LinePosterior(grid, density / mass)
+
+
+def _mix_discrete(parts: Sequence[DiscretePosterior],
+                  weights: Sequence[float]) -> DiscretePosterior:
+    """The weighted mixture of discrete posteriors over their values."""
+    values = np.unique(np.concatenate([p.values for p in parts]))
+    probs = np.zeros_like(values)
+    for part, weight in zip(parts, weights):
+        for value, prob in zip(part.values, part.probs):
+            probs[int(np.searchsorted(values, value))] += weight * prob
+    return DiscretePosterior(values, probs / np.sum(probs))
+
+
+def mix_beliefs(components: Sequence[ParameterBelief],
+                weights: Sequence[float]) -> ParameterBelief:
+    """The mixture of beliefs over the same parameters, one per basin.
+
+    A draw picks a component by weight and samples it jointly, so it
+    never pairs one basin's value of a parameter with another basin's
+    value of the next. Each parameter's factor, which the report reads,
+    is the weighted mixture of the components' factors, and a parameter
+    every component holds at different values becomes discrete over
+    them. The stored draws are the components' own, and the point
+    estimate is the first component's.
+    """
+    first = components[0]
+    total = float(sum(weights))
+    shares = [float(w) / total for w in weights]
+    lines = {
+        name: _mix_lines([c.lines[name] for c in components], shares)
+        for name in first.lines if all(name in c.lines for c in components)
+    }
+    discrete = {
+        name: _mix_discrete([c.discrete[name] for c in components], shares)
+        for name in first.discrete
+        if all(name in c.discrete for c in components)
+    }
+    held = []
+    for name in first.held:
+        values = [float(c.map_estimate[name]) for c in components]
+        if len(set(values)) == 1:
+            held.append(name)
+        else:
+            discrete[name] = _mix_discrete([
+                DiscretePosterior(np.array([v]), np.array([1.0]))
+                for v in values
+            ], shares)
+    return ParameterBelief(names=list(first.names),
+                           scales=list(first.scales),
+                           map_estimate=dict(first.map_estimate),
+                           lines=lines,
+                           noise_scale=first.noise_scale,
+                           draws=np.vstack([c.draws for c in components]),
+                           held=held,
+                           evaluations=sum(c.evaluations for c in components),
+                           discrete=discrete,
+                           components=list(components),
+                           weights=shares)
 
 
 def join_beliefs(first: ParameterBelief,
@@ -441,24 +548,29 @@ def join_beliefs(first: ParameterBelief,
     if second.num_draws < num:
         raise ValueError(f"Joining {num} draws needs as many from each "
                          f"factor; got {second.num_draws}.")
-    return ParameterBelief(names=list(first.names) + list(second.names),
-                           scales=list(first.scales) + list(second.scales),
-                           map_estimate={
-                               **first.map_estimate,
-                               **second.map_estimate
-                           },
-                           lines={
-                               **first.lines,
-                               **second.lines
-                           },
-                           noise_scale=first.noise_scale,
-                           draws=np.hstack([first.draws, second.draws[:num]]),
-                           held=list(first.held) + list(second.held),
-                           evaluations=first.evaluations + second.evaluations,
-                           discrete={
-                               **first.discrete,
-                               **second.discrete
-                           })
+    if second.components:
+        raise ValueError("Only the first joined belief may be a mixture.")
+    return ParameterBelief(
+        names=list(first.names) + list(second.names),
+        scales=list(first.scales) + list(second.scales),
+        map_estimate={
+            **first.map_estimate,
+            **second.map_estimate
+        },
+        lines={
+            **first.lines,
+            **second.lines
+        },
+        noise_scale=first.noise_scale,
+        draws=np.hstack([first.draws, second.draws[:num]]),
+        held=list(first.held) + list(second.held),
+        evaluations=first.evaluations + second.evaluations,
+        discrete={
+            **first.discrete,
+            **second.discrete
+        },
+        components=[join_beliefs(c, second) for c in first.components],
+        weights=list(first.weights))
 
 
 def stable_seed(*parts: Any) -> int:
