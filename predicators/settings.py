@@ -2418,6 +2418,19 @@ class GlobalSettings:
     # 0.005 by 2.8 nats stayed at 0.005, outside the belief's own 68%
     # interval of 0.39 to 0.71 (2026-10-09).
     code_sim_learning_prior_spans_bounds = False
+    # With guessed starting values (code_sim_learning_prior_spans_bounds)
+    # the fit also searches the whole box: a scrambled Sobol design of
+    # this many points (fit space) is scored in one batch, and the
+    # rollout LM runs from the best global_starts of them beside the fit
+    # from the guesses. The best result by posterior cost is the point
+    # estimate, and every result within the model's own misfit of it is
+    # a basin of the parameter belief. A sweep that moves one parameter
+    # at a time from the guesses can settle in a compensating basin: seed
+    # 1 of the Domino round fixes_r4 fit spinning friction 0.01 (mass
+    # 0.6, restitution 0.43) while the world's materials (spinning
+    # friction 0.5) scored better on the same recording. 0 disables.
+    code_sim_learning_rollout_global_design_points = 128
+    code_sim_learning_rollout_global_starts = 3
     # Goodness-of-fit trimming threshold for rollout sysID, as a
     # multiple of the fit's noise_sigma (0 disables): a segment whose
     # best-achievable RMS over the candidate param grid exceeds

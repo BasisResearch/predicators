@@ -34,6 +34,11 @@ There is no added model-error allowance and no between-segment term; both were m
 4. Draws: an independent sample from each line (inverse CDF), discrete parameters included.
    `K = belief_joint_draws` draws are made once per fit with a seed derived from `CFG.seed` and the fit identity, so a cached fit reuses them.
 5. Before any fit of the current program (and in the no-fitting ablation), `prior_belief` draws from the same Gaussian prior, restricted to the bounds.
+6. Basins: when the starting values are guesses (`code_sim_learning_prior_spans_bounds`), the fit also scores a scrambled Sobol design of `code_sim_learning_rollout_global_design_points` points over the whole box and runs the LM from the best `code_sim_learning_rollout_global_starts` of them.
+   The result cheapest on the fit's own cost, the guesses' fit included, is the MAP.
+   Every distinct result whose SSE lies within `2 m` of the MAP's is a basin, where the misfit `m` is the SSE the MAP leaves above the declared noise channel's expected SSE, or the likelihood floor when that is larger.
+   `q(theta)` is then a mixture with one factor per basin, built as in steps 1 to 4 around that basin's point and weighted by `exp(-dSSE / (2 m))`.
+   A draw picks a basin by weight and samples its factor, so it never pairs one basin's value of a parameter with another basin's value of the next.
 
 The fit's consistency loop drops explainable segments that disagree; under the posterior view they are pooled (`code_sim_learning_rollout_consistency_factor = 0`), and their disagreement raises the estimated noise level.
 A segment is unexplainable when its own best replay over the parameter grid leaves a root-mean-square standardized error above `code_sim_learning_rollout_trim_rms_factor` (2); it stays excluded and is reported as evidence of a missing mechanism.
