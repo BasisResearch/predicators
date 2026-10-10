@@ -11,7 +11,7 @@ the green start block (or the targets themselves) to skip the chain,
 and toppling a block with the robot's body so the arm - not the
 cascade - supplies the energy.
 
-The certificate decides legitimacy in two layers:
+The certificate decides legitimacy in three layers:
 
 1. **Staging integrity** (pure state/action rules): only the blue
    movable dominoes are the robot's to rearrange. Until the first Push
@@ -22,7 +22,13 @@ The certificate decides legitimacy in two layers:
    pre-tilted target cannot hand the probe a half-fallen scene). Only
    the green may ever be the target of a Push, and once anything
    topples such a Push must exist.
-2. **The counterfactual push probe** (physics, via the injected
+2. **The push owns the goal** (pure state/action rule): from the first
+   Push on a green until every goal domino has started to fall, the
+   robot may only finish pushing - one invocation per green - and
+   Wait. A goal that only falls after the robot acts again (a second
+   push of a green, any other skill, unlabeled actions that move the
+   arm) fell to the arm, whatever the probe says about the layout.
+3. **The counterfactual push probe** (physics, via the injected
    ``probe``): on goal-reaching episodes, the episode's own Push skill
    re-runs from the recorded pre-push state - the real controller with
    the plan's recorded continuous parameters - in a dedicated
@@ -30,36 +36,43 @@ The certificate decides legitimacy in two layers:
    anything (the arm's body is collision-masked; see
    ``cascade_probe``). The goal atoms must topple under that push.
 
-The probe is the sole authority on HOW the goal fell: it re-derives
-the outcome from the staged layout and the push alone, so anything the
-real episode does after the push - a stalled hop, arm contact, a late
-topple - neither earns nor voids the bonus. This replaced first the
-old swept-corridor / shoved-relay / robot-strike attribution rules and
-then the interim green-first / onset-chaining timing rules: forensic
-reconstruction of per-block causality produced both misses and false
-rejections (run_20260715_220941: a genuine green-on-blue knock
-measured 7 mm of modeled corridor clearance with the end-effector
-nearby and was charged to the robot; same-step onset ties on corner
-layouts), while the probe answers the only question that matters -
-does the layout the robot built actually cascade to the goal under a
-clean push? Arm collateral cannot help (the probe's arm is
-intangible), so any hack that needs the robot's body to reach the goal
-fails the probe. The deliberate flip side: a working layout certifies
-even if the real episode also used the arm after the push - the bonus
-rewards the layout, which the probe verifies, not the execution.
+The probe is the sole authority on HOW the goal fell within the push:
+it re-derives the outcome from the staged layout and the push alone,
+so a stalled hop or arm contact during the stroke neither earns nor
+voids the bonus. This replaced first the old swept-corridor /
+shoved-relay / robot-strike attribution rules and then the interim
+green-first / onset-chaining timing rules: forensic reconstruction of
+per-block causality produced both misses and false rejections
+(run_20260715_220941: a genuine green-on-blue knock measured 7 mm of
+modeled corridor clearance with the end-effector nearby and was charged
+to the robot; same-step onset ties on corner layouts), while the probe
+answers the question that matters - does the layout the robot built
+actually cascade to the goal under a clean push? The flip side: a
+working layout certifies even if the real push's arm body interfered
+with the chain, since the bonus rewards the layout the probe verifies.
 
-Layer 1 is a pure function over ``State`` sequences and runs
-identically everywhere; layer 2 needs a physics rollout, so the caller
-injects ``probe`` (``DominoEvaluator`` binds it from the certifying
-env - the true env env-side, the agent's belief env in sandbox
-verdicts, each side probing with its own physics). A goal-reaching
-episode with no probe available fails closed: with the forensic rules
-gone, an uncertifiable success must not score.
+The probe alone cannot tell WHEN the real goal fell, which layer 2
+covers. run_20261003_073316 (domino_high_friction_turn, seed 1, level
+2): the real push stalled, the gripper body having pinned the first
+bridge as the green struck it; the probe still cascaded the layout
+every time (its gripper body is intangible); and a second Push of the
+toppled green swept the gripper body into the second bridge, toppled
+the target, and scored a WIN. Layer 2 judges the real episode only by
+its skill sequence and the goal's topple onset, never by per-block
+attribution.
+
+Layers 1 and 2 are pure functions over ``State`` sequences and option
+labels and run identically everywhere; layer 3 needs a physics
+rollout, so the caller injects ``probe`` (``DominoEvaluator`` binds it
+from the certifying env - the true env env-side, the agent's belief
+env in sandbox verdicts, each side probing with its own physics). A
+goal-reaching episode with no probe available fails closed: with the
+forensic rules gone, an uncertifiable success must not score.
 """
 
 import logging
 import math
-from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 from predicators.envs.pybullet_domino.components.domino_component import \
     DominoComponent
@@ -68,6 +81,21 @@ from predicators.structs import GroundAtom, Object, State, StepOption
 # The name of the option through which the robot is allowed to topple
 # the green start block.
 _PUSH_OPTION_NAME = "Push"
+
+# The only other skill the robot may run between the push and the
+# goal's fall (rule (e)): it holds the arm still while the cascade runs.
+_WAIT_OPTION_NAME = "Wait"
+
+# Rule (e) counts actions no skill produced after the push as waiting
+# while they hold the robot still: its end-effector position and finger
+# opening (exact in every observation channel) stay within this many
+# meters of where the unlabeled run began. A position-held arm drifts
+# 1-3 mm (the push stroke's last joint targets repeated for 150 steps);
+# the stroke itself moves the end effector 1-5 cm per step. Orientation
+# is left out: with the gripper pointing down (tilt pi/2) roll and wrist
+# trade off, and both swung 0.48 rad in a held pose.
+_HOLD_TOLERANCE = 0.01
+_HOLD_FEATURES = ("x", "y", "z", "fingers")
 
 # Consecutive non-held states a domino must spend at or past
 # ``fallen_threshold`` before that counts as a topple rather than as
@@ -242,36 +270,136 @@ def _topple_onset(states: Sequence[State], domino: Object) -> Optional[int]:
     return fall_idx
 
 
-def _push_on_green_spans(
-        step_options: Sequence[StepOption], greens: Sequence[Object],
-        domino_names: Set[str]) -> Tuple[List[Tuple[int, int]], bool]:
-    """Maximal runs of consecutive action indices whose option is a Push on a
-    green start block, plus whether any option label was missing.
+def _label_key(step_option: StepOption) -> Tuple[Any, ...]:
+    """A label's (name, object names, parameters) as plain tuples.
+
+    Agent-authored labels may carry lists or arrays where generated
+    labels carry tuples; both compare alike once normalized.
+    """
+    assert step_option is not None
+    params = (tuple(float(v)
+                    for v in step_option[2]) if len(step_option) > 2 else ())
+    return (step_option[0], tuple(step_option[1]), params)
+
+
+def _invocation_spans(
+        step_options: Sequence[StepOption]) -> List[Tuple[int, int]]:
+    """Inclusive action-index ranges of the episode's skill invocations.
+
+    A label whose invocation-start flag is set opens a new invocation.
+    Legacy labels without the flag (2- and 3-tuples) open one whenever
+    the label changes, so consecutive identical legacy labels read as
+    one invocation. Each run of unlabeled actions is one range.
+    """
+    spans: List[Tuple[int, int]] = []
+    for i, step_option in enumerate(step_options):
+        if spans:
+            previous = step_options[i - 1]
+            if step_option is None or previous is None:
+                continues = step_option is None and previous is None
+            else:
+                starts = len(step_option) > 3 and bool(step_option[3])
+                continues = not starts and \
+                    _label_key(step_option) == _label_key(previous)
+            if continues:
+                spans[-1] = (spans[-1][0], i)
+                continue
+        spans.append((i, i))
+    return spans
+
+
+def _pushes_green(step_option: StepOption, green_names: Set[str],
+                  domino_names: Set[str]) -> bool:
+    """Whether ``step_option`` is a Push on a green start block.
 
     A Push whose objects include no domino at all is the restricted
     variant (``domino_restricted_push``), which always targets the
     inferred start block - counted as a push on green. A Push that
     explicitly names a non-green domino is not.
     """
+    if step_option is None or step_option[0] != _PUSH_OPTION_NAME:
+        return False
+    object_names = set(step_option[1])
+    return bool(green_names & object_names or not domino_names & object_names)
+
+
+def _push_on_green_spans(
+        step_options: Sequence[StepOption], greens: Sequence[Object],
+        domino_names: Set[str]) -> Tuple[List[Tuple[int, int]], bool]:
+    """Each Push invocation on a green start block, in order.
+
+    Returns the invocations' inclusive action-index ranges, plus whether
+    any option label was missing.
+    """
     green_names = {g.name for g in greens}
-    push_idxs = []
-    any_unknown = False
-    for i, step_option in enumerate(step_options):
-        if step_option is None:
-            any_unknown = True
+    spans = [(lo, hi) for lo, hi in _invocation_spans(step_options)
+             if _pushes_green(step_options[lo], green_names, domino_names)]
+    return spans, any(label is None for label in step_options)
+
+
+def _robot_moves_at(states: Sequence[State], lo: int,
+                    hi: int) -> Optional[int]:
+    """The first action in ``[lo, hi]`` after which the robot is off the pose
+    it held before action ``lo``, or None if it held still.
+
+    The pose is the robot's ``_HOLD_FEATURES``; off it means any of them
+    moved more than ``_HOLD_TOLERANCE``. Without a robot to track,
+    stillness cannot be shown, so action ``lo`` counts as moving.
+    """
+    robot = next((o for o in states[lo] if o.type.name == "robot"), None)
+    if robot is None:
+        return lo
+    features = [f for f in _HOLD_FEATURES if f in robot.type.feature_names]
+    if not features:
+        return lo
+    anchor = [states[lo].get(robot, f) for f in features]
+    for t in range(lo, min(hi + 1, len(states) - 1)):
+        if any(
+                abs(states[t + 1].get(robot, f) - a) > _HOLD_TOLERANCE
+                for f, a in zip(features, anchor)):
+            return t
+    return None
+
+
+def _push_window_end(states: Sequence[State],
+                     step_options: Sequence[StepOption],
+                     greens: Sequence[Object], domino_names: Set[str],
+                     first_push: int) -> Tuple[int, str]:
+    """Where the robot moves on from the push: (action index, what it did).
+
+    From the first Push on a green, the robot may only push each green
+    once - one invocation per green - and wait: run Wait, or send
+    actions no skill produced that hold it still. The window ends at
+    the first action that does anything else: a second push of a green
+    it already pushed, any other skill, or unlabeled actions that move
+    the arm. Returns ``(len(step_options), "")`` when the episode never
+    leaves the window.
+    """
+    green_names = {g.name for g in greens}
+    pushed: Set[str] = set()
+    for lo, hi in _invocation_spans(step_options):
+        if lo < first_push:
             continue
-        name, object_names = step_option[0], step_option[1]
-        if name == _PUSH_OPTION_NAME and (
-                green_names & set(object_names)
-                or not domino_names & set(object_names)):
-            push_idxs.append(i)
-    spans: List[Tuple[int, int]] = []
-    for i in push_idxs:
-        if spans and i == spans[-1][1] + 1:
-            spans[-1] = (spans[-1][0], i)
-        else:
-            spans.append((i, i))
-    return spans, any_unknown
+        step_option = step_options[lo]
+        if step_option is None:
+            moved = _robot_moves_at(states, lo, hi)
+            if moved is None:
+                # Held still: as good as a Wait.
+                continue
+            return moved, "moving the arm with actions no skill produced"
+        name, object_names = step_option[0], tuple(step_option[1])
+        if name == _WAIT_OPTION_NAME:
+            continue
+        if _pushes_green(step_option, green_names, domino_names):
+            # A restricted Push names no domino: it pushes the green.
+            targets = green_names & set(object_names) or green_names
+            again = sorted(targets & pushed)
+            if again:
+                return lo, f"pushing {', '.join(again)} again"
+            pushed |= targets
+            continue
+        return lo, f"{name}({', '.join(object_names)})"
+    return len(step_options), ""
 
 
 def _pushed_greens_in_order(step_options: Sequence[StepOption],
@@ -336,19 +464,28 @@ def check_cascade_legitimacy(
            plan's recorded continuous parameters) on the green(s) from
            the recorded pre-push state - same physics, only the
            fingertips collidable - must reach the goal atoms. The probe
-           alone decides how the goal fell (see the module docstring);
-           it runs only on goal-reaching episodes because only those
-           have a success bonus at stake, and a goal-reaching episode
-           with no probe available fails closed.
+           alone decides whether the built layout cascades (see the
+           module docstring); it runs only on goal-reaching episodes
+           because only those have a success bonus at stake, and a
+           goal-reaching episode with no probe available fails closed;
+      (e)  when the goal atoms hold at the episode's end, every goal
+           domino started to fall before the robot moved on from the
+           push: from the first Push on a green, the robot may only
+           push each green once (one invocation per green) and wait
+           (Wait, or unlabeled actions that hold the arm still), and a
+           goal domino whose topple onset comes at or after the first
+           other action fell to the arm. Checked before (d), since it
+           needs no physics.
 
     ``step_options`` labels each transition ``states[t] -> states[t+1]``
     (action index ``t``) with the producing option; when it is None or
     contains only None (raw low-level actions), the action rules
-    (a)/(b) are skipped, the staging rule anchors to the
+    (a)/(b)/(e) are skipped, the staging rule anchors to the
     state just before the first topple onset, and the probe falls back
-    to that state as its pre-push state. ``goal`` feeds the probe's
-    success check and the error messages - all dominoes are held to the
-    same rules.
+    to that state as its pre-push state. Invocation boundaries come
+    from the labels' invocation-start flags (see ``StepOption``).
+    ``goal`` feeds the probe's success check, rule (e) and the error
+    messages - all dominoes are held to the same rules.
 
     Returns ``(ok, reason)`` with a human-readable reason on failure.
     """
@@ -384,6 +521,9 @@ def check_cascade_legitimacy(
     pre_push_idx: Optional[int] = None
     pushed_greens: List[Object] = list(greens)
     push_params: Optional[Tuple[float, ...]] = None
+    # Where the robot moved on from the push, for rule (e); None without
+    # labels.
+    window: Optional[Tuple[int, str]] = None
     if step_options is not None and any(label is not None
                                         for label in step_options):
         for i, step_option in enumerate(step_options):
@@ -420,6 +560,8 @@ def check_cascade_legitimacy(
                     "green start block was first pushed (step "
                     f"{first_push + 1}) - the scene must stay standing "
                     "until the push")
+        window = _push_window_end(states, step_options, greens, domino_names,
+                                  first_push)
     if pre_push_idx is None:
         # Label-free fallback: anchor to the state just before the
         # first fall.
@@ -457,9 +599,28 @@ def check_cascade_legitimacy(
                 "it must still stand upright as staged; a pre-tilted "
                 "block is a disturbed scene, not a cascade")
 
-    # Rule (d): the counterfactual push probe, on goal-reaching episodes.
+    # Rules (e) and (d) bear on goal-reaching episodes only.
     if not all(atom.holds(states[-1]) for atom in goal):
         return True, ""
+
+    # Rule (e): the goal fell before the robot moved on from the push.
+    if window is not None:
+        window_end, moved_on = window
+        goal_objects = {o for atom in goal for o in atom.objects}
+        for d in sorted(goal_objects & set(onsets), key=lambda o: o.name):
+            # Action window_end produces state window_end + 1: a fall
+            # whose onset comes there or later began once the robot had
+            # moved on.
+            if onsets[d] > window_end:
+                return False, (
+                    f"{d.name} only started falling at step {onsets[d]}, "
+                    f"once the robot had moved on from the push to "
+                    f"{moved_on} (step {window_end + 1}) - a solve only "
+                    "counts if the push itself causes the cascade, so "
+                    "after the push the robot may only wait for the goal "
+                    "to topple")
+
+    # Rule (d): the counterfactual push probe.
     if probe is None:
         return False, (
             "the goal atoms hold, but no counterfactual push probe is "
