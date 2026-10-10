@@ -38,9 +38,12 @@ The batch script reads the token from its file at run time rather than
 carrying it, so nothing secret is written into the script or the Slurm
 environment, and a rotated token takes effect on the next (re)start.
 
-The chosen account is exported to the run as ``PREDICATORS_CLAUDE_ACCOUNT``
-and recorded on the scorecard (``claude_account``), so per-account spend
-can be read off the aggregated results.
+The chosen account is exported to the run as ``PREDICATORS_CLAUDE_ACCOUNT``.
+A requeue picks again, so a resumed run can move to another account; the
+scorecard records every account a run used, in order, with the LLM spend
+charged to each (``claude_accounts``), so per-account spend can be read
+off the aggregated results (``accounts.csv`` from
+``scripts/aggregate_scorecards.py``).
 
 Two token files that belong to the same account report identical usage,
 and a launch warns about it: such a pair spreads nothing.

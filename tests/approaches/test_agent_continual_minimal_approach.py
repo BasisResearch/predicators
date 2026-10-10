@@ -11,6 +11,7 @@ import pytest
 from predicators import utils
 from predicators.agent_sdk.primitive_policy import open_primitive_policy
 from predicators.agent_sdk.sandbox_setup import write_pyguard
+from predicators.agent_sdk.session_base import AgentSessionFatalError
 from predicators.agent_sdk.tools.continual_tools import PRIMITIVE_TOOL_NAMES
 from predicators.approaches import create_approach
 from predicators.approaches.agent_continual_minimal_approach import \
@@ -18,6 +19,7 @@ from predicators.approaches.agent_continual_minimal_approach import \
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
 from predicators.run.continual import ContinualRun
+from predicators.run.scorecard import RunCard
 from predicators.structs import Dataset
 
 # pylint: disable=protected-access
@@ -397,3 +399,72 @@ def test_policy_serializes_environment_calls(tmp_path: Path) -> None:
     approach._query_agent_sync = query
     card = ContinualRun(env, approach, approach).run()
     assert card.total_steps == 2
+
+
+def test_resume_under_another_claude_account(tmp_path: Path,
+                                             monkeypatch: Any) -> None:
+    """A run whose first launch died on round 1 under one Claude account (its
+    organization disabled subscription access, as account b's did on
+    2026-10-08) and that --auto_resume continued under another records both
+    accounts in order with the spend charged to each, and names the account it
+    ran on last as its account."""
+    banner = ("Your organization has disabled Claude subscription access "
+              "for Claude Code · Use an Anthropic API key instead, or ask "
+              "your admin to enable access")
+
+    def disabled(message: str, **kwargs: Any) -> List[Dict[str, Any]]:
+        del message, kwargs
+        return [{
+            "type": "assistant",
+            "content": [{
+                "type": "text",
+                "text": banner
+            }]
+        }, {
+            **_result()[0], "is_error": True,
+            "result": banner
+        }]
+
+    monkeypatch.setenv("PREDICATORS_CLAUDE_ACCOUNT", "b")
+    env, approach = _setup(tmp_path,
+                           ARMS[0],
+                           "cover",
+                           cover_initial_holding_prob=0.0)
+    approach._query_agent_sync = disabled
+    first = ContinualRun(env, approach, approach)
+    with pytest.raises(AgentSessionFatalError, match="disabled Claude"):
+        first.run()
+    assert RunCard.load(first.card_path).claude_account == "b"
+
+    # The relaunch under the same round key, on another account.
+    monkeypatch.setenv("PREDICATORS_CLAUDE_ACCOUNT", "c")
+    env, approach = _setup(tmp_path,
+                           ARMS[0],
+                           "cover",
+                           cover_initial_holding_prob=0.0,
+                           auto_resume=True)
+
+    def works(message: str, **kwargs: Any) -> List[Dict[str, Any]]:
+        del message, kwargs
+        _call(approach, "give_up", note="done")
+        return [{**_result()[0], "total_cost_usd": 1.25}]
+
+    approach._query_agent_sync = works
+    second = ContinualRun(env, approach, approach)
+    assert second.run_dir == first.run_dir
+    card = second.run()
+    assert card.end_reason == "agent_ended"
+    assert card.claude_account == "c"
+    assert [(a.account, a.llm_cost_usd)
+            for a in card.claude_accounts] == [("b", 0.0), ("c", 1.25)]
+    assert card.total_llm_cost == 1.25
+    with open(second.card_path, encoding="utf-8") as f:
+        saved = json.load(f)
+    assert saved["claude_account"] == "c"
+    assert saved["claude_accounts"] == [{
+        "account": "b",
+        "llm_cost_usd": 0.0
+    }, {
+        "account": "c",
+        "llm_cost_usd": 1.25
+    }]
