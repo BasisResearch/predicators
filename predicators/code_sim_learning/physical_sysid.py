@@ -293,6 +293,7 @@ def fit_params_rollout(
     # info-seeking explorer's calibrated ensemble.
     lm_notes: List[str] = []
     lm_flat: List[str] = []
+    lm_t0 = time.monotonic()
     lm_theta, lm_jac = fit_map_lm_rollout(base_env,
                                           trajectories,
                                           lm_physical_specs,
@@ -306,6 +307,7 @@ def fit_params_rollout(
                                           noise_sigma=noise_sigma,
                                           notes_out=lm_notes,
                                           flat_params_out=lm_flat)
+    lm_seconds = time.monotonic() - lm_t0
     if (config.log_hessian_identifiability and lm_jac is not None
             and lm_jac.size > 0):
         log_hessian_identifiability(lm_jac, names, noise_sigma, prior_sigma)
@@ -335,13 +337,15 @@ def fit_params_rollout(
             }
     basins: Optional[List[Tuple[Dict[str, float], float, float]]] = None
     misfit: Optional[float] = None
+    search_note = ""
     if (config.anchors_are_guesses and config.global_design_points > 0
             and config.global_starts > 0 and trajectories):
-        lm_theta, lm_jac, basins, misfit = _global_multistart(
+        (lm_theta, lm_jac, basins, misfit, search_note) = _global_multistart(
             base_env, trajectories, all_specs, physical_specs, rule_specs,
             residual_features, rules, latent_init, scaling, center_int,
             prior_sigma, noise_sigma, config, (lm_theta, lm_jac), noise_sse,
-            sigma_tol)
+            sigma_tol,
+            _SearchClock(config.deadline, fit_t0, n_start, lm_seconds))
     elif config.anchors_are_guesses and trajectories and noise_sse > 0.0:
         # The same misfit the multi-start measures, at the local fit.
         map_sse = compute_rollout_sse(
@@ -359,7 +363,8 @@ def fit_params_rollout(
                        sensitivity=sensitivity,
                        lm_notes=lm_notes,
                        basins=basins,
-                       misfit=misfit)
+                       misfit=misfit,
+                       search_note=search_note)
     n_lm = num_rollouts_run() - n_start - n_grid
     # The ablation pins moved parameters back to their anchors, which
     # only calibrated baselines warrant; a guess has no claim beyond the
@@ -398,6 +403,42 @@ def fit_params_rollout(
 # fit-space box width are one basin.
 _SAME_BASIN_FRACTION = 0.05
 
+# The share of the time a fit call has left when its fit starts that the
+# whole-box search may use; the rest is the report's and the belief's,
+# which trace every basin.
+_SEARCH_BUDGET_SHARE = 0.5
+
+
+@dataclasses.dataclass(frozen=True)
+class _SearchClock:
+    """The whole-box search's time budget: ``deadline`` (monotonic, or None for
+    no limit) is when the fit call must have returned, ``fit_t0`` and
+    ``rollouts_before`` when and after how many rollouts the fit started, and
+    ``lm_seconds`` how long the local LM took."""
+
+    deadline: Optional[float]
+    fit_t0: float
+    rollouts_before: int
+    lm_seconds: float
+
+    @property
+    def budget(self) -> float:
+        """The seconds the fit had when it started (inf without a limit)."""
+        if self.deadline is None:
+            return float("inf")
+        return max(0.0, self.deadline - self.fit_t0)
+
+    def allows(self, seconds: float) -> bool:
+        """Whether a phase projected to take ``seconds`` ends inside the
+        search's share of the budget."""
+        return (time.monotonic() + seconds <=
+                self.fit_t0 + _SEARCH_BUDGET_SHARE * self.budget)
+
+    def seconds_per_rollout(self) -> float:
+        """The fit's wall time per rollout so far, waves included."""
+        done = max(1, num_rollouts_run() - self.rollouts_before)
+        return (time.monotonic() - self.fit_t0) / done
+
 
 def _global_multistart(
     base_env: Any,
@@ -416,8 +457,9 @@ def _global_multistart(
     incumbent: Tuple[np.ndarray, Optional[np.ndarray]],
     noise_sse: float,
     sigma_tol: float,
-) -> Tuple[np.ndarray, Optional[np.ndarray], List[Tuple[Dict[
-        str, float], float, float]], Optional[float]]:
+    clock: _SearchClock,
+) -> Tuple[np.ndarray, Optional[np.ndarray], Optional[List[Tuple[Dict[
+        str, float], float, float]]], Optional[float], str]:
     """Search the whole box for the fit when the starting values are guesses.
 
     A scrambled Sobol design of ``config.global_design_points`` over
@@ -438,9 +480,36 @@ def _global_multistart(
     is returned too: the belief's temperature counts it the same way.
     Without a declared noise channel (``noise_sse`` 0) the misfit is
     unknown: the point estimate is the only basin and the misfit None.
+
+    The search improves on a fit that already exists, so it never makes
+    the fit call overrun its budget (``clock``): the design and each LM
+    start run only if they are projected to end within the search's
+    share of it, timed by the fit so far. A search cut short says so in
+    the returned note (empty when it ran in full); one that cannot
+    afford the design and a start keeps the incumbent, whose misfit is
+    still measured, and returns no basins.
     """
     names = [s.name for s in all_specs]
     physical_names = [s.name for s in physical_specs]
+    design_seconds = (clock.seconds_per_rollout() *
+                      config.global_design_points * len(trajectories))
+    if not clock.allows(design_seconds + clock.lm_seconds):
+        point = dict(zip(names, (float(v) for v in incumbent[0])))
+        sse = rollout_sse_by_point(base_env, trajectories, [point],
+                                   residual_features, physical_names, rules,
+                                   latent_init, scaling)[0]
+        incumbent_misfit = (max(sse - noise_sse, sigma_tol)
+                            if noise_sse > 0.0 else None)
+        note = (f"The whole-box search did not run: the fit had used "
+                f"{time.monotonic() - clock.fit_t0:.0f} s of its "
+                f"{clock.budget:.0f} s budget, and the design and one LM "
+                f"start (about {design_seconds + clock.lm_seconds:.0f} s) "
+                "would not have ended within half of it. The point estimate "
+                "is the fit from the starting values; other parameter sets "
+                "that fit the recordings about as well were not looked for.")
+        logger.info("Rollout sysID global multi-start skipped: %s", note)
+        return (np.asarray(incumbent[0], dtype=float), incumbent[1], None,
+                incumbent_misfit, note)
     lo, hi = fit_space_bounds(list(all_specs))
     lo = np.where(np.isfinite(lo), lo, center_int - 2.0 * prior_sigma)
     hi = np.where(np.isfinite(hi), hi, center_int + 2.0 * prior_sigma)
@@ -471,9 +540,19 @@ def _global_multistart(
 
     thetas = [np.asarray(incumbent[0], dtype=float)]
     jacobians = [incumbent[1]]
-    for index in np.argsort(np.asarray(sses),
-                            kind="stable")[:config.global_starts]:
+    starts = np.argsort(np.asarray(sses), kind="stable")[:config.global_starts]
+    lm_seconds = clock.lm_seconds
+    note = ""
+    for ran, index in enumerate(starts):
+        if not clock.allows(lm_seconds):
+            note = (f"The whole-box search ran the LM from {ran} of its "
+                    f"{len(starts)} best design points: another start (about "
+                    f"{lm_seconds:.0f} s) would not have ended within half "
+                    f"of the fit's {clock.budget:.0f} s budget.")
+            logger.info("Rollout sysID global multi-start cut short: %s", note)
+            break
         start = design[int(index)]
+        lm_t0 = time.monotonic()
         theta, jac = fit_map_lm_rollout(base_env,
                                         trajectories,
                                         started_at(physical_specs, start),
@@ -485,6 +564,7 @@ def _global_multistart(
                                         prior_centers=center_int,
                                         prior_sigmas=prior_sigma,
                                         noise_sigma=noise_sigma)
+        lm_seconds = max(lm_seconds, time.monotonic() - lm_t0)
         thetas.append(np.asarray(theta, dtype=float))
         jacobians.append(jac)
     points = [dict(zip(names, (float(v) for v in theta))) for theta in thetas]
@@ -525,7 +605,7 @@ def _global_multistart(
         float(np.min(sses)),
         len(thetas) - 1, finals[0], [round(float(s), 4) for s in finals[1:]],
         len(basins), band)
-    return thetas[best], jacobians[best], basins, misfit
+    return thetas[best], jacobians[best], basins, misfit, note
 
 
 # A MAP within this fit-space distance of its anchor counts as unmoved

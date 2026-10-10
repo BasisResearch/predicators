@@ -2,6 +2,7 @@
 import dataclasses
 import hashlib
 import os
+import time
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
@@ -336,6 +337,7 @@ def create_synthesis_tools(
 
     from predicators.code_sim_learning.base_simulator import \
         base_simulator_class
+    from predicators.code_sim_learning.config import SysIdConfig
     from predicators.code_sim_learning.evidence import format_evidence_lines
     from predicators.code_sim_learning.fit_space import ParamSpec
     from predicators.code_sim_learning.fitting import compute_sse, \
@@ -527,8 +529,16 @@ def create_synthesis_tools(
             for s in list(physical_specs) + list(rule_specs)
         }
         anchors = approach.fit_prior_anchors(physical_specs)
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.belief_probe import ProbeBudgetExceeded
+        fit_timeout = float(CFG.agent_sdk_fit_call_timeout)
+        # The fit's own search yields to the budget the watchdog enforces.
+        fit_config = dataclasses.replace(
+            SysIdConfig.from_cfg(),
+            deadline=(time.monotonic() +
+                      fit_timeout if fit_timeout > 0 else None))
         try:
-            with suspend_budget_watchdog(CFG.agent_sdk_fit_call_timeout):
+            with suspend_budget_watchdog(fit_timeout):
                 outcome = run_rollout_sysid(
                     fit_env,
                     rollouts,
@@ -548,7 +558,19 @@ def create_synthesis_tools(
                         approach, "_explainability_cache", None)),
                     fit_cache=(None if exploratory else getattr(
                         approach, "_sysid_fit_cache", None)),
-                    fit_cache_key=version_tag)
+                    fit_cache_key=version_tag,
+                    config=fit_config)
+        except ProbeBudgetExceeded:
+            return (
+                f"[{version_tag}] Error: the rollout system-ID fit ran past "
+                f"its {fit_timeout:.0f} s limit and was stopped; nothing was "
+                "fitted or applied, and the same fit will stop again. A fit "
+                "replays every scored recording once per candidate parameter "
+                "point, so its time grows with the declared parameters and "
+                "with the steps each replay runs. Recordings are cut where "
+                "every scored feature rests, so a scored feature that keeps "
+                "changing (a robot that is always moving, a running counter) "
+                "keeps a recording whole.")
         except Exception as e:  # pylint: disable=broad-except
             return (
                 f"[{version_tag}] Error: rollout system-ID fit failed:\n{e}")
@@ -725,6 +747,8 @@ def create_synthesis_tools(
 
         if outcome.belief is not None:
             lines.extend(["", *_format_parameter_belief(outcome.belief), ""])
+            if outcome.fit_result.search_note:
+                lines.extend([outcome.fit_result.search_note, ""])
             if exploratory:
                 lines.append(
                     "EXPLORATORY subset fit: nothing was applied or recorded "
