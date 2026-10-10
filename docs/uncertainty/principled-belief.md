@@ -28,6 +28,9 @@ There is no added model-error allowance and no between-segment term; both were m
 
 1. Temperature: evaluate the residual vector at the MAP; `lambda = max(1, SSE_min / (N * sigma_n^2))`, where `N` counts residual terms and `sigma_n` is the fit's Gaussian width on scaled residuals.
    It is the maximum-likelihood variance of the standardized errors if they were independent Gaussian; it does not correct for errors that persist through a segment, and the fit report should show the lag-one autocorrelation of the MAP residuals so that gap can be measured.
+   When the multi-start of step 6 has measured the misfit `m`, the temperature counts it as one error that persists through the recordings: `lambda = max(1, SSE_min / (N * sigma_n^2), m / sigma_n^2)`.
+   A replay that drifts off its recording, or a contact that resolves differently, moves many residuals together, and a parameter change can trade that error for a lower SSE, so SSE differences up to `m` are no evidence.
+   It is the scale that weighs the basins, so the basin factors and their weights share one target.
 2. Lines: for each continuous parameter, evaluate the negative log target at that temperature along its coordinate through the MAP in fit space, expanding outward until it rises by the cutoff or reaches the declared bound, then bisecting the interval holding the most mass.
    For a discrete parameter, the line is its set of values: evaluate the target at each value with the other parameters at the MAP, and normalize.
 3. Line posterior: interpolate the negative log density linearly between probes (a piecewise-exponential density), store it on a finer grid, and normalize; a flat line leaves the prior.

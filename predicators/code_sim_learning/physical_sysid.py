@@ -334,13 +334,21 @@ def fit_params_rollout(
                 "sensitive": False,
             }
     basins: Optional[List[Tuple[Dict[str, float], float, float]]] = None
+    misfit: Optional[float] = None
     if (config.anchors_are_guesses and config.global_design_points > 0
             and config.global_starts > 0 and trajectories):
-        lm_theta, lm_jac, basins = _global_multistart(
+        lm_theta, lm_jac, basins, misfit = _global_multistart(
             base_env, trajectories, all_specs, physical_specs, rule_specs,
             residual_features, rules, latent_init, scaling, center_int,
             prior_sigma, noise_sigma, config, (lm_theta, lm_jac), noise_sse,
             sigma_tol)
+    elif config.anchors_are_guesses and trajectories and noise_sse > 0.0:
+        # The same misfit the multi-start measures, at the local fit.
+        map_sse = compute_rollout_sse(
+            base_env, trajectories,
+            dict(zip(names, (float(v) for v in lm_theta))), residual_features,
+            physical_names, rules, latent_init, scaling)
+        misfit = max(map_sse - noise_sse, sigma_tol)
     result = FitResult(names=names,
                        samples=np.asarray(lm_theta, dtype=float)[None, :],
                        log_probs=np.zeros(1),
@@ -350,7 +358,8 @@ def fit_params_rollout(
                        scales=scales,
                        sensitivity=sensitivity,
                        lm_notes=lm_notes,
-                       basins=basins)
+                       basins=basins,
+                       misfit=misfit)
     n_lm = num_rollouts_run() - n_start - n_grid
     # The ablation pins moved parameters back to their anchors, which
     # only calibrated baselines warrant; a guess has no claim beyond the
@@ -407,8 +416,8 @@ def _global_multistart(
     incumbent: Tuple[np.ndarray, Optional[np.ndarray]],
     noise_sse: float,
     sigma_tol: float,
-) -> Tuple[np.ndarray, Optional[np.ndarray], List[Tuple[Dict[str, float],
-                                                        float, float]]]:
+) -> Tuple[np.ndarray, Optional[np.ndarray], List[Tuple[Dict[
+        str, float], float, float]], Optional[float]]:
     """Search the whole box for the fit when the starting values are guesses.
 
     A scrambled Sobol design of ``config.global_design_points`` over
@@ -425,7 +434,10 @@ def _global_multistart(
     leaves above the declared noise channel's expected SSE, or the
     likelihood floor when that is larger. Recordings the model fits no
     closer than that cannot prefer one of them, so the parameter belief
-    mixes them, each weighted by ``exp(-dSSE / (2 misfit))``.
+    mixes them, each weighted by ``exp(-dSSE / (2 misfit))``. The misfit
+    is returned too: the belief's temperature counts it the same way.
+    Without a declared noise channel (``noise_sse`` 0) the misfit is
+    unknown: the point estimate is the only basin and the misfit None.
     """
     names = [s.name for s in all_specs]
     physical_names = [s.name for s in physical_specs]
@@ -486,13 +498,16 @@ def _global_multistart(
     ]
     ranked = [int(i) for i in np.argsort(np.asarray(costs), kind="stable")]
     best = ranked[0]
-    misfit = max(finals[best] - noise_sse, sigma_tol)
-    band = 2.0 * misfit
+    misfit: Optional[float] = None
+    band = 0.0
+    if noise_sse > 0.0:
+        misfit = max(finals[best] - noise_sse, sigma_tol)
+        band = 2.0 * misfit
     width = hi - lo
     basins: List[Tuple[Dict[str, float], float, float]] = []
     kept: List[np.ndarray] = []
     for i in ranked:
-        if finals[i] > finals[best] + band:
+        if finals[i] > finals[best] + band or (misfit is None and i != best):
             continue
         z = to_fit_space(list(all_specs), thetas[i])
         if any(
@@ -501,7 +516,7 @@ def _global_multistart(
             continue
         kept.append(z)
         gap = finals[i] - finals[best]
-        weight = float(np.exp(-gap / (2.0 * misfit))) if misfit > 0 else 1.0
+        weight = float(np.exp(-gap / (2.0 * misfit))) if misfit else 1.0
         basins.append((points[i], float(finals[i]), weight))
     logger.info(
         "Rollout sysID global multi-start: %d design points (best SSE %.4g), "
@@ -510,7 +525,7 @@ def _global_multistart(
         float(np.min(sses)),
         len(thetas) - 1, finals[0], [round(float(s), 4) for s in finals[1:]],
         len(basins), band)
-    return thetas[best], jacobians[best], basins
+    return thetas[best], jacobians[best], basins, misfit
 
 
 # A MAP within this fit-space distance of its anchor counts as unmoved
