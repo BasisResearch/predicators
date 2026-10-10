@@ -7,6 +7,7 @@ from typing import Iterator
 
 import pytest
 
+from predicators import utils
 from predicators.envs import _MOST_RECENT_ENV_INSTANCE
 
 
@@ -17,6 +18,19 @@ def pytest_addoption(parser):
                      dest="longrun",
                      default=False,
                      help="enable tests decorated with @longrun")
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _default_config() -> None:
+    """Give CFG its default settings before the first test runs.
+
+    The settings defined in predicators/args.py exist only after a
+    reset_config() call, so a test that reads one without calling
+    reset_config() itself (State.pretty_str() reads
+    excluded_objects_in_state_str) passed or failed depending on whether
+    an earlier test in the same process had called it.
+    """
+    utils.reset_config()
 
 
 def _restore_env_cache() -> Iterator[None]:
