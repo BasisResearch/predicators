@@ -1710,6 +1710,14 @@ class GlobalSettings:
     # to. 0 disables pruning and lets videos accumulate forever.
     video_max_runs_kept = 3
     video_fps = 2
+    # Also export every frame of each saved video as a Blender Cycles scene
+    # (predicators/run/cycles_video.py), about 20 ms a frame: test and failure
+    # videos into <video_dir>/<video name>_cycles as the frames are rendered,
+    # and a finished continual run's video into <run_dir>/cycles. Nothing
+    # renders during the run: on a GPU node, scripts/cycles_video.py renders
+    # the scenes with the paper figures' materials, lighting and cameras and
+    # assembles the videos.
+    video_cycles_scenes = False
     failure_video_mode = "longest_only"
     terminate_on_goal_reached = True
     keep_failed_demos = False  # For saving videos

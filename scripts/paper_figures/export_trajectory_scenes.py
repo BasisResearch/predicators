@@ -13,7 +13,8 @@ from render_scene_support import export_visual_scene, raised_flat_markers, \
 
 from predicators import utils
 from predicators.envs import create_new_env
-from predicators.structs import Object, State
+from predicators.run.cycles_video import canonical_state as _canonical_state
+from predicators.structs import State
 
 ROOT = Path(__file__).resolve().parent
 LOGS = ROOT.parents[1] / "logs/agent_continual"
@@ -47,24 +48,6 @@ CLOSE_CAMERAS: Dict[str, Tuple[Dict[str, Any], float, Tuple[int, int]]] = {
     "bridge_pair_observed": (PAIR_CAMERA, PAIR_FOV, (900, 900)),
     ACT_FRAME: (ACT_CAMERA, ACT_FOV, (900, 540)),
 }
-
-
-def _canonical_state(env: Any, state: State) -> State:
-    """Rebind objects in a historical state to the new physics client."""
-    canonical = {}
-    for value in vars(env).values():
-        values = (value.values() if isinstance(value, dict) else
-                  value if isinstance(value, (list, tuple, set)) else [value])
-        for obj in values:
-            if isinstance(obj, Object):
-                canonical[obj.name] = obj
-    restored = state.copy()
-    restored.data = {}
-    for obj, features in state.data.items():
-        current = canonical.get(obj.name)
-        assert current is not None and current.type == obj.type, (obj, current)
-        restored.data[current] = features.copy()
-    return restored
 
 
 def _pair_lift(episode: Dict[str, Any]) -> List[Tuple[Dict[str, Any], State]]:

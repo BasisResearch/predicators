@@ -21,20 +21,18 @@ import argparse
 import logging
 import pickle
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterator, List, Sequence, Tuple
+from typing import Any, Callable, Dict
 
 import numpy as np
 from export_static_scenes import LOGS, _load_run_config, \
     _migrate_balloons_layout, _migrate_fan_layout
-from export_trajectory_scenes import _canonical_state
 
 from predicators.envs import create_new_env
 from predicators.run import paths
-from predicators.run.continual_video import PANEL_ACCENT, PANEL_BAD, \
-    PANEL_GOOD, PANEL_WARN, EpisodeRecord, FrameLabel, _Writer, \
-    compose_frame, read_level_episodes, reset_cost_of
-from predicators.run.episode import EpisodeState
-from predicators.run.scorecard import LevelCard, RunCard
+from predicators.run.continual_video import _Writer, compose_frame, \
+    iter_recorded_level_frames, read_level_episodes
+from predicators.run.cycles_video import canonical_state
+from predicators.run.scorecard import RunCard
 from predicators.settings import CFG
 from predicators.structs import State
 
@@ -63,112 +61,10 @@ ADJUST: Dict[str, Adjust] = {"Balloons": _move_balloons, "Fan": _move_fan}
 def _show(env: Any, recorded: State, initial: State,
           adjust: Adjust) -> np.ndarray:
     """Render one recorded state in the current layout."""
-    state = adjust(env, _canonical_state(env, recorded), initial)
+    state = adjust(env, canonical_state(env, recorded), initial)
     env._set_state(state)  # pylint: disable=protected-access
     env._current_observation = state  # pylint: disable=protected-access
     return np.asarray(env.render()[0])
-
-
-def _level_frames(env: Any, card: RunCard, level: LevelCard,
-                  episodes: Sequence[EpisodeRecord],
-                  recorded: Dict[int, Dict[str, Any]], adjust: Adjust,
-                  stride: int, hold: int) -> Iterator[Tuple[np.ndarray, int]]:
-    """Yield ``(frame, repeat)`` pairs for one level, choosing frames and
-    labels as continual_video.iter_level_frames does."""
-    run_steps_before = sum(lv.steps for lv in card.levels[:level.index])
-    run_resets_before = sum(lv.resets for lv in card.levels[:level.index])
-    reset_cost = reset_cost_of(level)
-    resets_allowed = level.split == "train" or bool(
-        CFG.continual_allow_test_resets)
-    initial = env.reset(level.split, level.task_idx)
-    level_steps = 0
-    level_resets = 0
-    for ep in episodes:
-        states: List[State] = recorded[ep.index]["states"]
-        end = str(recorded[ep.index]["end"])
-        assert len(states) == len(ep.actions) + 1, (level.index, ep.index)
-        if ep.opened_by == "agent":
-            level_resets += 1
-            level_steps += reset_cost
-
-        def label(step: int,
-                  outcome: EpisodeState = EpisodeState.NOT_FINISHED,
-                  reason: str = "",
-                  banner: str = "",
-                  color: Tuple[int, int, int] = PANEL_ACCENT,
-                  ep: EpisodeRecord = ep) -> FrameLabel:
-            inv = ep.invocation_at(step)
-            ended = None
-            if inv is None and step > 0:
-                ended = ep.invocation_at(step - 1)
-            cur = inv if inv is not None else ended
-            return FrameLabel(
-                env=card.env,
-                arm=card.arm,
-                seed=card.seed,
-                level_index=level.index,
-                levels_total=card.levels_total,
-                split=level.split,
-                task_idx=level.task_idx,
-                goal_nl=level.goal_nl,
-                goal=list(level.goal),
-                episode=ep.index,
-                opened_by=ep.opened_by,
-                skill=cur.skill if cur is not None else "",
-                note=cur.note if cur is not None else "",
-                skill_status=(ended.status if ended is not None else ""),
-                level_steps=level_steps,
-                run_steps=run_steps_before + level_steps,
-                step_cap=card.step_cap,
-                level_resets=level_resets,
-                run_resets=run_resets_before + level_resets,
-                reset_cost=reset_cost,
-                resets_allowed=resets_allowed,
-                state=outcome.value,
-                reason=reason,
-                banner=banner,
-                banner_color=color,
-            )
-
-        first = _show(env, states[0], initial, adjust)
-        if ep.opened_by == "level_start":
-            banner = f"Level {level.index + 1}: {level.split} task " \
-                f"{level.task_idx}"
-            yield compose_frame(first, label(0, banner=banner)), hold
-        elif ep.opened_by == "agent":
-            yield compose_frame(
-                first, label(0, banner="RESET by agent",
-                             color=PANEL_WARN)), hold
-        else:
-            yield compose_frame(
-                first, label(0, banner="RESET by harness",
-                             color=PANEL_WARN)), hold
-        n = len(ep.actions)
-        for i in range(n):
-            level_steps += 1
-            last = i + 1 == n
-            boundary = any(inv.end == i + 1 for inv in ep.invocations)
-            if not (last or boundary or (i + 1) % stride == 0):
-                continue
-            render = _show(env, states[i + 1], initial, adjust)
-            if last and end == "win":
-                yield compose_frame(
-                    render,
-                    label(i,
-                          EpisodeState.WIN,
-                          banner="LEVEL WON",
-                          color=PANEL_GOOD)), 2 * hold
-            elif last and end.startswith("game_over"):
-                reason = end.split(":", 1)[1] if ":" in end else ""
-                yield compose_frame(
-                    render,
-                    label(i,
-                          EpisodeState.GAME_OVER,
-                          reason,
-                          banner=f"GAME OVER: {reason}",
-                          color=PANEL_BAD)), 2 * hold
-            else:
-                yield compose_frame(render, label(i)), 1
 
 
 def render_run(domain: str, out_dir: Path, stride: int, fps: int) -> Path:
@@ -189,10 +85,16 @@ def render_run(domain: str, out_dir: Path, stride: int, fps: int) -> Path:
             # Trusted local experiment record.
             with open(level_dir / "episodes.pkl", "rb") as f:
                 recorded = {int(ep["episode"]): ep for ep in pickle.load(f)}
-            for frame, repeat in _level_frames(env, card, level, episodes,
-                                               recorded, ADJUST[domain],
-                                               stride, hold):
-                writer.append(frame, repeat)
+            adjust = ADJUST[domain]
+
+            def show(state: State,
+                     initial: State,
+                     adjust: Adjust = adjust) -> np.ndarray:
+                return _show(env, state, initial, adjust)
+
+            for frame, label, repeat in iter_recorded_level_frames(
+                    env, card, level, episodes, recorded, show, stride, hold):
+                writer.append(compose_frame(frame, label), repeat)
             logging.info("%s level %d: %d frames so far", domain,
                          level.index + 1, writer.frames)
     finally:

@@ -1838,6 +1838,13 @@ def run_continual(env: BaseEnv,
         except Exception:  # pylint: disable=broad-except
             # The video is a convenience; the run's result is the card.
             logging.exception("[Continual] run video failed")
+    if CFG.video_cycles_scenes and card.is_finished:
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.run.cycles_video import export_run_scenes
+        try:
+            export_run_scenes(card, run.run_dir)
+        except Exception:  # pylint: disable=broad-except
+            logging.exception("[Continual] Cycles scene export failed")
     return card
 
 

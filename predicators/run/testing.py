@@ -180,17 +180,21 @@ class TestArtifacts:
         if CFG.use_counterfactual_dataset_path_name:
             is_failure = False
         outfile = f"{self._task_stem(task_idx, is_failure)}.mp4"
+        cycles, monitor = _unwrap_cycles(monitor)
         if isinstance(monitor, utils.StreamingVideoMonitor):
             monitor.finalize(outfile)
         else:
             assert isinstance(monitor, utils.VideoMonitor)
             utils.save_video(outfile, monitor.get_video())
+        if cycles is not None:
+            cycles.save(outfile)
 
     def save_images(self, monitor: Optional[utils.LoggingMonitor],
                     is_failure: bool, task_idx: int) -> None:
         """Save the monitor's frames as images, if there is a monitor."""
         if monitor is None:
             return
+        _, monitor = _unwrap_cycles(monitor)
         assert isinstance(monitor, utils.VideoMonitor)
         video = monitor.get_video()
         if CFG.use_counterfactual_dataset_path_name:
@@ -321,11 +325,29 @@ def _make_monitor(episode_env: BaseEnv) -> Optional[utils.LoggingMonitor]:
     rendered, keeping peak memory at one frame instead of a whole
     episode.
     """
+    monitor: Optional[utils.LoggingMonitor] = None
     if CFG.make_test_images or CFG.make_failure_images:
-        return utils.VideoMonitor(episode_env.render)
-    if CFG.make_test_videos or CFG.make_failure_videos:
-        return utils.StreamingVideoMonitor(episode_env.render)
-    return None
+        monitor = utils.VideoMonitor(episode_env.render)
+    elif CFG.make_test_videos or CFG.make_failure_videos:
+        monitor = utils.StreamingVideoMonitor(episode_env.render)
+    if monitor is not None and CFG.video_cycles_scenes:
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.run.cycles_video import CyclesSceneMonitor
+
+        # Also record a Blender Cycles scene of every frame.
+        monitor = CyclesSceneMonitor(monitor, episode_env)
+    return monitor
+
+
+def _unwrap_cycles(
+    monitor: utils.LoggingMonitor
+) -> Tuple[Optional[Any], utils.LoggingMonitor]:
+    """Split a CyclesSceneMonitor into itself and the video monitor it wraps;
+    other monitors pass through."""
+    inner = getattr(monitor, "inner", None)
+    if inner is None:
+        return None, monitor
+    return monitor, inner
 
 
 def _execute_task(env: BaseEnv, cogman: CogMan, task_idx: int,

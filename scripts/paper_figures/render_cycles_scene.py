@@ -30,6 +30,9 @@ from mathutils import (  # type: ignore[import-not-found]
 # pylint: enable=import-error,wrong-import-position
 
 REPO = Path(__file__).resolve().parents[2]
+# Parsed Collada documents by path: a video renders the same robot meshes in
+# every frame, and parsing them dominates building a scene.
+_COLLADA: Dict[Path, Any] = {}
 
 
 def resolve_mesh(path: str) -> Path:
@@ -173,8 +176,10 @@ def add_shape(shape: Dict[str, Any]) -> int:
         before = set(bpy.data.objects)
         mesh_path = resolve_mesh(path)
         if mesh_path.suffix.lower() == '.dae':
-            document = collada.Collada(str(mesh_path),
-                                       ignore=[collada.DaeBrokenRefError])
+            if mesh_path not in _COLLADA:
+                _COLLADA[mesh_path] = collada.Collada(
+                    str(mesh_path), ignore=[collada.DaeBrokenRefError])
+            document = _COLLADA[mesh_path]
             assert document.assetInfo.upaxis == 'Z_UP', mesh_path
             for geometry in document.scene.objects('geometry'):
                 for part in geometry.primitives():
@@ -382,41 +387,54 @@ def area_light(name: str, position: Tuple[float, float, float],
         '-Z', 'Y').to_euler()
 
 
-def main() -> None:
-    """Render one exported scene and write its provenance sidecar."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('scene', type=Path)
-    parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--samples', type=int, default=96)
-    parser.add_argument('--scale', type=float, default=1)
-    parser.add_argument('--threads', type=int, default=8)
-    parser.add_argument('--save-blend', action='store_true')
-    args = parser.parse_args()
-    source = args.scene.read_bytes()
-    exported = json.loads(source)
-    for mesh, digest in exported['mesh_sha256'].items():
-        resolved = resolve_mesh(mesh)
-        assert hashlib.sha256(
-            resolved.read_bytes()).hexdigest() == digest, mesh
+def use_gpu(backend: str) -> int:
+    """Turn on Cycles' GPU devices of ``backend`` ('OPTIX' or 'CUDA') and
+    return how many there are.
+
+    Call it after every factory reset.
+    """
+    prefs = bpy.context.preferences.addons['cycles'].preferences
+    prefs.compute_device_type = backend
+    prefs.get_devices()
+    devices = [d for d in prefs.devices if d.type == backend]
+    for device in prefs.devices:
+        device.use = device.type == backend
+    return len(devices)
+
+
+def build_scene(exported: Dict[str, Any],
+                samples: int,
+                threads: int,
+                scale: float,
+                device: str = 'CPU') -> int:
+    """Reset Blender and build one exported scene: geometry, materials, camera
+    and lights, ready to render.
+
+    Returns the mesh object count.
+    """
     bpy.ops.wm.read_factory_settings(use_empty=True)
     scene = bpy.context.scene
     scene.render.engine = 'CYCLES'
-    scene.cycles.device = 'CPU'
-    scene.cycles.samples = args.samples
+    if device == 'CPU':
+        scene.cycles.device = 'CPU'
+    else:
+        assert use_gpu(device), f'No {device} device'
+        scene.cycles.device = 'GPU'
+    scene.cycles.samples = samples
     scene.cycles.use_denoising = True
     scene.cycles.seed = 0
     scene.cycles.max_bounces = 8
     scene.cycles.transparent_max_bounces = 16
     scene.render.threads_mode = 'FIXED'
-    scene.render.threads = args.threads
+    scene.render.threads = threads
     scene.render.image_settings.file_format = 'PNG'
     scene.render.film_transparent = False
     scene.view_settings.view_transform = 'AgX'
     scene.view_settings.look = 'AgX - Medium High Contrast'
     scene.view_settings.exposure = -1.0
     camera = exported['camera']
-    scene.render.resolution_x = round(camera['width'] * args.scale)
-    scene.render.resolution_y = round(camera['height'] * args.scale)
+    scene.render.resolution_x = round(camera['width'] * scale)
+    scene.render.resolution_y = round(camera['height'] * scale)
     scene.render.resolution_percentage = 100
     count = 0
     for shape in merge_overlapping_tables(exported['shapes']):
@@ -446,6 +464,27 @@ def main() -> None:
     area_light('Large soft key', (-.6, -.2, 2.8), target, 110, 1.0)
     area_light('Soft fill', (1.8, .4, 2.1), target, 20, 1.5)
     area_light('Top rim', (.5, 2.3, 2.4), target, 45, 1.2)
+    return count
+
+
+def main() -> None:
+    """Render one exported scene and write its provenance sidecar."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('scene', type=Path)
+    parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--samples', type=int, default=96)
+    parser.add_argument('--scale', type=float, default=1)
+    parser.add_argument('--threads', type=int, default=8)
+    parser.add_argument('--save-blend', action='store_true')
+    args = parser.parse_args()
+    source = args.scene.read_bytes()
+    exported = json.loads(source)
+    for mesh, digest in exported['mesh_sha256'].items():
+        resolved = resolve_mesh(mesh)
+        assert hashlib.sha256(
+            resolved.read_bytes()).hexdigest() == digest, mesh
+    count = build_scene(exported, args.samples, args.threads, args.scale)
+    scene = bpy.context.scene
     args.output.parent.mkdir(parents=True, exist_ok=True)
     scene.render.filepath = str(args.output.resolve())
     if args.save_blend:
