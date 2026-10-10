@@ -9,7 +9,8 @@ teacher-forcing per step.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, \
+    Tuple
 
 import pybullet as p
 
@@ -71,29 +72,34 @@ def _zero_all_velocities(base_env: Any) -> None:
 
 
 def physical_param_anchors(
-        base_env: Any,
+        registry: Mapping[str, Mapping[str, Any]],
         physical_specs: Sequence[ParamSpec]) -> Dict[str, float]:
-    """Env-registry baseline values for the declared physical params.
+    """Registry baseline values for the declared physical params.
 
-    ``get_physical_param_info()`` defaults report the env's believed
-    baseline WITHOUT any fit (the value the sysID revert path restores
-    to), which makes them the right anchor for everything that must not
-    drift with the agent's per-call declarations: the Gaussian prior
-    center, the held-at values of grid sweeps, and the fallback applied
-    for parameters the data does not constrain. Anchoring these at the
+    ``registry`` is the ``get_physical_param_info()`` of a model no fit
+    has been applied to. Its defaults are the believed baseline WITHOUT
+    any fit (the value the sysID revert path restores to), which makes
+    them the right anchor for everything that must not drift with the
+    agent's per-call declarations: the Gaussian prior center, the
+    held-at values of grid sweeps, and the fallback applied for
+    parameters the data does not constrain. Anchoring these at the
     agent's declared inits instead lets a re-declared init (a) change
     the explainability candidate grid call-to-call, flipping trimming
     verdicts on identical data, and (b) smuggle an unsupported
     hypothesis into the planner when the fit does not contract (e.g. a
     declared restitution of 0.15 surviving as "kept init" against a
-    baseline of 0.02). Params the env does not reveal are absent from
+    baseline of 0.02). Params the registry does not list are absent from
     the result (callers fall back to the declared init).
+
+    A model a fit was applied to is no source: the override sticks, and
+    a registry may report the applied value as the default (a declared
+    parameter's does), so every fit would start from the previous fit's
+    answer (seed 0 of the Domino round fixes_r3 moved restitution from
+    0.05 to 0.47 across refits of the same data).
     """
-    getter = getattr(base_env, "get_physical_param_info", None)
-    info = getter() if callable(getter) else {}
     return {
-        s.name: float(info[s.name]["default"])
-        for s in physical_specs if s.name in info
+        s.name: float(registry[s.name]["default"])
+        for s in physical_specs if s.name in registry
     }
 
 
