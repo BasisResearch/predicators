@@ -1774,10 +1774,6 @@ class AgentSimLearningApproach(AgentBaseApproach):
         for traj in source:
             if traj.actions and len(traj.states) == len(traj.actions) + 1:
                 rollouts.append((list(traj.states), list(traj.actions)))
-        if has_model_state(getattr(self, "_residual_env_cls", None)):
-            # A rest point does not reset a hidden process. Keep the full
-            # prefix so every candidate parameter point reconstructs memory.
-            return rollouts
         if (residual_features is not None
                 and CFG.code_sim_learning_rollout_truncate_settled
                 and rollouts):
@@ -1797,10 +1793,16 @@ class AgentSimLearningApproach(AgentBaseApproach):
             # Multiple shooting: re-anchor at observed rest points so
             # chaotic divergence cannot compound across manipulation
             # phases, and trimming can drop a chaotic phase without
-            # discarding the clean cascade next to it.
+            # discarding the clean cascade next to it. A rest point does
+            # not reset a hidden process, so a model with memory rebuilds
+            # it at each segment start from the recording before it.
+            carry = has_model_state(getattr(self, "_residual_env_cls", None))
             segments: List[RolloutTrajectory] = []
             for r in rollouts:
-                segments.extend(split_at_rest_points(r, residual_features))
+                segments.extend(
+                    split_at_rest_points(r,
+                                         residual_features,
+                                         carry_history=carry))
             logger.info(
                 "Rollout sysID: rest-point segmentation %d trajectories -> "
                 "%d segments (lengths %s).", len(rollouts), len(segments),
