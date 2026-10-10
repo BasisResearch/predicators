@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import pickle
+import shlex
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -93,7 +94,13 @@ def _mount_spellings(path):
                   if other != holder[0] and (src, fs) == holder[1:])
 
 
-sandbox = os.path.realpath(os.getcwd())
+# The sandbox is the directory this script guards: the one holding its
+# .claude/, wherever the session has since cd'ed. Relative paths resolve
+# against the session's working directory, which the hook input names.
+_here = os.path.dirname(os.path.realpath(__file__))
+sandbox = (os.path.dirname(_here)
+           if os.path.basename(_here) == ".claude" else _here)
+session_cwd = os.path.realpath(data.get("cwd") or sandbox)
 SANDBOX_SPELLINGS = [sandbox] + _mount_spellings(sandbox)
 try:
     _SANDBOX_STAT = os.stat(sandbox)
@@ -125,7 +132,7 @@ def _inside_by_inode(path):
 
 def within(path):
     resolved = os.path.realpath(
-        path if os.path.isabs(path) else os.path.join(sandbox, path))
+        path if os.path.isabs(path) else os.path.join(session_cwd, path))
     return (any(resolved == s or resolved.startswith(s + os.sep)
                 for s in SANDBOX_SPELLINGS) or _inside_by_inode(resolved))
 
@@ -493,18 +500,29 @@ def write_pyguard(sandbox_dir: str,
     return guard
 
 
-SANDBOX_SETTINGS: Dict[str, Any] = {
-    "hooks": {
-        "PreToolUse": [{
-            "matcher":
-            "Read|Write|Edit|Glob|Grep|Bash",
-            "hooks": [{
-                "type": "command",
-                "command": "python3 .claude/validate_sandbox.py",
-            }],
-        }]
+def sandbox_settings(sandbox_dir: str) -> Dict[str, Any]:
+    """The sandbox's ``.claude/settings.json``: the PreToolUse guard.
+
+    The guard runs by absolute path: a hook command runs in the
+    session's current directory, so a relative one stops resolving once
+    the agent cd's into a subdirectory, and every guarded tool, the Bash
+    call that would cd back included, then fails for the rest of the
+    session.
+    """
+    script = os.path.join(os.path.realpath(sandbox_dir), ".claude",
+                          "validate_sandbox.py")
+    return {
+        "hooks": {
+            "PreToolUse": [{
+                "matcher":
+                "Read|Write|Edit|Glob|Grep|Bash",
+                "hooks": [{
+                    "type": "command",
+                    "command": "python3 " + shlex.quote(script),
+                }],
+            }]
+        }
     }
-}
 
 
 def find_repo_root() -> Path:
@@ -648,7 +666,8 @@ def setup_sandbox_directory(
     claude_dir = sandbox / ".claude"
     claude_dir.mkdir(exist_ok=True)
     (claude_dir / "settings.json").write_text(
-        json.dumps(SANDBOX_SETTINGS, indent=2) + "\n", encoding="utf-8")
+        json.dumps(sandbox_settings(str(sandbox)), indent=2) + "\n",
+        encoding="utf-8")
 
     # 4. validate_sandbox.py hook script, and the python-level guard
     #    (loaded through the session env, see pyguard_env).
