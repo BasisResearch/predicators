@@ -1537,7 +1537,8 @@ def _stub_multistart(monkeypatch):
 def test_global_multistart_leaves_the_guesses_basin(monkeypatch):
     """From a guess in the worse basin, the multi-start finds the better one
     and makes it the point estimate; the worse basin joins the belief only when
-    it lies within twice the model's own misfit."""
+    it lies within twice the model's own misfit, which is returned for the
+    belief's temperature."""
     import dataclasses
 
     from predicators.code_sim_learning.config import SysIdConfig
@@ -1556,16 +1557,24 @@ def test_global_multistart_leaves_the_guesses_basin(monkeypatch):
 
     # The best fit leaves 0.05 above the noise: the 0.2 basin, 0.2 worse,
     # is distinguishable.
-    theta, jac, basins = run(10.25)
+    theta, jac, basins, misfit = run(10.25)
     assert theta[0] == 0.8 and jac is not None
     assert [(b[0]["k"], b[1]) for b in basins] == [(0.8, 10.3)]
+    assert misfit == pytest.approx(0.05)
     # The best fit leaves 0.3 above the noise: the data cannot tell the
     # basins apart, so both are kept, the worse one weighted down.
-    theta, _jac, basins = run(10.0)
+    theta, _jac, basins, misfit = run(10.0)
     assert theta[0] == 0.8
     assert [b[0]["k"] for b in basins] == [0.8, 0.2]
     assert basins[0][2] == 1.0
     assert basins[1][2] == pytest.approx(np.exp(-0.2 / 0.6))
+    assert misfit == pytest.approx(0.3)
+    # Without a declared noise channel the misfit is unknown, so the
+    # point estimate is the only basin.
+    theta, _jac, basins, misfit = run(0.0)
+    assert theta[0] == 0.8
+    assert [(b[0]["k"], b[2]) for b in basins] == [(0.8, 1.0)]
+    assert misfit is None
 
 
 def test_global_multistart_runs_for_guessed_starting_values_only(monkeypatch):
@@ -1587,7 +1596,7 @@ def test_global_multistart_runs_for_guessed_starting_values_only(monkeypatch):
 
     def fake_multistart(*args, **_kwargs):
         calls.append(True)
-        return args[13][0], args[13][1], [({"mu": 0.5}, 1.0, 1.0)]
+        return args[13][0], args[13][1], [({"mu": 0.5}, 1.0, 1.0)], 0.2
 
     monkeypatch.setattr(physical_sysid, "fit_map_lm_rollout", fake_lm)
     monkeypatch.setattr(physical_sysid, "_grid_seed_physical_specs",
@@ -1604,6 +1613,33 @@ def test_global_multistart_runs_for_guessed_starting_values_only(monkeypatch):
             None, [_trajectory([0.0, 0.1, 0.2])], specs, _RESIDUAL_FEATURES)
         assert bool(calls) is guesses
         assert (result.basins is not None) is guesses
+        assert result.misfit == (0.2 if guesses else None)
+
+
+def test_guessed_fit_measures_its_misfit_without_the_multistart(monkeypatch):
+    """With the whole-box search off, a fit from guessed starting values still
+    measures its misfit at the local fit for the belief's temperature."""
+    from predicators.settings import CFG
+
+    def fake_lm(_env, _trajs, physical_specs, *_args, **_kwargs):
+        return np.array([s.init_value for s in physical_specs]), None
+
+    monkeypatch.setattr(physical_sysid, "fit_map_lm_rollout", fake_lm)
+    monkeypatch.setattr(physical_sysid, "_grid_seed_physical_specs",
+                        lambda _e, _t, specs, *_a, **_k: (list(specs), {}))
+    monkeypatch.setattr(physical_sysid, "compute_rollout_sse",
+                        lambda *_args, **_kwargs: 5.0)
+    monkeypatch.setattr(physical_sysid, "expected_noise_sse",
+                        lambda *_args, **_kwargs: 4.0)
+    monkeypatch.setattr(CFG, "code_sim_learning_prior_spans_bounds", True)
+    monkeypatch.setattr(CFG, "code_sim_learning_interval_belief", True)
+    monkeypatch.setattr(CFG, "code_sim_learning_rollout_global_design_points",
+                        0)
+    result = physical_sysid.fit_params_rollout(
+        None, [_trajectory([0.0, 0.1, 0.2])],
+        [ParamSpec("mu", 0.5, lo=0.1, hi=1.0)], _RESIDUAL_FEATURES)
+    assert result.basins is None
+    assert result.misfit == pytest.approx(1.0)
 
 
 def test_anchor_ablation_reverts_compensatory_param():

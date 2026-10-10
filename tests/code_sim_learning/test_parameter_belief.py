@@ -29,7 +29,13 @@ def _gaussian_residuals(names, mean, precision_root, offset=()):
     return residuals
 
 
-def _build(specs, map_params, residuals, prior_sigma=1e6, config=None, seed=0):
+def _build(specs,
+           map_params,
+           residuals,
+           prior_sigma=1e6,
+           config=None,
+           seed=0,
+           misfit=0.0):
     return build_parameter_belief(
         specs,
         map_params,
@@ -40,7 +46,8 @@ def _build(specs, map_params, residuals, prior_sigma=1e6, config=None, seed=0):
         prior_sigmas={s.name: prior_sigma
                       for s in specs},
         config=config or BeliefConfig(num_draws=64, line_max_evals=40),
-        seed=seed)
+        seed=seed,
+        misfit=misfit)
 
 
 def test_line_posterior_moments_and_sampling():
@@ -249,6 +256,39 @@ def test_misfit_scales_the_noise_level():
     assert wide.noise_scale == pytest.approx(27.0 / 4.0)
     ratio = np.sqrt(wide.lines["a"].variance() / narrow.lines["a"].variance())
     assert ratio == pytest.approx(np.sqrt(27.0 / 4.0), rel=0.06)
+
+
+def test_a_persistent_misfit_counts_as_one_error():
+    """A misfit the fit measured counts once: the temperature is the misfit
+    over sigma_n^2, where spreading the same 27 sigma_n^2 over four residual
+    terms gives 27/4.
+
+    Mixing, joining and checkpoints keep it, and the report says what it
+    means.
+    """
+    specs = [ParamSpec("a", 0.3, lo=-10, hi=10)]
+    residuals = _gaussian_residuals(["a"], [0.3], [[20.0]],
+                                    offset=[3.0 * _SIGMA_N] * 3)
+    spread = _build(specs, {"a": 0.3}, residuals)
+    once = _build(specs, {"a": 0.3}, residuals, misfit=27.0 * _SIGMA_N**2)
+    assert once.noise_scale == pytest.approx(27.0)
+    assert once.misfit == pytest.approx(27.0 * _SIGMA_N**2)
+    ratio = np.sqrt(once.lines["a"].variance() / spread.lines["a"].variance())
+    assert ratio == pytest.approx(2.0, rel=0.06)
+    assert "persists through each recording" in "\n".join(once.describe())
+    assert "persists" not in "\n".join(spread.describe())
+    mixed = mix_beliefs([once, once], [1.0, 1.0])
+    assert ParameterBelief.from_dict(mixed.to_dict()).misfit == once.misfit
+    extra = prior_belief([ParamSpec("c", 0.5, lo=0.0, hi=1.0)], {"c": 0.0},
+                         {"c": 1.0},
+                         BeliefConfig(num_draws=128),
+                         seed=0)
+    assert join_beliefs(mixed, extra).misfit == once.misfit
+    # A misfit within the noise leaves the ordinary posterior.
+    fits = _gaussian_residuals(["a"], [0.3], [[20.0]])
+    assert _build(specs, {
+        "a": 0.3
+    }, fits, misfit=_SIGMA_N**2).noise_scale == pytest.approx(1.0)
 
 
 def test_draws_are_seeded_bounded_and_sample_discrete_parameters():
