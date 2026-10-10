@@ -12,9 +12,10 @@ import pybullet as p
 
 import predicators.approaches  # noqa: F401  # pylint: disable=unused-import
 from predicators import utils
-from predicators.code_sim_learning.fit_space import ParamSpec
+from predicators.code_sim_learning.fit_space import FitResult, ParamSpec
 from predicators.code_sim_learning.identifiability import Verdict
-from predicators.code_sim_learning.orchestrator import run_rollout_sysid
+from predicators.code_sim_learning.orchestrator import _build_belief, \
+    _draw_shares, run_rollout_sysid
 from predicators.code_sim_learning.parameter_belief import BeliefConfig
 from predicators.code_sim_learning.rollout_env import num_rollouts_run
 from predicators.structs import Action, Object, State, Type
@@ -223,3 +224,43 @@ def test_fit_builds_the_parameter_belief_when_asked():
                               rms_cache={},
                               belief_config=BeliefConfig(num_draws=0))
     assert plain.belief is None
+
+
+def test_draw_shares_follow_the_weights():
+    """Draws split in proportion to the basin weights, at least one each when
+    there are enough."""
+    assert _draw_shares(16, [1.0, np.exp(-1.0 / 3.0)]) == [9, 7]
+    assert _draw_shares(16, [1.0]) == [16]
+    assert _draw_shares(2, [1.0, 1.0, 1.0]) == [1, 1, 0]
+    shares = _draw_shares(16, [1.0, 0.01, 0.01])
+    assert sum(shares) == 16 and min(shares) == 1
+
+
+def test_belief_mixes_the_fit_basins():
+    """A fit with two basins gets a belief over both, its draws split by
+    weight, and the point estimate stays the best basin's."""
+    spec = ParamSpec("k", 0.5, lo=0.0, hi=1.0)
+
+    def residuals(params):
+        k = params["k"]
+        return np.array([0.05 * 40.0 * (k - 0.2) * (k - 0.8) / 0.6])
+
+    result = FitResult(names=["k"],
+                       samples=np.array([[0.8]]),
+                       log_probs=np.zeros(1),
+                       noise_sigma=0.05,
+                       prior_sigma=np.array([1e6]),
+                       scales=["linear"],
+                       basins=[({
+                           "k": 0.8
+                       }, 10.3, 1.0),
+                               ({
+                                   "k": 0.2
+                               }, 10.5, float(np.exp(-1.0 / 3.0)))])
+    belief = _build_belief(result, [spec], {"k": 0.5}, residuals,
+                           BeliefConfig(num_draws=16, line_max_evals=40), 1)
+    assert len(belief.components) == 2
+    assert belief.num_draws == 16
+    assert belief.map_estimate == {"k": 0.8}
+    values = np.sort(belief.draws[:, 0])
+    assert values[0] < 0.5 < values[-1]

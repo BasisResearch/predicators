@@ -22,7 +22,7 @@ from __future__ import annotations
 import copy
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -38,7 +38,8 @@ from predicators.code_sim_learning.identifiability import \
 from predicators.code_sim_learning.inference_result import \
     LegacyInferenceResult
 from predicators.code_sim_learning.parameter_belief import BeliefConfig, \
-    ParameterBelief, build_parameter_belief, prior_belief, stable_seed
+    ParameterBelief, build_parameter_belief, mix_beliefs, prior_belief, \
+    stable_seed
 from predicators.code_sim_learning.physical_sysid import \
     _ROLLOUT_PRIOR_SIGMA_SCALE, _explainability_cache_key, \
     fit_params_rollout_trimmed
@@ -488,19 +489,50 @@ def _build_belief(
     if sigmas is None or len(sigmas) != len(all_specs):
         sigmas = _prior_widths_for(all_specs, centers)
     fitted = result.point_estimate
-    return build_parameter_belief(
-        list(all_specs),
-        fitted,
-        residuals_fn,
-        noise_sigma=float(result.noise_sigma or DEFAULT_NOISE_SIGMA),
-        prior_centers={
-            s.name: scalar_to_fit_space(s, float(centers[s.name]))
-            for s in all_specs
-        },
-        prior_sigmas={
-            s.name: float(sigma)
-            for s, sigma in zip(all_specs, sigmas)
-        },
-        config=belief_config,
-        seed=stable_seed(CFG.seed, sorted(fitted.items()), num_survivors),
-        batch_residuals=batch_residuals_fn)
+
+    def around(point: Dict[str, float], config: BeliefConfig,
+               *seed_parts: Any) -> ParameterBelief:
+        return build_parameter_belief(
+            list(all_specs),
+            point,
+            residuals_fn,
+            noise_sigma=float(result.noise_sigma or DEFAULT_NOISE_SIGMA),
+            prior_centers={
+                s.name: scalar_to_fit_space(s, float(centers[s.name]))
+                for s in all_specs
+            },
+            prior_sigmas={
+                s.name: float(sigma)
+                for s, sigma in zip(all_specs, sigmas)
+            },
+            config=config,
+            seed=stable_seed(CFG.seed, sorted(point.items()), num_survivors,
+                             *seed_parts),
+            batch_residuals=batch_residuals_fn)
+
+    basins = list(result.basins or [])
+    if len(basins) <= 1:
+        return around(fitted, belief_config)
+    shares = _draw_shares(belief_config.num_draws,
+                          [weight for _point, _sse, weight in basins])
+    return mix_beliefs([
+        around(point, replace(belief_config, num_draws=share), index)
+        for index, ((point, _sse, _weight),
+                    share) in enumerate(zip(basins, shares))
+    ], [weight for _point, _sse, weight in basins])
+
+
+def _draw_shares(total: int, weights: Sequence[float]) -> List[int]:
+    """``total`` draws split in proportion to ``weights`` (largest remainder),
+    at least one each when there are enough."""
+    raw = np.asarray(weights, dtype=float) / float(np.sum(weights)) * total
+    shares = np.floor(raw).astype(int)
+    if total >= len(shares):
+        shares = np.maximum(shares, 1)
+    while int(shares.sum()) > total:
+        shares[int(np.argmax(shares))] -= 1
+    for index in np.argsort(-(raw - np.floor(raw)), kind="stable"):
+        if int(shares.sum()) >= total:
+            break
+        shares[int(index)] += 1
+    return [int(s) for s in shares]
