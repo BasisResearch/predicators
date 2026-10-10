@@ -72,6 +72,9 @@ from predicators.structs import Action, DerivedPredicate, GroundAtom, \
 
 logger = logging.getLogger(__name__)
 
+# A physical parameter registry: name -> its entry (default, lo, hi, ...).
+_ParamRegistry = Dict[str, Dict[str, Any]]
+
 # Rows in the stand-in fit result under agent_sim_learn_declared_params_only:
 # uniform draws over the declared boxes that the ensemble subsamples.
 _DECLARED_INTERVAL_SAMPLES = 64
@@ -326,6 +329,10 @@ class AgentSimLearningApproach(AgentBaseApproach):
         # most likely value of every physical param the last applied fit
         # deployed, the prior centre of the next fit.
         self._carried_physical_prior: Dict[str, float] = {}
+        # The registry of a model no fit has touched, per model class
+        # (_baseline_param_info).
+        self._baseline_param_cache: Optional[Tuple[type,
+                                                   _ParamRegistry]] = None
         # Per canonical simulator version, the fit's Laplace evidence
         # record (code_sim_learning_fit_evidence): the sim.fit report's
         # delta against the previous version reads from here.
@@ -1815,13 +1822,15 @@ class AgentSimLearningApproach(AgentBaseApproach):
         artifact's PHYSICAL_PARAM_SPECS) are reverted to the env's
         registry defaults, because the env-side override is sticky per
         param and a stale value from a superseded fit would otherwise
-        silently keep steering the planner. The override survives resets
-        but not env recreation; ``_recreate_base_env`` re-applies from
+        silently keep steering the planner. The defaults come from a
+        model no fit has touched (:meth:`_baseline_param_info`). The
+        override survives resets but not env recreation;
+        ``_recreate_base_env`` re-applies from
         ``self._identified_physical_params``.
         """
         stale = set(self._identified_physical_params) - set(identified)
         if stale:
-            info = self._base_env.get_physical_param_info()
+            info = self._baseline_param_info()
             reverts = {
                 name: float(info[name]["default"])
                 for name in sorted(stale) if name in info
@@ -1844,16 +1853,45 @@ class AgentSimLearningApproach(AgentBaseApproach):
                     {k: f"{v:.4f}"
                      for k, v in identified.items()})
 
+    def _baseline_param_info(self) -> _ParamRegistry:
+        """The parameter registry of a planning model no fit has touched.
+
+        The planning base env carries every applied fit, since an
+        override sticks, and a registry may report an applied value as
+        the parameter's default (a declared parameter's does). A
+        baseline read there would be the last fit's answer. Every
+        consumer of a baseline (a fit's prior centres, the value a
+        dropped parameter reverts to) reads a fresh build's registry
+        here instead, built once per model class.
+        """
+        model = getattr(self, "_residual_env_cls", None) or type(
+            self._base_env)
+        cached = self._baseline_param_cache
+        if cached is None or cached[0] is not model:
+            env = self._make_planning_base_env(use_gui=False)
+            try:
+                registry = env.get_physical_param_info()
+            finally:
+                dispose_env(env)
+            cached = (model,
+                      {name: dict(entry)
+                       for name, entry in registry.items()})
+            self._baseline_param_cache = cached
+        return {name: dict(entry) for name, entry in cached[1].items()}
+
     def fit_prior_anchors(
             self, physical_specs: Sequence[ParamSpec]) -> Dict[str, float]:
-        """The prior centres of a rollout fit: the env-registry anchors, or
-        under ``code_sim_learning_carry_posterior`` the carried posterior's
-        most likely values where one exists (see the flag in settings).
+        """The prior centres of a rollout fit: the registry anchors of a model
+        no fit has touched, or under ``code_sim_learning_carry_posterior`` the
+        carried posterior's most likely values where one exists (see the flag
+        in settings).
 
         Shared by the harness fit and the ``sim.fit`` tool, so both fits
-        start from the same belief.
+        start from the same belief, and refitting unchanged data returns
+        the same fit.
         """
-        anchors = physical_param_anchors(self._base_env, physical_specs)
+        anchors = physical_param_anchors(self._baseline_param_info(),
+                                         physical_specs)
         if not CFG.code_sim_learning_carry_posterior:
             return anchors
         carried = {

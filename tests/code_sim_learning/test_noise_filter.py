@@ -176,18 +176,63 @@ def test_rest_mean_is_circular_for_angles():
 
 
 class _RegistryEnv:
-    """Stands in for a base env with one registered physical param."""
+    """Stands in for a base env with one registered physical param, whose
+    registry reports an applied value as the default, as a declared parameter's
+    does."""
+
+    builds = 0
+
+    def __init__(self):
+        type(self).builds += 1
+        self.friction = 0.1
 
     def get_physical_param_info(self):
-        """The registry: one param with its default."""
-        return {"friction": {"default": 0.1}}
+        """The registry: one param with its current value as default."""
+        return {"friction": {"default": self.friction}}
+
+    def apply_physical_param_overrides(self, params):
+        """Apply a fit's values in place, as the planning model does."""
+        self.friction = params.get("friction", self.friction)
+
+    def dispose(self):
+        """Nothing to release."""
 
 
 def _bare_approach():
     approach = object.__new__(AgentSimLearningApproach)
     approach._base_env = _RegistryEnv()
     approach._carried_physical_prior = {}
+    approach._baseline_param_cache = None
+    approach._make_planning_base_env = lambda use_gui=False: _RegistryEnv()
     return approach
+
+
+def test_fit_anchors_ignore_values_applied_to_the_planning_model():
+    """A fit's prior centres are what a model no fit touched reports, so a
+    refit of unchanged data starts where the first fit started.
+
+    The planning model keeps every applied fit, and its registry reports
+    the applied value as the default: anchoring on it moved restitution
+    from 0.05 to 0.47 across refits of the same data in seed 0 of the
+    Domino round fixes_r3.
+    """
+    specs = [ParamSpec("friction", 0.5, lo=0.01, hi=2.0, scale="log")]
+    approach = _bare_approach()
+    utils.reset_config({"code_sim_learning_carry_posterior": False})
+    builds = _RegistryEnv.builds
+    assert approach.fit_prior_anchors(specs) == {"friction": 0.1}
+    approach._base_env.apply_physical_param_overrides({"friction": 0.9})
+    assert approach._base_env.get_physical_param_info() == {
+        "friction": {
+            "default": 0.9
+        }
+    }
+    assert approach.fit_prior_anchors(specs) == {"friction": 0.1}
+    # One fresh build per model class serves every fit.
+    assert _RegistryEnv.builds == builds + 1
+    approach._residual_env_cls = type("NextModel", (), {})
+    assert approach.fit_prior_anchors(specs) == {"friction": 0.1}
+    assert _RegistryEnv.builds == builds + 2
 
 
 def test_carried_posterior_becomes_the_next_prior_centre():

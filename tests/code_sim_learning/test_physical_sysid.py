@@ -651,6 +651,23 @@ class _FakeStickyEnv:
         self.overrides.update(params)
 
 
+class _LiveStickyEnv(_FakeStickyEnv):
+    """A sticky env whose registry reports each applied value as the default,
+    as a declared parameter's does."""
+
+    def get_physical_param_info(self):
+        """The registry, with the applied values as defaults."""
+        return {
+            name: {
+                **entry, "default": self.overrides.get(name, entry["default"])
+            }
+            for name, entry in self._info.items()
+        }
+
+    def dispose(self):
+        """Nothing to release."""
+
+
 _REGISTRY = {
     "lateral_friction": {
         "default": 0.5,
@@ -699,17 +716,26 @@ def test_pin_all_physical_params_env_without_registry():
 def test_apply_identified_reverts_params_dropped_from_declaration():
     """Regression for run_20260707_112310: an intermediate artifact applied
     lateral_friction 1.9993, the final artifact declared only rolling_friction,
-    and the planner silently kept 1.9993."""
+    and the planner silently kept 1.9993.
+
+    The revert target is the default of a model no fit has touched: the
+    planning model's own registry reports the applied 1.9993 by then.
+    """
     from predicators.approaches.agent_sim_learning_approach import \
         AgentSimLearningApproach
     approach = AgentSimLearningApproach.__new__(AgentSimLearningApproach)
-    env = _FakeStickyEnv(_REGISTRY)
+    env = _LiveStickyEnv(_REGISTRY)
     approach._base_env = env
     approach._identified_physical_params = {}
+    approach._baseline_param_cache = None
+    approach._make_planning_base_env = \
+        lambda use_gui=False: _LiveStickyEnv(_REGISTRY)
     apply = approach._apply_identified_physical_params
 
     apply({"lateral_friction": 1.9993, "rolling_friction": 0.007})
     assert env.overrides["lateral_friction"] == 1.9993
+    assert env.get_physical_param_info()["lateral_friction"]["default"] == \
+        1.9993
 
     apply({"rolling_friction": 0.006})
     assert env.overrides["lateral_friction"] == 0.5  # reverted to default
