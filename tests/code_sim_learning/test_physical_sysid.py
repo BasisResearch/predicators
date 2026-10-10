@@ -1434,6 +1434,81 @@ def _ablation_fixtures():
     return spec_a, spec_b, anchors, prior_sigma, config, traj
 
 
+def _spin_sse(params):
+    """Spinning friction above 0.3 fits 2% better: inside the relative flat
+    band of the model-bias SSE, beyond a zero likelihood floor."""
+    return 10.0 - (0.2 if params["spinning_friction"] > 0.3 else 0.0)
+
+
+def test_grid_sweep_defers_to_calibrated_anchors_only(monkeypatch):
+    """A calibrated anchor keeps its value when a better candidate lies inside
+    the relative flat band; a guessed one does not.
+
+    With guessed starting values (code_sim_learning_prior_spans_bounds)
+    the flat band is the likelihood floor alone, the scale the parameter
+    belief scores with. Seed 0 of the Domino round fixes_r3 kept a
+    guessed spinning friction of 0.005 although its best candidate, 0.67
+    with the world at 0.5, was 2.8 nats better, outside the belief's own
+    68% interval.
+    """
+    specs = [ParamSpec("spinning_friction", 0.005, lo=0.0, hi=1.0)]
+    anchors = {"spinning_friction": 0.005}
+    seeds, _info = _run_sweep(monkeypatch,
+                              _spin_sse,
+                              specs,
+                              anchors,
+                              code_sim_learning_prior_spans_bounds=False)
+    assert seeds["spinning_friction"] == 0.005
+    seeds, _info = _run_sweep(monkeypatch,
+                              _spin_sse,
+                              specs,
+                              anchors,
+                              code_sim_learning_prior_spans_bounds=True)
+    assert seeds["spinning_friction"] > 0.3
+
+
+def test_anchor_ablation_runs_for_calibrated_anchors_only(monkeypatch):
+    """The anchor ablation pins moved parameters back to calibrated baselines;
+    with guessed starting values it does not run, since a guess has no claim
+    beyond the prior the fit folds in."""
+    from predicators.settings import CFG
+    specs = [ParamSpec("mu", 0.5, lo=0.1, hi=1.0)]
+    calls = []
+
+    def fake_lm(_env,
+                _trajs,
+                physical_specs,
+                _features,
+                _rules=(),
+                rule_specs=(),
+                _latent=None,
+                **_kwargs):
+        all_specs = list(physical_specs) + list(rule_specs)
+        return np.array([s.init_value for s in all_specs], dtype=float), None
+
+    def fake_grid(_env, _trajs, physical_specs, *_args, **_kwargs):
+        return list(physical_specs), {}
+
+    def fake_ablation(*args, **_kwargs):
+        calls.append(True)
+        return args[11]  # the fit result, unchanged
+
+    monkeypatch.setattr(physical_sysid, "fit_map_lm_rollout", fake_lm)
+    monkeypatch.setattr(physical_sysid, "_grid_seed_physical_specs", fake_grid)
+    monkeypatch.setattr(physical_sysid, "compute_rollout_sse",
+                        lambda *_args, **_kwargs: 1.0)
+    monkeypatch.setattr(physical_sysid, "_anchor_backward_elimination",
+                        fake_ablation)
+    trajectory = _trajectory([0.0, 0.1, 0.2])
+    for guesses, ran in ((False, True), (True, False)):
+        monkeypatch.setattr(CFG, "code_sim_learning_prior_spans_bounds",
+                            guesses)
+        calls.clear()
+        physical_sysid.fit_params_rollout(None, [trajectory], specs,
+                                          _RESIDUAL_FEATURES)
+        assert bool(calls) is ran
+
+
 def test_anchor_ablation_reverts_compensatory_param():
     """A co-adapted MAP on the compensation ridge is resolved to the anchor-
     consistent basin: the tight-prior param reverts to its anchor and the wide-
