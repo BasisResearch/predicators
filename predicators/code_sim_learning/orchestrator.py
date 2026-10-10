@@ -43,9 +43,10 @@ from predicators.code_sim_learning.physical_sysid import \
     _ROLLOUT_PRIOR_SIGMA_SCALE, _explainability_cache_key, \
     fit_params_rollout_trimmed
 from predicators.code_sim_learning.rollout_env import RolloutTrajectory, \
-    num_rollouts_run
+    fork_template, num_rollouts_run
 from predicators.code_sim_learning.rollout_objective import \
-    compute_rollout_residuals, compute_rollout_sse
+    compute_rollout_residuals, compute_rollout_sse, \
+    rollout_residuals_by_point
 from predicators.code_sim_learning.trajectory_prep import \
     compute_residual_scaling
 
@@ -202,9 +203,12 @@ def run_rollout_sysid(
 
     from_cache = core is not None
     if core is None:
-        core = _compute_fit(fit_env, rollouts, physical_specs,
-                            residual_features, rules, rule_specs, latent_init,
-                            anchors, rms_cache, config, belief_config)
+        # One template world serves every fork wave of the fit.
+        with fork_template(fit_env):
+            core = _compute_fit(fit_env, rollouts, physical_specs,
+                                residual_features, rules, rule_specs,
+                                latent_init, anchors, rms_cache, config,
+                                belief_config)
         if fit_cache is not None and cache_key is not None:
             fit_cache[cache_key] = core
 
@@ -401,9 +405,16 @@ def _compute_fit(
                                              residual_features, physical_names,
                                              rules, latent_init, scaling)
 
+        def rollout_residuals_batch_fn(
+                points: List[Dict[str, float]]) -> List[np.ndarray]:
+            return rollout_residuals_by_point(fit_env, survivors, points,
+                                              residual_features,
+                                              physical_names, rules,
+                                              latent_init, scaling)
+
         belief = _build_belief(result, all_specs, anchors,
                                rollout_residuals_fn, belief_config,
-                               len(survivors))
+                               len(survivors), rollout_residuals_batch_fn)
     return _FitComputation(fit_result=result,
                            report=report,
                            num_survivors=len(survivors),
@@ -452,11 +463,16 @@ def prior_parameter_belief(all_specs: Sequence[ParamSpec],
                         seed=seed)
 
 
-def _build_belief(result: FitResult, all_specs: Sequence[ParamSpec],
-                  anchors: Dict[str, float],
-                  residuals_fn: Callable[[Dict[str, float]], np.ndarray],
-                  belief_config: BeliefConfig,
-                  num_survivors: int) -> ParameterBelief:
+def _build_belief(
+    result: FitResult,
+    all_specs: Sequence[ParamSpec],
+    anchors: Dict[str, float],
+    residuals_fn: Callable[[Dict[str, float]], np.ndarray],
+    belief_config: BeliefConfig,
+    num_survivors: int,
+    batch_residuals_fn: Optional[Callable[[List[Dict[str, float]]],
+                                          List[np.ndarray]]] = None
+) -> ParameterBelief:
     """The parameter factor around ``result``'s MAP, under its own prior.
 
     The prior is the one the fit folded in: centred on each parameter's
@@ -486,4 +502,5 @@ def _build_belief(result: FitResult, all_specs: Sequence[ParamSpec],
             for s, sigma in zip(all_specs, sigmas)
         },
         config=belief_config,
-        seed=stable_seed(CFG.seed, sorted(fitted.items()), num_survivors))
+        seed=stable_seed(CFG.seed, sorted(fitted.items()), num_survivors),
+        batch_residuals=batch_residuals_fn)

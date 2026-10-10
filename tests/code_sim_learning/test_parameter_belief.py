@@ -78,6 +78,50 @@ def test_gaussian_lines_recover_conditional_variances():
                                                 rel=0.06)
 
 
+def test_lines_traced_in_lockstep_are_the_same():
+    """Tracing every line in lockstep through a batch scorer evaluates the same
+    points and gives the same belief as tracing line by line, with one batch
+    per round."""
+    specs = [
+        ParamSpec("a", 0.3, lo=-10, hi=10),
+        ParamSpec("b", 0.7, lo=0.01, hi=10, scale="log"),
+        ParamSpec("c", 0.5, lo=0.0, hi=1.0),
+    ]
+    residuals = _gaussian_residuals(["a", "b", "c"], [0.3, 0.7, 0.5],
+                                    np.diag([20.0, 15.0, 0.001]),
+                                    offset=[0.01])
+    map_params = {"a": 0.3, "b": 0.7, "c": 0.5}
+    batches = []
+
+    def batch(points):
+        batches.append(len(points))
+        return [residuals(params) for params in points]
+
+    alone = _build(specs, map_params, residuals, prior_sigma=2.0)
+    together = build_parameter_belief(
+        specs,
+        map_params,
+        residuals,
+        noise_sigma=_SIGMA_N,
+        prior_centers={s.name: s.init_value
+                       for s in specs},
+        prior_sigmas={s.name: 2.0
+                      for s in specs},
+        config=BeliefConfig(num_draws=64, line_max_evals=40),
+        seed=0,
+        batch_residuals=batch)
+    for name in ("a", "b", "c"):
+        assert np.array_equal(alone.lines[name].grid,
+                              together.lines[name].grid)
+        assert np.array_equal(alone.lines[name].density,
+                              together.lines[name].density)
+    assert np.array_equal(alone.draws, together.draws)
+    assert alone.evaluations == together.evaluations
+    # Rounds score up to one point per line, and fewer rounds than points.
+    assert max(batches) <= len(specs)
+    assert len(batches) < alone.evaluations
+
+
 def test_flat_line_keeps_the_prior():
     """A parameter the data do not touch gets its (bounded) prior."""
     specs = [

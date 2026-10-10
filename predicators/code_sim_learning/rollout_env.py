@@ -9,8 +9,10 @@ teacher-forcing per step.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, \
-    Tuple
+import contextlib
+import os
+from typing import Any, Callable, Dict, Iterator, List, Mapping, Optional, \
+    Sequence, Tuple
 
 import pybullet as p
 
@@ -25,6 +27,53 @@ RolloutTrajectory = Tuple[List[State], List[Action]]
 # honest unit of sysID compute; the fit orchestrators snapshot it
 # around their stages to log where the budget actually went.
 _NUM_ROLLOUTS = 0
+
+# Worlds a process built for the forked children of one parallel wave and
+# never steps itself: id(factory) -> (the building process's pid, the
+# world). A forked child replays on its private copy of the world instead
+# of building one (fork_template).
+_FORK_TEMPLATES: Dict[int, Tuple[int, Any]] = {}
+
+
+@contextlib.contextmanager
+def fork_template(factory: Any) -> Iterator[None]:
+    """Build one world from ``factory`` for the forked children of a wave.
+
+    Building a world dominates a short rollout (0.39 s of a 22-step
+    segment's 0.51 s on the from-assets Domino scene), and a fresh world
+    per rollout is what keeps rollouts deterministic. A forked child's
+    copy of a world this process built and never stepped is such a fresh
+    world, so :func:`rollout_states` in a forked child replays on that
+    copy (once per child) instead of building its own. This process
+    never touches the template, so a rollout it runs itself still builds
+    a fresh world. Nothing is built when waves do not fork, when
+    ``factory`` is an env instance, or inside a template of the same
+    factory.
+    """
+    # Deferred: agent_sdk imports this package.
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.agent_sdk.parallel_rollouts import parallel_workers
+    if not callable(factory) or id(factory) in _FORK_TEMPLATES or \
+            parallel_workers() <= 1:
+        yield
+        return
+    world = factory()
+    _FORK_TEMPLATES[id(factory)] = (os.getpid(), world)
+    try:
+        yield
+    finally:
+        _FORK_TEMPLATES.pop(id(factory), None)
+        dispose_env(world)
+
+
+def _forked_template_copy(factory: Any) -> Optional[Any]:
+    """This forked child's copy of ``factory``'s template world, at most once;
+    None in the process that built it."""
+    entry = _FORK_TEMPLATES.get(id(factory))
+    if entry is None or entry[0] == os.getpid():
+        return None
+    del _FORK_TEMPLATES[id(factory)]
+    return entry[1]
 
 
 def num_rollouts_run() -> int:
@@ -159,7 +208,9 @@ def rollout_states(
 
     ``base_env`` is either an env instance or a zero-arg FACTORY: a
     factory is invoked to build a fresh env for this single rollout and
-    the fresh env's PyBullet client is disconnected before returning.
+    the fresh env's PyBullet client is disconnected before returning. A
+    forked child of a :func:`fork_template` wave uses its copy of the
+    template world instead, which is the same fresh world.
     Fresh per-rollout worlds are what make repeated evaluations of the
     same theta deterministic - state-level resets on a shared env leave
     history-dependent residuals (near-matching bodies skipped by the
@@ -179,7 +230,9 @@ def rollout_states(
     """
     global _NUM_ROLLOUTS  # pylint: disable=global-statement
     _NUM_ROLLOUTS += 1
-    env = base_env() if callable(base_env) else base_env
+    env = base_env
+    if callable(base_env):
+        env = _forked_template_copy(base_env) or base_env()
     try:
         _pin_all_physical_params(env, physical_params)
         env._set_state(init_state)  # pylint: disable=protected-access

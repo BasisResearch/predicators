@@ -7,6 +7,8 @@ trajectory truncation, and the fresh-env-per-rollout plumbing.
 """
 # pylint: disable=protected-access,import-outside-toplevel
 
+import os
+
 import numpy as np
 import pybullet as p
 import pytest
@@ -480,6 +482,20 @@ def test_select_trustworthy_params_weakly_identified_applies():
     assert applied == {"friction": 0.12}
 
 
+def _batched(fake_rms):
+    """A trajectory_terms_by_point stand-in built from a per_trajectory_rms
+    stub: each candidate's terms are one residual per trajectory, of the
+    stubbed RMS."""
+
+    def fake_terms(env, trajectories, points, *args, **kwargs):
+        return [[
+            np.array([r])
+            for r in fake_rms(env, trajectories, point, *args, **kwargs)
+        ] for point in points]
+
+    return fake_terms
+
+
 def _patch_fit_and_rms(monkeypatch, fit_thetas, rms_by_count):
     """Stub the heavy PyBullet fit/residual calls for trimming tests.
 
@@ -502,9 +518,10 @@ def _patch_fit_and_rms(monkeypatch, fit_thetas, rms_by_count):
 
     monkeypatch.setattr(physical_sysid, "fit_params_rollout", fake_fit)
     monkeypatch.setattr(physical_sysid, "per_trajectory_rms", fake_rms)
-    # min_explainable_rms (called by the trimmed fit) evaluates its
-    # candidate grid through grid_seed's namespace.
-    monkeypatch.setattr(grid_seed, "per_trajectory_rms", fake_rms)
+    # min_explainable_rms (called by the trimmed fit) scores its
+    # candidate grid in one batch through grid_seed's namespace.
+    monkeypatch.setattr(grid_seed, "trajectory_terms_by_point",
+                        _batched(fake_rms))
     # The stub trajectories are plain strings; skip the data-derived
     # residual scaling (exercised by its own tests).
     monkeypatch.setattr(physical_sysid, "compute_residual_scaling",
@@ -580,7 +597,8 @@ def test_consistency_loop_drops_disagreeing_survivor(monkeypatch):
 
     monkeypatch.setattr(physical_sysid, "fit_params_rollout", fake_fit)
     monkeypatch.setattr(physical_sysid, "per_trajectory_rms", fake_rms)
-    monkeypatch.setattr(grid_seed, "per_trajectory_rms", fake_rms)
+    monkeypatch.setattr(grid_seed, "trajectory_terms_by_point",
+                        _batched(fake_rms))
     monkeypatch.setattr(physical_sysid, "compute_residual_scaling",
                         lambda *_a, **_k: None)
     result, survivors, _rms, hull = fit_params_rollout_trimmed(
@@ -1169,7 +1187,12 @@ def _run_sweep(monkeypatch, sse_fn, specs, anchors, **flags):
     def fake_sse(_env, _trajs, params, *_args, **_kwargs):
         return sse_fn(params)
 
+    def fake_batch(_env, _trajs, points, *_args, **_kwargs):
+        return [sse_fn(params) for params in points]
+
     monkeypatch.setattr(grid_seed, "compute_rollout_sse", fake_sse)
+    # A pool's new candidates are scored together.
+    monkeypatch.setattr(grid_seed, "rollout_sse_by_point", fake_batch)
     seeded, info = grid_seed._grid_seed_physical_specs(None, ["traj"],
                                                        specs,
                                                        {"domino": ["x"]}, [],
@@ -1654,6 +1677,241 @@ def test_rollout_residuals_parallel_matches_serial(monkeypatch):
     # child failure) was recomputed serially here.
     assert rollout_env.num_rollouts_run() - n0 == len(trajectories)
     # Every parent-built env was disposed (children build their own).
+    assert all(not env.connected for env in built)
+
+
+def test_batched_points_match_point_by_point(monkeypatch):
+    """Scoring many points in one fork wave returns every (point, trajectory)
+    pair's serial terms, and each point's SSE equals compute_rollout_sse
+    exactly, with workers or without.
+
+    The grid sweep and the explainability sweep score their candidates
+    this way; any value difference would change fits.
+    """
+    from predicators.agent_sdk.parallel_rollouts import \
+        parallel_rollouts_available
+    from predicators.settings import CFG
+    if not parallel_rollouts_available():
+        pytest.skip("fork not available on this platform")
+    trajectories = [
+        _trajectory([0.0, 0.1, 0.2]),
+        _trajectory([0.0, 0.2, 0.4]),
+        _trajectory([0.0, 0.05, 0.1]),
+    ]
+    built = []
+
+    def factory():
+        return _LinearParamEnv(built)
+
+    points = [{"k": k} for k in (0.0, 0.05, 0.1, 0.2)]
+    monkeypatch.setattr(CFG, "agent_validation_parallel_workers", 0)
+    want_terms = [[
+        rollout_objective.compute_rollout_residuals(
+            factory, [traj],
+            point,
+            _RESIDUAL_FEATURES, ["k"],
+            episode_count=len(trajectories)) for traj in trajectories
+    ] for point in points]
+    want_sse = [
+        rollout_objective.compute_rollout_sse(factory, trajectories, point,
+                                              _RESIDUAL_FEATURES, ["k"])
+        for point in points
+    ]
+    for workers in (0, 3):
+        monkeypatch.setattr(CFG, "agent_validation_parallel_workers", workers)
+        n0 = rollout_env.num_rollouts_run()
+        terms = rollout_objective.trajectory_terms_by_point(
+            factory, trajectories, points, _RESIDUAL_FEATURES, ["k"])
+        # Every pair is credited once, in a child or here.
+        assert rollout_env.num_rollouts_run() - n0 == \
+            len(points) * len(trajectories)
+        for got_row, want_row in zip(terms, want_terms):
+            assert len(got_row) == len(want_row)
+            for got, want in zip(got_row, want_row):
+                assert np.array_equal(got, want)
+        assert rollout_objective.rollout_sse_by_point(factory, trajectories,
+                                                      points,
+                                                      _RESIDUAL_FEATURES,
+                                                      ["k"]) == want_sse
+    assert all(not env.connected for env in built)
+
+
+def test_rollout_lm_fit_is_the_same_with_and_without_workers(monkeypatch):
+    """The rollout LM fit returns the same MAP and Jacobian whether its
+    Jacobian columns are scored together in forked children or one by one in
+    this process."""
+    from predicators.agent_sdk.parallel_rollouts import \
+        parallel_rollouts_available
+    from predicators.settings import CFG
+    if not parallel_rollouts_available():
+        pytest.skip("fork not available on this platform")
+    trajectories = [
+        _trajectory([0.0, 0.1, 0.2]),
+        _trajectory([0.0, 0.2, 0.4]),
+        _trajectory([0.0, 0.05, 0.1]),
+    ]
+    built = []
+
+    def factory():
+        return _LinearParamEnv(built)
+
+    specs = [ParamSpec("k", 0.3, lo=0.0, hi=1.0)]
+    fits = []
+    for workers in (0, 3):
+        monkeypatch.setattr(CFG, "agent_validation_parallel_workers", workers)
+        fits.append(
+            rollout_objective.fit_map_lm_rollout(factory, trajectories, specs,
+                                                 _RESIDUAL_FEATURES))
+    theta, jac = fits[0]
+    fast_theta, fast_jac = fits[1]
+    assert np.array_equal(theta, fast_theta)
+    assert jac is not None and np.array_equal(jac, fast_jac)
+    assert all(not env.connected for env in built)
+
+
+class _DominoRowEnv:
+    """A real DIRECT PyBullet world with contact: a row of six dominoes on a
+    plane, the first pushed near its top on every physics step.
+
+    ``k`` is every domino's lateral friction; ``r0`` reports the first
+    domino's x and ``d0`` the last one's, so the residual sees the whole
+    cascade. Only ``builder_pid`` may build one: a forked child of a
+    template wave must replay on its copy of the template world.
+    """
+
+    def __init__(self, log, builder_pid):
+        if os.getpid() != builder_pid:
+            raise RuntimeError("a forked child built a world")
+        cid = p.connect(p.DIRECT)
+        self._physics_client_id = cid
+        log.append(self)
+        p.setGravity(0.0, 0.0, -9.81, physicsClientId=cid)
+        p.createMultiBody(0,
+                          p.createCollisionShape(p.GEOM_PLANE,
+                                                 physicsClientId=cid),
+                          physicsClientId=cid)
+        shape = p.createCollisionShape(p.GEOM_BOX,
+                                       halfExtents=[0.005, 0.03, 0.05],
+                                       physicsClientId=cid)
+        self._bodies = [
+            p.createMultiBody(0.05,
+                              shape,
+                              basePosition=[0.06 * i, 0.0, 0.05],
+                              physicsClientId=cid) for i in range(6)
+        ]
+        self._domino = Object("d0", _DOMINO_TYPE)
+        self._robot = Object("r0", _ROBOT_TYPE)
+
+    def apply_physical_param_overrides(self, params):
+        """Set every domino's lateral friction to ``k``."""
+        for body in self._bodies:
+            p.changeDynamics(body,
+                             -1,
+                             lateralFriction=float(params.get("k", 0.5)),
+                             physicsClientId=self._physics_client_id)
+
+    def _set_state(self, state):
+        """Space the row evenly from ``r0``'s x to ``d0``'s x."""
+        first = float(state.get(self._robot, "x"))
+        last = float(state.get(self._domino, "x"))
+        for i, body in enumerate(self._bodies):
+            x = first + i * (last - first) / (len(self._bodies) - 1)
+            p.resetBasePositionAndOrientation(
+                body, [x, 0.0, 0.05], [0.0, 0.0, 0.0, 1.0],
+                physicsClientId=self._physics_client_id)
+
+    def step(self, action):
+        """Push the first domino for 24 physics steps; report the row's
+        ends."""
+        del action
+        cid = self._physics_client_id
+        for _ in range(24):
+            p.applyExternalForce(self._bodies[0],
+                                 -1, [0.05, 0.0, 0.0], [0.0, 0.0, 0.04],
+                                 p.LINK_FRAME,
+                                 physicsClientId=cid)
+            p.stepSimulation(physicsClientId=cid)
+        ends = [
+            p.getBasePositionAndOrientation(body, physicsClientId=cid)[0][0]
+            for body in (self._bodies[0], self._bodies[-1])
+        ]
+        return State({
+            self._robot: np.array([ends[0]], dtype=float),
+            self._domino: np.array([ends[1]], dtype=float),
+        })
+
+    @property
+    def connected(self):
+        """Whether this world's PyBullet client is still connected."""
+        return bool(
+            p.getConnectionInfo(self._physics_client_id)["isConnected"])
+
+
+def test_forked_children_replay_on_copies_of_one_template_world(monkeypatch):
+    """A fork wave builds one template world, and every forked child replays on
+    its copy of it instead of building a world; the terms equal fresh-world
+    rollouts bit for bit on contact-rich physics.
+
+    Building dominates a short rollout of a real scene, and a fresh
+    world per rollout is what keeps the fit deterministic, so a copy
+    that differs from a fresh world in any bit would change fits. A
+    template around several waves (as around a whole fit) serves them
+    all, and a rollout in the building process still gets a fresh world.
+    """
+    from predicators.agent_sdk.parallel_rollouts import \
+        parallel_rollouts_available
+    from predicators.settings import CFG
+    if not parallel_rollouts_available():
+        pytest.skip("fork not available on this platform")
+    features = {"domino": ["x"], "robot": ["x"]}
+    trajectories = [
+        _trajectory([0.30] * 8, robot_xs=[0.0] * 8),
+        _trajectory([0.325] * 8, robot_xs=[0.0] * 8),
+        _trajectory([0.275] * 8, robot_xs=[0.0] * 8),
+    ]
+    builder = os.getpid()
+    built = []
+
+    def factory():
+        return _DominoRowEnv(built, builder)
+
+    def terms_by_point():
+        return rollout_objective.trajectory_terms_by_point(
+            factory, trajectories, points, features, ["k"])
+
+    def assert_same(got, want):
+        for got_row, want_row in zip(got, want):
+            assert len(got_row) == len(want_row)
+            for got_terms, want_terms in zip(got_row, want_row):
+                assert np.array_equal(got_terms, want_terms)
+
+    points = [{"k": k} for k in (0.2, 0.5, 0.9)]
+    pairs = len(points) * len(trajectories)
+    monkeypatch.setattr(CFG, "agent_validation_parallel_workers", 0)
+    fresh = terms_by_point()
+    assert len(built) == pairs  # no template without forks
+    # The cascade reaches the far end and depends on the friction.
+    assert not np.array_equal(fresh[0][0], fresh[-1][0])
+
+    monkeypatch.setattr(CFG, "agent_validation_parallel_workers", 3)
+    assert_same(terms_by_point(), fresh)
+    # Only the wave's template was built here: no child built a world
+    # (one that tried would raise and be rescored here, building more).
+    assert len(built) == pairs + 1
+
+    with rollout_env.fork_template(factory):
+        assert len(built) == pairs + 2
+        for _ in range(2):
+            assert_same(terms_by_point(), fresh)
+        assert len(built) == pairs + 2  # both waves used the outer one
+        serial = rollout_objective.compute_rollout_residuals(
+            factory,
+            trajectories[:1],
+            points[0],
+            features, ["k"],
+            episode_count=len(trajectories))
+        assert len(built) == pairs + 3  # this process built a fresh world
+        assert np.array_equal(serial, fresh[0][0])
     assert all(not env.connected for env in built)
 
 

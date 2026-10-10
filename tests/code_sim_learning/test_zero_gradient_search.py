@@ -186,3 +186,36 @@ def test_bracket_search_flat_test_ignores_prior_rows() -> None:
     assert not flat  # edge screen alone never suppresses the probe
     assert len(notes) == 1 and "NOT fit from data" in notes[0]
     assert "flat at both box edges" in notes[0]
+
+
+def test_solve_lm_batched_jacobian_matches_least_squares() -> None:
+    """With a batch scorer, solve_lm returns exactly the theta and Jacobian of
+    least_squares' own 2-point Jacobian, and scores each Jacobian's column
+    points through the batch."""
+    specs = [
+        ParamSpec("a", 0.5, lo=0.0, hi=2.0),
+        ParamSpec("b", 0.3, lo=0.01, hi=3.0, scale="log"),
+    ]
+    xs = np.linspace(0.0, 1.0, 7)
+
+    def residuals(theta: np.ndarray) -> np.ndarray:
+        a, b = theta
+        return np.sin(a * xs) + b * xs**2 - (np.sin(1.1 * xs) + 0.7 * xs**2)
+
+    batches: List[int] = []
+
+    def batch(thetas: List[np.ndarray]) -> List[np.ndarray]:
+        batches.append(len(thetas))
+        return [residuals(theta) for theta in thetas]
+
+    theta, jac = solve_lm(residuals, specs, 200, "test", diff_step=2e-2)
+    fast_theta, fast_jac = solve_lm(residuals,
+                                    specs,
+                                    200,
+                                    "test",
+                                    diff_step=2e-2,
+                                    batch_residuals_fn=batch)
+    assert np.array_equal(theta, fast_theta)
+    assert jac is not None and fast_jac is not None
+    assert np.array_equal(jac, fast_jac)
+    assert batches and all(0 < n <= len(specs) for n in batches)

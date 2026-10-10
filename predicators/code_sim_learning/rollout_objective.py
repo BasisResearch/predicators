@@ -21,7 +21,7 @@ from predicators.code_sim_learning.config import SysIdConfig
 from predicators.code_sim_learning.fit_space import ParamSpec, to_fit_space
 from predicators.code_sim_learning.lm import solve_lm
 from predicators.code_sim_learning.rollout_env import RolloutTrajectory, \
-    add_rollouts_run, rollout_states
+    add_rollouts_run, fork_template, rollout_states
 from predicators.code_sim_learning.trajectory_prep import ResidualScaling
 from predicators.settings import CFG
 from predicators.structs import Action, State
@@ -158,7 +158,26 @@ def _huberize(residual: float, delta: float) -> float:
     return float(np.sign(residual) * np.sqrt(2.0 * delta * a - delta * delta))
 
 
-def _iter_rollout_residual_terms(
+@dataclasses.dataclass(frozen=True)
+class _PointScorer:
+    """How the objective scores one parameter point on a trajectory set.
+
+    ``per_step_terms`` scores one trajectory on its own: its rollout,
+    per-step residuals and endpoint and onset summaries. Under interval
+    scoring (``tracks`` non-empty) the trajectories of one episode are
+    scored together from their ``rollout``s instead.
+    """
+    rollout: Callable[[List[State], List[Action]],
+                      Tuple[List[State], List[Dict[Any, Dict[str, Any]]]]]
+    per_step_terms: Callable[[List[State], List[Action]], List[float]]
+    tracks: List[Any]
+    id_maps: List[Any]
+    paired_tracks: bool
+    summary_w: float
+    config: SysIdConfig
+
+
+def _point_scorer(
     base_env: Any,
     trajectories: List[RolloutTrajectory],
     params: Dict[str, float],
@@ -169,31 +188,9 @@ def _iter_rollout_residual_terms(
     scaling: Optional[ResidualScaling] = None,
     config: Optional[SysIdConfig] = None,
     episode_count: Optional[int] = None,
-) -> Iterator[float]:
-    """Yield per-feature residuals for the joint forward model.
-
-    Shared prediction pipeline behind :func:`compute_rollout_sse` and
-    :func:`compute_rollout_residuals`: free-run the base sim at the
-    physical slice of ``params``, apply rules (latents threaded) on each
-    rolled-out state, and score every in-scope feature against its
-    observation. Deterministic iteration order. Without ``scaling`` the
-    residual is the raw ``pred - obs`` difference (legacy objective).
-    With a factory ``base_env`` and fork-parallel workers enabled
-    (``agent_validation_parallel_workers``), per-step scoring fans
-    whole trajectories out to forked children; the terms and their
-    order are identical to the serial path's (see
-    :func:`_prefetch_trajectory_terms`).
-
-    Each per-step residual is Huber-capped (``huber_delta``), and two
-    kinds of per-trajectory SUMMARY residuals are appended with weight
-    ``summary_weight`` (see the flags in ``settings.py``): the settled
-    ENDPOINT residuals (the trajectory's final scored features - the
-    rest poses a plan actually depends on, re-emphasized because they
-    are 1 of N steps in the per-step sum) and per-object motion ONSET
-    residuals (first step any scored feature moves beyond
-    ``settle_tol``, normalized by the horizon - event timing is smooth
-    in the physical params where mid-flight paths are chaos).
-    """
+) -> _PointScorer:
+    """The scorer of one parameter point; see
+    :func:`_iter_rollout_residual_terms` for what it scores."""
     # pylint: disable=import-outside-toplevel
     from predicators.code_sim_learning.commands import CommandBuffer
     from predicators.code_sim_learning.utils import apply_rules, \
@@ -332,13 +329,61 @@ def _iter_rollout_residual_terms(
                                      summary_w))
         return terms
 
-    if not score_intervals:
+    return _PointScorer(rollout=_rollout_with_rules,
+                        per_step_terms=_per_step_terms,
+                        tracks=tracks,
+                        id_maps=id_maps,
+                        paired_tracks=paired_tracks,
+                        summary_w=float(summary_w),
+                        config=config)
+
+
+def _iter_rollout_residual_terms(
+    base_env: Any,
+    trajectories: List[RolloutTrajectory],
+    params: Dict[str, float],
+    residual_features: Dict[str, List[str]],
+    physical_names: Sequence[str],
+    rules: Sequence[Any],
+    latent_init: Any,
+    scaling: Optional[ResidualScaling] = None,
+    config: Optional[SysIdConfig] = None,
+    episode_count: Optional[int] = None,
+) -> Iterator[float]:
+    """Yield per-feature residuals for the joint forward model.
+
+    Shared prediction pipeline behind :func:`compute_rollout_sse` and
+    :func:`compute_rollout_residuals`: free-run the base sim at the
+    physical slice of ``params``, apply rules (latents threaded) on each
+    rolled-out state, and score every in-scope feature against its
+    observation. Deterministic iteration order. Without ``scaling`` the
+    residual is the raw ``pred - obs`` difference (legacy objective).
+    With a factory ``base_env`` and fork-parallel workers enabled
+    (``agent_validation_parallel_workers``), per-step scoring fans
+    whole trajectories out to forked children; the terms and their
+    order are identical to the serial path's (see
+    :func:`_prefetch_trajectory_terms`).
+
+    Each per-step residual is Huber-capped (``huber_delta``), and two
+    kinds of per-trajectory SUMMARY residuals are appended with weight
+    ``summary_weight`` (see the flags in ``settings.py``): the settled
+    ENDPOINT residuals (the trajectory's final scored features - the
+    rest poses a plan actually depends on, re-emphasized because they
+    are 1 of N steps in the per-step sum) and per-object motion ONSET
+    residuals (first step any scored feature moves beyond
+    ``settle_tol``, normalized by the horizon - event timing is smooth
+    in the physical params where mid-flight paths are chaos).
+    """
+    scorer = _point_scorer(base_env, trajectories, params, residual_features,
+                           physical_names, rules, latent_init, scaling, config,
+                           episode_count)
+    if not scorer.tracks:
         prefetched = _prefetch_trajectory_terms(base_env, trajectories,
-                                                _per_step_terms)
+                                                scorer.per_step_terms)
         for idx, (states, actions) in enumerate(trajectories):
             terms = None if prefetched is None else prefetched[idx]
             if terms is None:
-                terms = _per_step_terms(states, actions)
+                terms = scorer.per_step_terms(states, actions)
             yield from terms
         return
 
@@ -349,23 +394,25 @@ def _iter_rollout_residual_terms(
     # outvote the real evidence by thousands of terms to a handful.
     episode_rollouts: List[List[State]] = []
     for traj_index, (states, actions) in enumerate(trajectories):
-        sim_states, _ = _rollout_with_rules(states, actions)
-        if paired_tracks:
+        sim_states, _ = scorer.rollout(states, actions)
+        if scorer.paired_tracks:
             # One track per trajectory: each trajectory IS an episode, so
             # scoring it on its own already is per-episode.
             yield from _interval_residual_terms(sim_states, states,
-                                                tracks[traj_index],
-                                                id_maps[traj_index], config,
-                                                summary_w)
+                                                scorer.tracks[traj_index],
+                                                scorer.id_maps[traj_index],
+                                                scorer.config,
+                                                scorer.summary_w)
         else:
             # Segments of ONE episode. Held, not scored: see the episode
             # -level yield after this loop.
             episode_rollouts.append(sim_states)
-    if not paired_tracks and episode_rollouts:
+    if not scorer.paired_tracks and episode_rollouts:
         yield from _episode_interval_terms(episode_rollouts,
                                            [s for s, _ in trajectories],
-                                           tracks[-1], id_maps[0], config,
-                                           summary_w)
+                                           scorer.tracks[-1],
+                                           scorer.id_maps[0], scorer.config,
+                                           scorer.summary_w)
 
 
 def _prefetch_trajectory_terms(
@@ -375,10 +422,12 @@ def _prefetch_trajectory_terms(
 ) -> Optional[List[Optional[List[float]]]]:
     """Fan per-trajectory scoring out to forked children when enabled.
 
-    Factory envs only: each rollout builds (and disposes) its own fresh
-    world whichever process runs it, so a child's term list is
-    bit-identical to what the serial path would compute - which is what
-    the LM finite-difference Jacobian requires of repeated same-theta
+    Factory envs only: each rollout runs in a fresh world whichever
+    process runs it (a child's copy of the wave's
+    :func:`~predicators.code_sim_learning.rollout_env.fork_template`
+    world, or one it builds), so a child's term list is bit-identical
+    to what the serial path would compute - which is what the LM
+    finite-difference Jacobian requires of repeated same-theta
     evaluations. A shared env instance keeps the serial path untouched
     (its rollouts mutate the caller's env, which must happen in this
     process).
@@ -401,12 +450,175 @@ def _prefetch_trajectory_terms(
         functools.partial(score_fn, states, actions)
         for states, actions in trajectories
     ]
-    results = prefetch_parallel(jobs, "sysid objective", quiet=True)
+    # The longest segments start first (run_forked_rollouts' costs).
+    lengths = [len(actions) for _states, actions in trajectories]
+    with fork_template(base_env):
+        results = prefetch_parallel(jobs,
+                                    "sysid objective",
+                                    quiet=True,
+                                    costs=lengths)
     done = sum(1 for r in results if r is not None)
     if done == 0:
         return None
     add_rollouts_run(done)
     return results
+
+
+def trajectory_terms_by_point(
+    base_env: Any,
+    trajectories: List[RolloutTrajectory],
+    points: Sequence[Dict[str, float]],
+    residual_features: Dict[str, List[str]],
+    physical_names: Sequence[str],
+    rules: Sequence[Any] = (),
+    latent_init: Any = None,
+    scaling: Optional[ResidualScaling] = None,
+    config: Optional[SysIdConfig] = None,
+) -> List[List[np.ndarray]]:
+    """Each point's residual terms per trajectory, each trajectory scored
+    alone.
+
+    Entry ``[p][i]`` holds the terms of ``trajectories[i]`` at
+    ``points[p]``, as :func:`compute_rollout_residuals` scores it with
+    ``episode_count=len(trajectories)`` (what :func:`per_trajectory_rms`
+    evaluates). Under per-step scoring with a factory env, every (point,
+    trajectory) pair goes to forked children in one wave; scoring point
+    by point forks a wave per point and waits on its slowest trajectory
+    each time. Each pair's terms are the serial path's, and a pair a
+    child failed on is scored here. Interval scoring and a shared env
+    instance score pair by pair in this process.
+    """
+    n = len(trajectories)
+    if not points or not n:
+        return [[] for _ in points]
+    out: List[List[Optional[np.ndarray]]] = [[None] * n for _ in points]
+    first = _point_scorer(base_env, trajectories, dict(points[0]),
+                          residual_features, physical_names, rules,
+                          latent_init, scaling, config, n)
+    if callable(base_env) and not first.tracks and len(points) * n > 1:
+        # Deferred for the same layering reason as in
+        # _prefetch_trajectory_terms.
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.parallel_rollouts import prefetch_parallel
+        scorers = [first] + [
+            _point_scorer(base_env, trajectories, dict(point),
+                          residual_features, physical_names, rules,
+                          latent_init, scaling, config, n)
+            for point in points[1:]
+        ]
+        jobs: List[Callable[[], List[float]]] = [
+            functools.partial(scorer.per_step_terms, states, actions)
+            for scorer in scorers for states, actions in trajectories
+        ]
+        # The longest segments start first (run_forked_rollouts' costs).
+        lengths = [len(actions) for _states, actions in trajectories]
+        with fork_template(base_env):
+            results = prefetch_parallel(jobs,
+                                        "sysid batch",
+                                        quiet=True,
+                                        costs=lengths * len(scorers))
+        for k, terms in enumerate(results):
+            if terms is not None:
+                out[k // n][k % n] = np.asarray(terms, dtype=float)
+        add_rollouts_run(sum(1 for r in results if r is not None))
+    filled: List[List[np.ndarray]] = []
+    for point, row in zip(points, out):
+        filled.append([
+            terms if terms is not None else compute_rollout_residuals(
+                base_env, [traj],
+                dict(point),
+                residual_features,
+                physical_names,
+                rules,
+                latent_init,
+                scaling,
+                config,
+                episode_count=n) for traj, terms in zip(trajectories, row)
+        ])
+    return filled
+
+
+def rollout_residuals_by_point(
+    base_env: Any,
+    trajectories: List[RolloutTrajectory],
+    points: Sequence[Dict[str, float]],
+    residual_features: Dict[str, List[str]],
+    physical_names: Sequence[str],
+    rules: Sequence[Any] = (),
+    latent_init: Any = None,
+    scaling: Optional[ResidualScaling] = None,
+    config: Optional[SysIdConfig] = None,
+) -> List[np.ndarray]:
+    """:func:`compute_rollout_residuals` at each point, the points scored
+    together.
+
+    Under per-step scoring a point's residual vector is its
+    trajectories' terms in order, so batching every point's
+    trajectories into one fork wave (:func:`trajectory_terms_by_point`)
+    changes no value; the LM's finite-difference Jacobian scores its
+    column points this way. Interval scoring and a shared env instance
+    score point by point.
+    """
+    if not points:
+        return []
+    first = _point_scorer(base_env, trajectories, dict(points[0]),
+                          residual_features, physical_names, rules,
+                          latent_init, scaling, config)
+    if not callable(base_env) or first.tracks or len(trajectories) == 0:
+        return [
+            compute_rollout_residuals(base_env, trajectories, dict(point),
+                                      residual_features, physical_names, rules,
+                                      latent_init, scaling, config)
+            for point in points
+        ]
+    per_point = trajectory_terms_by_point(base_env, trajectories, points,
+                                          residual_features, physical_names,
+                                          rules, latent_init, scaling, config)
+    return [np.concatenate(per_trajectory) for per_trajectory in per_point]
+
+
+def rollout_sse_by_point(
+    base_env: Any,
+    trajectories: List[RolloutTrajectory],
+    points: Sequence[Dict[str, float]],
+    residual_features: Dict[str, List[str]],
+    physical_names: Sequence[str],
+    rules: Sequence[Any] = (),
+    latent_init: Any = None,
+    scaling: Optional[ResidualScaling] = None,
+    config: Optional[SysIdConfig] = None,
+) -> List[float]:
+    """:func:`compute_rollout_sse` at each point, the points scored together.
+
+    Under per-step scoring a point's SSE is its trajectories' terms
+    squared and summed in order, the same float sum
+    :func:`compute_rollout_sse` takes, so batching every point's
+    trajectories into one fork wave (:func:`trajectory_terms_by_point`)
+    changes no value. Interval scoring scores the segments of an episode
+    together, and a shared env instance cannot fork, so both score point
+    by point.
+    """
+    if not points:
+        return []
+    first = _point_scorer(base_env, trajectories, dict(points[0]),
+                          residual_features, physical_names, rules,
+                          latent_init, scaling, config)
+    if not callable(base_env) or first.tracks or len(trajectories) == 0:
+        return [
+            compute_rollout_sse(base_env, trajectories, dict(point),
+                                residual_features, physical_names, rules,
+                                latent_init, scaling, config)
+            for point in points
+        ]
+    per_point = trajectory_terms_by_point(base_env, trajectories, points,
+                                          residual_features, physical_names,
+                                          rules, latent_init, scaling, config)
+    return [
+        float(
+            sum(
+                float(r) * float(r) for terms in per_trajectory
+                for r in terms)) for per_trajectory in per_point
+    ]
 
 
 def _load_scored_track(config: SysIdConfig) -> Optional[Any]:
@@ -915,17 +1127,31 @@ def fit_map_lm_rollout(
     physical_names = list(fixed) + [s.name for s in physical_specs]
     use_prior = prior_centers is not None and prior_sigmas is not None
 
-    def residuals_fn(theta: np.ndarray) -> np.ndarray:
+    def params_of(theta: np.ndarray) -> Dict[str, float]:
         params = {n: float(theta[i]) for i, n in enumerate(names)}
         params.update(fixed)
-        res = compute_rollout_residuals(base_env, trajectories, params,
-                                        residual_features, physical_names,
-                                        rules, latent_init, scaling)
+        return params
+
+    def with_prior(res: np.ndarray, theta: np.ndarray) -> np.ndarray:
         if not use_prior:
             return res
         z = to_fit_space(all_specs, theta)
         prior_res = noise_sigma * (z - prior_centers) / prior_sigmas
         return np.concatenate([res, prior_res])
+
+    def residuals_fn(theta: np.ndarray) -> np.ndarray:
+        res = compute_rollout_residuals(base_env, trajectories,
+                                        params_of(theta), residual_features,
+                                        physical_names, rules, latent_init,
+                                        scaling)
+        return with_prior(res, theta)
+
+    def batch_residuals_fn(thetas: List[np.ndarray]) -> List[np.ndarray]:
+        data = rollout_residuals_by_point(base_env, trajectories,
+                                          [params_of(t) for t in thetas],
+                                          residual_features, physical_names,
+                                          rules, latent_init, scaling)
+        return [with_prior(res, t) for res, t in zip(data, thetas)]
 
     theta_map, jac = solve_lm(residuals_fn,
                               all_specs,
@@ -934,7 +1160,8 @@ def fit_map_lm_rollout(
                               diff_step=_ROLLOUT_LM_DIFF_STEP,
                               notes_out=notes_out,
                               n_prior_rows=len(all_specs) if use_prior else 0,
-                              flat_params_out=flat_params_out)
+                              flat_params_out=flat_params_out,
+                              batch_residuals_fn=batch_residuals_fn)
     if use_prior and jac is not None and jac.shape[0] > len(all_specs):
         jac = jac[:-len(all_specs)]
     return theta_map, jac
