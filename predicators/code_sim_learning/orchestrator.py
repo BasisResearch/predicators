@@ -480,7 +480,9 @@ def _build_belief(
     anchor (else its declared init) with the fit's widths, recomputed
     the same way when the result does not carry them. Draws are seeded
     by the global seed and the fit's identity, so a cached fit reuses
-    its draws.
+    its draws. When the fit measured its misfit (the global multi-start
+    did), every basin's factor counts it as one persistent error, the
+    same scale that weighs the basins.
     """
     # pylint: disable-next=import-outside-toplevel
     from predicators.settings import CFG
@@ -508,7 +510,8 @@ def _build_belief(
             config=config,
             seed=stable_seed(CFG.seed, sorted(point.items()), num_survivors,
                              *seed_parts),
-            batch_residuals=batch_residuals_fn)
+            batch_residuals=batch_residuals_fn,
+            misfit=float(result.misfit or 0.0))
 
     basins = list(result.basins or [])
     if len(basins) <= 1:

@@ -123,6 +123,12 @@ class FitResult:
     # mixture weight); the first is the point estimate. The parameter
     # belief mixes them. None = no multi-start ran.
     basins: Optional[List[Tuple[Dict[str, float], float, float]]] = None
+    # The SSE the multi-start's best fit leaves above the declared noise
+    # channel's expected SSE (at least the likelihood floor). It weighs
+    # the basins, and the parameter belief's temperature counts it as one
+    # error that persists through the recordings. None = no multi-start
+    # ran.
+    misfit: Optional[float] = None
 
     @property
     def point_estimate(self) -> Dict[str, float]:
