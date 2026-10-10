@@ -1,6 +1,7 @@
 """A subclass's hidden state must survive the same paths as its physics."""
 # pylint: disable=protected-access
 import copy
+import dataclasses
 import pickle
 from typing import Any, ClassVar, Dict, List
 
@@ -10,11 +11,15 @@ import pytest
 from predicators import utils
 from predicators.approaches.agent_sim_learning_approach import \
     AgentSimLearningApproach
+from predicators.code_sim_learning import trajectory_prep
 from predicators.code_sim_learning.base_simulator import base_simulator_class
+from predicators.code_sim_learning.config import SysIdConfig
 from predicators.code_sim_learning.fit_space import ParamSpec
+from predicators.code_sim_learning.model_state import memory_from_history, \
+    restored_model_state
 from predicators.ground_truth_models.balloons.gt_simulator_env import \
     BalloonsResidualEnv
-from predicators.structs import Action, LowLevelTrajectory
+from predicators.structs import Action, LowLevelTrajectory, Object, State, Type
 
 
 class _MemoryModel(BalloonsResidualEnv):
@@ -109,6 +114,16 @@ def test_subclass_state_branches_and_execution_agree(supplied):
         assert env._get_state().latent == snapshot
         restored = pickle.loads(pickle.dumps(branch))
         assert env.simulate(restored, action).latent["charge"] == 2.5
+        # A segment that starts mid-recording rebuilds its memory from the
+        # recording before it, under the parameters the replay runs with.
+        resumed = second.copy()
+        resumed.latent = memory_from_history([action, action],
+                                             [predicted, second])
+        env.apply_physical_param_overrides({"rate": .5})
+        env._set_state(resumed)
+        assert env._get_state().latent == {"charge": 1.0, "events": [.5, 1.]}
+        assert env.simulate(resumed, action).latent["charge"] == 1.5
+        env.apply_physical_param_overrides({"rate": .25})
         # A replacement physical-parameter dict is visible to existing
         # trackers, including classifiers already holding a memory snapshot.
         approach._identified_physical_params = {"rate": .5}
@@ -122,3 +137,45 @@ def test_subclass_state_branches_and_execution_agree(supplied):
         }
     finally:
         env.dispose()
+
+
+def test_segments_rebuild_memory_from_the_recording_before_them():
+    """Rest segmentation for a model with memory: each segment that starts mid-
+    recording carries the actions and observations before it, and restoring it
+    runs the model's update over them under the restoring parameters, so each
+    candidate point gets the memory it implies."""
+    utils.reset_config({})
+    obj = Object("d0", Type("dot", ["x"]))
+    xs = ([0.0] * 15 + [0.01 * k for k in range(1, 11)] + [0.1] * 15 +
+          [0.1 + 0.01 * k for k in range(1, 11)] + [0.2] * 15)
+    states = [State({obj: np.array([x])}) for x in xs]
+    actions = [Action(np.zeros(1, dtype=np.float32)) for _ in xs[1:]]
+    config = dataclasses.replace(SysIdConfig.from_cfg(),
+                                 noise_filter=False,
+                                 settle_tol=1e-3,
+                                 settle_margin=3,
+                                 segment_min_rest_steps=5)
+    plain, carried = (trajectory_prep.split_at_rest_points((states, actions),
+                                                           {"dot": ["x"]},
+                                                           config=config,
+                                                           carry_history=carry)
+                      for carry in (False, True))
+    assert len(plain) == len(carried) == 2
+    starts = []
+    for (p_states, p_actions), (c_states, c_actions) in zip(plain, carried):
+        assert c_actions == p_actions and c_states[1:] == p_states[1:]
+        assert c_states[0].allclose(p_states[0])
+        assert p_states[0].latent is None
+        starts.append(
+            next(i for i, s in enumerate(states) if s is c_states[1]) - 1)
+    assert starts == [14, 39]
+    assert all(s.latent is None for s in states)
+    for (seg_states, _), start in zip(carried, starts):
+        for rate in (.25, .5):
+            memory = restored_model_state(_MemoryModel, seg_states[0],
+                                          {"rate": rate})
+            assert memory["charge"] == pytest.approx(rate * start)
+            assert len(memory["events"]) == start
+        copied = copy.deepcopy(seg_states[0])
+        assert restored_model_state(_MemoryModel, copied,
+                                    {"rate": 1.0})["charge"] == start
