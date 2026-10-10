@@ -179,6 +179,27 @@ class LinePosterior:
             return float(self.grid[0])
         return float(self._invert(np.array([q]))[0])
 
+    def mode(self) -> float:
+        """The value of highest density."""
+        return float(self.grid[int(np.argmax(self.density))])
+
+    def highest_density_interval(self, coverage: float) -> Tuple[float, float]:
+        """The span of the densest pieces that together hold at least
+        ``coverage`` of the mass.
+
+        For a unimodal density this is the shortest interval with that
+        mass, and it always contains the mode; a central interval
+        excludes a mode that sits at a bound.
+        """
+        if self.is_point:
+            return float(self.grid[0]), float(self.grid[0])
+        a, b, fa, fb, mass = self._pieces()
+        order = np.argsort(-(fa + fb), kind="stable")
+        cum = np.cumsum(mass[order])
+        count = int(np.searchsorted(cum, coverage * cum[-1])) + 1
+        chosen = order[:min(count, order.size)]
+        return float(np.min(a[chosen])), float(np.max(b[chosen]))
+
 
 @dataclass(frozen=True)
 class DiscretePosterior:
@@ -221,6 +242,10 @@ class DiscretePosterior:
         cum = np.cumsum(self.probs)
         idx = int(np.searchsorted(cum, min(max(q, 0.0), 1.0) - 1e-12))
         return float(self.values[min(idx, self.values.size - 1)])
+
+    def mode(self) -> float:
+        """The most probable value."""
+        return float(self.values[int(np.argmax(self.probs))])
 
 
 @dataclass
@@ -297,8 +322,41 @@ class ParameterBelief:
             return float(np.exp(ends[0])), float(np.exp(ends[1]))
         return float(ends[0]), float(ends[1])
 
+    def most_likely(self, name: str) -> float:
+        """The mode of ``name``'s factor (external units); the fit's point
+        estimate for a held parameter."""
+        if name in self.discrete:
+            return self.discrete[name].mode()
+        line = self.lines.get(name)
+        if line is None:
+            return float(self.map_estimate[name])
+        mode = line.mode()
+        if self.scales[self.names.index(name)] == "log":
+            return float(np.exp(mode))
+        return float(mode)
+
+    def highest_density_interval(self,
+                                 name: str,
+                                 coverage: float = 0.68
+                                 ) -> Tuple[float, float]:
+        """The highest-density ``coverage`` interval of ``name``'s factor
+        (external units), which contains its mode."""
+        line = self.lines.get(name)
+        if line is None or name in self.discrete:
+            return self.interval(name, coverage)
+        lo, hi = line.highest_density_interval(coverage)
+        if self.scales[self.names.index(name)] == "log":
+            return float(np.exp(lo)), float(np.exp(hi))
+        return float(lo), float(hi)
+
     def describe(self) -> List[str]:
-        """One readable line per parameter, plus the noise-level note."""
+        """One readable line per parameter, plus the noise-level note.
+
+        Each line gives the factor's own most likely value and its 68%
+        highest-density interval; the fit's point estimate, which the
+        planning model runs at, is named when it lies outside that
+        interval.
+        """
         lines = []
         if self.noise_scale > 1.0:
             lines.append(
@@ -317,9 +375,13 @@ class ParameterBelief:
                                    f"{dist.probs[i]:.2f}" for i in top)
                 lines.append(f"  {name}: discrete, posterior {shares}")
                 continue
-            lo, hi = self.interval(name)
-            lines.append(f"  {name}: most likely {value:.4g}; 68% "
-                         f"posterior interval [{lo:.4g}, {hi:.4g}]")
+            lo, hi = self.highest_density_interval(name)
+            line = (f"  {name}: most likely {self.most_likely(name):.4g}; 68% "
+                    f"posterior interval [{lo:.4g}, {hi:.4g}]")
+            if not lo <= value <= hi:
+                line += (f"; the fit's point estimate {value:.4g} lies "
+                         "outside it")
+            lines.append(line)
         return lines
 
     def to_dict(self) -> Dict[str, Any]:
