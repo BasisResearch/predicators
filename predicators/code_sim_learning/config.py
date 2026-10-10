@@ -114,6 +114,10 @@ class SysIdConfig:
     # code_sim_learning_rollout_global_design_points / _global_starts).
     global_design_points: int = 0
     global_starts: int = 0
+    # The time.monotonic() time by which the fit call must have returned
+    # (the sim.fit tool's budget), or None for no limit. Not a flag: the
+    # caller that owns the budget sets it (run_rollout_sysid).
+    deadline: Optional[float] = None
 
     @property
     def flat_band_frac(self) -> float:

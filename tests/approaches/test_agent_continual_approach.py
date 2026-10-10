@@ -299,6 +299,59 @@ RESIDUAL_ENV = Counter
 
 
 @pytest.mark.slow
+def test_fit_that_overruns_its_budget_says_so(tmp_path: Any,
+                                              monkeypatch: Any) -> None:
+    """A fit stopped by its time limit tells the agent what happened and what
+    makes fits long, where the watchdog's bare exception used to print an empty
+    "fit failed:"."""
+    # pylint: disable=import-outside-toplevel,protected-access
+    from predicators.agent_sdk.belief_probe import ProbeBudgetExceeded
+    from predicators.code_sim_learning import orchestrator
+
+    seen: Dict[str, Any] = {}
+
+    def overrun(*_args: Any, **kwargs: Any) -> Any:
+        seen["deadline"] = kwargs["config"].deadline
+        raise ProbeBudgetExceeded
+
+    # The fit tool binds run_rollout_sysid when the approach builds it.
+    monkeypatch.setattr(orchestrator, "run_rollout_sysid", overrun)
+    _config(tmp_path, agent_sdk_fit_call_timeout=1200.0)
+    env, approach = _make_approach()
+    source = '''
+class Counter(BaseSimulator):
+    AGENT_PARAM_SPECS = [ParamSpec("rate", .25, lo=0.0, hi=1.0)]
+    MODEL_STATE_INIT = {"charge": 0.0}
+    RESIDUAL_FEATURES = {}
+
+    @classmethod
+    def update_model_state(cls, observation, model_state, params, action):
+        model_state["charge"] += params["rate"]
+
+RESIDUAL_ENV = Counter
+'''
+
+    def fake_query(*_args: Any, **_kwargs: Any) -> List[Dict[str, Any]]:
+        assert "step applied" in _call(approach,
+                                       "env_step",
+                                       action=[0.0] *
+                                       env.action_space.shape[0])
+        path = os.path.join(approach._tool_context.sandbox_dir, "simulator.py")
+        with open(path, "w", encoding="utf-8") as file:
+            file.write(source)
+        seen["output"] = _call(approach, "run_python", code="print(sim.fit())")
+        assert "Give-up recorded" in _call(approach, "give_up", note="done")
+        return _result()
+
+    monkeypatch.setattr(approach, "_query_agent_sync", fake_query)
+    approach.prepare_for_continual(Dataset([]))
+    ContinualRun(env, approach, create_level_player(env, approach)).run()
+    assert "ran past its 1200 s limit" in seen["output"]
+    assert "nothing was fitted or applied" in seen["output"]
+    assert seen["deadline"] is not None
+
+
+@pytest.mark.slow
 def test_play_loop_with_a_scripted_agent(tmp_path: Any) -> None:
     """Two rounds of one conversation: act in the first, which also carries the
     model workbench, and stop; give up in the second.

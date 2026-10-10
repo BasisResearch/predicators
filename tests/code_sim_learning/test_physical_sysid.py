@@ -1553,7 +1553,7 @@ def test_global_multistart_leaves_the_guesses_basin(monkeypatch):
             None, [_trajectory([0.0, 0.1])], [spec], [spec],
             [], _RESIDUAL_FEATURES, (), None, None, np.array([0.2]),
             np.array([1e6]), 0.05, config, (np.array([0.2]), None), noise_sse,
-            0.0)
+            0.0, physical_sysid._SearchClock(None, 0.0, 0, 0.0))[:4]
 
     # The best fit leaves 0.05 above the noise: the 0.2 basin, 0.2 worse,
     # is distinguishable.
@@ -1577,6 +1577,66 @@ def test_global_multistart_leaves_the_guesses_basin(monkeypatch):
     assert misfit is None
 
 
+class _FakeTime:
+    """A monotonic clock that only the test advances."""
+
+    def __init__(self):
+        self.now = 1000.0
+
+    def monotonic(self):
+        """The current fake time."""
+        return self.now
+
+
+def test_global_multistart_stays_inside_the_fit_budget(monkeypatch):
+    """The whole-box search runs the LM starts that end within its share of the
+    fit's time budget and says how far it got; with no room for the design and
+    one start it keeps the guesses' fit, still measures its misfit, and mixes
+    no basins."""
+    import dataclasses
+
+    from predicators.code_sim_learning.config import SysIdConfig
+    _stub_multistart(monkeypatch)
+    fake = _FakeTime()
+    monkeypatch.setattr(physical_sysid, "time", fake)
+    stub_lm = physical_sysid.fit_map_lm_rollout
+
+    def ten_second_lm(*args, **kwargs):
+        fake.now += 10.0
+        return stub_lm(*args, **kwargs)
+
+    monkeypatch.setattr(physical_sysid, "fit_map_lm_rollout", ten_second_lm)
+    spec = ParamSpec("k", 0.2, lo=0.0, hi=1.0)
+    config = dataclasses.replace(SysIdConfig.from_cfg(),
+                                 global_design_points=16,
+                                 global_starts=3)
+
+    def run(budget):
+        deadline = None if budget is None else fake.now + budget
+        clock = physical_sysid._SearchClock(deadline, fake.now,
+                                            physical_sysid.num_rollouts_run(),
+                                            10.0)
+        return physical_sysid._global_multistart(
+            None, [_trajectory([0.0, 0.1])], [spec], [spec],
+            [], _RESIDUAL_FEATURES, (), None, None, np.array([0.2]),
+            np.array([1e6]), 0.05, config, (np.array([0.2]), None), 10.0, 0.0,
+            clock)
+
+    # Half of a 50 s budget holds two 10 s starts, not a third.
+    theta, _jac, basins, _misfit, note = run(50.0)
+    assert theta[0] == 0.8 and basins
+    assert "from 2 of its 3 best design points" in note
+    # Half of a 10 s budget holds no start: the guesses' fit stays, with
+    # its misfit (SSE 10.5 at 0.2, against 10.0 of noise).
+    theta, _jac, basins, misfit, note = run(10.0)
+    assert theta[0] == 0.2 and basins is None
+    assert misfit == pytest.approx(0.5)
+    assert "did not run" in note
+    # Without a limit the whole search runs.
+    theta, _jac, basins, _misfit, note = run(None)
+    assert theta[0] == 0.8 and note == ""
+
+
 def test_global_multistart_runs_for_guessed_starting_values_only(monkeypatch):
     """Calibrated starting values sit in the right basin, so only guessed ones
     get the whole-box search."""
@@ -1596,7 +1656,7 @@ def test_global_multistart_runs_for_guessed_starting_values_only(monkeypatch):
 
     def fake_multistart(*args, **_kwargs):
         calls.append(True)
-        return args[13][0], args[13][1], [({"mu": 0.5}, 1.0, 1.0)], 0.2
+        return args[13][0], args[13][1], [({"mu": 0.5}, 1.0, 1.0)], 0.2, ""
 
     monkeypatch.setattr(physical_sysid, "fit_map_lm_rollout", fake_lm)
     monkeypatch.setattr(physical_sysid, "_grid_seed_physical_specs",
