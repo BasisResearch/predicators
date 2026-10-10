@@ -525,7 +525,8 @@ def read_residual_env(ns: Mapping[str, Any]) -> Optional[Type["PyBulletEnv"]]:
 
 
 def stamp_physical_spec_scales(specs: List, base_env: Any) -> List:
-    """Stamp each physical ParamSpec's fit ``scale`` from the env registry.
+    """Stamp each physical ParamSpec's fit ``scale`` and plausible range from
+    the env registry.
 
     The env's ``get_physical_param_info()`` is the source of truth for
     which parameters are scale-like (fitted in log-space): agents copy
@@ -536,15 +537,28 @@ def stamp_physical_spec_scales(specs: List, base_env: Any) -> List:
     declares ``scale`` therefore overrides the agent's declaration;
     parameters the registry does not mark keep whatever the agent
     declared (default linear).
+
+    A registry entry may also name a ``plausible`` (lo, hi) range. A
+    declared box narrower than it is widened to cover it, so the fit,
+    the belief and the physics sweep keep at least that range for a
+    parameter the recordings do not test (a scene base bound for the
+    from-assets arm names one for every engine material).
     """
     getter = getattr(base_env, "get_physical_param_info", None)
     info = getter() if callable(getter) else {}
     stamped = []
     for s in specs:
-        scale = (info.get(s.name) or {}).get("scale",
-                                             getattr(s, "scale", "linear"))
+        entry = info.get(s.name) or {}
+        scale = entry.get("scale", getattr(s, "scale", "linear"))
+        lo, hi = s.lo, s.hi
+        plausible = entry.get("plausible")
+        if plausible is not None:
+            if lo is not None:
+                lo = min(lo, float(plausible[0]))
+            if hi is not None:
+                hi = max(hi, float(plausible[1]))
         stamped.append(
-            ParamSpec(s.name, s.init_value, lo=s.lo, hi=s.hi, scale=scale))
+            ParamSpec(s.name, s.init_value, lo=lo, hi=hi, scale=scale))
     return stamped
 
 

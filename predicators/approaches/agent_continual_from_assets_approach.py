@@ -27,14 +27,23 @@ from predicators.settings import CFG
 from predicators.structs import LowLevelTrajectory, State, Type
 
 
+def _box(lo: Optional[float], hi: Optional[float]) -> str:
+    """A declared box as ``[lo, hi]``, an open end as -inf or inf."""
+    low = "-inf" if lo is None else f"{lo:.4g}"
+    high = "inf" if hi is None else f"{hi:.4g}"
+    return f"[{low}, {high}]"
+
+
 class AgentContinualFromAssetsApproach(AgentContinualApproach):
     """Build the scene twin from the engine, the manifest and the assets."""
 
     _save_suffix = "AgentContinualFromAssets"
     # The model's physics starts from the agent's guesses: the fit's prior
-    # spans each declared range (code_sim_learning_prior_spans_bounds), and
+    # spans each declared range (code_sim_learning_prior_spans_bounds), a
+    # declared material's range covers at least its plausible range, and
     # rehearsal samples the engine materials the model does not declare.
-    # The real-to-sim comparison fits nothing and samples nothing.
+    # The real-to-sim comparison fits nothing, samples nothing and keeps
+    # the declared ranges.
     _belief_over_guesses = True
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -58,8 +67,11 @@ class AgentContinualFromAssetsApproach(AgentContinualApproach):
 
     def _create_initial_base_env(self, types: Set[Type]) -> Any:
         """Construct only robot infrastructure, never a domain twin."""
-        return scene_base_class(CFG.env, types,
-                                "")(use_gui=CFG.option_model_use_gui)
+        return scene_base_class(CFG.env,
+                                types,
+                                "",
+                                plausible_floor=self._belief_over_guesses)(
+                                    use_gui=CFG.option_model_use_gui)
 
     def _make_planning_base_env(self, use_gui: bool = False) -> Any:
         """Every predictive world must use the agent's scene class."""
@@ -76,8 +88,11 @@ class AgentContinualFromAssetsApproach(AgentContinualApproach):
         if self._scene_base is None:
             asset_dir = os.path.join(self._resolve_synthesis_paths().base,
                                      "reference", "assets")
-            self._scene_base = scene_base_class(CFG.env, self._types,
-                                                asset_dir)
+            self._scene_base = scene_base_class(
+                CFG.env,
+                self._types,
+                asset_dir,
+                plausible_floor=self._belief_over_guesses)
         return self._scene_base
 
     def _simulator_load_namespace(self) -> Dict[str, Any]:
@@ -134,6 +149,34 @@ class AgentContinualFromAssetsApproach(AgentContinualApproach):
 
     def _no_model_section(self) -> str:
         return "no_model_assets"
+
+    def _fit_status_text(self) -> str:
+        """The fit status, then every declared range the plausible floor
+        widened, so the agent knows what the fit and the belief cover."""
+        status = super()._fit_status_text()
+        widened = self._widened_ranges()
+        if not widened:
+            return status
+        return (f"{status}; declared ranges widened to the engine's "
+                f"plausible range: {', '.join(widened)}")
+
+    # -- Materials the model declares ----------------------------------------
+
+    def _widened_ranges(self) -> List[str]:
+        """``name [lo, hi] -> [lo, hi]`` for each declared parameter whose box
+        the plausible floor widened."""
+        cls = getattr(self, "_residual_env_cls", None)
+        if cls is None:
+            return []
+        declared = {spec.name: spec for spec in cls.AGENT_PARAM_SPECS}
+        notes = []
+        for spec in self._physical_param_specs:
+            own = declared.get(spec.name)
+            if own is None or (own.lo, own.hi) == (spec.lo, spec.hi):
+                continue
+            notes.append(f"{spec.name} {_box(own.lo, own.hi)} -> "
+                         f"{_box(spec.lo, spec.hi)}")
+        return notes
 
     # -- Materials the model does not declare -------------------------------
 

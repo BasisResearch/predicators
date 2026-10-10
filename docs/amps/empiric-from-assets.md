@@ -33,16 +33,20 @@ Added October 2026, after seed 1 of the Domino round `fixes_r1` lost its test le
 That agent never declared the dominoes' spinning and rolling friction, so its model ran both at PyBullet's 0 while the world uses 0.5 and 0.006.
 Its rehearsals predicted a cascade that the world did not produce.
 Its level-1 recording, a straight chain, could not have identified either value.
-Two settings keep this arm's belief from claiming knowledge the data do not give:
+Three settings keep this arm's belief from claiming knowledge the data do not give:
 
 - The fit's prior on each parameter spans the parameter's declared range (`code_sim_learning_prior_spans_bounds`, set by the `from_assets_opus` menu entry and required by the arm).
   Under the anchored prior of the supplied-base arms, 0.75 times the starting value, a spinning friction started at 0.05 came out with a 68% interval of 0.057 to 0.12 on data that said nothing about it.
 - Rehearsal samples every engine material the scene does not declare.
-  `SceneBase.sampled_material_specs` gives each one a plausible range around the scene's own value (`SAMPLED_MATERIALS`), and the arm joins these prior-only factors to its belief.
+  `SceneBase.sampled_material_specs` gives each one its plausible range around the scene's own value (`PLAUSIBLE_MATERIALS`), and the arm joins these prior-only factors to its belief.
   Joint draws and physics sweeps vary them; they are never fitted, so they cost no replays.
+- A declared material's range covers at least its plausible range.
+  The arm binds `SceneBase` with `plausible_floor`, its parameter registry names each material's plausible range, and `stamp_physical_spec_scales` widens a narrower declared box to it, so the fit, the prior, the joint draws and the physics sweep all use the wider range.
+  The model status lists each widened range.
+  Added after seed 0 of the round `fixes_r2` declared spinning friction on 0 to 0.05 and rolling friction on 0 to 0.002, while the world has 0.5 and 0.006: its 16 joint draws all predicted a cascade, and the world's chain stalled at its second bridge.
 
 The supplied-base arms keep the anchored prior: their starting values are the base's calibrated defaults.
-The real-to-sim comparison fits nothing and samples nothing.
+The real-to-sim comparison fits nothing, samples nothing and keeps the declared ranges.
 
 ## Pilot
 

@@ -318,3 +318,60 @@ def test_stamp_scales_env_without_registry_is_identity():
     stamped = stamp_physical_spec_scales(agent_specs, object())
     assert stamped[0].scale == "linear"
     assert stamped[0].name == "friction"
+
+
+class _PlausibleRangeEnv:
+
+    def get_physical_param_info(self):
+        """Return a registry that names plausible ranges, as a scene base bound
+        for the from-assets arm does for its engine materials."""
+        return {
+            "spin": {
+                "default": 0.005,
+                "lo": 0.0,
+                "hi": 0.05,
+                "description": "",
+                "plausible": (0.0, 1.0),
+            },
+            "slide": {
+                "default": 0.5,
+                "lo": 0.01,
+                "hi": 3.0,
+                "scale": "log",
+                "description": "",
+                "plausible": (0.1, 1.5),
+            },
+            "roll": {
+                "default": 0.001,
+                "lo": 0.0,
+                "hi": 0.002,
+                "description": "",
+                "plausible": (0.0, 0.02),
+            },
+            "rate": {
+                "default": 0.01,
+                "lo": 0.0,
+                "hi": 0.1,
+                "description": "",
+            },
+        }
+
+
+def test_stamp_widens_a_declared_box_to_the_plausible_range():
+    """A declared box narrower than the registry's plausible range covers it
+    after stamping; a wider box, an open end and a parameter without a
+    plausible range stay as declared, and every init value stays."""
+    agent_specs = [
+        ParamSpec("spin", 0.005, lo=0.0, hi=0.05),
+        ParamSpec("slide", 0.5, lo=0.01, hi=3.0, scale="log"),
+        ParamSpec("roll", 0.001, lo=None, hi=0.002),
+        ParamSpec("rate", 0.01, lo=0.0, hi=0.1),
+    ]
+    stamped = stamp_physical_spec_scales(agent_specs, _PlausibleRangeEnv())
+    by_name = {s.name: s for s in stamped}
+    assert (by_name["spin"].lo, by_name["spin"].hi) == (0.0, 1.0)
+    assert (by_name["slide"].lo, by_name["slide"].hi) == (0.01, 3.0)
+    assert by_name["slide"].scale == "log"
+    assert (by_name["roll"].lo, by_name["roll"].hi) == (None, 0.02)
+    assert (by_name["rate"].lo, by_name["rate"].hi) == (0.0, 0.1)
+    assert [s.init_value for s in stamped] == [0.005, 0.5, 0.001, 0.01]
