@@ -1743,6 +1743,27 @@ def test_LinearChainParameterizedOption():
         chain_option.policy(state)
 
 
+@pytest.mark.parametrize("space0,space1", [
+    pytest.param(Box(0, 1, (0, )), Box(-1, 1, (1, )), id="empty-then-1d"),
+    pytest.param(Box(-1, 1, (1, )), Box(0, 1, (0, )), id="1d-then-empty"),
+    pytest.param(Box(0, 1, (1, )), Box(0, 1, (4, )), id="1d-then-4d"),
+    pytest.param(Box(0, 1, (2, )), Box(0, 2, (2, )), id="other-bounds"),
+])
+def test_LinearChainParameterizedOption_params_space_mismatch(space0, space1):
+    """LinearChainParameterizedOption() rejects children whose params spaces
+    differ in shape or bounds."""
+    cup_type = Type("cup_type", ["feat1"])
+    children = [
+        ParameterizedOption(f"dummy{i}", [cup_type], space,
+                            lambda _1, _2, _3, _4: Action(np.array([0])),
+                            lambda _1, _2, _3, _4: True,
+                            lambda _1, _2, _3, _4: True)
+        for i, space in enumerate([space0, space1])
+    ]
+    with pytest.raises(AssertionError, match="params space"):
+        utils.LinearChainParameterizedOption("chain", children)
+
+
 def test_nsrt_methods():
     """Tests for all_ground_nsrts(), extract_preds_and_types()."""
     cup_type = Type("cup_type", ["feat1"])
