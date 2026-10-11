@@ -46,6 +46,7 @@ from predicators.cogman import CogMan
 from predicators.execution_monitoring import create_execution_monitor
 from predicators.perception import create_perceiver
 from predicators.run.checkpoints import maybe_auto_resume
+from predicators.run.cycles_video import keep_procedural_meshes
 from predicators.run.online_learning import run_pipeline
 from predicators.run.paths import resumable_run_subdir
 from predicators.run.setup import create_offline_dataset, setup_approach, \
@@ -64,6 +65,9 @@ def main() -> None:
     args = utils.parse_args()
     utils.update_config(args)
     str_args = " ".join(sys.argv)
+    if CFG.video_cycles_scenes:
+        # Before any env exists, so its scenes can serialize every visual.
+        keep_procedural_meshes()
 
     # Setup logging and directories. A continual run that resumes
     # (--auto_resume) logs into the run directory it continues.
