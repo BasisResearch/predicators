@@ -129,6 +129,18 @@ def _noise_text(card: Dict[str, Any]) -> str:
     return ", ".join(parts) + f" ({declared})"
 
 
+def _accounts_text(card: Dict[str, Any]) -> str:
+    """The Claude account the run is charged to, for the meta rows; when a
+    resume moved the run to another account, every account in the order the run
+    used them, each with the LLM spend charged to it."""
+    records = card.get("claude_accounts")
+    if not isinstance(records, list) or len(records) < 2:
+        return str(card.get("claude_account") or "") or "-"
+    return ", then ".join(f"{r.get('account') or '(none)'} "
+                          f"(${float(r.get('llm_cost_usd') or 0.0):.2f})"
+                          for r in records)
+
+
 def esc(text: Any) -> str:
     """HTML-escape."""
     return html.escape(str(text), quote=True)
@@ -2083,7 +2095,7 @@ def overview_fragment(key: str) -> Optional[str]:
          esc(fmt_age(card.get("updated_at"))) + ")"),
         ("finished", esc(fmt_ts(card.get("finished_at")))),
         ("git", f"<code>{esc(card.get('git_sha', ''))}</code>"),
-        ("account", esc(card.get("claude_account", "") or "-")),
+        ("account", esc(_accounts_text(card))),
         ("observation noise", esc(_noise_text(card))),
         ("scorecard", f"<a href='/card/{q(key)}'>json</a>"),
     ]
