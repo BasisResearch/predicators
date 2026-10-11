@@ -104,8 +104,7 @@ Laser and BusyBoard start every training task from one layout and use a differen
 
 The other ❌ entries in the Oracle column, in the default configuration:
 Barrier, MagicBin and Switch have no ground-truth operators or processes;
-Coffee fails to read a cup's pose;
-Balloons, BusyBoard, Domino, Fan, Float, IceRink and Laser run but do not solve the test task.
+Balloons, BusyBoard, Coffee, Domino, Fan, Float, IceRink and Laser run but do not solve the test task.
 The clips on the project page come from the benchmark settings or from scripted skill sequences, as each environment's page says.
 
 ## Skill libraries
