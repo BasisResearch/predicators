@@ -9,7 +9,8 @@ from predicators.agent_sdk.config import RefinementConfig, SessionConfig
 from predicators.agent_sdk.proposal_exec import build_exec_context, \
     load_ground_samplers
 from predicators.agent_sdk.tools.context import ToolContext
-from predicators.structs import Predicate, State, Task
+from predicators.structs import Predicate, State, StepOption, Task, \
+    step_option_label
 
 
 class _EvalStateCollector:
@@ -26,7 +27,7 @@ class _EvalStateCollector:
     def __init__(self, option_model: Any, init_state: State) -> None:
         self._option_model = option_model
         self.states: List[State] = [init_state]
-        self.labels: List[Any] = []
+        self.labels: List[StepOption] = []
         self.coarse = False
 
     def collect(self, outcome: Any) -> None:
@@ -34,15 +35,15 @@ class _EvalStateCollector:
         if outcome.post_state is None:
             return
         opt = outcome.option
-        label = (opt.name, tuple(o.name for o in opt.objects),
-                 tuple(float(p) for p in opt.params))
         step_traj = getattr(self._option_model, "last_trajectory", None)
         if step_traj is not None and len(step_traj.states) >= 2:
             self.states.extend(step_traj.states[1:])
-            self.labels.extend([label] * len(step_traj.actions))
+            self.labels.extend(
+                step_option_label(opt, i == 0)
+                for i in range(len(step_traj.actions)))
         else:
             self.states.append(outcome.post_state)
-            self.labels.append(label)
+            self.labels.append(step_option_label(opt, True))
             self.coarse = True
 
     def on_step(self, _i: int, outcome: Any) -> None:
