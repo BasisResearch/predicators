@@ -102,6 +102,16 @@ class GlobalSettings:
     # (continual_raw_control governs that). Off keeps modelling
     # advisory. The model-free arm has no model and is never gated.
     continual_require_model_on_test = False
+    # Whether a model arm's skill requests on a TEST level wait for a
+    # rehearsal on the joint belief: skills_invoke and skills_execute_plan
+    # refuse, charging nothing, until sim.run has rehearsed, on the
+    # belief_joint_draws joint draws from the current real observation, a
+    # plan that starts with the request. Planning is meant to average over
+    # the joint draws (docs/uncertainty/principled-belief.md); this holds
+    # every real step of a test level to it. Wait requests, which command
+    # no motion, pass; train levels stay free for evidence collection.
+    # Needs belief_joint_draws > 0 and continual_uncertainty_decisions.
+    continual_rehearsal_gate = False
     # Whether the model arm rehearses every skills_invoke /
     # skills_execute_plan request in its sim before real steps are
     # charged: the candidate ./simulator.py when one loads, else the

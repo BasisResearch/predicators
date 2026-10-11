@@ -234,6 +234,28 @@ def test_model_gate_does_not_imply_preflight(preflight):
     assert ("### Every skill request is rehearsed first" in text) == preflight
 
 
+@pytest.mark.parametrize("gate", [False, True])
+def test_rehearsal_gate_section_follows_the_flag(gate):
+    """The system prompt announces the test-level rehearsal gate exactly when
+    it is on and the joint belief can serve it."""
+    utils.reset_config({
+        "continual_rehearsal_gate": gate,
+        "belief_joint_draws": 16,
+        "continual_uncertainty_decisions": True,
+    })
+    text = play_prompts.build_play_system_prompt(["run_python"] +
+                                                 list(CONTINUAL_TOOL_NAMES))
+    assert ("### Test-level steps wait for a joint rehearsal" in text) == gate
+    utils.reset_config({
+        "continual_rehearsal_gate": True,
+        "belief_joint_draws": 0,
+    })
+    text = play_prompts.build_play_system_prompt(["run_python"] +
+                                                 list(CONTINUAL_TOOL_NAMES))
+    assert "### Test-level steps wait for a joint rehearsal" not in text
+    utils.reset_config({})
+
+
 @pytest.mark.parametrize("arm", [
     "scene_only", "oracle_dynamics", "zero_shot", "no_fitting",
     "no_uncertainty", "real_to_sim"

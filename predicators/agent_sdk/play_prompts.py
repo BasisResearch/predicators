@@ -258,6 +258,8 @@ def build_play_system_prompt(tool_names: Sequence[str],
             sections.append(
                 render("play_system",
                        "model_gate_fit" if fit_gate else "model_gate"))
+        if CFG.continual_rehearsal_gate and joint:
+            sections.append(render("play_system", "rehearsal_gate"))
         if CFG.continual_skill_preflight:
             sections.append(render("play_system", "skill_preflight"))
         if CFG.agent_model_repair and not frozen:

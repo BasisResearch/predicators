@@ -421,6 +421,11 @@ def _settled(env: Any, state: State) -> State:
         return state
 
 
+# How many live-observation rehearsals the context keeps for the
+# rehearsal gate; older ones were from earlier observations anyway.
+_LIVE_REHEARSALS_KEPT = 32
+
+
 def _log_rehearsal(ctx: "ToolContext", plan_text: str,
                    result: "ProbeJointResult") -> None:
     """Append one rehearsal to ``<log_dir>/rehearsals.jsonl``.
@@ -1826,6 +1831,12 @@ class BeliefProbe:
                                seed=seed,
                                draws=0)
         _log_rehearsal(ctx, plan_text, result)
+        if result.from_observation and ctx.current_observation is not None:
+            # What the rehearsal gate lets through: this plan, from this
+            # observation (the bound keeps a long session's list small).
+            ctx.live_rehearsals.append(
+                (ctx.current_observation, plan_text, float(result.p_hat)))
+            del ctx.live_rehearsals[:-_LIVE_REHEARSALS_KEPT]
         return result
 
     def run(
