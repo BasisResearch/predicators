@@ -251,7 +251,13 @@ class AsyncRolloutRegistry:
         overdue child dies even when the caller never pumps again (a
         session abandoned mid-flight).
         """
+        # Children that sent their result and are exiting. Each is reaped
+        # once it has exited (is_alive reaps), never waited for: tearing
+        # down a forked child of a large parent takes tenths of a second,
+        # and waiting on one held back every result queued behind it.
+        exiting: List[Any] = []
         while not self._stop:
+            exiting = [p for p in exiting if p.is_alive()]
             if self._queue.empty():
                 self._fail_overdue()
                 time.sleep(0.05)
@@ -268,7 +274,9 @@ class AsyncRolloutRegistry:
                 self._deadlines.pop(index, None)
                 proc = self._procs.pop(index, None)
             if proc is not None:
-                proc.join(timeout=30)
+                exiting.append(proc)
+        for proc in exiting:
+            proc.join(timeout=10)
 
     def _fail_overdue(self) -> None:
         """Terminate children past their deadline and fail their handles.
