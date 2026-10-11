@@ -193,6 +193,14 @@ The refusal says which condition is unmet.
 Train levels are not gated: collect evidence there first.
 Loading a model does not itself enable automatic rehearsal; use `sim` to check plans before execution.
 
+<!-- section: rehearsal_gate -->
+### Test-level steps wait for a joint rehearsal
+
+On a test level, `skills_invoke` and `skills_execute_plan` refuse, charging nothing, until `sim.run(plan)` has rehearsed, on the joint draws of the belief from the current observation, a plan whose first lines are the request.
+Rehearse the whole remaining plan from `sim.reset(current=True)`: its first line is then the next request, and its P-hat says how the plan fares across the parameters and states the data still allow.
+Each real step changes the observation, so rehearse the rest of the plan again before the next step.
+`Wait` lines need no rehearsal; runs at the point estimate (`draws=0`) and runs from staged states do not count.
+
 <!-- section: skill_preflight -->
 ### Every skill request is rehearsed first
 

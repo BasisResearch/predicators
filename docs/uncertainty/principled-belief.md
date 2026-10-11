@@ -72,6 +72,7 @@ Scripts and logs: `~/claude_sbatch/principled_belief_20260925/interpenetration_c
 - Monitor: atom fractions over the `K` joint draws (each draw's parameters and latent, state from the updated state factor); unmet below one half, as now (legacy: 16 state-only draws sharing one latent).
 - Execution has no automatic gate, as in the evaluated continual arm: its tool surface is `run_python` plus the env and skill tools, and it never calls `submit_plan` (continual_tools.py:46-54, agent_continual_approach.py:148-149).
   The agent decides when to execute from the rehearsal estimates; `submit_plan` changes are out of scope for the continual arm.
+  With `continual_rehearsal_gate` (on for EMPIRIC from assets), a skill request on a test level waits, charging nothing, until `sim.run` has rehearsed on the joint draws from the current observation a plan that starts with it; `Wait` requests pass, and the gate sets no threshold on the P-hat, so the agent still decides from the estimate.
 - `sim.run(plan)`: rehearses the plan on the `K` joint draws (fresh env at the draw's parameters, applied through the path fresh envs read, the draw's state and latent, planner seed `i`), fixed per decision point for common random numbers.
   The draws run in parallel processes, so wall-clock time stays near one rollout.
   The report gives P-hat, its standard error, per-draw outcomes, and the parameter ranges on which draws fail, plus a step-by-step rollout from the state-belief mean at the parameter estimate with contact diagnostics.

@@ -25,6 +25,9 @@ APPROACHES:
       # Its starting values are the agent's guesses: a parameter the data
       # do not constrain keeps its whole declared range in the belief.
       code_sim_learning_prior_spans_bounds: true
+      # Its model is the agent's own, so a test-level step waits for a
+      # rehearsal of the plan on the joint belief from the observation.
+      continual_rehearsal_gate: true
   # Model-free: the same agent with the model-side machinery switched
   # off, so the two differ only in the model.
   mf_opus:
