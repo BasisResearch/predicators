@@ -6,6 +6,7 @@ and runs on a compute node.
 """
 
 import time
+from typing import Tuple
 
 import pytest
 
@@ -36,20 +37,40 @@ def test_launch_and_gather_returns_results_in_handle_order():
 
 
 def test_overlap_hides_rollout_time_behind_parent_work():
-    """launch -> parent work -> gather runs in ~max of the two, not sum."""
+    """launch -> parent work -> gather overlaps the jobs with each other and
+    with the parent's work, so it takes about the longer of the two, not the
+    sum.
+
+    Read from the jobs' own clocks (``time.monotonic`` is system-wide):
+    forking and reaping a large test process take tenths of a second
+    each and more on a loaded node, which shifts the jobs without
+    changing whether they overlapped.
+    """
     reg = AsyncRolloutRegistry(max_workers=4)
+
+    def job() -> Tuple[float, float]:
+        start = time.monotonic()
+        time.sleep(2.0)
+        return start, time.monotonic()
+
     try:
         t0 = time.monotonic()
-        handles = [
-            reg.launch(lambda: time.sleep(2.0) or "ok") for _ in range(4)
-        ]
+        handles = [reg.launch(job) for _ in range(4)]
+        launched = time.monotonic()
         time.sleep(2.0)  # the agent "thinking" between run_python calls
-        done, pending = reg.gather(handles, timeout=30)
-        wall = time.monotonic() - t0
+        worked = time.monotonic()
+        done, pending = reg.gather(handles, timeout=60)
         assert not pending and all(h.ok for h in done)
-        # Sequential would be 4*2 + 2 = 10s; overlap target ~2s. The margin
-        # absorbs forking a large parent under coverage on a busy runner.
-        assert wall < 6.0, f"no overlap: wall={wall:.2f}s"
+        spans = [h.result for h in done]
+        timings = (f"launches took {launched - t0:.2f}s, parent work "
+                   f"[{launched - t0:.2f}, {worked - t0:.2f}]s, jobs " +
+                   ", ".join(f"[{s - t0:.2f}, {e - t0:.2f}]s"
+                             for s, e in spans))
+        # The four jobs ran at the same time ...
+        assert max(s for s, _ in spans) < min(e for _, e in spans), timings
+        # ... and while the parent worked: launching did not wait for them.
+        assert min(s for s, _ in spans) < worked, timings
+        assert max(e for _, e in spans) > launched, timings
     finally:
         reg.shutdown()
 
