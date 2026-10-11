@@ -35,6 +35,7 @@ from predicators.run.episode import EpisodeOver, EpisodeState
 from predicators.run.interaction import ActionSelector, ExecutePlan, \
     ExecutePolicy, ExecuteSkill, ExecutionObserver, ExecutionProgress, \
     ExecutionRequest, GiveUp, PrimitiveAction, RequestReset, SkillExecution
+from predicators.run.recording import states_close
 from predicators.settings import CFG
 from predicators.structs import Action, GroundAtom, Predicate, State, Task, \
     _Option
@@ -313,6 +314,38 @@ def parse_plan_lines(
     return out
 
 
+# Two plan lines name the same request when their parameters agree to
+# this tolerance (a value printed to four decimals and parsed back).
+_SAME_PARAM_TOL = 1e-4
+
+
+def _plan_starts_with(
+        plan: List[Tuple[_Option, Set[GroundAtom], Set[GroundAtom]]],
+        prefix: List[Tuple[_Option, Set[GroundAtom],
+                           Set[GroundAtom]]]) -> bool:
+    """Whether the parsed ``plan`` begins with the parsed ``prefix``: the same
+    skills on the same objects with the same parameters, in order."""
+    if len(plan) < len(prefix):
+        return False
+    for (option, _, _), (wanted, _, _) in zip(plan, prefix):
+        if option.name != wanted.name or [o.name for o in option.objects] != [
+                o.name for o in wanted.objects
+        ]:
+            return False
+        if option.params.shape != wanted.params.shape or not np.allclose(
+                option.params, wanted.params, rtol=0.0, atol=_SAME_PARAM_TOL):
+            return False
+    return True
+
+
+def _commands_motion(
+        parsed: List[Tuple[_Option, Set[GroundAtom],
+                           Set[GroundAtom]]]) -> bool:
+    """Whether a parsed request has a line other than Wait, which commands no
+    motion; only such a request waits for the rehearsal gate."""
+    return any(option.name != "Wait" for option, _, _ in parsed)
+
+
 # ── Tools ──────────────────────────────────────────────────────────
 
 
@@ -392,6 +425,43 @@ def build_continual_tools(
         if reason is None:
             return None
         return _error_result(reason + " Nothing was charged." + _footer())
+
+    def _unrehearsed(
+        parsed: List[Tuple[_Option, Set[GroundAtom], Set[GroundAtom]]]
+    ) -> Optional[Dict[str, Any]]:
+        """The arm's rehearsal gate, when it installed one and it applies now:
+        a refusal that charges nothing, unless a rehearsal on the joint belief
+        from the current observation began with the request.
+
+        A request of Wait lines alone commands no motion and passes.
+        """
+        if ctx.rehearsal_gate is None or not ctx.rehearsal_gate():
+            return None
+        if not _commands_motion(parsed):
+            return None
+        # The live frame: a skill step does not refresh
+        # ctx.current_observation, so that copy can be a step behind. The
+        # comparison reads the observed features only, never the memory a
+        # model infers.
+        current = session.observe().frame
+        for seen, text, _p_hat in reversed(ctx.live_rehearsals):
+            if not states_close(seen, current):
+                continue
+            try:
+                rehearsed = parse_plan_lines(text, ctx, _level_task())
+            except ValueError:
+                continue
+            if _plan_starts_with(rehearsed, parsed):
+                return None
+        return _error_result(
+            "Test level: rehearse this on the joint belief first. In "
+            "run_python, print(sim.reset(current=True).run(plan)) with a "
+            "plan whose first lines are this request, best followed by the "
+            "rest of your plan: a rehearsal on the joint draws from the "
+            "current observation lets the request through, and its P-hat is "
+            "yours to weigh. Wait lines need none; runs at the point "
+            "estimate (draws=0) and runs from staged states do not count. "
+            "Nothing was charged." + _footer())
 
     def _preflight(plan_text: str,
                    args: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -734,6 +804,9 @@ def build_continual_tools(
             return _error_result("skills_invoke takes exactly one line; use "
                                  "skills_execute_plan for several." +
                                  _footer())
+        unrehearsed = _unrehearsed(parsed)
+        if unrehearsed is not None:
+            return unrehearsed
         refused = _preflight(str(args.get("skill", "")), args)
         if refused is not None:
             return refused
@@ -788,6 +861,9 @@ def build_continual_tools(
                                       _level_task())
         except ValueError as e:
             return _error_result(f"Could not parse the plan: {e}" + _footer())
+        unrehearsed = _unrehearsed(parsed)
+        if unrehearsed is not None:
+            return unrehearsed
         refused = _preflight(str(args.get("plan", "")), args)
         if refused is not None:
             return refused

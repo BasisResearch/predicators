@@ -337,6 +337,12 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         ctx.skill_gate = (self._make_skill_gate(session, paths.simulator_file,
                                                 trajectories)
                           if CFG.continual_require_model_on_test else None)
+        ctx.live_rehearsals.clear()
+        # The gate asks for a joint rehearsal, so it needs joint draws.
+        ctx.rehearsal_gate = (
+            self._make_rehearsal_gate(session)
+            if CFG.continual_rehearsal_gate and int(CFG.belief_joint_draws) > 0
+            and CFG.continual_uncertainty_decisions else None)
         probe_ns = build_probe_namespace(ctx)
         exec_ns["sim"] = probe_ns["sim"]
         exec_ns["BeliefProbe"] = probe_ns["BeliefProbe"]
@@ -479,6 +485,7 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         ctx.probe_residuals_provider = None
         ctx.current_observation_provider = None
         ctx.skill_gate = None
+        ctx.rehearsal_gate = None
         ctx.skill_preflight = None
         ctx.execution_audit = None
         ctx.probe_param_status = None
@@ -506,6 +513,22 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
             return self._model_readiness(simulator_file, trajectories)
 
         return gate
+
+    @staticmethod
+    def _make_rehearsal_gate(session: ProtocolSession) -> Any:
+        """The ``ToolContext.rehearsal_gate`` of this round under
+        ``continual_rehearsal_gate``: whether the level in progress is a test
+        level, where a skill request waits for a rehearsal on the joint
+        belief from the current observation; a train level (evidence
+        collection) and a finished level never wait."""
+
+        def applies() -> bool:
+            try:
+                return session.observe().level.split == "test"
+            except EpisodeOver:
+                return False
+
+        return applies
 
     def _model_readiness(
             self, simulator_file: str,

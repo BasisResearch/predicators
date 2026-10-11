@@ -75,6 +75,15 @@ class ToolContext:
     # skill fails there, or None when the request may run. Nothing is
     # charged for a refusal; force=true on the request skips it.
     skill_preflight: Optional[Callable[[str], Optional[str]]] = None
+    # Installed by the model arm under continual_rehearsal_gate: whether
+    # skill requests must first be rehearsed on the joint belief from the
+    # current observation (a test level), or None when they never must.
+    rehearsal_gate: Optional[Callable[[], bool]] = None
+    # The joint-belief rehearsals run from the live observation this
+    # session, newest last, as (that observation, plan text, P-hat): what
+    # the rehearsal gate checks a request against.
+    live_rehearsals: List[Tuple[State, str,
+                                float]] = field(default_factory=list)
     # Optional nonblocking observer of requested and executed actions.
     # Kept separate from the legacy refusal callback, including raw routes.
     execution_audit: Optional[Any] = None
