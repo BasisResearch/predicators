@@ -535,10 +535,19 @@ class ProbeJointResult(_StrLikeResult):
                   if self.from_observation else
                   "the probe is not on the current observation, so each "
                   "draw varies the parameters from its current state")
+        # Draws whose goal atoms held but which the task's evaluator did
+        # not count: said in the headline, so a reader of that line alone
+        # does not take them for rollouts that missed the goal.
+        held = sum(1 for d in self.draws
+                   if d["solved"] is False and d["goal_reached"])
+        held_note = (f"; the goal atoms held on {held} of the failing draws, "
+                     "which the task's evaluator did not count as solved"
+                     if held else "")
         lines = [
             f"Rehearsal on {n} joint draws of the belief: P-hat = "
             f"{self.p_hat:.2f} +- {self.stderr:.2f} ({self.successes}/{n} "
-            f"succeeded; {source}; fresh env and planner seed per draw)"
+            f"succeeded{held_note}; {source}; fresh env and planner seed "
+            "per draw)"
         ]
         if scored < n:
             lines.append(

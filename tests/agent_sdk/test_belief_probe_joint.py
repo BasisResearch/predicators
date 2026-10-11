@@ -81,7 +81,7 @@ def test_rehearsal_reports_p_hat_draws_and_the_mean_rollout():
     with pytest.raises(AttributeError, match="no attribute 'nonsense'"):
         _ = res.nonsense
     text = res.text
-    assert "P-hat = 0.50 +- 0.25 (2/4 succeeded" in text
+    assert "P-hat = 0.50 +- 0.25 (2/4 succeeded; each draw pairs" in text
     assert "draw 1 [friction=0.5]: goal NOT reached" in text
     assert "no single parameter separates" in text
     assert "Step-by-step rollout from the belief mean" in text
@@ -220,6 +220,11 @@ def test_draws_are_scored_on_the_recorded_prefix_and_their_rollout():
     assert [d["goal_reached"] for d in res.draws] == \
         [True, False, True, False]
     assert res.p_hat == 0.0
+    # The headline says the goal atoms held on two of the failing draws.
+    assert res.splitlines()[0].startswith(
+        "Rehearsal on 4 joint draws of the belief: P-hat = 0.00 +- 0.00 "
+        "(0/4 succeeded; the goal atoms held on 2 of the failing draws, "
+        "which the task's evaluator did not count as solved;")
     utils.reset_config({})
 
 
