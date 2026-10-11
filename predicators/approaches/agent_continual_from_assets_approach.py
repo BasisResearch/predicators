@@ -194,12 +194,22 @@ class AgentContinualFromAssetsApproach(AgentContinualApproach):
 
     def _sampled_material_specs(self) -> List[ParamSpec]:
         """The engine materials of the agent's scene it does not declare, as
-        rehearsal samples them; none before the scene loads."""
+        rehearsal samples them; none before the scene loads.
+
+        They are the current level's: its observed objects are bound in
+        the planning world first, so a world built for a new model
+        version, which has set no state yet, offers the same materials
+        as one a rollout has used, and the belief's draws stay fixed at
+        a decision point.
+        """
         if not self._belief_over_guesses or \
                 getattr(self, "_residual_env_cls", None) is None:
             return []
         sampler = getattr(self._base_env, "sampled_material_specs", None)
-        return list(sampler()) if callable(sampler) else []
+        if not callable(sampler):
+            return []
+        task = self._tool_context.current_task
+        return list(sampler(list(task.init) if task is not None else []))
 
     def _physical_param_names(self) -> Set[str]:
         return super()._physical_param_names() | {

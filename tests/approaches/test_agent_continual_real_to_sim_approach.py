@@ -423,6 +423,14 @@ def test_agent_builds_the_scene_and_rehearses_in_it(tmp_path: Any,
                 f.write("\n# edited\n")
             assert "sim.fit()" in approach._model_readiness(
                 str(sandbox / "simulator.py"), [])
+            # Loading the edit builds a planning world that has set no
+            # state yet; the sampled materials still cover the scene.
+            loaded = _call(approach,
+                           "run_python",
+                           code="sim.reset(current=True)\nprint('loaded')")
+            assert "loaded" in loaded, loaded
+            assert {s.name
+                    for s in approach._sampled_material_specs()} == sampled
         assert "Give-up recorded" in _call(approach, "give_up", note="done")
         return _result()
 
@@ -512,6 +520,17 @@ def test_scene_base_offers_engine_materials(tmp_path: Any) -> None:
     # the scene's own values; the declared one is not.
     sampled = {spec.name: spec for spec in world.sampled_material_specs()}
     assert "jug_spinning_friction" not in sampled
+    # A world that has set no state yet binds the observed objects it is
+    # given and offers the same menu; without them it has bound no jug.
+    fresh = Scene(use_gui=False, skip_residual_dynamics=False)
+    assert not any(
+        name.startswith("jug_")
+        for name in {s.name
+                     for s in fresh.sampled_material_specs()})
+    assert {(s.name, s.init_value, s.lo, s.hi)
+            for s in fresh.sampled_material_specs(list(init))
+            } == {(s.name, s.init_value, s.lo, s.hi)
+                  for s in sampled.values()}
     assert {"jug_mass", "jug_rolling_friction", "support_lateral_friction"
             } <= set(sampled)
     assert "support_mass" not in sampled
