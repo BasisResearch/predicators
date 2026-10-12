@@ -560,6 +560,9 @@ Store learned memory in `MODEL_STATE_INIT`/`model_state`, infer it from observat
 Never initialize model memory from hidden real-world simulator state.
 Check observation round trips, parameter effects, independent replay, and `sim.reset(current=True).check_restore()` before trusting predictions.
 Build a task-relevant predictive model, not a source-code replica: it must predict both successful and failed action outcomes.
+Write each mechanism as the force, torque or constraint it applies as a function of the current state, and let the engine produce the motion: rest positions, displacements and timings then follow from the model.
+A model that sets a rest position, a rise or a delay it measured reproduces the recordings it was fitted on, but it predicts nothing for a combination they did not show, and test levels can combine what the training levels showed in new ways.
+A prediction of your model that would block a plan is a hypothesis: test it on the real system or keep the plan robust to it, and remove it from the model only on evidence against it.
 `sim` has no world until your scene model loads; collect small informative real experiments when the model is not yet adequate.
 
 <!-- section: sandbox_frozen_files -->
