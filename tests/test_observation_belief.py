@@ -4,9 +4,10 @@ docs/uncertainty/design.md 3.3 and 3.6)."""
 import numpy as np
 import pytest
 
-from predicators.observation_belief import _truncated_normal, atom_fractions, \
-    belief_draw, change_point_belief, describe_fractions, likely_atoms, \
-    smooth_frames, uncertain_atoms
+from predicators.observation_belief import _prefix_sums, _run_length_weights, \
+    _run_means, _truncated_normal, atom_fractions, belief_draw, \
+    change_point_belief, describe_fractions, likely_atoms, smooth_frames, \
+    uncertain_atoms
 from predicators.observation_noise import ObservationNoise
 from predicators.structs import GroundAtom, Object, Predicate, State, Type
 
@@ -183,6 +184,57 @@ def test_change_point_weights_do_not_depend_on_units():
                                       window=8,
                                       hazard=0.05)
     assert np.allclose(metres.run_weights["b0"], millimetres.run_weights["b0"])
+
+
+def _run_by_run_weights(series, sigmas, angular, log_range, hazard):
+    """The run-length recursion written out run by run, each run's mean taken
+    over its own frames."""
+    total = len(next(iter(series.values())))
+    log_w = np.array([0.0])
+    log_h, log_stay = np.log(hazard), np.log1p(-hazard)
+    for t in range(1, total):
+        pred = np.zeros(log_w.size)
+        for feat, values in series.items():
+            for k in range(log_w.size):
+                window = values[t - k - 1:t]
+                if feat in angular:
+                    mean = np.arctan2(np.mean(np.sin(window)),
+                                      np.mean(np.cos(window)))
+                    delta = (values[t] - mean + np.pi) % (2 * np.pi) - np.pi
+                else:
+                    delta = values[t] - np.mean(window)
+                var = sigmas[feat]**2 * (1.0 + 1.0 / (k + 1))
+                pred[k] += -0.5 * (delta**2 / var + np.log(2 * np.pi * var))
+        change = np.logaddexp.reduce(log_w + log_h) - log_range
+        log_w = np.concatenate([[change], log_w + log_stay + pred])
+        log_w -= np.logaddexp.reduce(log_w)
+    weights = np.exp(log_w)
+    return weights / weights.sum()
+
+
+def test_change_point_weights_match_the_run_by_run_recursion():
+    """The prefix-sum pass reproduces the run-by-run recursion, with a jump and
+    an angle that wraps, and each run's mean is the mean of its frames."""
+    rng = np.random.default_rng(6)
+    sigmas = {"x": 0.01, "yaw": 0.04}
+    for total in (1, 2, 9, 64):
+        xs = 0.3 + rng.normal(0.0, 0.01, total)
+        xs[total // 2:] += 0.05
+        yaws = (np.pi - 0.02 + rng.normal(0.0, 0.04, total) +
+                np.pi) % (2 * np.pi) - np.pi
+        series = {"x": xs, "yaw": yaws}
+        fast = _run_length_weights(series, sigmas, {"yaw"}, 1.7, 0.02)
+        slow = _run_by_run_weights(series, sigmas, {"yaw"}, 1.7, 0.02)
+        assert np.allclose(fast, slow, rtol=0.0, atol=1e-12)
+        runs = np.arange(1, total + 1)
+        assert np.allclose(_run_means(_prefix_sums(xs, False), total, runs),
+                           [np.mean(xs[total - r:]) for r in runs])
+        circular = [
+            np.arctan2(np.mean(np.sin(yaws[total - r:])),
+                       np.mean(np.cos(yaws[total - r:]))) for r in runs
+        ]
+        assert np.allclose(_run_means(_prefix_sums(yaws, True), total, runs),
+                           circular)
 
 
 def test_change_point_draws_follow_the_mixture_and_stay_in_range():
