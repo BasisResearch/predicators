@@ -461,6 +461,7 @@ def fit_params_rollout(
                        lm_notes=lm_notes,
                        basins=basins,
                        misfit=misfit,
+                       noise_sse=noise_sse if noise_sse > 0.0 else None,
                        search_note=search_note)
     n_lm = num_rollouts_run() - n_start - n_grid
     # The ablation pins moved parameters back to their anchors, which
