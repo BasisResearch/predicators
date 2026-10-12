@@ -630,6 +630,67 @@ def test_trimming_all_dropped_pins_result_at_inits(monkeypatch):
     assert result.point_estimate["friction"] == 0.5
 
 
+def test_guessed_starting_values_judge_explainability_over_the_box(
+        monkeypatch):
+    """With guessed starting values a recording is dropped only if no point of
+    the whole-box design explains it either.
+
+    This recording needs both parameters moved together, far from the
+    guesses: the sweeps from the guesses alone drop it and the fit never
+    runs, while the design finds parameter sets that explain it.
+    """
+    import dataclasses
+
+    from predicators.code_sim_learning.config import SysIdConfig
+    specs = [
+        ParamSpec("a", 0.5, lo=0.0, hi=4.0),
+        ParamSpec("b", 0.5, lo=0.0, hi=4.0)
+    ]
+    joint = ("states", [None] * 10)
+
+    def fake_terms(_env, trajectories, points, *_args, **_kwargs):
+        # RMS 0.05 per unit of distance from (3, 3): explainable within
+        # 2 noise sigmas (0.1) only inside the disc of radius 2.
+        return [[
+            np.array([0.05 * np.hypot(p["a"] - 3.0, p["b"] - 3.0)])
+            for _ in trajectories
+        ] for p in points]
+
+    def fake_fit(_env, _trajectories, *_args, **_kwargs):
+        return FitResult(names=["a", "b"],
+                         samples=np.array([[3.0, 3.0]]),
+                         log_probs=np.zeros(1),
+                         jacobian=None,
+                         noise_sigma=0.05,
+                         prior_sigma=np.array([1.0, 1.0]))
+
+    monkeypatch.setattr(physical_sysid, "fit_params_rollout", fake_fit)
+    monkeypatch.setattr(physical_sysid, "per_trajectory_rms",
+                        lambda _env, trajs, *_a, **_k: [0.0] * len(trajs))
+    monkeypatch.setattr(grid_seed, "trajectory_terms_by_point", fake_terms)
+    monkeypatch.setattr(physical_sysid, "compute_residual_scaling",
+                        lambda *_a, **_k: None)
+    base = dataclasses.replace(SysIdConfig.from_cfg(),
+                               trim_rms_factor=2.0,
+                               grid_seed_points=7,
+                               global_design_points=128)
+    for guesses, kept in ((False, []), (True, [joint])):
+        config = dataclasses.replace(base, anchors_are_guesses=guesses)
+        result, survivors, rms, _hull = fit_params_rollout_trimmed(
+            None, [joint],
+            specs, {"domino": ["x"]},
+            noise_sigma=0.05,
+            config=config)
+        assert survivors == kept, (guesses, rms)
+        if not guesses:
+            # Nothing survives: the result stays at the declared inits.
+            assert rms[0] > 0.1
+            assert result.point_estimate == {"a": 0.5, "b": 0.5}
+        else:
+            assert rms[0] <= 0.1
+            assert result.point_estimate == {"a": 3.0, "b": 3.0}
+
+
 def test_multi_row_samples_bypass_probe():
     """With multi-row samples, widths come from the samples, not the probe."""
     rng = np.random.default_rng(0)
