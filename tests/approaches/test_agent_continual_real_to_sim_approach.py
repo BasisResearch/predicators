@@ -244,6 +244,11 @@ def test_agent_builds_the_scene_and_rehearses_in_it(tmp_path: Any,
         assert "EMPIRIC from assets" in prompt
         assert "harness fits nothing" not in prompt
         assert "visible physics from the first round" not in prompt
+    # Mechanisms as forces the engine integrates, and predicted obstacles
+    # kept until evidence removes them: the arm that writes its mechanisms.
+    assert ("force, torque or constraint it applies" in prompt) == from_assets
+    assert ("remove it from the model only on evidence" in prompt) == \
+        from_assets
     # The test-level gate also waits for a fit in EMPIRIC from assets.
     assert ("Test levels require a fitted model" in prompt) == from_assets
     assert ("Test levels require a loaded model" in prompt) != from_assets
