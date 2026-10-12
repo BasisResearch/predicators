@@ -66,7 +66,7 @@ from __future__ import annotations
 import dataclasses
 import logging
 import time
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 from scipy.stats import qmc
@@ -186,6 +186,57 @@ def _whole_box_design(
                         for v in from_fit_space(list(all_specs), lo + row *
                                                 (hi - lo))))) for row in unit
     ]
+
+
+def _map_cost_fn(
+        base_env: Any, trajectories: List[RolloutTrajectory],
+        all_specs: Sequence[ParamSpec], physical_names: List[str],
+        residual_features: Dict[str, List[str]], rules: Sequence[Any],
+        latent_init: Any, scaling: Optional[ResidualScaling],
+        noise_sigma: float, center_int: np.ndarray,
+        prior_sigma: np.ndarray) -> Callable[[List[np.ndarray]], List[float]]:
+    """The fit's MAP cost of parameter vectors: the replay SSE over ``2
+    noise_sigma^2`` plus the prior term, the cost the LM minimizes."""
+    names = [s.name for s in all_specs]
+
+    def costs(thetas: List[np.ndarray]) -> List[float]:
+        sses = rollout_sse_by_point(
+            base_env, trajectories,
+            [dict(zip(names, (float(v) for v in t))) for t in thetas],
+            residual_features, physical_names, rules, latent_init, scaling)
+        return [
+            sse / (2.0 * noise_sigma**2) + 0.5 * float(
+                np.sum(((to_fit_space(list(all_specs), t) - center_int) /
+                        prior_sigma)**2)) for sse, t in zip(sses, thetas)
+        ]
+
+    return costs
+
+
+def _snap_discrete(
+        theta: np.ndarray, all_specs: Sequence[ParamSpec],
+        cost_of: Callable[[List[np.ndarray]], List[float]]) -> np.ndarray:
+    """``theta`` with each discrete parameter at a whole value.
+
+    A discrete parameter is an index or a count the simulator rounds, so
+    the LM can stop between two of its values (a binary switch at 0.5).
+    Each one moves to the neighbouring whole value inside its box with
+    the lower ``cost_of`` (the fit's own MAP cost), the others held.
+    """
+    theta = np.asarray(theta, dtype=float).copy()
+    for i, spec in enumerate(all_specs):
+        if not spec.discrete or float(theta[i]).is_integer():
+            continue
+        options = []
+        for value in sorted({np.floor(theta[i]), np.ceil(theta[i])}):
+            if ((spec.lo is None or value >= spec.lo)
+                    and (spec.hi is None or value <= spec.hi)):
+                option = theta.copy()
+                option[i] = value
+                options.append(option)
+        if options:
+            theta = options[int(np.argmin(cost_of(options)))]
+    return theta
 
 
 def fit_params_rollout(
@@ -375,6 +426,12 @@ def fit_params_rollout(
                                   float(spec.hi)],
                 "sensitive": False,
             }
+    if trajectories and any(s.discrete for s in all_specs):
+        lm_theta = _snap_discrete(
+            lm_theta, all_specs,
+            _map_cost_fn(base_env, trajectories, all_specs, physical_names,
+                         residual_features, rules, latent_init, scaling,
+                         noise_sigma, center_int, prior_sigma))
     basins: Optional[List[Tuple[Dict[str, float], float, float]]] = None
     misfit: Optional[float] = None
     search_note = ""
@@ -594,6 +651,12 @@ def _global_multistart(
                                         prior_sigmas=prior_sigma,
                                         noise_sigma=noise_sigma)
         lm_seconds = max(lm_seconds, time.monotonic() - lm_t0)
+        if any(s.discrete for s in all_specs):
+            theta = _snap_discrete(
+                theta, all_specs,
+                _map_cost_fn(base_env, trajectories, all_specs, physical_names,
+                             residual_features, rules, latent_init, scaling,
+                             noise_sigma, center_int, prior_sigma))
         thetas.append(np.asarray(theta, dtype=float))
         jacobians.append(jac)
     points = [dict(zip(names, (float(v) for v in theta))) for theta in thetas]
