@@ -563,6 +563,7 @@ Build a task-relevant predictive model, not a source-code replica: it must predi
 Write each mechanism as the force, torque or constraint it applies as a function of the current state, and let the engine produce the motion: rest positions, displacements and timings then follow from the model.
 A model that sets a rest position, a rise or a delay it measured reproduces the recordings it was fitted on, but it predicts nothing for a combination they did not show, and test levels can combine what the training levels showed in new ways.
 A prediction of your model that would block a plan is a hypothesis: test it on the real system or keep the plan robust to it, and remove it from the model only on evidence against it.
+A training level ends the moment its goal holds, and a test level allows no resets: before you complete a training level, run on it the experiments your model needs for the tests, above all actions started from states that earlier actions produced, which a test level may chain. A reset on a training level costs one step.
 `sim` has no world until your scene model loads; collect small informative real experiments when the model is not yet adequate.
 
 <!-- section: sandbox_frozen_files -->
