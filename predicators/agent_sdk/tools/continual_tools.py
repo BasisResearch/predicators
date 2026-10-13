@@ -517,7 +517,9 @@ def build_continual_tools(
             return ""
         frame = session.observe().frame
         noise = ObservationNoise.from_cfg()
-        check = check_prediction(frame, predicted, features, noise)
+        widths = (ctx.feature_width_provider()
+                  if ctx.feature_width_provider is not None else None)
+        check = check_prediction(frame, predicted, features, noise, widths)
         if check is not None:
             # Every check, surprising or not, so a run's log shows how
             # calibrated its rehearsals were.
@@ -539,8 +541,8 @@ def build_continual_tools(
             f"over these {check.num_features} features).")
         point = (match.mean_states[num_lines - 1]
                  if len(match.mean_states) >= num_lines else None)
-        if point is not None and point_predicts(frame, point, check.missed,
-                                                noise, check.num_features):
+        if point is not None and point_predicts(
+                frame, point, check.missed, noise, check.num_features, widths):
             return text + (
                 " The rehearsal's rollout at the belief's mean predicted "
                 "it, so the draws spread the wrong way, through a factor "
