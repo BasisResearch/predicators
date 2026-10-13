@@ -17,11 +17,11 @@ class LiveRehearsal:
     """A rehearsal on the joint draws from the live observation.
 
     ``line_states`` holds, per draw, its state after each plan line, or
-    None from the line where the draw stopped: what the rehearsal
-    predicted a request that starts the plan would leave behind.
-    ``basis`` is the fitted program the draws came from and their
-    temperature (see ``ToolContext.prediction_basis_provider``), or None
-    when they came from the prior.
+    None where the line did not run cleanly in that draw: what the
+    rehearsal predicted a request that starts the plan would leave
+    behind. ``basis`` is the fitted program the draws came from and
+    their temperature (see ``ToolContext.prediction_basis_provider``),
+    or None when they came from the prior.
     """
     observation: State
     plan_text: str
