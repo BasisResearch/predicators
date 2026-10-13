@@ -264,6 +264,78 @@ def test_preemption_resume_replays_losslessly(tmp_path: Any, monkeypatch: Any,
     _check_card_invariants(second)
 
 
+def test_resume_applies_logged_steps_past_the_checkpoint(
+        tmp_path: Any, monkeypatch: Any) -> None:
+    """The action log is synced every step, the checkpoint and the card only
+    on a flush, so a run killed inside a skill has logged steps they never
+    saw: the resume verifies the replay where the checkpoint was taken and
+    applies the logged rest, charged once, so the level goes on with no
+    harness reset."""
+    # pylint: disable=protected-access
+    _config(tmp_path, "oracle", num_test_tasks=1, horizon=200)
+    env, approach = _make("oracle")
+    inner = RandomSkillsLevelPlayer(get_gt_options("cover"), seed=7)
+    first = ContinualRun(env, approach, inner)
+    after_step = ContinualRun._after_step
+    flush = ContinualRun._flush
+    killed: List[int] = []
+
+    def killing_after_step(self: ContinualRun, action: Any,
+                           outcome: Any) -> None:
+        after_step(self, action, outcome)
+        # Cover's skills take one step each, flushed when the skill ends: a
+        # kill inside one that moved something leaves a logged, unflushed
+        # step the checkpoint's state does not show.
+        states = self._level_episodes[-1]["states"]
+        if (self._in_invocation and self._steps_since_flush >= 1
+                and len(states) >= 2
+                and not states_close(states[-2], states[-1])):
+            killed.append(self._card.levels[0].steps)
+            raise _Preempted()
+
+    def flush_until_killed(self: ContinualRun) -> None:
+        # A killed process flushes nothing on its way out.
+        if not killed:
+            flush(self)
+
+    monkeypatch.setattr(ContinualRun, "_after_step", killing_after_step)
+    monkeypatch.setattr(ContinualRun, "_flush", flush_until_killed)
+    with pytest.raises(_Preempted):
+        first.run()
+    monkeypatch.undo()
+    rec = LevelRecording(os.path.join(first.run_dir, "L01"))
+    ckpt = rec.load_checkpoint()
+    _, logged = rec.read_current_action_records()
+    rec.close()
+    # One episode, so the level's step count is the episode's.
+    assert ckpt is not None and len(logged) == killed[0]
+    assert ckpt["steps"] < len(logged)
+    assert RunCard.load(first.card_path).levels[0].steps == ckpt["steps"]
+
+    _config(tmp_path,
+            "oracle",
+            num_test_tasks=1,
+            horizon=200,
+            auto_resume=True)
+    env2, approach2 = _make("oracle")
+    second = ContinualRun(env2, approach2, OracleLevelPlayer(approach2))
+    card = second.run()
+    lv = card.levels[0]
+    assert lv.won and lv.resumes == 1
+    assert lv.harness_resets == 0 and lv.resets == 0
+    assert [ep.end for ep in lv.episodes] == ["win"]
+    rec = LevelRecording(os.path.join(second.run_dir, "L01"))
+    resume = [e for e in rec.read_index() if e["event"] == "resume"]
+    assert resume[0]["verified"] is True
+    assert resume[0]["past_checkpoint"] == len(logged) - ckpt["steps"]
+    assert resume[0]["replayed_steps"] == len(logged)
+    # Each step is in the log once, and the card charged each once.
+    _, final_log = rec.read_current_action_records()
+    assert len(final_log) == lv.steps
+    rec.close()
+    _check_card_invariants(second)
+
+
 def test_resume_with_diverged_replay_is_a_harness_reset(tmp_path: Any) -> None:
     """When the replay does not reproduce the checkpoint, the level is
     restarted and the restart is booked to the harness, not the agent."""
