@@ -864,8 +864,8 @@ def test_rehearsal_gate_waits_for_a_joint_rehearsal_of_the_request(
 
 
 @pytest.mark.parametrize("case", [
-    "calibrated", "surprised", "unreachable", "prior", "edited", "broken",
-    "stopped"
+    "calibrated", "surprised", "unreachable", "mean_covers", "prior", "edited",
+    "broken", "stopped"
 ])
 def test_predictive_check_scores_a_request_against_its_rehearsal(
         tmp_path: Any, monkeypatch: Any, caplog: Any, case: str) -> None:
@@ -917,8 +917,11 @@ def test_predictive_check_scores_a_request_against_its_rehearsal(
         ctx.scored_features_provider = features
         ctx.prediction_basis_provider = lambda: (
             "program", max(2.0, ctx.predictive_temperature))
+        # The rollout at the belief's mean left the targets where they are.
+        mean_states: List[Optional[State]] = ([start.copy()]
+                                              if case == "mean_covers" else [])
         ctx.live_rehearsals.append(
-            LiveRehearsal(start, plan, 0.9, predicted, basis))
+            LiveRehearsal(start, plan, 0.9, predicted, basis, mean_states))
         tools = build_continual_tools(ctx,
                                       session,
                                       PlayState(),
@@ -943,6 +946,8 @@ def test_predictive_check_scores_a_request_against_its_rehearsal(
             assert f"{target.name}.pose is" in out
         if case == "unreachable":
             assert "barely move" in out and "stays as it was" in out
+        if case == "mean_covers":
+            assert "rollout at the belief's mean predicted it" in out
         if case == "surprised":
             assert ctx.predictive_program == "program"
             assert ctx.predictive_temperature > 2.0 * 50

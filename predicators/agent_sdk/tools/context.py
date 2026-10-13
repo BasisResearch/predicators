@@ -21,13 +21,15 @@ class LiveRehearsal:
     rehearsal predicted a request that starts the plan would leave
     behind. ``basis`` is the fitted program the draws came from and
     their temperature (see ``ToolContext.prediction_basis_provider``),
-    or None when they came from the prior.
+    or None when they came from the prior. ``mean_states`` are the line
+    states of the rehearsal's rollout at the belief's mean.
     """
     observation: State
     plan_text: str
     p_hat: float
     line_states: List[List[Optional[State]]] = field(default_factory=list)
     basis: Optional[Tuple[str, float]] = None
+    mean_states: List[Optional[State]] = field(default_factory=list)
 
 
 @dataclass

@@ -47,7 +47,8 @@ class PredictionCheck:
     temperature under which every feature it can reach would lie within
     two predictive spreads (see :func:`_needed_temperature`);
     ``out_of_reach`` names the features missed beyond their critical
-    distance that no factor up to ``MAX_INFLATION`` reaches.
+    distance that no factor up to ``MAX_INFLATION`` reaches, and
+    ``missed`` every feature missed beyond its critical distance.
     """
     num_features: int
     num_draws: int
@@ -59,6 +60,7 @@ class PredictionCheck:
     critical: float
     needed: float
     out_of_reach: Tuple[Tuple[str, str], ...] = ()
+    missed: Tuple[Tuple[str, str], ...] = ()
 
     @property
     def surprising(self) -> bool:
@@ -162,6 +164,8 @@ def check_prediction(observed: State, predicted: Sequence[State],
     critical = float(student_t.isf(alpha, dof))
     out_of_reach = tuple((n, f) for zf, n, f, df in beyond
                          if zf > float(student_t.isf(alpha, df)))
+    missed = tuple((row[2], row[3]) for row in rows
+                   if -row[1] > float(student_t.isf(alpha, row[7])))
     return PredictionCheck(num_features=len(rows),
                            num_draws=len(predicted),
                            z_max=z,
@@ -171,4 +175,35 @@ def check_prediction(observed: State, predicted: Sequence[State],
                            spread=spread,
                            critical=critical,
                            needed=needed,
-                           out_of_reach=out_of_reach)
+                           out_of_reach=out_of_reach,
+                           missed=missed)
+
+
+def point_predicts(observed: State, point: State, keys: Sequence[Tuple[str,
+                                                                       str]],
+                   noise: ObservationNoise, num_features: int) -> bool:
+    """Whether the single predicted state ``point`` puts every feature in
+    ``keys`` (object name, feature) of ``observed`` within the distance a
+    calibrated prediction stays within over ``num_features`` features, with the
+    observation noise alone as the spread.
+
+    A rollout at the belief's mean that predicts an outcome its draws
+    missed shows the draws spread the wrong way; it is no sign that the
+    belief is too narrow.
+    """
+    if not keys:
+        return False
+    bound = float(
+        student_t.isf(_FALSE_ALARM / (2.0 * max(num_features, 1)), np.inf))
+    seen = {o.name: o for o in observed}
+    twins = {o.name: o for o in point}
+    for name, feat in keys:
+        obj, twin = seen.get(name), twins.get(name)
+        if obj is None or twin is None or feat not in twin.type.feature_names:
+            return False
+        delta = float(observed.get(obj, feat)) - float(point.get(twin, feat))
+        if feat in set(getattr(obj.type, "angular_features", ())):
+            delta = (delta + np.pi) % (2.0 * np.pi) - np.pi
+        if abs(delta) > bound * noise.feature_sigma(obj.type, feat):
+            return False
+    return True

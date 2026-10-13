@@ -243,6 +243,10 @@ class ProbeResult(_StrLikeResult):
     # ``evaluate_trajectory`` scores, so a rollout can be scored or
     # inspected without rebuilding it by hand.
     states: List[State] = dataclasses.field(default_factory=list)
+    # The state after each plan line, or None where the line did not run
+    # cleanly (:func:`_line_states`).
+    line_states: List[Optional[State]] = dataclasses.field(
+        default_factory=list)
 
     def __repr__(self) -> str:
         lines = []
@@ -1865,11 +1869,13 @@ class BeliefProbe:
             # observation (the bound keeps a long session's list small).
             basis = (ctx.prediction_basis_provider()
                      if ctx.prediction_basis_provider is not None else None)
+            mean_states = (list(result.mean.line_states) if isinstance(
+                result.mean, ProbeResult) else [])
             ctx.live_rehearsals.append(
                 LiveRehearsal(
                     ctx.current_observation, plan_text, float(result.p_hat),
                     [list(d.get("line_states") or [])
-                     for d in result.draws], basis))
+                     for d in result.draws], basis, mean_states))
             del ctx.live_rehearsals[:-_LIVE_REHEARSALS_KEPT]
         return result
 
@@ -2547,7 +2553,8 @@ class BeliefProbe:
                            final_atoms,
                            result.final_state,
                            notices,
-                           states=list(collectors[0].states))
+                           states=list(collectors[0].states),
+                           line_states=_line_states(result.steps))
 
     def run_policy(
         self,

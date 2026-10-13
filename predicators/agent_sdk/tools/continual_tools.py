@@ -21,7 +21,8 @@ from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Dict, \
 import numpy as np
 
 from predicators import utils
-from predicators.agent_sdk.predictive_check import check_prediction
+from predicators.agent_sdk.predictive_check import check_prediction, \
+    point_predicts
 from predicators.agent_sdk.preflight_audit import audit_safely
 from predicators.agent_sdk.primitive_policy import open_primitive_policy, \
     primitive_action, primitive_observation
@@ -514,8 +515,9 @@ def build_continual_tools(
         features = provider()
         if len(predicted) < 2 or not features:
             return ""
-        check = check_prediction(session.observe().frame, predicted, features,
-                                 ObservationNoise.from_cfg())
+        frame = session.observe().frame
+        noise = ObservationNoise.from_cfg()
+        check = check_prediction(frame, predicted, features, noise)
         if check is not None:
             # Every check, surprising or not, so a run's log shows how
             # calibrated its rehearsals were.
@@ -535,6 +537,16 @@ def build_continual_tools(
             f"{check.spread:.2g}, {check.z_max:.1f} predictive spreads away "
             f"(a calibrated prediction stays within {check.critical:.1f} "
             f"over these {check.num_features} features).")
+        point = (match.mean_states[num_lines - 1]
+                 if len(match.mean_states) >= num_lines else None)
+        if point is not None and point_predicts(frame, point, check.missed,
+                                                noise, check.num_features):
+            return text + (
+                " The rehearsal's rollout at the belief's mean predicted "
+                "it, so the draws spread the wrong way, through a factor "
+                "this outcome rules out (a material the model leaves "
+                "undeclared and samples over its plausible range, say), "
+                "and the temperature stays.")
         if check.out_of_reach:
             missed = ", ".join(f"{n}.{f}" for n, f in check.out_of_reach)
             text += (f" The parameters the belief allows barely move {missed} "
