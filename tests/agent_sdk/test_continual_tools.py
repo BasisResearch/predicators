@@ -3,6 +3,7 @@ env, driven directly (no SDK)."""
 import asyncio
 import glob
 import json
+import logging
 import os
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -866,7 +867,7 @@ def test_rehearsal_gate_waits_for_a_joint_rehearsal_of_the_request(
     "case",
     ["calibrated", "surprised", "prior", "edited", "broken", "stopped"])
 def test_predictive_check_scores_a_request_against_its_rehearsal(
-        tmp_path: Any, monkeypatch: Any, case: str) -> None:
+        tmp_path: Any, monkeypatch: Any, caplog: Any, case: str) -> None:
     """A request that ran in full is scored against the rehearsal that began
     with it: an outcome within the draws adds nothing; one beyond them is
     reported and raises the fitted program's temperature floor so the outcome
@@ -917,8 +918,15 @@ def test_predictive_check_scores_a_request_against_its_rehearsal(
                                       session,
                                       PlayState(),
                                       save_render=lambda tag: None)
-        out = _call(tools, "skills_invoke", skill=line)
+        with caplog.at_level(logging.INFO):
+            out = _call(tools, "skills_invoke", skill=line)
         assert session.observe().ledger.level_steps > 0
+        # Every check that runs is logged, surprising or not.
+        logged = [
+            r.getMessage() for r in caplog.records
+            if r.getMessage().startswith("Prediction check: worst")
+        ]
+        assert len(logged) == (0 if case in ("broken", "stopped") else 1)
         if case in ("calibrated", "stopped"):
             assert "Prediction check" not in out
         elif case == "broken":

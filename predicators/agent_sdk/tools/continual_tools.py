@@ -516,6 +516,15 @@ def build_continual_tools(
             return ""
         check = check_prediction(session.observe().frame, predicted, features,
                                  ObservationNoise.from_cfg())
+        if check is not None:
+            # Every check, surprising or not, so a run's log shows how
+            # calibrated its rehearsals were.
+            name, feat = check.worst
+            logging.info(
+                "Prediction check: worst %s.%s at z %.3g against critical "
+                "%.3g over %d features and %d draws; factor %.3g.", name, feat,
+                check.z_max, check.critical, check.num_features,
+                check.num_draws, check.needed)
         if check is None or not check.surprising:
             return ""
         name, feat = check.worst
