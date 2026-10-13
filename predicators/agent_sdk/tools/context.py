@@ -13,6 +13,24 @@ from predicators.structs import CausalProcess, LowLevelTrajectory, \
 
 
 @dataclass
+class LiveRehearsal:
+    """A rehearsal on the joint draws from the live observation.
+
+    ``line_states`` holds, per draw, its state after each plan line, or
+    None from the line where the draw stopped: what the rehearsal
+    predicted a request that starts the plan would leave behind.
+    ``basis`` is the fitted program the draws came from and their
+    temperature (see ``ToolContext.prediction_basis_provider``), or None
+    when they came from the prior.
+    """
+    observation: State
+    plan_text: str
+    p_hat: float
+    line_states: List[List[Optional[State]]] = field(default_factory=list)
+    basis: Optional[Tuple[str, float]] = None
+
+
+@dataclass
 class ToolContext:
     """Shared mutable state between the approach and MCP tools."""
     types: Set[Type] = field(default_factory=set)
@@ -80,10 +98,25 @@ class ToolContext:
     # current observation (a test level), or None when they never must.
     rehearsal_gate: Optional[Callable[[], bool]] = None
     # The joint-belief rehearsals run from the live observation this
-    # session, newest last, as (that observation, plan text, P-hat): what
-    # the rehearsal gate checks a request against.
-    live_rehearsals: List[Tuple[State, str,
-                                float]] = field(default_factory=list)
+    # session, newest last: what the rehearsal gate checks a request
+    # against, and what the predictive check scores its outcome on.
+    live_rehearsals: List["LiveRehearsal"] = field(default_factory=list)
+    # Installed by the model arm under continual_predictive_check: the
+    # features the current model scores (type name -> feature names), or
+    # None when no model is loaded; the predictive check compares those.
+    scored_features_provider: Optional[Callable[[], Optional[Dict[
+        str, List[str]]]]] = None
+    # Installed with it: the fitted program the joint draws come from
+    # (the digest of its simulator.py) and the temperature they are drawn
+    # at, or None while they come from the prior.
+    prediction_basis_provider: Optional[Callable[[], Optional[Tuple[
+        str, float]]]] = None
+    # The temperature the predictive check has found the joint draws of
+    # the program ``predictive_program`` need: the parameter belief of
+    # that program runs at least this hot (1 until a request's outcome
+    # falls outside its rehearsal's draws).
+    predictive_program: Optional[str] = None
+    predictive_temperature: float = 1.0
     # Optional nonblocking observer of requested and executed actions.
     # Kept separate from the legacy refusal callback, including raw routes.
     execution_audit: Optional[Any] = None

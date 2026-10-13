@@ -112,6 +112,16 @@ class GlobalSettings:
     # no motion, pass; train levels stay free for evidence collection.
     # Needs belief_joint_draws > 0 and continual_uncertainty_decisions.
     continual_rehearsal_gate = False
+    # Whether a model arm checks each skill request that ran in full
+    # against the joint-draw rehearsal from the live observation that
+    # began with it: when the outcome lies outside the draws (beyond what
+    # chance allows over the model's scored features), the result says so
+    # and the fitted program's parameter belief runs from then on at no
+    # less than the temperature that would have put the outcome two
+    # predictive spreads out (an edit of the program starts over). A fit
+    # measures error on the recordings it was fitted on; this measures it
+    # on steps it had not seen.
+    continual_predictive_check = False
     # Whether the model arm rehearses every skills_invoke /
     # skills_execute_plan request in its sim before real steps are
     # charged: the candidate ./simulator.py when one loads, else the

@@ -256,6 +256,29 @@ def test_rehearsal_gate_section_follows_the_flag(gate):
     utils.reset_config({})
 
 
+@pytest.mark.parametrize("check", [False, True])
+def test_predictive_check_section_follows_the_flag(check):
+    """The system prompt describes the predictive check exactly when it is on
+    and joint rehearsals can feed it."""
+    utils.reset_config({
+        "continual_predictive_check": check,
+        "belief_joint_draws": 16,
+        "continual_uncertainty_decisions": True,
+    })
+    text = play_prompts.build_play_system_prompt(["run_python"] +
+                                                 list(CONTINUAL_TOOL_NAMES))
+    heading = "### Each rehearsed step is checked against its rehearsal"
+    assert (heading in text) == check
+    utils.reset_config({
+        "continual_predictive_check": True,
+        "belief_joint_draws": 0,
+    })
+    text = play_prompts.build_play_system_prompt(["run_python"] +
+                                                 list(CONTINUAL_TOOL_NAMES))
+    assert heading not in text
+    utils.reset_config({})
+
+
 @pytest.mark.parametrize("arm", [
     "scene_only", "oracle_dynamics", "zero_shot", "no_fitting",
     "no_uncertainty", "real_to_sim"

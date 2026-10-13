@@ -63,9 +63,16 @@ def test_rehearsal_reports_p_hat_draws_and_the_mean_rollout():
     assert res.from_observation
     # The rehearsal gate's record: this plan, from this observation.
     assert len(ctx.live_rehearsals) == 1
-    seen, plan, p_hat = ctx.live_rehearsals[0]
-    assert seen is ctx.current_observation and plan == _PLAN
-    assert p_hat == pytest.approx(0.5)
+    rehearsal = ctx.live_rehearsals[0]
+    assert rehearsal.observation is ctx.current_observation
+    assert rehearsal.plan_text == _PLAN
+    assert rehearsal.p_hat == pytest.approx(0.5)
+    # Each draw's state after the plan's one line, which the predictive
+    # check scores the real outcome against; no fitted program yet.
+    xs = [states[0].get(_block, "x") for states in rehearsal.line_states]
+    assert xs[0] == pytest.approx(0.95) and xs[2] == pytest.approx(0.95)
+    assert xs[1] != pytest.approx(0.95) and xs[3] != pytest.approx(0.95)
+    assert rehearsal.basis is None
     # Each draw ran in the fresh scope at its own physical parameters.
     assert scope_overrides[:4] == [{"friction": f} for f in _FRICTIONS]
     assert all(d["solved"] is None for d in res.draws)  # no evaluator

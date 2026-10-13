@@ -5,7 +5,7 @@ import glob
 import json
 import os
 import re
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 import pytest
@@ -14,7 +14,7 @@ from predicators import observation_noise, utils
 from predicators.agent_sdk.belief_probe import BeliefProbe
 from predicators.agent_sdk.play_prompts import build_model_contract, \
     build_play_query, build_play_system_prompt, render_data_status
-from predicators.agent_sdk.tools.context import ToolContext
+from predicators.agent_sdk.tools.context import LiveRehearsal, ToolContext
 from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES, \
     PRIMITIVE_TOOL_NAMES, PlayState, build_continual_tools, context_status, \
     format_observation, parse_plan_lines, play_tool_names
@@ -23,10 +23,11 @@ from predicators.approaches.agent_continual_approach import \
     AgentContinualModelFreeApproach
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
-from predicators.run.continual import ContinualRun, ProtocolSession, RunEnded
+from predicators.run.continual import ContinualRun, InvocationResult, \
+    ProtocolSession, RunEnded
 from predicators.run.episode import EpisodeState
 from predicators.settings import CFG
-from predicators.structs import Action, GroundAtom, _Option
+from predicators.structs import Action, GroundAtom, State, _Option
 
 
 class _Driver:
@@ -841,12 +842,14 @@ def test_rehearsal_gate_waits_for_a_joint_rehearsal_of_the_request(
         elsewhere = ctx.current_observation.copy()
         obj = next(iter(elsewhere))
         elsewhere.data[obj] = elsewhere.data[obj] + 0.5
-        ctx.live_rehearsals.append((elsewhere, plan, 0.9))
+        ctx.live_rehearsals.append(LiveRehearsal(elsewhere, plan, 0.9))
         assert refused("skills_invoke", skill=line)
-        ctx.live_rehearsals.append((ctx.current_observation, other, 0.9))
+        ctx.live_rehearsals.append(
+            LiveRehearsal(ctx.current_observation, other, 0.9))
         assert refused("skills_invoke", skill=line)
         assert session.observe().ledger.level_steps == 0
-        ctx.live_rehearsals.append((ctx.current_observation, plan, 0.9))
+        ctx.live_rehearsals.append(
+            LiveRehearsal(ctx.current_observation, plan, 0.9))
         out = _call(tools, "skills_invoke", skill=line)
         assert "rehearse this on the joint belief" not in out
         assert session.observe().ledger.level_steps > 0
@@ -854,6 +857,90 @@ def test_rehearsal_gate_waits_for_a_joint_rehearsal_of_the_request(
         ctx.rehearsal_gate = lambda: False
         assert not refused("skills_invoke", skill=line)
         ctx.rehearsal_gate = None
+
+    driver.body = body
+    ContinualRun(env, approach, driver).run()
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["calibrated", "surprised", "prior", "edited", "broken", "stopped"])
+def test_predictive_check_scores_a_request_against_its_rehearsal(
+        tmp_path: Any, monkeypatch: Any, case: str) -> None:
+    """A request that ran in full is scored against the rehearsal that began
+    with it: an outcome within the draws adds nothing; one beyond them is
+    reported and raises the fitted program's temperature floor so the outcome
+    would lie two spreads out, unless the draws came from the prior or an
+    earlier program.
+
+    A check that fails says so beside the step's result, and a skill
+    whose controller stopped short is not scored.
+    """
+    env, approach, ctx = _setup(tmp_path)
+    first_task = env.get_train_tasks()[0].task
+    plan = _oracle_plan_text(approach, first_task)
+    line = plan.splitlines()[0]
+    driver = _Driver()
+    if case == "stopped":
+        monkeypatch.setattr(InvocationResult, "status",
+                            property(lambda self: "failed"))
+    # The targets never move, so the rehearsal's prediction of their pose
+    # decides the check.
+    offset = 0.0 if case == "calibrated" else 0.2
+    basis = {
+        "prior": None,
+        "edited": ("before edit", 2.0)
+    }.get(case, ("program", 2.0))
+
+    def body(session: ProtocolSession) -> None:
+        ctx.live_rehearsals.clear()
+        start = session.observe().frame
+        target = next(o for o in start if o.type.name == "target")
+        predicted: List[List[Optional[State]]] = []
+        for jitter in (-0.01, 0.0, 0.01, 0.005):
+            state = start.copy()
+            state.set(target, "pose",
+                      start.get(target, "pose") + offset + jitter)
+            predicted.append([state])
+
+        def features() -> Dict[str, List[str]]:
+            if case == "broken":
+                raise RuntimeError("no features")
+            return {"target": ["pose"]}
+
+        ctx.scored_features_provider = features
+        ctx.prediction_basis_provider = lambda: (
+            "program", max(2.0, ctx.predictive_temperature))
+        ctx.live_rehearsals.append(
+            LiveRehearsal(start, plan, 0.9, predicted, basis))
+        tools = build_continual_tools(ctx,
+                                      session,
+                                      PlayState(),
+                                      save_render=lambda tag: None)
+        out = _call(tools, "skills_invoke", skill=line)
+        assert session.observe().ledger.level_steps > 0
+        if case in ("calibrated", "stopped"):
+            assert "Prediction check" not in out
+        elif case == "broken":
+            assert out.splitlines()[0].startswith(line.split("(")[0])
+            assert "Prediction check: could not be evaluated" in out
+            assert "no features" in out
+        else:
+            assert "Prediction check: this outcome lies outside" in out
+            assert f"{target.name}.pose is" in out
+        if case == "surprised":
+            assert ctx.predictive_program == "program"
+            assert ctx.predictive_temperature > 2.0 * 50
+            assert "a refit keeps that temperature as a floor" in out
+        else:
+            assert ctx.predictive_program is None
+            assert ctx.predictive_temperature == 1.0
+        if case == "prior":
+            assert "came from the prior" in out
+        if case == "edited":
+            assert "an earlier simulator.py" in out
+        ctx.scored_features_provider = None
+        ctx.prediction_basis_provider = None
 
     driver.body = body
     ContinualRun(env, approach, driver).run()
