@@ -863,9 +863,10 @@ def test_rehearsal_gate_waits_for_a_joint_rehearsal_of_the_request(
     ContinualRun(env, approach, driver).run()
 
 
-@pytest.mark.parametrize(
-    "case",
-    ["calibrated", "surprised", "prior", "edited", "broken", "stopped"])
+@pytest.mark.parametrize("case", [
+    "calibrated", "surprised", "unreachable", "prior", "edited", "broken",
+    "stopped"
+])
 def test_predictive_check_scores_a_request_against_its_rehearsal(
         tmp_path: Any, monkeypatch: Any, caplog: Any, case: str) -> None:
     """A request that ran in full is scored against the rehearsal that began
@@ -898,7 +899,11 @@ def test_predictive_check_scores_a_request_against_its_rehearsal(
         start = session.observe().frame
         target = next(o for o in start if o.type.name == "target")
         predicted: List[List[Optional[State]]] = []
-        for jitter in (-0.01, 0.0, 0.01, 0.005):
+        # Draws that agree exactly leave a miss out of reach of any
+        # temperature.
+        jitters = ((0.0, 0.0, 0.0, 0.0) if case == "unreachable" else
+                   (-0.01, 0.0, 0.01, 0.005))
+        for jitter in jitters:
             state = start.copy()
             state.set(target, "pose",
                       start.get(target, "pose") + offset + jitter)
@@ -936,6 +941,8 @@ def test_predictive_check_scores_a_request_against_its_rehearsal(
         else:
             assert "Prediction check: this outcome lies outside" in out
             assert f"{target.name}.pose is" in out
+        if case == "unreachable":
+            assert "barely move" in out and "stays as it was" in out
         if case == "surprised":
             assert ctx.predictive_program == "program"
             assert ctx.predictive_temperature > 2.0 * 50

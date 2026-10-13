@@ -103,7 +103,24 @@ def test_observation_noise_widens_the_prediction() -> None:
     assert check.spread == pytest.approx(0.01, rel=1e-6)
     quiet = check_prediction(_state(0.51), predicted, {"box": ["x"]}, _QUIET)
     assert quiet is not None and quiet.surprising
-    assert quiet.inflation == MAX_INFLATION
+    # Draws that do not vary cannot be tempered toward the outcome.
+    assert quiet.out_of_reach == (("box0", "x"), )
+    assert quiet.inflation == 1.0
+
+
+def test_a_miss_out_of_reach_leaves_the_temperature_to_the_others() -> None:
+    """A feature the draws barely vary is named out of reach and does not set
+    the temperature; a reachable miss beside it still does."""
+    xs = [0.50, 0.52, 0.48, 0.51]
+    yaws = [0.10, 0.10, 0.10, 0.10]
+    observed = _state(0.70, yaw=0.40)
+    check = check_prediction(observed, _draws(xs, yaws), _FEATURES, _QUIET)
+    assert check is not None and check.surprising
+    assert check.out_of_reach == (("box0", "yaw"), )
+    draw_var = 1.25 * float(np.var(xs, ddof=1))
+    assert check.inflation == pytest.approx(
+        (0.70 - 0.5025)**2 / 4.0 / draw_var)
+    assert check.inflation < MAX_INFLATION
 
 
 def test_the_temperature_widens_only_the_draws() -> None:

@@ -528,14 +528,21 @@ def build_continual_tools(
         if check is None or not check.surprising:
             return ""
         name, feat = check.worst
-        return (
+        text = (
             "\nPrediction check: this outcome lies outside the rehearsal's "
             f"draws: {name}.{feat} is {check.observed:.4g} where the "
             f"{check.num_draws} draws gave {check.mean:.4g} +- "
             f"{check.spread:.2g}, {check.z_max:.1f} predictive spreads away "
             f"(a calibrated prediction stays within {check.critical:.1f} "
-            f"over these {check.num_features} features)." +
-            _widen(match.basis, check.inflation))
+            f"over these {check.num_features} features).")
+        if check.out_of_reach:
+            missed = ", ".join(f"{n}.{f}" for n, f in check.out_of_reach)
+            text += (f" The parameters the belief allows barely move {missed} "
+                     "toward the outcome at any temperature: the model's "
+                     "form, not its parameters' uncertainty, misses it there.")
+        if check.inflation <= 1.0:
+            return text + " The belief's temperature stays as it was."
+        return text + _widen(match.basis, check.inflation)
 
     def _widen(basis: Optional[Tuple[str, float]], inflation: float) -> str:
         """Raise the temperature floor of the fitted program the surprised
