@@ -250,6 +250,8 @@ def test_agent_builds_the_scene_and_rehearses_in_it(tmp_path: Any,
     assert ("remove it from the model only on evidence" in prompt) == \
         from_assets
     assert ("before you complete a training level" in prompt) == from_assets
+    assert ("stays clear of a failure a test level cannot undo"
+            in prompt) == from_assets
     # The test-level gate also waits for a fit in EMPIRIC from assets.
     assert ("Test levels require a fitted model" in prompt) == from_assets
     assert ("Test levels require a loaded model" in prompt) != from_assets
