@@ -21,11 +21,13 @@ from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Dict, \
 import numpy as np
 
 from predicators import utils
+from predicators.agent_sdk.predictive_check import check_prediction, \
+    point_predicts
 from predicators.agent_sdk.preflight_audit import audit_safely
 from predicators.agent_sdk.primitive_policy import open_primitive_policy, \
     primitive_action, primitive_observation
 from predicators.agent_sdk.sketch_parsing import parse_sketch_from_text
-from predicators.agent_sdk.tools.context import ToolContext
+from predicators.agent_sdk.tools.context import LiveRehearsal, ToolContext
 from predicators.agent_sdk.tools.digests import render_options_digest
 from predicators.agent_sdk.tools.results import _error_result, _text_result
 from predicators.observation_belief import atom_fractions, \
@@ -426,33 +428,43 @@ def build_continual_tools(
             return None
         return _error_result(reason + " Nothing was charged." + _footer())
 
-    def _unrehearsed(
+    def _matching_rehearsal(
         parsed: List[Tuple[_Option, Set[GroundAtom], Set[GroundAtom]]]
-    ) -> Optional[Dict[str, Any]]:
-        """The arm's rehearsal gate, when it installed one and it applies now:
-        a refusal that charges nothing, unless a rehearsal on the joint belief
-        from the current observation began with the request.
-
-        A request of Wait lines alone commands no motion and passes.
-        """
-        if ctx.rehearsal_gate is None or not ctx.rehearsal_gate():
-            return None
-        if not _commands_motion(parsed):
+    ) -> Optional[LiveRehearsal]:
+        """The newest rehearsal on the joint belief from the current
+        observation whose plan begins with the request, if any."""
+        if not ctx.live_rehearsals:
             return None
         # The live frame: a skill step does not refresh
         # ctx.current_observation, so that copy can be a step behind. The
         # comparison reads the observed features only, never the memory a
         # model infers.
         current = session.observe().frame
-        for seen, text, _p_hat in reversed(ctx.live_rehearsals):
-            if not states_close(seen, current):
+        for rehearsal in reversed(ctx.live_rehearsals):
+            if not states_close(rehearsal.observation, current):
                 continue
             try:
-                rehearsed = parse_plan_lines(text, ctx, _level_task())
+                rehearsed = parse_plan_lines(rehearsal.plan_text, ctx,
+                                             _level_task())
             except ValueError:
                 continue
             if _plan_starts_with(rehearsed, parsed):
-                return None
+                return rehearsal
+        return None
+
+    def _unrehearsed(
+            parsed: List[Tuple[_Option, Set[GroundAtom], Set[GroundAtom]]],
+            match: Optional[LiveRehearsal]) -> Optional[Dict[str, Any]]:
+        """The arm's rehearsal gate, when it installed one and it applies now:
+        a refusal that charges nothing, unless a rehearsal on the joint belief
+        from the current observation began with the request (``match``).
+
+        A request of Wait lines alone commands no motion and passes.
+        """
+        if ctx.rehearsal_gate is None or not ctx.rehearsal_gate():
+            return None
+        if not _commands_motion(parsed) or match is not None:
+            return None
         return _error_result(
             "Test level: rehearse this on the joint belief first. In "
             "run_python, print(sim.reset(current=True).run(plan)) with a "
@@ -462,6 +474,113 @@ def build_continual_tools(
             "yours to weigh. Wait lines need none; runs at the point "
             "estimate (draws=0) and runs from staged states do not count. "
             "Nothing was charged." + _footer())
+
+    def _prediction_note(match: Optional[LiveRehearsal], num_lines: int,
+                         progress: ExecutionProgress) -> str:
+        """The predictive check of a request that ran in full, under the arm's
+        continual_predictive_check: its outcome scored against the draws of
+        the rehearsal that began with it.
+
+        A surprise is reported and raises the fitted program's
+        temperature floor; an outcome within the draws adds nothing. The
+        step has run by now, so a failure of the check is reported in
+        place of the check and never hides the step's result.
+        """
+        try:
+            return _scored_prediction(match, num_lines, progress)
+        except Exception as e:  # pylint: disable=broad-except
+            logging.exception("Prediction check failed")
+            return f"\nPrediction check: could not be evaluated: {e!r}"
+
+    def _scored_prediction(match: Optional[LiveRehearsal], num_lines: int,
+                           progress: ExecutionProgress) -> str:
+        """:func:`_prediction_note` without its guard."""
+        provider = ctx.scored_features_provider
+        if (provider is None or match is None or not match.line_states
+                or len(progress.skills) != num_lines or progress.stop_reason):
+            return ""
+        # A controller that stopped short ran a different step from the one
+        # the draws rehearsed.
+        if any(skill.result.status != "succeeded"
+               for skill in progress.skills):
+            return ""
+        outcome = progress.skills[-1].result.outcome
+        if outcome.episode_state is not EpisodeState.NOT_FINISHED:
+            return ""
+        predicted: List[State] = []
+        for states in match.line_states:
+            last = states[num_lines - 1] if len(states) >= num_lines else None
+            if last is not None:
+                predicted.append(last)
+        features = provider()
+        if len(predicted) < 2 or not features:
+            return ""
+        frame = session.observe().frame
+        noise = ObservationNoise.from_cfg()
+        widths = (ctx.feature_width_provider()
+                  if ctx.feature_width_provider is not None else None)
+        check = check_prediction(frame, predicted, features, noise, widths)
+        if check is not None:
+            # Every check, surprising or not, so a run's log shows how
+            # calibrated its rehearsals were.
+            name, feat = check.worst
+            logging.info(
+                "Prediction check: worst %s.%s at z %.3g against critical "
+                "%.3g over %d features and %d draws; factor %.3g.", name, feat,
+                check.z_max, check.critical, check.num_features,
+                check.num_draws, check.needed)
+        if check is None or not check.surprising:
+            return ""
+        name, feat = check.worst
+        text = (
+            "\nPrediction check: this outcome lies outside the rehearsal's "
+            f"draws: {name}.{feat} is {check.observed:.4g} where the "
+            f"{check.num_draws} draws gave {check.mean:.4g} +- "
+            f"{check.spread:.2g}, {check.z_max:.1f} predictive spreads away "
+            f"(a calibrated prediction stays within {check.critical:.1f} "
+            f"over these {check.num_features} features).")
+        point = (match.mean_states[num_lines - 1]
+                 if len(match.mean_states) >= num_lines else None)
+        if point is not None and point_predicts(
+                frame, point, check.missed, noise, check.num_features, widths):
+            return text + (
+                " The rehearsal's rollout at the belief's mean predicted "
+                "it, so the draws spread the wrong way, through a factor "
+                "this outcome rules out (a material the model leaves "
+                "undeclared and samples over its plausible range, say), "
+                "and the temperature stays.")
+        if check.out_of_reach:
+            missed = ", ".join(f"{n}.{f}" for n, f in check.out_of_reach)
+            text += (f" The parameters the belief allows barely move {missed} "
+                     "toward the outcome at any temperature: the model's "
+                     "form, not its parameters' uncertainty, misses it there.")
+        if check.inflation <= 1.0:
+            return text + " The belief's temperature stays as it was."
+        return text + _widen(match.basis, check.inflation)
+
+    def _widen(basis: Optional[Tuple[str, float]], inflation: float) -> str:
+        """Raise the temperature floor of the fitted program the surprised
+        rehearsal drew from (``basis``) by ``inflation``, and say so."""
+        if basis is None:
+            return (" The draws came from the prior, before any fit of this "
+                    "simulator.py, so the belief does not change.")
+        provider = ctx.prediction_basis_provider
+        current = provider() if provider is not None else None
+        if provider is None or current is None or current[0] != basis[0]:
+            return (" The rehearsal ran an earlier simulator.py, so the "
+                    "belief does not change.")
+        program, temperature = basis
+        if ctx.predictive_program != program:
+            ctx.predictive_program, ctx.predictive_temperature = program, 1.0
+        ctx.predictive_temperature = max(ctx.predictive_temperature,
+                                         temperature * inflation)
+        after = provider()
+        now = after[1] if after is not None else temperature
+        return (" The fit understates this program's error on steps its "
+                "recordings did not show, so its joint draws now come from "
+                f"the belief at temperature {now:.3g} (this rehearsal drew "
+                f"at {temperature:.3g}); a refit keeps that temperature as a "
+                "floor, and an edit of simulator.py starts over.")
 
     def _preflight(plan_text: str,
                    args: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -804,7 +923,8 @@ def build_continual_tools(
             return _error_result("skills_invoke takes exactly one line; use "
                                  "skills_execute_plan for several." +
                                  _footer())
-        unrehearsed = _unrehearsed(parsed)
+        match = _matching_rehearsal(parsed)
+        unrehearsed = _unrehearsed(parsed, match)
         if unrehearsed is not None:
             return unrehearsed
         refused = _preflight(str(args.get("skill", "")), args)
@@ -817,7 +937,7 @@ def build_continual_tools(
             await _execute(
                 ExecuteSkill(option, expected, str(args.get("note", "")),
                              absent), progress, _skill_reporter(lines))
-            text = lines[0]
+            text = lines[0] + _prediction_note(match, 1, progress)
             render = save_render(f"invoke_{state.charged_calls:04d}")
             if render:
                 text += f"\n[render] {render}"
@@ -861,7 +981,8 @@ def build_continual_tools(
                                       _level_task())
         except ValueError as e:
             return _error_result(f"Could not parse the plan: {e}" + _footer())
-        unrehearsed = _unrehearsed(parsed)
+        match = _matching_rehearsal(parsed)
+        unrehearsed = _unrehearsed(parsed, match)
         if unrehearsed is not None:
             return unrehearsed
         refused = _preflight(str(args.get("plan", "")), args)
@@ -885,6 +1006,9 @@ def build_continual_tools(
             elif progress.stop_reason not in ("", "terminal"):
                 lines.append(f"plan stopped: skill {count} "
                              f"{progress.stop_reason}")
+            checked = _prediction_note(match, len(parsed), progress)
+            if checked:
+                lines.append(checked.lstrip("\n"))
             render = save_render(f"plan_{state.charged_calls:04d}")
             if render:
                 lines.append(f"[render] {render}")

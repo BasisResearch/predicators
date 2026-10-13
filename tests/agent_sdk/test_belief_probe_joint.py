@@ -12,10 +12,11 @@ import pytest
 
 from predicators import utils
 from predicators.agent_sdk.belief_probe import BeliefProbe, ProbeJointResult, \
-    ProbeResult, _separating_ranges
-from predicators.structs import GroundAtom, Task, TaskEvaluator
+    ProbeResult, _line_states, _separating_ranges
+from predicators.agent_sdk.plan_execution import StepOutcome
+from predicators.structs import GroundAtom, State, Task, TaskEvaluator
 from tests.agent_sdk.test_belief_probe_physics_sweep import _block, \
-    _make_ctx, _ReachedHi
+    _make_ctx, _Move, _ReachedHi
 
 _PLAN = "Move(block0:block)[0.95]"
 # Two of the four draws fall inside the model's friction hole, where the
@@ -63,9 +64,20 @@ def test_rehearsal_reports_p_hat_draws_and_the_mean_rollout():
     assert res.from_observation
     # The rehearsal gate's record: this plan, from this observation.
     assert len(ctx.live_rehearsals) == 1
-    seen, plan, p_hat = ctx.live_rehearsals[0]
-    assert seen is ctx.current_observation and plan == _PLAN
-    assert p_hat == pytest.approx(0.5)
+    rehearsal = ctx.live_rehearsals[0]
+    assert rehearsal.observation is ctx.current_observation
+    assert rehearsal.plan_text == _PLAN
+    assert rehearsal.p_hat == pytest.approx(0.5)
+    # Each draw's state after the plan's one line, which the predictive
+    # check scores the real outcome against; no fitted program yet.
+    xs = [states[0].get(_block, "x") for states in rehearsal.line_states]
+    assert xs[0] == pytest.approx(0.95) and xs[2] == pytest.approx(0.95)
+    assert xs[1] != pytest.approx(0.95) and xs[3] != pytest.approx(0.95)
+    assert rehearsal.basis is None
+    # And the rollout at the belief's mean, line by line.
+    assert len(rehearsal.mean_states) == 1
+    assert rehearsal.mean_states[0] is not None
+    assert rehearsal.mean_states[0].get(_block, "x") == pytest.approx(0.95)
     # Each draw ran in the fresh scope at its own physical parameters.
     assert scope_overrides[:4] == [{"friction": f} for f in _FRICTIONS]
     assert all(d["solved"] is None for d in res.draws)  # no evaluator
@@ -86,6 +98,24 @@ def test_rehearsal_reports_p_hat_draws_and_the_mean_rollout():
     assert "no single parameter separates" in text
     assert "Step-by-step rollout from the belief mean" in text
     utils.reset_config({})
+
+
+def test_line_states_skip_lines_a_draw_did_not_run():
+    """A line a draw ran cleanly leaves its state; one whose controller failed
+    there, or that was not initiable, leaves none: the draw did not rehearse
+    it."""
+    option = _Move.ground([_block], np.array([0.95], dtype=np.float32))
+    start = State({_block: np.array([0.2])})
+    moved = State({_block: np.array([0.95])})
+    states = _line_states([
+        StepOutcome(option, start, moved, 12, True, None, None),
+        StepOutcome(option, moved, moved, 0, True, "0 actions", None),
+        StepOutcome(option, moved, None, 0, False, "not initiable", None),
+    ])
+    assert len(states) == 3
+    assert states[0] is not None
+    assert states[0].get(_block, "x") == pytest.approx(0.95)
+    assert states[1] is None and states[2] is None
 
 
 def test_rehearsal_modes_and_replaced_flags():

@@ -201,6 +201,14 @@ Rehearse the whole remaining plan from `sim.reset(current=True)`: its first line
 Each real step changes the observation, so rehearse the rest of the plan again before the next step.
 `Wait` lines need no rehearsal; runs at the point estimate (`draws=0`) and runs from staged states do not count.
 
+<!-- section: predictive_check -->
+### Each rehearsed step is checked against its rehearsal
+
+When a request that a joint rehearsal from the current observation began with runs in full, its result compares the real outcome with that rehearsal's draws on the features `RESIDUAL_FEATURES` scores.
+An outcome farther from the draws than chance allows over those features is reported with the feature, its value and the draws' spread.
+Such a miss shows the fit understating the model's error on steps its recordings did not show: a mechanism the model lacks or gets wrong, or a regime the recordings never reached.
+From then on the joint draws of that `simulator.py` come from its belief at the temperature that would have put the outcome within the draws, so P-hat counts the miss; a refit keeps that temperature as a floor, and an edit of the file starts over.
+
 <!-- section: skill_preflight -->
 ### Every skill request is rehearsed first
 

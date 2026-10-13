@@ -38,8 +38,8 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, \
 from predicators import utils
 from predicators.agent_sdk.config import RefinementConfig, ToolSurfaceConfig
 from predicators.agent_sdk.parallel_rollouts import prefetch_parallel
-from predicators.agent_sdk.tools.context import absolute_rollout_seed, \
-    decorrelated_rollout_seed
+from predicators.agent_sdk.tools.context import LiveRehearsal, \
+    absolute_rollout_seed, decorrelated_rollout_seed
 from predicators.agent_sdk.tools.scene import apply_state_modifications, \
     draw_pybullet_annotation, render_pybullet_image, render_scene_image
 from predicators.agent_sdk.tools.verdicts import _EvalStateCollector, \
@@ -48,6 +48,7 @@ from predicators.agent_sdk.tools.verdicts import _EvalStateCollector, \
 from predicators.structs import State, Task, excluded_object_type_names
 
 if TYPE_CHECKING:
+    from predicators.agent_sdk.plan_execution import StepOutcome
     from predicators.agent_sdk.tools import ToolContext
 
 # Modification format accepted by ``reset``: either the tools' list form
@@ -242,6 +243,10 @@ class ProbeResult(_StrLikeResult):
     # ``evaluate_trajectory`` scores, so a rollout can be scored or
     # inspected without rebuilding it by hand.
     states: List[State] = dataclasses.field(default_factory=list)
+    # The state after each plan line, or None where the line did not run
+    # cleanly (:func:`_line_states`).
+    line_states: List[Optional[State]] = dataclasses.field(
+        default_factory=list)
 
     def __repr__(self) -> str:
         lines = []
@@ -853,6 +858,20 @@ class ProbeGatherResult(_StrLikeResult):
                 "than the current file - their results describe the model "
                 "as of their launch, not your latest edits.")
         return "\n".join(lines)
+
+
+def _line_states(steps: Sequence[StepOutcome]) -> List[Optional[State]]:
+    """Each plan line's state after it ran in a rehearsal draw, or None where
+    the line did not run cleanly there (not initiable, no actions, a controller
+    or env failure): such a draw did not rehearse the line, so its state says
+    nothing about what the line does when it runs."""
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.run.recording import sanitize_state
+    return [
+        sanitize_state(st.post_state)
+        if st.post_state is not None and st.failure_reason is None else None
+        for st in steps
+    ]
 
 
 class BeliefProbe:
@@ -1673,10 +1692,15 @@ class BeliefProbe:
                     if st.post_state is not None:
                         last = st.post_state
                 final = sanitize_state(last)
+            # What a request that starts this plan should leave behind,
+            # line by line: the predictive check scores its real outcome
+            # on these.
+            line_states = (_line_states(r.steps) if from_observation else [])
             success = (bool(solved) if solved is not None else
                        bool(r.goal_reached) and failure is None)
             return {
                 "final": final,
+                "line_states": line_states,
                 "params": dict(theta),
                 "goal_reached": bool(r.goal_reached),
                 "solved": solved,
@@ -1843,8 +1867,15 @@ class BeliefProbe:
         if result.from_observation and ctx.current_observation is not None:
             # What the rehearsal gate lets through: this plan, from this
             # observation (the bound keeps a long session's list small).
+            basis = (ctx.prediction_basis_provider()
+                     if ctx.prediction_basis_provider is not None else None)
+            mean_states = (list(result.mean.line_states) if isinstance(
+                result.mean, ProbeResult) else [])
             ctx.live_rehearsals.append(
-                (ctx.current_observation, plan_text, float(result.p_hat)))
+                LiveRehearsal(
+                    ctx.current_observation, plan_text, float(result.p_hat),
+                    [list(d.get("line_states") or [])
+                     for d in result.draws], basis, mean_states))
             del ctx.live_rehearsals[:-_LIVE_REHEARSALS_KEPT]
         return result
 
@@ -2522,7 +2553,8 @@ class BeliefProbe:
                            final_atoms,
                            result.final_state,
                            notices,
-                           states=list(collectors[0].states))
+                           states=list(collectors[0].states),
+                           line_states=_line_states(result.steps))
 
     def run_policy(
         self,

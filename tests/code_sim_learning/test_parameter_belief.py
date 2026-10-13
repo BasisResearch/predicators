@@ -165,6 +165,108 @@ def test_mixed_beliefs_round_trip_and_join():
     assert all((r["a"] < 0.5) == (r["b"] > 0.5) and "c" in r for r in rows)
 
 
+def test_tempered_line_widens_within_its_traced_range():
+    """A Gaussian line at four times its temperature is twice as wide; its
+    cumulative mass inverts its quantiles, moving draws to the tempered line
+    keeps their order, and past its traced range a tempered line is flat, never
+    wider."""
+    grid = np.linspace(-12.0, 12.0, 241)
+    line = LinePosterior.from_neg_log(grid, 0.5 * grid**2)
+    assert line.tempered(1.0) is line
+    hot = line.tempered(4.0)
+    assert np.trapz(hot.density, hot.grid) == pytest.approx(1.0)
+    assert np.sqrt(hot.variance()) == pytest.approx(2.0, rel=0.02)
+    assert hot.mode() == pytest.approx(line.mode())
+    q = np.array([0.05, 0.3, 0.5, 0.9])
+    assert line.cdf([line.quantile(p) for p in q]) == pytest.approx(q,
+                                                                    abs=1e-6)
+    z = line.sample(np.random.default_rng(0), 50)
+    moved = line.transport(z, hot)
+    assert np.array_equal(np.argsort(moved), np.argsort(z))
+    assert moved == pytest.approx(2.0 * z, abs=0.05)
+    short = np.linspace(-1.0, 1.0, 21)
+    narrow = LinePosterior.from_neg_log(short, 0.5 * (short / 0.2)**2)
+    flat = narrow.tempered(1e4)
+    assert flat.grid[0] == -1.0 and flat.grid[-1] == 1.0
+    assert np.ptp(flat.density) < 0.01 * np.max(flat.density)
+
+
+def test_inflated_belief_tempers_lines_and_moves_draws():
+    """At four times the temperature each line and the draws widen about twice
+    about the same mode, each draw keeping its place in the order; the report
+    states the temperature, and checkpoints keep it."""
+    specs = [
+        ParamSpec("a", 0.3, lo=-10, hi=10),
+        ParamSpec("b", 2.0, lo=0.1, hi=20.0, scale="log")
+    ]
+    belief = _build(
+        specs, {
+            "a": 0.3,
+            "b": 2.0
+        }, _gaussian_residuals(["a", "b"], [0.3, 2.0],
+                               np.eye(2) * 20))
+    assert belief.inflated(1.0) is belief
+    hot = belief.inflated(4.0)
+    assert hot.inflation == 4.0 and hot.noise_scale == belief.noise_scale
+    for j, name in enumerate(["a", "b"]):
+        ratio = np.sqrt(hot.lines[name].variance() /
+                        belief.lines[name].variance())
+        assert 1.7 < ratio < 2.05
+        assert hot.most_likely(name) == pytest.approx(belief.most_likely(name))
+        before, after = belief.draws[:, j], hot.draws[:, j]
+        if name == "b":
+            before, after = np.log(before), np.log(after)
+        assert np.array_equal(np.argsort(after), np.argsort(before))
+        assert 1.5 < np.std(after) / np.std(before) < 2.2
+    assert "4 times the fit's temperature" in "\n".join(hot.describe())
+    assert "the fit's temperature" not in "\n".join(belief.describe())
+    restored = ParameterBelief.from_dict(hot.to_dict())
+    assert restored.inflation == 4.0
+    assert np.array_equal(restored.draws, hot.draws)
+    rows = hot.sample(np.random.default_rng(0), 4000)
+    assert np.std([r["a"] for r in rows
+                   ]) == pytest.approx(np.sqrt(hot.lines["a"].variance()),
+                                       rel=0.05)
+
+
+def test_inflated_belief_keeps_discrete_values_and_basins():
+    """Tempering leaves discrete parameters' draws alone, widens each basin of
+    a mixture about its own values, and survives a join."""
+    belief = prior_belief([
+        ParamSpec("a", 0.5, lo=0.0, hi=1.0),
+        ParamSpec("n", 1.0, lo=0.0, hi=3.0, discrete=True)
+    ], {
+        "a": 0.5,
+        "n": 1.0
+    }, {
+        "a": 0.05,
+        "n": 1.0
+    },
+                          BeliefConfig(num_draws=16),
+                          seed=0)
+    hot = belief.inflated(4.0)
+    assert np.array_equal(hot.draws[:, 1], belief.draws[:, 1])
+    assert np.std(hot.draws[:, 0]) > 1.5 * np.std(belief.draws[:, 0])
+    first, second = _two_basin_beliefs()
+    mixed = mix_beliefs([first, second], [1.0, 1.0])
+    hot_mix = mixed.inflated(4.0)
+    assert [c.inflation for c in hot_mix.components] == [4.0, 4.0]
+    assert np.array_equal(hot_mix.draws,
+                          np.vstack([c.draws for c in hot_mix.components]))
+    for rows in (slice(0, 8), slice(8, 16)):
+        assert np.std(hot_mix.draws[rows,
+                                    0]) > 1.5 * np.std(mixed.draws[rows, 0])
+    sampled = hot_mix.sample(np.random.default_rng(0), 400)
+    assert all((r["a"] < 0.5) == (r["b"] > 0.5) for r in sampled)
+    lo, hi = hot_mix.highest_density_interval("a")
+    assert lo < 0.25 and hi > 0.75
+    extra = prior_belief([ParamSpec("c", 0.5, lo=0.0, hi=1.0)], {"c": 0.0},
+                         {"c": 1.0},
+                         BeliefConfig(num_draws=16),
+                         seed=0)
+    assert join_beliefs(hot_mix, extra).inflation == 4.0
+
+
 def test_gaussian_lines_recover_conditional_variances():
     """Each line has the mean-field variance ``1 / Lambda_jj``."""
     specs = [
