@@ -14,7 +14,7 @@ sample.
 from __future__ import annotations
 
 import dataclasses
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 from scipy.stats import t as student_t
@@ -96,15 +96,23 @@ def _needed_temperature(delta: float, draw_var: float,
     return float(excess / draw_var)
 
 
-def check_prediction(observed: State, predicted: Sequence[State],
-                     features: Dict[str, List[str]],
-                     noise: ObservationNoise) -> Optional[PredictionCheck]:
+def check_prediction(
+    observed: State,
+    predicted: Sequence[State],
+    features: Dict[str, List[str]],
+    noise: ObservationNoise,
+    widths: Optional[Dict[Tuple[str, str], float]] = None
+) -> Optional[PredictionCheck]:
     """Score ``observed`` against the predicted states ``predicted`` (one per
     draw) on the scored ``features`` (type name -> feature names).
 
     The robot's own features are left out: its commands drive them. An
     angle is compared on the circle. None when no feature is predicted
-    by at least two draws.
+    by at least two draws. ``widths`` gives, per (type name, feature),
+    the width the fit's likelihood scores the feature's error with: the
+    known part of the predictive spread is then that width (the
+    posterior predictive of the fit's own model), else the observation
+    noise.
     """
     by_name = [{o.name: o for o in state} for state in predicted]
     rows: List[Tuple[float, float, str, str, float, float, float, float]] = []
@@ -137,21 +145,21 @@ def check_prediction(observed: State, predicted: Sequence[State],
                 mean = float(np.mean(draws))
                 delta = seen - mean
                 var = float(np.var(draws, ddof=1))
-            sigma = noise.feature_sigma(obj.type, feat)
+            known = _known_variance(obj.type, feat, noise, widths)
             # The draws' variance is estimated from them, with n - 1
             # degrees of freedom, and a new draw spreads by (1 + 1/n) of
             # it; the observation noise's is known. The predictive
             # distribution is then Student's t with the Welch-Satterthwaite
             # degrees of freedom.
             draw_part = var * (1.0 + 1.0 / draws.size)
-            total = draw_part + sigma**2 + 1e-12
+            total = draw_part + known + 1e-12
             dof = (total**2 * (draws.size - 1) /
                    draw_part**2 if draw_part > 0.0 else np.inf)
             spread = float(np.sqrt(total))
             z = float(min(abs(delta) / spread, _MAX_Z))
             tail = float(2.0 * student_t.sf(z, dof))
             rows.append((tail, -z, obj.name, feat, seen, mean, spread, dof))
-            reach = _needed_temperature(delta, draw_part, sigma**2)
+            reach = _needed_temperature(delta, draw_part, known)
             if reach is None:
                 beyond.append((z, obj.name, feat, dof))
             else:
@@ -179,13 +187,29 @@ def check_prediction(observed: State, predicted: Sequence[State],
                            missed=missed)
 
 
-def point_predicts(observed: State, point: State, keys: Sequence[Tuple[str,
-                                                                       str]],
-                   noise: ObservationNoise, num_features: int) -> bool:
+def _known_variance(obj_type: Any, feat: str, noise: ObservationNoise,
+                    widths: Optional[Dict[Tuple[str, str], float]]) -> float:
+    """The variance of a feature's outcome about one parameter setting's
+    prediction: the fit's likelihood width squared when ``widths`` names it
+    (it folds a declared noise channel in), else the observation noise."""
+    sigma = noise.feature_sigma(obj_type, feat)
+    width = None if widths is None else widths.get((obj_type.name, feat))
+    if width is None:
+        return sigma**2
+    return width**2 + (0.0 if noise.declared else sigma**2)
+
+
+def point_predicts(
+        observed: State,
+        point: State,
+        keys: Sequence[Tuple[str, str]],
+        noise: ObservationNoise,
+        num_features: int,
+        widths: Optional[Dict[Tuple[str, str], float]] = None) -> bool:
     """Whether the single predicted state ``point`` puts every feature in
     ``keys`` (object name, feature) of ``observed`` within the distance a
     calibrated prediction stays within over ``num_features`` features, with the
-    observation noise alone as the spread.
+    known spread (``widths``, else the observation noise) alone.
 
     A rollout at the belief's mean that predicts an outcome its draws
     missed shows the draws spread the wrong way; it is no sign that the
@@ -204,6 +228,7 @@ def point_predicts(observed: State, point: State, keys: Sequence[Tuple[str,
         delta = float(observed.get(obj, feat)) - float(point.get(twin, feat))
         if feat in set(getattr(obj.type, "angular_features", ())):
             delta = (delta + np.pi) % (2.0 * np.pi) - np.pi
-        if abs(delta) > bound * noise.feature_sigma(obj.type, feat):
+        known = _known_variance(obj.type, feat, noise, widths)
+        if abs(delta) > bound * float(np.sqrt(known)):
             return False
     return True

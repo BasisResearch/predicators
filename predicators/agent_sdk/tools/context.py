@@ -108,6 +108,12 @@ class ToolContext:
     # None when no model is loaded; the predictive check compares those.
     scored_features_provider: Optional[Callable[[], Optional[Dict[
         str, List[str]]]]] = None
+    # Installed with it: the width the fit's likelihood scores each scored
+    # feature's error with, (type name, feature) -> width in the feature's
+    # units, or None without a fit to read it from.
+    feature_width_provider: Optional[Callable[[],
+                                              Optional[Dict[Tuple[str, str],
+                                                            float]]]] = None
     # Installed with it: the fitted program the joint draws come from
     # (the digest of its simulator.py) and the temperature they are drawn
     # at, or None while they come from the prior.

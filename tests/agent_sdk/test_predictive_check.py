@@ -2,17 +2,19 @@
 rehearsal's draws, and for the temperature it keeps per fitted program."""
 
 import dataclasses
-from typing import List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pytest
 from scipy.stats import t as student_t
 
+from predicators import utils
 from predicators.agent_sdk.predictive_check import MAX_INFLATION, \
     check_prediction, point_predicts
 from predicators.agent_sdk.tools.context import ToolContext
 from predicators.approaches.agent_continual_approach import \
     AgentContinualApproach
+from predicators.code_sim_learning.config import DEFAULT_NOISE_SIGMA
 from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.code_sim_learning.parameter_belief import BeliefConfig, \
     ParameterBelief, prior_belief
@@ -108,6 +110,35 @@ def test_observation_noise_widens_the_prediction() -> None:
     assert quiet.inflation == 1.0
 
 
+def test_the_fits_likelihood_width_joins_the_spread() -> None:
+    """With the fit's likelihood width for a feature, an outcome that width
+    allows is no surprise, and a point prediction covers it within that width;
+    an undeclared noise channel adds its own variance on top."""
+    xs = [0.50, 0.52, 0.48, 0.51]
+    observed = _state(0.70)
+    narrow = check_prediction(observed, _draws(xs), {"box": ["x"]}, _QUIET)
+    assert narrow is not None and narrow.surprising
+    widths = {("box", "x"): 0.1}
+    wide = check_prediction(observed, _draws(xs), {"box": ["x"]}, _QUIET,
+                            widths)
+    assert wide is not None and not wide.surprising
+    draw_var = 1.25 * float(np.var(xs, ddof=1))
+    assert wide.spread == pytest.approx(np.sqrt(draw_var + 0.01), rel=1e-6)
+    assert point_predicts(observed, _state(0.75), (("box0", "x"), ), _QUIET, 1,
+                          widths)
+    assert not point_predicts(observed, _state(0.75),
+                              (("box0", "x"), ), _QUIET, 1)
+    hidden = ObservationNoise(position=0.05,
+                              orientation=0.0,
+                              scalar=0.0,
+                              declared=False)
+    both = check_prediction(observed, _draws(xs), {"box": ["x"]}, hidden,
+                            widths)
+    assert both is not None
+    assert both.spread == pytest.approx(np.sqrt(draw_var + 0.01 + 0.0025),
+                                        rel=1e-6)
+
+
 def test_a_point_prediction_can_cover_what_the_draws_missed() -> None:
     """A single predicted state covers a missed feature when the outcome lies
     within the noise's critical distance of it; with no noise only an exact
@@ -175,6 +206,55 @@ def test_nothing_to_score() -> None:
                             _QUIET) is None
     assert check_prediction(_state(0.5), _draws([0.5, 0.6]), {"robot": ["x"]},
                             _QUIET) is None
+
+
+class _WidthArm(AgentContinualApproach):
+    """The continual arm's feature widths, on given recordings and scored
+    features."""
+
+    # pylint: disable-next=super-init-not-called
+    def __init__(self, rollouts: List[Any], features: Dict[str, List[str]]):
+        self._rollouts = rollouts
+        self._features = features
+        self._fit_trajectories = []
+        self.builds = 0
+
+    def _scored_features(self) -> Optional[Dict[str, List[str]]]:
+        return self._features
+
+    def _current_simulator_digest(self) -> Optional[str]:
+        return "program"
+
+    def _probe_fit_state(self) -> Dict[str, Any]:
+        return {}
+
+    def _rollout_fit_trajectories(self,
+                                  residual_features: Any = None,
+                                  traj_idxs: Any = None) -> List[Any]:
+        self.builds += 1
+        return self._rollouts
+
+    def widths(self) -> Optional[Dict[Tuple[str, str], float]]:
+        """The widths the predictive check reads."""
+        return self._feature_widths()
+
+
+def test_feature_widths_follow_the_fits_residual_scales() -> None:
+    """Each scored feature's width is the fit's noise sigma times its residual
+    scale: the span its recordings cover, with the declared observation noise
+    folded in; computed once per program and recording count."""
+    utils.reset_config({
+        "continual_obs_noise_position": 0.01,
+        "continual_obs_noise_declared": True,
+    })
+    states = [_state(x) for x in (0.2, 0.5, 0.6)]
+    arm = _WidthArm([(states, [None, None])], {"box": ["x"]})
+    widths = arm.widths()
+    assert widths is not None
+    expected = np.sqrt((DEFAULT_NOISE_SIGMA * 0.4)**2 + 0.01**2)
+    assert widths[("box", "x")] == pytest.approx(expected, rel=1e-6)
+    assert arm.widths() == widths and arm.builds == 1
+    utils.reset_config({})
 
 
 class _Arm(AgentContinualApproach):

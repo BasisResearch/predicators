@@ -53,8 +53,12 @@ from predicators.approaches.agent_sim_predicate_invention_approach import \
     AgentSimPredicateInventionApproach
 from predicators.approaches.continual_play_mixin import ContinualPlayMixin
 from predicators.approaches.scene_package_mixin import ScenePackageMixin
+from predicators.code_sim_learning.config import DEFAULT_NOISE_SIGMA, \
+    SysIdConfig
 from predicators.code_sim_learning.parameter_belief import ParameterBelief
 from predicators.code_sim_learning.rollout_env import dispose_env
+from predicators.code_sim_learning.trajectory_prep import \
+    compute_residual_scaling
 from predicators.code_sim_learning.utils import LearnedSimulator, \
     apply_rules, read_residual_env
 from predicators.envs import create_new_env
@@ -350,6 +354,7 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         # temperature each rehearsal records.
         check = CFG.continual_predictive_check
         ctx.scored_features_provider = self._scored_features if check else None
+        ctx.feature_width_provider = self._feature_widths if check else None
         ctx.prediction_basis_provider = (self._prediction_basis
                                          if check else None)
         probe_ns = build_probe_namespace(ctx)
@@ -496,6 +501,7 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         ctx.skill_gate = None
         ctx.rehearsal_gate = None
         ctx.scored_features_provider = None
+        ctx.feature_width_provider = None
         ctx.prediction_basis_provider = None
         ctx.skill_preflight = None
         ctx.execution_audit = None
@@ -570,6 +576,40 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         return float(
             min(max(1.0, ctx.predictive_temperature / belief.noise_scale),
                 MAX_INFLATION))
+
+    def _feature_widths(self) -> Optional[Dict[Tuple[str, str], float]]:
+        """The width the fit's likelihood scores each scored feature's error
+        with, in the feature's units: ``noise_sigma`` times the residual scale
+        the fit computes from its recordings (their span, with the declared
+        observation noise folded in).
+
+        The predictive check expects an outcome within this much of each
+        draw, as the fit's own model does. Cached per program and
+        recording count.
+        """
+        features = self._scored_features()
+        if not features:
+            return None
+        key = (self._current_simulator_digest(), len(self._fit_trajectories),
+               tuple(sorted((t, tuple(f)) for t, f in features.items())))
+        cached = getattr(self, "_feature_width_cache", None)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        state = self._probe_fit_state()
+        result = state.get("fit_result")
+        sigma = float(
+            getattr(result, "noise_sigma", None) or DEFAULT_NOISE_SIGMA)
+        scaling = compute_residual_scaling(
+            self._rollout_fit_trajectories(features),
+            features,
+            config=SysIdConfig.from_cfg(),
+            noise_sigma=sigma)
+        widths: Optional[Dict[Tuple[str, str], float]] = None
+        if scaling is not None:
+            widths = {(t, f): sigma * float(scaling.scales.get((t, f), 1.0))
+                      for t, feats in features.items() for f in feats}
+        setattr(self, "_feature_width_cache", (key, widths))
+        return widths
 
     def _prediction_basis(self) -> Optional[Tuple[str, float]]:
         """The fitted program the joint draws come from and the temperature
