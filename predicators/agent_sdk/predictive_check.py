@@ -44,8 +44,10 @@ class PredictionCheck:
     distance that feature's prediction stays within, for a calibrated
     model, over all ``num_features`` features but for ``_FALSE_ALARM``
     of the time. ``needed`` is the smallest factor on the belief's
-    temperature under which every feature would lie within two
-    predictive spreads (see :func:`_needed_temperature`).
+    temperature under which every feature it can reach would lie within
+    two predictive spreads (see :func:`_needed_temperature`);
+    ``out_of_reach`` names the features missed beyond their critical
+    distance that no factor up to ``MAX_INFLATION`` reaches.
     """
     num_features: int
     num_draws: int
@@ -56,6 +58,7 @@ class PredictionCheck:
     spread: float
     critical: float
     needed: float
+    out_of_reach: Tuple[Tuple[str, str], ...] = ()
 
     @property
     def surprising(self) -> bool:
@@ -70,23 +73,25 @@ class PredictionCheck:
 
 
 def _needed_temperature(delta: float, draw_var: float,
-                        noise_var: float) -> float:
+                        noise_var: float) -> Optional[float]:
     """The smallest factor on the temperature that brings an outcome ``delta``
-    from the draws' mean within two predictive spreads.
+    from the draws' mean within two predictive spreads, or None when no factor
+    up to ``MAX_INFLATION`` does.
 
     Tempering widens the parameter-driven part of the spread, whose
     variance ``draw_var`` grows in proportion to the temperature, and
     leaves the observation noise's ``noise_var`` as it is: the factor
     solves ``delta^2 = 4 (T draw_var + noise_var)``. An outcome the draws
-    do not vary toward is out of reach at any temperature and gets the
-    largest factor.
+    barely vary toward is out of reach: the parameters the belief allows
+    do not move the feature there, so the miss is the model's form, and
+    a hotter belief would only blur the parameters it does constrain.
     """
     excess = delta**2 / 4.0 - noise_var
     if excess <= draw_var:
         return 1.0
-    if draw_var <= 0.0:
-        return MAX_INFLATION
-    return float(min(excess / draw_var, MAX_INFLATION))
+    if draw_var <= 0.0 or excess > MAX_INFLATION * draw_var:
+        return None
+    return float(excess / draw_var)
 
 
 def check_prediction(observed: State, predicted: Sequence[State],
@@ -102,6 +107,7 @@ def check_prediction(observed: State, predicted: Sequence[State],
     by_name = [{o.name: o for o in state} for state in predicted]
     rows: List[Tuple[float, float, str, str, float, float, float, float]] = []
     needed = 1.0
+    beyond: List[Tuple[float, str, str, float]] = []
     for obj in observed:
         type_name = obj.type.name
         if type_name == "robot":
@@ -143,13 +149,19 @@ def check_prediction(observed: State, predicted: Sequence[State],
             z = float(min(abs(delta) / spread, _MAX_Z))
             tail = float(2.0 * student_t.sf(z, dof))
             rows.append((tail, -z, obj.name, feat, seen, mean, spread, dof))
-            needed = max(needed, _needed_temperature(delta, draw_part,
-                                                     sigma**2))
+            reach = _needed_temperature(delta, draw_part, sigma**2)
+            if reach is None:
+                beyond.append((z, obj.name, feat, dof))
+            else:
+                needed = max(needed, reach)
     if not rows:
         return None
     _tail, neg_z, name, feat, seen, mean, spread, dof = min(rows)
     z = -neg_z
-    critical = float(student_t.isf(_FALSE_ALARM / (2.0 * len(rows)), dof))
+    alpha = _FALSE_ALARM / (2.0 * len(rows))
+    critical = float(student_t.isf(alpha, dof))
+    out_of_reach = tuple((n, f) for zf, n, f, df in beyond
+                         if zf > float(student_t.isf(alpha, df)))
     return PredictionCheck(num_features=len(rows),
                            num_draws=len(predicted),
                            z_max=z,
@@ -158,4 +170,5 @@ def check_prediction(observed: State, predicted: Sequence[State],
                            mean=mean,
                            spread=spread,
                            critical=critical,
-                           needed=needed)
+                           needed=needed,
+                           out_of_reach=out_of_reach)
