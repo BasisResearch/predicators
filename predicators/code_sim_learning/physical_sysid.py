@@ -135,6 +135,59 @@ _ROLLOUT_PRIOR_SIGMA_SCALE = 0.75
 _CONSISTENCY_RMS_EPS = 1e-3
 
 
+def _prior_center_and_widths(
+        all_specs: Sequence[ParamSpec], anchors: Dict[str, float],
+        prior_sigma_scale: float) -> Tuple[np.ndarray, np.ndarray]:
+    """The fit-space prior centre (each parameter's anchor, else its declared
+    init) and the prior widths, taken at the centre values."""
+    center_values = np.array(
+        [anchors.get(s.name, s.init_value) for s in all_specs], dtype=float)
+    # Prior widths are computed at the CENTER values (the anchor spec),
+    # so a linear param's width scales with its anchor, not with
+    # whatever init the agent declared this call.
+    center_specs = [
+        ParamSpec(s.name,
+                  float(c),
+                  lo=s.lo,
+                  hi=s.hi,
+                  scale=getattr(s, "scale", "linear"))
+        for s, c in zip(all_specs, center_values)
+    ]
+    return (to_fit_space(list(all_specs), center_values),
+            prior_widths(center_specs, prior_sigma_scale))
+
+
+def _search_box(all_specs: Sequence[ParamSpec], center_int: np.ndarray,
+                prior_sigma: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """Every parameter's box in fit space; an unbounded side reaches two prior
+    widths past the anchor."""
+    lo, hi = fit_space_bounds(list(all_specs))
+    lo = np.where(np.isfinite(lo), lo, center_int - 2.0 * prior_sigma)
+    hi = np.where(np.isfinite(hi), hi, center_int + 2.0 * prior_sigma)
+    return lo, hi
+
+
+def _whole_box_design(
+        all_specs: Sequence[ParamSpec], center_int: np.ndarray,
+        prior_sigma: np.ndarray, num_points: int,
+        trajectories: List[RolloutTrajectory]) -> List[Dict[str, float]]:
+    """A scrambled Sobol design of ``num_points`` over every parameter's box in
+    fit space, an unbounded side reaching two prior widths past the anchor;
+    seeded by the parameter names and the recordings' lengths."""
+    names = [s.name for s in all_specs]
+    lo, hi = _search_box(all_specs, center_int, prior_sigma)
+    seed = stable_seed("global design", names,
+                       [len(actions) for _states, actions in trajectories])
+    unit = qmc.Sobol(d=len(names), scramble=True,
+                     seed=seed % (2**32)).random(num_points)
+    return [
+        dict(
+            zip(names, (float(v)
+                        for v in from_fit_space(list(all_specs), lo + row *
+                                                (hi - lo))))) for row in unit
+    ]
+
+
 def fit_params_rollout(
     base_env: Any,
     trajectories: List[RolloutTrajectory],
@@ -191,21 +244,8 @@ def fit_params_rollout(
     names = [s.name for s in all_specs]
     scales = [getattr(s, "scale", "linear") for s in all_specs]
     anchors = anchors or {}
-    center_values = np.array(
-        [anchors.get(s.name, s.init_value) for s in all_specs], dtype=float)
-    # Prior widths are computed at the CENTER values (the anchor spec),
-    # so a linear param's width scales with its anchor, not with
-    # whatever init the agent declared this call.
-    center_specs = [
-        ParamSpec(s.name,
-                  float(c),
-                  lo=s.lo,
-                  hi=s.hi,
-                  scale=getattr(s, "scale", "linear"))
-        for s, c in zip(all_specs, center_values)
-    ]
-    center_int = to_fit_space(all_specs, center_values)
-    prior_sigma = prior_widths(center_specs, prior_sigma_scale)
+    center_int, prior_sigma = _prior_center_and_widths(all_specs, anchors,
+                                                       prior_sigma_scale)
 
     fit_t0 = time.monotonic()
     n_start = num_rollouts_run()
@@ -510,19 +550,8 @@ def _global_multistart(
         logger.info("Rollout sysID global multi-start skipped: %s", note)
         return (np.asarray(incumbent[0], dtype=float), incumbent[1], None,
                 incumbent_misfit, note)
-    lo, hi = fit_space_bounds(list(all_specs))
-    lo = np.where(np.isfinite(lo), lo, center_int - 2.0 * prior_sigma)
-    hi = np.where(np.isfinite(hi), hi, center_int + 2.0 * prior_sigma)
-    seed = stable_seed("global design", names,
-                       [len(actions) for _states, actions in trajectories])
-    unit = qmc.Sobol(d=len(names), scramble=True,
-                     seed=seed % (2**32)).random(config.global_design_points)
-    design = [
-        dict(
-            zip(names, (float(v)
-                        for v in from_fit_space(list(all_specs), lo + row *
-                                                (hi - lo))))) for row in unit
-    ]
+    design = _whole_box_design(all_specs, center_int, prior_sigma,
+                               config.global_design_points, trajectories)
     sses = rollout_sse_by_point(base_env, trajectories, design,
                                 residual_features, physical_names, rules,
                                 latent_init, scaling)
@@ -583,6 +612,7 @@ def _global_multistart(
     if noise_sse > 0.0:
         misfit = max(finals[best] - noise_sse, sigma_tol)
         band = 2.0 * misfit
+    lo, hi = _search_box(all_specs, center_int, prior_sigma)
     width = hi - lo
     basins: List[Tuple[Dict[str, float], float, float]] = []
     kept: List[np.ndarray] = []
@@ -891,6 +921,7 @@ def _explainability_cache_key(
     anchors: Dict[str, float],
     scaling: Optional[ResidualScaling],
     grid_seed_points: int,
+    design_points: int = 0,
 ) -> Tuple:
     """Cache key for :func:`min_explainable_rms` verdicts within one phase.
 
@@ -911,6 +942,7 @@ def _explainability_cache_key(
         tuple((s.name, s.init_value) for s in rule_specs),
         tuple(sorted(anchors.items())),
         grid_seed_points,
+        design_points,
         scaling.signature() if scaling is not None else None,
         tuple(len(actions) for _states, actions in trajectories),
     )
@@ -999,12 +1031,22 @@ def fit_params_rollout_trimmed(
                                     anchors=anchors,
                                     config=config)
         return result, list(trajectories), [], []
+    # Guessed starting values get no deference beyond the prior: a
+    # recording counts as unexplainable only if no point of the whole-box
+    # design explains it either, not just none near the guesses.
+    design: List[Dict[str, float]] = []
+    if config.anchors_are_guesses and config.global_design_points > 0:
+        center_int, prior_sigma = _prior_center_and_widths(
+            all_specs, anchors, _ROLLOUT_PRIOR_SIGMA_SCALE)
+        design = _whole_box_design(all_specs, center_int, prior_sigma,
+                                   config.global_design_points, trajectories)
     cache_key: Optional[Tuple] = None
     cached: Optional[Tuple[List[float], List[Dict[str, float]]]] = None
     if rms_cache is not None:
         cache_key = _explainability_cache_key(physical_specs, rule_specs,
                                               trajectories, anchors, scaling,
-                                              config.grid_seed_points)
+                                              config.grid_seed_points,
+                                              len(design))
         cached = rms_cache.get(cache_key)
         if cached is not None:
             logger.info(
@@ -1020,6 +1062,7 @@ def fit_params_rollout_trimmed(
                                       rules=rules,
                                       rule_specs=rule_specs,
                                       latent_init=latent_init,
+                                      extra_candidates=design,
                                       scaling=scaling,
                                       anchors=anchors,
                                       config=config)
@@ -1044,8 +1087,8 @@ def fit_params_rollout_trimmed(
     if not survivors:
         logger.warning(
             "Rollout sysID trimming: NO trajectory is explainable at any "
-            "candidate params; skipping the fit and pinning the result at "
-            "the declared inits.")
+            "parameter set tried; skipping the fit and pinning the result "
+            "at the declared inits.")
         return _init_point_fit_result(all_specs, noise_sigma), [], rms, []
 
     # Consistency loop. Explainability alone is not enough: a chaotic

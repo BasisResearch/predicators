@@ -38,13 +38,25 @@ def _format_parameter_belief(belief: Any) -> List[str]:
     ]
 
 
+def _trim_search() -> str:
+    """The parameter sets the trimming sweep tried, for its messages."""
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.settings import CFG
+    tried = ("the starting values and one-at-a-time sweeps across each "
+             "declared range")
+    points = int(CFG.code_sim_learning_rollout_global_design_points)
+    if CFG.code_sim_learning_prior_spans_bounds and points > 0:
+        tried += f", and {points} points spread over all the ranges together"
+    return tried
+
+
 def _trim_cause_note(traj_rms: Sequence[float], threshold: float) -> List[str]:
     """Advice for trimmed segments, split by how far past the cutoff they
     scored.
 
     A segment within ``_TRIM_BORDERLINE_FACTOR`` of the threshold is the
-    closest the simulator can track that recording at ANY candidate
-    parameters - a model-fidelity floor, not a chaotic recording - so
+    closest the simulator tracked that recording at any parameter set
+    tried - a model-fidelity floor, not a chaotic recording - so
     re-collecting equivalent experiments cannot help and the advice says
     so; only far-over segments get the chaotic-recording advice.
 
@@ -91,8 +103,8 @@ def _trim_cause_note(traj_rms: Sequence[float], threshold: float) -> List[str]:
             f"{len(close)} dropped segment(s) score within {pct}% of the "
             f"threshold (closest {min(close):.4g} vs {threshold:.4g}). A "
             "margin that small is a model-fidelity limit, not chaotic "
-            "data: the simulator cannot replay those recordings any "
-            "closer at ANY candidate parameter values, so re-collecting "
+            "data: the simulator replays those recordings no closer at "
+            f"any parameter set tried ({_trim_search()}), so re-collecting "
             "the same experiments will score the same. To make them "
             "explainable, improve the simulator's dynamics rules where "
             "replay deviates from the recording; until then the declared "
@@ -611,8 +623,8 @@ def create_synthesis_tools(
                               DEFAULT_NOISE_SIGMA)
             return "\n".join([
                 f"[{version_tag}] NO FIT RAN: all {len(rollouts)} "
-                "recorded motion segments were unexplainable at ANY "
-                "candidate physical parameters (per-segment "
+                "recorded motion segments were unexplainable at every "
+                f"parameter set tried ({_trim_search()}; per-segment "
                 f"best-achievable RMS [{rms_str}] all above the "
                 f"trimming threshold {trim_threshold:.4g}). Scored "
                 f"features: {_scope_listing(residual_features, scope_note)}.",
@@ -731,8 +743,9 @@ def create_synthesis_tools(
             lines.insert(
                 1, f"Goodness-of-fit trimming: {dropped}"
                 f" of {len(rollouts)} motion segments were unexplainable at "
-                "ANY candidate params (per-segment best-achievable RMS: "
-                f"[{rms_str}], trimming threshold {trim_threshold:.4g}) and "
+                f"every parameter set tried ({_trim_search()}; per-segment "
+                f"best-achievable RMS: [{rms_str}], trimming threshold "
+                f"{trim_threshold:.4g}) and "
                 "were dropped before fitting; the fit below used only the "
                 "explainable ones. " +
                 " ".join(_trim_cause_note(outcome.traj_rms, trim_threshold)))
