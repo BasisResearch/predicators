@@ -691,6 +691,38 @@ def test_guessed_starting_values_judge_explainability_over_the_box(
             assert result.point_estimate == {"a": 3.0, "b": 3.0}
 
 
+def test_discrete_estimates_snap_to_the_cheaper_whole_neighbour():
+    """A discrete parameter the LM left between two values moves to the
+    neighbouring whole value of lower cost, inside its box; whole values and
+    continuous parameters stay put."""
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning.physical_sysid import _snap_discrete
+    specs = [
+        ParamSpec("gain", 1.0, lo=0.1, hi=10.0),
+        ParamSpec("law", 0.0, lo=0.0, hi=1.0, discrete=True),
+        ParamSpec("steps", 24, lo=8, hi=45, discrete=True),
+    ]
+    calls = []
+
+    def cost_of(thetas):
+        calls.append(len(thetas))
+        # Law 1 and 28 steps fit best.
+        return [abs(t[1] - 1.0) + abs(t[2] - 28.0) for t in thetas]
+
+    snapped = _snap_discrete(np.array([2.0, 0.5, 27.59]), specs, cost_of)
+    assert snapped.tolist() == [2.0, 1.0, 28.0]
+    assert calls == [2, 2]
+    # Whole values are left alone.
+    calls.clear()
+    assert _snap_discrete(np.array([2.0, 0.0, 8.0]), specs,
+                          cost_of).tolist() == [2.0, 0.0, 8.0]
+    assert not calls
+    # A neighbour outside the box is not tried.
+    slots = [ParamSpec("slots", 3, lo=0, hi=4.5, discrete=True)]
+    assert _snap_discrete(np.array(
+        [4.4]), slots, lambda thetas: [0.0] * len(thetas)).tolist() == [4.0]
+
+
 def test_multi_row_samples_bypass_probe():
     """With multi-row samples, widths come from the samples, not the probe."""
     rng = np.random.default_rng(0)
