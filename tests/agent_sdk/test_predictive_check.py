@@ -9,7 +9,7 @@ import pytest
 from scipy.stats import t as student_t
 
 from predicators.agent_sdk.predictive_check import MAX_INFLATION, \
-    check_prediction
+    check_prediction, point_predicts
 from predicators.agent_sdk.tools.context import ToolContext
 from predicators.approaches.agent_continual_approach import \
     AgentContinualApproach
@@ -106,6 +106,24 @@ def test_observation_noise_widens_the_prediction() -> None:
     # Draws that do not vary cannot be tempered toward the outcome.
     assert quiet.out_of_reach == (("box0", "x"), )
     assert quiet.inflation == 1.0
+
+
+def test_a_point_prediction_can_cover_what_the_draws_missed() -> None:
+    """A single predicted state covers a missed feature when the outcome lies
+    within the noise's critical distance of it; with no noise only an exact
+    match covers, and an unnamed or unknown feature covers nothing."""
+    predicted = _draws([0.50, 0.52, 0.48, 0.51])
+    observed = _state(0.70)
+    check = check_prediction(observed, predicted, _FEATURES, _QUIET)
+    assert check is not None and check.missed == (("box0", "x"), )
+    noisy = ObservationNoise(position=0.01, orientation=0.0, scalar=0.0)
+    assert point_predicts(observed, _state(0.705), check.missed, noisy, 2)
+    assert not point_predicts(observed, _state(0.75), check.missed, noisy, 2)
+    assert point_predicts(observed, _state(0.70), check.missed, _QUIET, 2)
+    assert not point_predicts(observed, _state(0.705), check.missed, _QUIET, 2)
+    assert not point_predicts(observed, _state(0.70), (), noisy, 2)
+    assert not point_predicts(observed, _state(0.70),
+                              (("box1", "x"), ), noisy, 2)
 
 
 def test_a_miss_out_of_reach_leaves_the_temperature_to_the_others() -> None:

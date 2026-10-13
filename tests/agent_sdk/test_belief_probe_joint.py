@@ -74,6 +74,10 @@ def test_rehearsal_reports_p_hat_draws_and_the_mean_rollout():
     assert xs[0] == pytest.approx(0.95) and xs[2] == pytest.approx(0.95)
     assert xs[1] != pytest.approx(0.95) and xs[3] != pytest.approx(0.95)
     assert rehearsal.basis is None
+    # And the rollout at the belief's mean, line by line.
+    assert len(rehearsal.mean_states) == 1
+    assert rehearsal.mean_states[0] is not None
+    assert rehearsal.mean_states[0].get(_block, "x") == pytest.approx(0.95)
     # Each draw ran in the fresh scope at its own physical parameters.
     assert scope_overrides[:4] == [{"friction": f} for f in _FRICTIONS]
     assert all(d["solved"] is None for d in res.draws)  # no evaluator
