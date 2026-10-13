@@ -253,6 +253,8 @@ def test_agent_builds_the_scene_and_rehearses_in_it(tmp_path: Any,
     assert ("stays clear of a failure a test level cannot undo"
             in prompt) == from_assets
     assert ("onset lies beyond them" in prompt) == from_assets
+    assert ("how the task seems to have been designed"
+            in prompt) == from_assets
     # The test-level gate also waits for a fit in EMPIRIC from assets.
     assert ("Test levels require a fitted model" in prompt) == from_assets
     assert ("Test levels require a loaded model" in prompt) != from_assets
