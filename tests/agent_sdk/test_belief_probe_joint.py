@@ -12,10 +12,11 @@ import pytest
 
 from predicators import utils
 from predicators.agent_sdk.belief_probe import BeliefProbe, ProbeJointResult, \
-    ProbeResult, _separating_ranges
-from predicators.structs import GroundAtom, Task, TaskEvaluator
+    ProbeResult, _line_states, _separating_ranges
+from predicators.agent_sdk.plan_execution import StepOutcome
+from predicators.structs import GroundAtom, State, Task, TaskEvaluator
 from tests.agent_sdk.test_belief_probe_physics_sweep import _block, \
-    _make_ctx, _ReachedHi
+    _make_ctx, _Move, _ReachedHi
 
 _PLAN = "Move(block0:block)[0.95]"
 # Two of the four draws fall inside the model's friction hole, where the
@@ -93,6 +94,24 @@ def test_rehearsal_reports_p_hat_draws_and_the_mean_rollout():
     assert "no single parameter separates" in text
     assert "Step-by-step rollout from the belief mean" in text
     utils.reset_config({})
+
+
+def test_line_states_skip_lines_a_draw_did_not_run():
+    """A line a draw ran cleanly leaves its state; one whose controller failed
+    there, or that was not initiable, leaves none: the draw did not rehearse
+    it."""
+    option = _Move.ground([_block], np.array([0.95], dtype=np.float32))
+    start = State({_block: np.array([0.2])})
+    moved = State({_block: np.array([0.95])})
+    states = _line_states([
+        StepOutcome(option, start, moved, 12, True, None, None),
+        StepOutcome(option, moved, moved, 0, True, "0 actions", None),
+        StepOutcome(option, moved, None, 0, False, "not initiable", None),
+    ])
+    assert len(states) == 3
+    assert states[0] is not None
+    assert states[0].get(_block, "x") == pytest.approx(0.95)
+    assert states[1] is None and states[2] is None
 
 
 def test_rehearsal_modes_and_replaced_flags():

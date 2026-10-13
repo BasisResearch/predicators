@@ -48,6 +48,7 @@ from predicators.agent_sdk.tools.verdicts import _EvalStateCollector, \
 from predicators.structs import State, Task, excluded_object_type_names
 
 if TYPE_CHECKING:
+    from predicators.agent_sdk.plan_execution import StepOutcome
     from predicators.agent_sdk.tools import ToolContext
 
 # Modification format accepted by ``reset``: either the tools' list form
@@ -853,6 +854,20 @@ class ProbeGatherResult(_StrLikeResult):
                 "than the current file - their results describe the model "
                 "as of their launch, not your latest edits.")
         return "\n".join(lines)
+
+
+def _line_states(steps: Sequence[StepOutcome]) -> List[Optional[State]]:
+    """Each plan line's state after it ran in a rehearsal draw, or None where
+    the line did not run cleanly there (not initiable, no actions, a controller
+    or env failure): such a draw did not rehearse the line, so its state says
+    nothing about what the line does when it runs."""
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.run.recording import sanitize_state
+    return [
+        sanitize_state(st.post_state)
+        if st.post_state is not None and st.failure_reason is None else None
+        for st in steps
+    ]
 
 
 class BeliefProbe:
@@ -1676,12 +1691,7 @@ class BeliefProbe:
             # What a request that starts this plan should leave behind,
             # line by line: the predictive check scores its real outcome
             # on these.
-            line_states: List[Optional[State]] = []
-            if from_observation:
-                line_states = [
-                    sanitize_state(st.post_state)
-                    if st.post_state is not None else None for st in r.steps
-                ]
+            line_states = (_line_states(r.steps) if from_observation else [])
             success = (bool(solved) if solved is not None else
                        bool(r.goal_reached) and failure is None)
             return {
