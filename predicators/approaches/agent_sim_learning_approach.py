@@ -1008,8 +1008,14 @@ class AgentSimLearningApproach(AgentBaseApproach):
         program without parameters, such as a supplied model, gets an
         empty belief whose draws vary nothing.
         """
+        return self._sourced_parameter_belief()[0]
+
+    def _sourced_parameter_belief(
+            self) -> Tuple[Optional[ParameterBelief], Optional[str]]:
+        """:meth:`parameter_belief` with the digest of the ``simulator.py``
+        content its canonical fit ran on, or None when it is the prior."""
         if int(CFG.belief_joint_draws) <= 0:
-            return None
+            return None, None
         specs = list(self._physical_param_specs) + list(
             getattr(self, "_probe_rule_specs", None) or [])
         names = tuple(s.name for s in specs)
@@ -1037,7 +1043,7 @@ class AgentSimLearningApproach(AgentBaseApproach):
                     self.fit_prior_anchors(self._physical_param_specs),
                     BeliefConfig.from_cfg(),
                     seed=stable_seed(CFG.seed, "prior", digest, names))
-        return cache[key]
+        return cache[key], (digest if stored is not None else None)
 
     def _make_candidate_probe_model_provider(
         self,

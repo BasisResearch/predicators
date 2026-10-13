@@ -38,8 +38,8 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, \
 from predicators import utils
 from predicators.agent_sdk.config import RefinementConfig, ToolSurfaceConfig
 from predicators.agent_sdk.parallel_rollouts import prefetch_parallel
-from predicators.agent_sdk.tools.context import absolute_rollout_seed, \
-    decorrelated_rollout_seed
+from predicators.agent_sdk.tools.context import LiveRehearsal, \
+    absolute_rollout_seed, decorrelated_rollout_seed
 from predicators.agent_sdk.tools.scene import apply_state_modifications, \
     draw_pybullet_annotation, render_pybullet_image, render_scene_image
 from predicators.agent_sdk.tools.verdicts import _EvalStateCollector, \
@@ -1673,10 +1673,20 @@ class BeliefProbe:
                     if st.post_state is not None:
                         last = st.post_state
                 final = sanitize_state(last)
+            # What a request that starts this plan should leave behind,
+            # line by line: the predictive check scores its real outcome
+            # on these.
+            line_states: List[Optional[State]] = []
+            if from_observation:
+                line_states = [
+                    sanitize_state(st.post_state)
+                    if st.post_state is not None else None for st in r.steps
+                ]
             success = (bool(solved) if solved is not None else
                        bool(r.goal_reached) and failure is None)
             return {
                 "final": final,
+                "line_states": line_states,
                 "params": dict(theta),
                 "goal_reached": bool(r.goal_reached),
                 "solved": solved,
@@ -1843,8 +1853,13 @@ class BeliefProbe:
         if result.from_observation and ctx.current_observation is not None:
             # What the rehearsal gate lets through: this plan, from this
             # observation (the bound keeps a long session's list small).
+            basis = (ctx.prediction_basis_provider()
+                     if ctx.prediction_basis_provider is not None else None)
             ctx.live_rehearsals.append(
-                (ctx.current_observation, plan_text, float(result.p_hat)))
+                LiveRehearsal(
+                    ctx.current_observation, plan_text, float(result.p_hat),
+                    [list(d.get("line_states") or [])
+                     for d in result.draws], basis))
             del ctx.live_rehearsals[:-_LIVE_REHEARSALS_KEPT]
         return result
 

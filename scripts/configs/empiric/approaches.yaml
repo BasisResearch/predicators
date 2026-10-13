@@ -28,6 +28,9 @@ APPROACHES:
       # Its model is the agent's own, so a test-level step waits for a
       # rehearsal of the plan on the joint belief from the observation.
       continual_rehearsal_gate: true
+      # A request whose outcome lies outside its rehearsal's draws widens
+      # the fitted program's belief.
+      continual_predictive_check: true
   # Model-free: the same agent with the model-side machinery switched
   # off, so the two differ only in the model.
   mf_opus:
