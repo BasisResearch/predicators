@@ -426,14 +426,23 @@ def test_draws_are_scored_on_the_recorded_prefix_and_their_rollout():
         "episode in GAME_OVER" in res.splitlines()[0]
     assert sum("NOT solved, GAME_OVER" in line
                for line in res.splitlines()) == 2
-    # A step that ends no draw's episode says so.
+    # A step that ends no draw's episode says so, and so does one that
+    # stopped at no failed skill; the draws that did are counted.
+    assert "; no draw stopped at a failed skill;" in res.splitlines()[0]
     safe = ProbeJointResult([
         dict(d, lost=False, goal_reached=False, failure=None)
         for d in res.draws
     ], 0.0, 0.0, True)
     assert "; none of the 4 failing draws the task's evaluator scored " \
         "ends the episode in GAME_OVER" in safe.splitlines()[0]
+    stuck = ProbeJointResult([
+        dict(d, failure="step 0 (Move): not initiable" if k < 3 else None)
+        for k, d in enumerate(res.draws)
+    ], 0.0, 0.0, True)
+    assert "(0/4 succeeded; 3 draw(s) stopped at a failed skill;" in \
+        stuck.splitlines()[0]
     utils.reset_config({})
+    assert "failed skill" not in stuck.splitlines()[0]
 
 
 def test_refine_scores_proposals_on_the_joint_draws():

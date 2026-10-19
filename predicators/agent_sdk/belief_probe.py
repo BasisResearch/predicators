@@ -670,10 +670,10 @@ class ProbeJointResult(_StrLikeResult):
     scored, else goal reached), ``num_actions``, ``failure`` and
     ``planner_seed``. ``p_hat`` is the fraction of successful draws and
     ``stderr`` its standard error; ``mean`` is the step-by-step rollout
-    from the belief mean at the most likely parameters. Only the mean
-    rollout advances the current state, and its fields (``final_state``,
-    ``steps``, ``goal_reached``, ``final_atoms``) read through, as on a
-    single rollout's result.
+    from the belief mean at the fit's point estimate, the values the
+    planning model runs at. Only the mean rollout advances the current
+    state, and its fields (``final_state``, ``steps``, ``goal_reached``,
+    ``final_atoms``) read through, as on a single rollout's result.
     """
     draws: List[Dict[str, Any]]
     p_hat: float
@@ -716,6 +716,16 @@ class ProbeJointResult(_StrLikeResult):
                 "evaluator scored end the episode in GAME_OVER, as a real "
                 "episode ends when it is lost")
 
+    def _failed_skill_note(self) -> str:
+        """Under ``continual_rehearsal_game_over``, how many draws stopped at a
+        skill whose controller failed, when some draw failed."""
+        if not _counts_game_over() or self.successes == len(self.draws):
+            return ""
+        failed = sum(1 for d in self.draws if d["failure"])
+        if not failed:
+            return "; no draw stopped at a failed skill"
+        return f"; {failed} draw(s) stopped at a failed skill"
+
     def __repr__(self) -> str:
         n = len(self.draws)
         scored = sum(1 for d in self.draws if d["solved"] is not None)
@@ -735,8 +745,9 @@ class ProbeJointResult(_StrLikeResult):
         lines = [
             f"Rehearsal on {n} joint draws of the belief: P-hat = "
             f"{self.p_hat:.2f} +- {self.stderr:.2f} ({self.successes}/{n} "
-            f"succeeded{held_note}{self._game_over_note()}; {source}; fresh "
-            "env and planner seed per draw)"
+            f"succeeded{self._failed_skill_note()}{held_note}"
+            f"{self._game_over_note()}; {source}; fresh env and planner seed "
+            "per draw)"
         ]
         if scored < n:
             lines.append(
@@ -775,7 +786,8 @@ class ProbeJointResult(_StrLikeResult):
         if self.mean is not None:
             lines.append("")
             lines.append("Step-by-step rollout from the belief mean at the "
-                         "most likely parameters:")
+                         "fit's point estimate (the values the planning "
+                         "model runs at):")
             lines.append(repr(self.mean))
         return "\n".join(lines)
 
@@ -1894,7 +1906,9 @@ class BeliefProbe:
                         # it, as a real one ends in GAME_OVER.
                         lost = bool(verdict["terminated"]) and not solved
                     except Exception as e:  # pylint: disable=broad-except
-                        logging.debug("Joint-draw verdict failed: %s", e)
+                        # The report says the draw went unscored; the log
+                        # keeps why.
+                        logging.warning("Joint-draw verdict failed: %r", e)
                         solved = lost = None
             failure: Optional[str] = None
             if r.first_failure_idx is not None:
@@ -2136,9 +2150,11 @@ class BeliefProbe:
         a fresh env and a planner seed per draw) and reports the success
         estimate P-hat with its standard error, each draw's outcome and
         the parameter ranges on which draws fail, followed by a
-        step-by-step rollout from the belief mean at the most likely
-        parameters, with contacts, which advances the current state.
-        ``draws=0`` runs only that single rollout. The ``belief_draws``,
+        step-by-step rollout from the belief mean at the fit's point
+        estimate, with contacts, which advances the current state.
+        ``draws=0`` runs only that single rollout: from the belief mean
+        when the probe sits on the last real observation, else from the
+        probe's state. The ``belief_draws``,
         ``trials`` and ``solved`` modes below apply only without the
         joint belief (``belief_joint_draws`` 0); under it they raise,
         since the rehearsal replaces them. ``physics_sweep``,
