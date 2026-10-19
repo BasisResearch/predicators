@@ -8,6 +8,7 @@ Sections 3.3 and 3.4, Appendix B.4).
 """
 # pylint: disable=protected-access
 import re
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -16,7 +17,8 @@ from predicators import utils
 from predicators.agent_sdk.belief_probe import BeliefProbe, ProbeJointResult, \
     ProbeResult, _line_states, _outcome_leads, _separating_ranges
 from predicators.agent_sdk.plan_execution import StepOutcome
-from predicators.structs import GroundAtom, State, Task, TaskEvaluator
+from predicators.structs import GroundAtom, Object, State, Task, \
+    TaskEvaluator, Type
 from tests.agent_sdk.test_belief_probe_physics_sweep import _block, \
     _make_ctx, _Move, _ReachedHi
 
@@ -137,6 +139,29 @@ def test_rehearsal_modes_and_replaced_flags():
     utils.reset_config({"belief_joint_draws": 0})
     with pytest.raises(ValueError, match="needs the joint belief"):
         sim.run(_PLAN, render=False, draws=0)
+    utils.reset_config({})
+
+
+def test_rehearsal_names_draws_that_did_not_start_from_their_state():
+    """A draw whose world reads a feature back differently from the state it
+    was set to ran from another state; the rehearsal says so and names the
+    feature, leaving aside the robot's joints, which inverse kinematics
+    restores only approximately."""
+    ctx, model, _, _ = _joint_ctx()
+    robot = Object("robot", Type("robot", ["x"]))
+    model.sim_env = SimpleNamespace(
+        _last_unreconstructible_features=[(_block, "x"), (robot, "x")])
+    sim = BeliefProbe(ctx)
+    _on_observation(sim, ctx)
+    res = sim.run(_PLAN, render=False)
+    assert [d["unreconstructed"] for d in res.draws] == [["block0.x"]] * 4
+    assert "4 of 4 draws did not start from the state they were given" in \
+        res.text
+    assert "block0.x" in res.text and "robot.x" not in res.text
+    del model.sim_env
+    _on_observation(sim, ctx)
+    assert "did not start from the state" not in sim.run(_PLAN,
+                                                         render=False).text
     utils.reset_config({})
 
 
