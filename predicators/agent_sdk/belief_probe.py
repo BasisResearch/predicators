@@ -1755,6 +1755,20 @@ class BeliefProbe:
         current = self._ctx.current_observation
         return current is not None and state.allclose(current)
 
+    def _belief_mean_start(self, state: State) -> Optional[State]:
+        """The mean of the belief over the current state, when ``state`` is the
+        last real observation and the session carries a belief, else None.
+
+        The noisy frame is one draw around the true state; the belief's
+        mean frame is the estimate a rollout under the joint belief
+        starts from.
+        """
+        if not self._on_current_observation(state):
+            return None
+        mean_frame = getattr(getattr(self._ctx, "current_belief", None),
+                             "frame", None)
+        return mean_frame.copy() if mean_frame is not None else None
+
     def _run_joint_draws(self,
                          probe_task: Task,
                          grounded: List[Any],
@@ -2074,11 +2088,7 @@ class BeliefProbe:
                                        int(CFG.belief_joint_draws), seed,
                                        notices)
         # The step-by-step rollout starts from the belief mean when the
-        # probe sits on the current observation.
-        belief = getattr(ctx, "current_belief", None)
-        mean_frame = getattr(belief, "frame", None)
-        if result.from_observation and mean_frame is not None:
-            self._state = mean_frame.copy()
+        # probe sits on the current observation (run moves it there).
         result.mean = self.run(plan_text,
                                render=render,
                                contacts=bool(ctx.probe_engine_available),
@@ -2318,6 +2328,13 @@ class BeliefProbe:
         ctx.test_call_id += 1
         probe_task, sketch_steps, all_predicates, notices = \
             self._parse_sketch(plan_text)
+        if joint and not (fresh or physics_sweep):
+            # A single run under the joint belief starts where the
+            # rehearsal's rollout does; the probe's state moves only when
+            # the run completes.
+            mean_start = self._belief_mean_start(probe_task.init)
+            if mean_start is not None:
+                probe_task = dataclasses.replace(probe_task, init=mean_start)
         # Ground via the shared helper so an annotated Wait waits for
         # its annotated atoms here exactly as in refine and real
         # execution.

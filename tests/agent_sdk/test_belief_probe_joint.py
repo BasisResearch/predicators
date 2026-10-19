@@ -144,6 +144,32 @@ def test_rehearsal_modes_and_replaced_flags():
     utils.reset_config({})
 
 
+def test_a_single_run_from_the_observation_starts_at_the_belief_mean():
+    """Under the joint belief, run(plan, draws=0) from the last observation
+    starts at the belief's mean frame, where the rehearsal's rollout starts; a
+    run that raises leaves the probe on the observation, and a run from a
+    staged state starts there."""
+    ctx, _, _, _ = _joint_ctx()
+    sim = BeliefProbe(ctx)
+    _on_observation(sim, ctx)
+    observed = ctx.current_observation
+    assert observed is not None
+    mean = observed.copy()
+    mean.set(_block, "x", 0.1)
+    ctx.current_belief = SimpleNamespace(frame=mean)
+    with pytest.raises(ValueError):
+        sim.run("Nonsense(block0:block)[0.5]", render=False, draws=0)
+    assert sim._require_state().allclose(observed)
+    single = sim.run(_PLAN, render=False, draws=0)
+    assert isinstance(single, ProbeResult)
+    assert single.states[0].get(_block, "x") == pytest.approx(0.1)
+    assert sim._require_state().allclose(single.final_state)
+    again = sim.run(_PLAN, render=False, draws=0)
+    assert isinstance(again, ProbeResult)
+    assert again.states[0].allclose(single.final_state)
+    utils.reset_config({"belief_joint_draws": 0})
+
+
 def test_rehearsal_names_draws_that_did_not_start_from_their_state():
     """A draw whose world reads a feature back differently from the state it
     was set to ran from another state; the rehearsal says so and names the
