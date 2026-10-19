@@ -270,3 +270,20 @@ def test_belief_mixes_the_fit_basins():
     assert [c.noise_scale for c in belief.components] == \
         pytest.approx([0.3 / 0.05**2] * 2)
     assert belief.misfit == pytest.approx(0.3)
+
+
+def test_explainability_verdicts_are_kept_per_model_version():
+    """The explainability cache keys its verdicts by the model version too: an
+    edit of the model's code, with the same declarations and data, sweeps again
+    instead of reusing the old model's verdicts."""
+    utils.reset_config({})
+    env = _GainEnv()
+    spec = ParamSpec("gain", 1.0, lo=0.1, hi=10.0, scale="log")
+    rms_cache = {}
+    for version in ("vers_001", "vers_001", "vers_002"):
+        run_rollout_sysid(env, [_trajectory()], [spec],
+                          _RESIDUAL_FEATURES,
+                          anchors={"gain": 1.0},
+                          rms_cache=rms_cache,
+                          fit_cache_key=version)
+    assert sorted(key[0] for key in rms_cache) == ["vers_001", "vers_002"]
