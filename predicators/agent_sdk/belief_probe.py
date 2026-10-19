@@ -442,8 +442,8 @@ def _log_rehearsal(ctx: "ToolContext", plan_text: str,
     """
     if not ctx.log_dir:
         return
-    keys = ("params", "success", "solved", "goal_reached")
-    draws = [{k: d[k] for k in keys} for d in result.draws]
+    keys = ("params", "success", "solved", "goal_reached", "lost")
+    draws = [{k: d.get(k) for k in keys} for d in result.draws]
     record = {
         "time": time.time(),
         "call": int(ctx.test_call_id),
@@ -501,6 +501,13 @@ def _separating_ranges(draws: List[Dict[str, Any]]) -> List[str]:
 # often shuffled outcomes do.
 _LEAD_STRENGTH = 0.3
 _LEAD_SHUFFLES = 400
+
+
+def _counts_game_over() -> bool:
+    """Whether rehearsal reports count the draws that end in GAME_OVER."""
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.settings import CFG
+    return bool(CFG.continual_rehearsal_game_over)
 
 
 def _outcome_leads(draws: List[Dict[str, Any]],
@@ -573,8 +580,10 @@ class ProbeJointResult(_StrLikeResult):
     ``draws`` holds one dict per joint draw ``(theta_i, x_t_i)``:
     ``params`` (theta_i), ``goal_reached``, ``solved`` (the task
     evaluator's verdict on the episode so far followed by the draw's
-    rollout, None when it could not score the draw), ``success`` (solved
-    when scored, else goal reached), ``num_actions``, ``failure`` and
+    rollout, None when it could not score the draw), ``lost`` (whether
+    that evaluator ends the episode there unsolved, as a real episode
+    ends in GAME_OVER; None when unscored), ``success`` (solved when
+    scored, else goal reached), ``num_actions``, ``failure`` and
     ``planner_seed``. ``p_hat`` is the fraction of successful draws and
     ``stderr`` its standard error; ``mean`` is the step-by-step rollout
     from the belief mean at the most likely parameters. Only the mean
@@ -606,6 +615,23 @@ class ProbeJointResult(_StrLikeResult):
                 return getattr(mean, name)
         return super().__getattr__(name)
 
+    def _game_over_note(self) -> str:
+        """Under ``continual_rehearsal_game_over``, how many of the failing
+        draws the task's evaluator scored end the episode in GAME_OVER."""
+        failing = [
+            d for d in self.draws
+            if d["solved"] is False and d.get("lost") is not None
+        ]
+        if not failing or not _counts_game_over():
+            return ""
+        lost = sum(1 for d in failing if d["lost"])
+        if not lost:
+            return (f"; none of the {len(failing)} failing draws the task's "
+                    "evaluator scored ends the episode in GAME_OVER")
+        return (f"; {lost} of the {len(failing)} failing draws the task's "
+                "evaluator scored end the episode in GAME_OVER, as a real "
+                "episode ends when it is lost")
+
     def __repr__(self) -> str:
         n = len(self.draws)
         scored = sum(1 for d in self.draws if d["solved"] is not None)
@@ -625,8 +651,8 @@ class ProbeJointResult(_StrLikeResult):
         lines = [
             f"Rehearsal on {n} joint draws of the belief: P-hat = "
             f"{self.p_hat:.2f} +- {self.stderr:.2f} ({self.successes}/{n} "
-            f"succeeded{held_note}; {source}; fresh env and planner seed "
-            "per draw)"
+            f"succeeded{held_note}{self._game_over_note()}; {source}; fresh "
+            "env and planner seed per draw)"
         ]
         if scored < n:
             lines.append(
@@ -637,10 +663,12 @@ class ProbeJointResult(_StrLikeResult):
             if d["failure"]:
                 lines.append(f"{head}: FAILED - {d['failure']}")
             elif d["solved"] is False:
+                ended = (", GAME_OVER"
+                         if d.get("lost") and _counts_game_over() else "")
                 lines.append(
                     f"{head}: goal atoms "
                     f"{'held' if d['goal_reached'] else 'did not hold'}"
-                    f", NOT solved ({d['num_actions']} actions)")
+                    f", NOT solved{ended} ({d['num_actions']} actions)")
             elif d["success"]:
                 lines.append(f"{head}: solved ({d['num_actions']} actions)")
             else:
@@ -1722,6 +1750,7 @@ class BeliefProbe:
             phys = {n: v for n, v in theta.items() if n in physical}
             rule = {n: v for n, v in theta.items() if n not in physical}
             solved: Optional[bool] = None
+            lost: Optional[bool] = None
             with (draw_scope(rule) if (rule and draw_scope is not None)
                   else contextlib.nullcontext()), \
                     (fresh_scope(physical_overrides=phys)
@@ -1752,9 +1781,12 @@ class BeliefProbe:
                             prefix_labels + collector.labels,
                             sim_env=getattr(model, "sim_env", None))
                         solved = bool(verdict["solved"])
+                        # The evaluator ends the episode without counting
+                        # it, as a real one ends in GAME_OVER.
+                        lost = bool(verdict["terminated"]) and not solved
                     except Exception as e:  # pylint: disable=broad-except
                         logging.debug("Joint-draw verdict failed: %s", e)
-                        solved = None
+                        solved = lost = None
             failure: Optional[str] = None
             if r.first_failure_idx is not None:
                 fs = r.steps[r.first_failure_idx]
@@ -1780,6 +1812,7 @@ class BeliefProbe:
                 "params": dict(theta),
                 "goal_reached": bool(r.goal_reached),
                 "solved": solved,
+                "lost": lost,
                 "success": success,
                 "num_actions": sum(st.num_actions for st in r.steps),
                 "failure": failure,

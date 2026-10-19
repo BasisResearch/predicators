@@ -318,6 +318,23 @@ def test_draws_are_scored_on_the_recorded_prefix_and_their_rollout():
         "Rehearsal on 4 joint draws of the belief: P-hat = 0.00 +- 0.00 "
         "(0/4 succeeded; the goal atoms held on 2 of the failing draws, "
         "which the task's evaluator did not count as solved;")
+    # The evaluator ends the episode unsolved on those two, as a real
+    # episode ends in GAME_OVER; under continual_rehearsal_game_over the
+    # report counts them and marks each.
+    assert [d["lost"] for d in res.draws] == [True, False, True, False]
+    assert "GAME_OVER" not in repr(res)
+    utils.update_config({"continual_rehearsal_game_over": True})
+    assert "; 2 of the 4 failing draws the task's evaluator scored end the " \
+        "episode in GAME_OVER" in res.splitlines()[0]
+    assert sum("NOT solved, GAME_OVER" in line
+               for line in res.splitlines()) == 2
+    # A step that ends no draw's episode says so.
+    safe = ProbeJointResult([
+        dict(d, lost=False, goal_reached=False, failure=None)
+        for d in res.draws
+    ], 0.0, 0.0, True)
+    assert "; none of the 4 failing draws the task's evaluator scored " \
+        "ends the episode in GAME_OVER" in safe.splitlines()[0]
     utils.reset_config({})
 
 
