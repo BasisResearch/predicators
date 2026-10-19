@@ -36,8 +36,8 @@ Required overrides in subclasses:
 import abc
 import copy
 import logging
-from typing import Any, ClassVar, Dict, FrozenSet, List, Optional, Protocol, \
-    Sequence, Set, Tuple, Type, cast
+from typing import Any, ClassVar, Dict, FrozenSet, List, NamedTuple, \
+    Optional, Protocol, Sequence, Set, Tuple, Type, cast
 
 import matplotlib
 import numpy as np
@@ -124,6 +124,14 @@ class ActionExecutor(Protocol):
 # How close a sphere must be to a support below it to roll on it when a
 # state belief stages its velocity (see PyBulletEnv._rolling_spin).
 _ROLL_CONTACT = 0.01
+
+
+class JointSpeedLimit(NamedTuple):
+    """One arm joint's velocity limit, from the robot's description."""
+    action_index: int  # where the joint's target sits in an action vector
+    name: str
+    speed: float  # per second, in ``unit``
+    unit: str  # "rad" for a revolute joint, "m" for a prismatic one
 
 
 class PyBulletEnv(BaseEnv):
@@ -1592,6 +1600,24 @@ class PyBulletEnv(BaseEnv):
         """Where the finger joints sit in an action array, and what open /
         closed finger values look like."""
         return gripper_joint_layout_from_robot(self._pybullet_robot)
+
+    def joint_speed_limits(self) -> List[JointSpeedLimit]:
+        """The velocity limit of each arm joint that has one, fingers aside."""
+        robot = self._pybullet_robot
+        fingers = {robot.left_finger_id, robot.right_finger_id}
+        limits = []
+        for index, joint in enumerate(robot.arm_joints):
+            if joint in fingers:
+                continue
+            info = p.getJointInfo(robot.robot_id,
+                                  joint,
+                                  physicsClientId=self._physics_client_id)
+            if float(info[11]) > 0.0:
+                unit = "m" if info[2] == p.JOINT_PRISMATIC else "rad"
+                limits.append(
+                    JointSpeedLimit(index, info[1].decode(), float(info[11]),
+                                    unit))
+        return limits
 
     def seconds_per_step(self) -> float:
         """The simulated seconds one env step covers."""
