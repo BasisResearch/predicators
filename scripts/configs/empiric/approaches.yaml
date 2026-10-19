@@ -38,7 +38,7 @@ APPROACHES:
       # in one step.
       continual_raw_step_limit: true
       # A rehearsal counts the failing draws that end the episode in
-      # GAME_OVER.
+      # GAME_OVER, and the draws that stopped at a failed skill.
       continual_rehearsal_game_over: true
       # A rehearsal names the scored features its most likely rollout takes
       # past the range the recordings show.

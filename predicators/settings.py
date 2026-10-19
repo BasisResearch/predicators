@@ -126,7 +126,8 @@ class GlobalSettings:
     # them without counting it solved, as it ends a real episode that is
     # lost. A step rehearsed alone rarely reaches the goal, so its P-hat
     # is 0 whether it is safe or loses the level; this count tells the two
-    # apart.
+    # apart. The report also counts the draws that stopped at a failed
+    # skill, so a step that runs in every draw reads as such.
     continual_rehearsal_game_over = False
     # Whether a joint rehearsal's report names the scored features its
     # rollout from the belief mean drives past the range the recordings
