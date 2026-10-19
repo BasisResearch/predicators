@@ -503,6 +503,17 @@ _LEAD_STRENGTH = 0.3
 _LEAD_SHUFFLES = 400
 
 
+def _unreconstructed(env: Any) -> List[str]:
+    """``object.feature`` for each feature ``env`` read back differently from
+    the state it was last set to, the robot's aside: its joints come back
+    through inverse kinematics, which is lossy by design."""
+    lossy = getattr(env, "_last_unreconstructible_features", None) or []
+    return [
+        f"{obj.name}.{feature}" for obj, feature in lossy
+        if obj.type.name != "robot"
+    ]
+
+
 def _counts_game_over() -> bool:
     """Whether rehearsal reports count the draws that end in GAME_OVER."""
     # pylint: disable-next=import-outside-toplevel
@@ -1751,6 +1762,7 @@ class BeliefProbe:
             rule = {n: v for n, v in theta.items() if n not in physical}
             solved: Optional[bool] = None
             lost: Optional[bool] = None
+            unreconstructed: List[str] = []
             with (draw_scope(rule) if (rule and draw_scope is not None)
                   else contextlib.nullcontext()), \
                     (fresh_scope(physical_overrides=phys)
@@ -1763,14 +1775,24 @@ class BeliefProbe:
                 task_k = dataclasses.replace(probe_task, init=start)
                 collector = (_EvalStateCollector(model, start)
                              if evaluator is not None else None)
+
+                def _on_step(i: int, outcome: Any) -> None:
+                    # The first step resets the fresh world to the draw's
+                    # start; a feature the model reads back otherwise
+                    # means the draw ran from another state.
+                    if i == 0:
+                        unreconstructed.extend(
+                            _unreconstructed(getattr(model, "sim_env", None)))
+                    if collector is not None:
+                        collector.on_step(i, outcome)
+
                 r = bilevel_sketch.execute_plan_forward(
                     task_k,
                     grounded,
                     model,
                     predicates=all_predicates,
                     sketch=sketch_steps,
-                    on_step=(collector.on_step
-                             if collector is not None else None),
+                    on_step=_on_step,
                     stop_on_failure=True)
                 if (collector is not None and not collector.coarse
                         and len(collector.states) > 1):
@@ -1817,6 +1839,7 @@ class BeliefProbe:
                 "num_actions": sum(st.num_actions for st in r.steps),
                 "failure": failure,
                 "planner_seed": base_seed + k,
+                "unreconstructed": sorted(set(unreconstructed)),
             }
 
         prefetched = prefetch_parallel(
@@ -1838,6 +1861,17 @@ class BeliefProbe:
         n = len(results)
         p_hat = sum(1 for d in results if d["success"]) / n
         stderr = float(np.sqrt(p_hat * (1.0 - p_hat) / n))
+        off_start = [d for d in results if d.get("unreconstructed")]
+        if off_start:
+            features = ", ".join(
+                sorted({f
+                        for d in off_start for f in d["unreconstructed"]}))
+            notices.append(
+                f"{len(off_start)} of {n} draws did not start from the state "
+                f"they were given: after setting it, simulator.py reads back "
+                f"other values of {features}, so those draws ran from another "
+                "state. Make the model set and report these features exactly, "
+                "or this rehearsal predicts from the wrong start.")
         budget = ctx.execution_step_budget()
         over = [
             d for d in results if d["success"] and d["num_actions"] > budget
