@@ -112,6 +112,15 @@ class GlobalSettings:
     # no motion, pass; train levels stay free for evidence collection.
     # Needs belief_joint_draws > 0 and continual_uncertainty_decisions.
     continual_rehearsal_gate = False
+    # Whether a raw action (env_step, or a step of env_run_policy) may
+    # move an arm joint only as far as the robot can in one step: twice
+    # the joint's velocity limit over the step's simulated duration. The
+    # engine's position controller reaches any target in one step, so a
+    # raw jump sweeps the arm through whatever lies in its path at metres
+    # per second. A larger move is refused before it is charged, and the
+    # action space shows each joint's limit as max_change_per_step.
+    # Skills plan their own paths and are not checked.
+    continual_raw_step_limit = False
     # Whether a model arm checks each skill request that ran in full
     # against the joint-draw rehearsal from the live observation that
     # began with it: when the outcome lies outside the draws (beyond what

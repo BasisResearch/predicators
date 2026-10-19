@@ -114,6 +114,7 @@ def test_from_assets_arm_runs_only_by_name() -> None:
         "continual_rehearsal_gate": True,
         "continual_predictive_check": True,
         "continual_belief_velocities": True,
+        "continual_raw_step_limit": True,
     }
 
 

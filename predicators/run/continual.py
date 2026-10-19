@@ -16,6 +16,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import logging
+import math
 import os
 import time
 from dataclasses import dataclass, field, replace
@@ -72,6 +73,14 @@ class LevelLost(LevelOver):
 
 class ResetUnavailable(Exception):
     """The agent asked to reset a level that has no resets (section 4.6).
+
+    Nothing is charged.
+    """
+
+
+class StepRefused(Exception):
+    """The agent asked for a primitive step the robot cannot take in one step
+    (``continual_raw_step_limit``).
 
     Nothing is charged.
     """
@@ -218,13 +227,36 @@ def build_levels(env: BaseEnv, arm: str) -> List[LevelSpec]:
     return specs
 
 
+# An arm joint may move in one primitive step at most this many times its
+# velocity limit over the step's duration (see ContinualRun._raw_step_problem).
+_RAW_STEP_SLACK = 2.0
+
+
+def _step_change_limits(env: Optional[BaseEnv]) -> List[Tuple[Any, float]]:
+    """Each arm joint ``env`` reports a velocity limit for, with the most it
+    may move in one primitive step: ``_RAW_STEP_SLACK`` times that limit over
+    the step's simulated duration.
+
+    Empty when ``env`` reports neither.
+    """
+    joints = getattr(env, "joint_speed_limits", None)
+    seconds = getattr(env, "seconds_per_step", None)
+    if not callable(joints) or not callable(seconds):
+        return []
+    step = float(seconds())
+    if step <= 0.0:
+        return []
+    return [(joint, _RAW_STEP_SLACK * joint.speed * step)
+            for joint in joints()]
+
+
 class ProtocolSession:
     """The env-facing API of the protocol (section 5.1).
 
     Every charged call counts, records, checks the caps and may raise
     ``RunEnded``; ``LevelOver`` (``LevelAlreadyWon``, ``LevelLost``),
-    ``ResetUnavailable`` and ``EpisodeOver`` are the protocol errors a
-    caller must handle.
+    ``ResetUnavailable``, ``StepRefused`` and ``EpisodeOver`` are the
+    protocol errors a caller must handle.
     """
 
     def __init__(self, run: "ContinualRun") -> None:
@@ -321,7 +353,9 @@ class ProtocolSession:
     def step(self, action: Action) -> StepOutcome:
         """One primitive action.
 
-        One step.
+        One step. Refused with ``StepRefused`` under
+        ``continual_raw_step_limit`` when an arm joint would move
+        farther than the robot can in a step; nothing is charged then.
         """
         before = self._charged()
         try:
@@ -632,6 +666,14 @@ class ContinualRun:
                 "physics_steps_per_action":
                 CFG.pybullet_sim_steps_per_action,
             })
+        if CFG.continual_raw_step_limit:
+            limits = _step_change_limits(self._env)
+            if limits:
+                # Rounded down, so a step of the shown size is allowed.
+                spec["max_change_per_step"] = {
+                    joint.name: math.floor(limit * 1e4) / 1e4
+                    for joint, limit in limits
+                }
         return spec
 
     @property
@@ -736,6 +778,44 @@ class ContinualRun:
             ]
             belief = with_motion(belief, motion, self._seconds_per_step())
         return replace(belief, frame=self._execution_frame(belief.frame))
+
+    def _raw_step_problem(self, runner: EpisodeRunner,
+                          action: Action) -> Optional[str]:
+        """Why the robot cannot take the primitive ``action`` in one step from
+        where it is, or None.
+
+        Under ``continual_raw_step_limit`` an arm joint may move by at
+        most ``_RAW_STEP_SLACK`` times its velocity limit over the
+        step's simulated duration. None when the check is off, the
+        episode is over, or the level's env reports no joint limits.
+        """
+        if not CFG.continual_raw_step_limit or \
+                runner.episode_state is not EpisodeState.NOT_FINISHED:
+            return None
+        current = getattr(runner.observation(), "joint_positions", None)
+        if current is None:
+            return None
+        targets = np.asarray(action.arr, dtype=float)
+        problems = []
+        for joint, limit in _step_change_limits(self._level_env):
+            k = joint.action_index
+            if k >= min(len(targets), len(current)):
+                continue
+            move = abs(float(targets[k]) - float(current[k]))
+            # The slack forgives a float32 action's rounding at the limit.
+            if move > limit + 1e-6:
+                problems.append(f"{joint.name} by {move:.3f} {joint.unit} "
+                                f"(limit {limit:.3f})")
+        if not problems:
+            return None
+        return ("Step refused, nothing charged: the action moves " +
+                ", ".join(problems) + " in one step. A joint can move at "
+                "most twice its velocity limit over a step's duration "
+                "(max_change_per_step in the action space). In one step the "
+                "position controller drives the arm straight to the target "
+                "in joint space, faster than the robot can move, through "
+                "whatever lies in the way. Move in smaller steps, or use a "
+                "skill, which plans its path.")
 
     def _seconds_per_step(self) -> float:
         """The simulated seconds one env step covers on the current level, 0
@@ -991,6 +1071,9 @@ class ContinualRun:
     def step(self, action: Action) -> StepOutcome:
         """One charged primitive step."""
         runner, _ = self._require_open_level()
+        problem = self._raw_step_problem(runner, action)
+        if problem is not None:
+            raise StepRefused(problem)
         # The runner's step listener charges and records the step.
         outcome = runner.step(action)
         if self._steps_since_flush >= CFG.continual_flush_every_steps:

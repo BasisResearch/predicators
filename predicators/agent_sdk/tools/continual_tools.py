@@ -607,7 +607,7 @@ def build_continual_tools(
     def _protocol_error(e: Exception) -> Dict[str, Any]:
         # pylint: disable-next=import-outside-toplevel
         from predicators.run.continual import LevelAlreadyWon, LevelLost, \
-            ResetUnavailable, RunEnded
+            ResetUnavailable, RunEnded, StepRefused
         if isinstance(e, LevelAlreadyWon):
             return _error_result("The level is already won; nothing more "
                                  "can be charged on it. Write your notes "
@@ -621,6 +621,8 @@ def build_continual_tools(
             return _error_result(f"{e}. Nothing was charged. Continue the "
                                  "episode; if it ends in GAME_OVER, write "
                                  "your notes and stop." + _footer())
+        if isinstance(e, StepRefused):
+            return _error_result(f"{e}" + _footer())
         if isinstance(e, EpisodeOver):
             if _resets_allowed():
                 return _error_result(f"{e}. Call env_reset to start a new "
@@ -725,10 +727,15 @@ def build_continual_tools(
         except Exception as e:  # pylint: disable=broad-except
             return _protocol_error(e)
 
+    # The protocol refuses a primitive step past the robot's speed.
+    speed_rule = (" An action that moves a joint farther than its "
+                  "max_change_per_step in the action space is refused, "
+                  "uncharged." if CFG.continual_raw_step_limit else "")
+
     @tool(
         "env_step",
         "Apply ONE primitive action: a low-level action vector of the "
-        "environment's action space. Counts one step.", {
+        "environment's action space. Counts one step." + speed_rule, {
             "type": "object",
             "properties": {
                 "action": {
@@ -767,7 +774,7 @@ def build_continual_tools(
         "action costs one step. Receives the current observable JSON frame, "
         "joint positions, action-space contract, goal and step counts. "
         "Memory and module globals persist within this call only. Stops on "
-        "None, max_steps, WIN, GAME_OVER, a cap, or an error.", {
+        "None, max_steps, WIN, GAME_OVER, a cap, or an error." + speed_rule, {
             "type": "object",
             "properties": {
                 "path": {
