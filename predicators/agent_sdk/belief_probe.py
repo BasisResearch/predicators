@@ -57,14 +57,21 @@ if TYPE_CHECKING:
 Modifications = Union[List[Dict[str, Any]], Dict[str, Dict[str, float]]]
 
 
-class ProbeBudgetExceeded(Exception):
+class ProbeBudgetExceeded(BaseException):
     """A probe call ran past a wall-clock budget.
 
     Raised cooperatively at probe checkpoints (every sim call) when the
-    run_python per-call limit has expired. ``run_python`` catches it
-    specially: the code's printed
-    output so far is returned with the budget message appended, so a
-    stopped sweep still hands the agent its partial results.
+    run_python per-call limit has expired, and injected asynchronously
+    by the budget watchdog. ``run_python`` catches it specially: the
+    code's printed output so far is returned with the budget message
+    appended, so a stopped sweep still hands the agent its partial
+    results.
+
+    It derives from ``BaseException``, as ``KeyboardInterrupt`` does, so
+    the ``except Exception`` handlers that guard individual steps of a
+    fit do not swallow it: the watchdog fires once, and a fit that caught
+    it ran on past its limit (fixes_r13 Bridge seed 1: 4534 s against a
+    3600 s limit).
     """
 
 
