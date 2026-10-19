@@ -234,6 +234,21 @@ def test_model_gate_does_not_imply_preflight(preflight):
     assert ("### Every skill request is rehearsed first" in text) == preflight
 
 
+@pytest.mark.parametrize("lined", [False, True])
+def test_undeclared_materials_section_follows_the_flag(lined):
+    """EMPIRIC from assets's scene contract says how the joint draws treat a
+    material the model leaves undeclared: over its plausible range, or under
+    belief_material_lines only as far as the recordings allow."""
+    utils.reset_config({"belief_material_lines": lined})
+    contract = play_prompts.build_model_contract(partially_observable=False,
+                                                 scene_built=True,
+                                                 sampled_materials=True)
+    assert ("moves it only as far as the recordings allow" in contract) is \
+        lined
+    assert ("samples it over its plausible range" in contract) is not lined
+    utils.reset_config({})
+
+
 @pytest.mark.parametrize("gate", [False, True])
 def test_rehearsal_gate_section_follows_the_flag(gate):
     """The system prompt announces the test-level rehearsal gate exactly when

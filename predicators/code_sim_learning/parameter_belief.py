@@ -34,8 +34,8 @@ from __future__ import annotations
 import hashlib
 import logging
 from dataclasses import dataclass, field, replace
-from typing import Any, Callable, Dict, Generator, Iterator, List, Optional, \
-    Sequence, Tuple
+from typing import Any, Callable, Collection, Dict, Generator, Iterator, \
+    List, Optional, Sequence, Tuple
 
 import numpy as np
 import numpy.typing as npt
@@ -53,6 +53,10 @@ _MAX_SHRINKS = 6
 _MAX_INTERVAL_MASS = 0.1
 # Points per evaluated interval on which a line's density is stored.
 _SUBDIVISIONS = 16
+# A free parameter's line (see build_parameter_belief) stops after its
+# outward probes when none of them moves the likelihood by more than this
+# (in nats): the recordings do not test it, and its prior alone shapes it.
+_FLAT_LIKELIHOOD = 0.05
 
 # One pass of the fit's objective: the residual vector at params.
 ResidualsFn = Callable[[Dict[str, float]], np.ndarray]
@@ -721,17 +725,18 @@ def stable_seed(*parts: Any) -> int:
 
 
 def build_parameter_belief(
-    specs: Sequence[ParamSpec],
-    map_params: Dict[str, float],
-    residuals: ResidualsFn,
-    noise_sigma: float,
-    prior_centers: Dict[str, float],
-    prior_sigmas: Dict[str, float],
-    config: BeliefConfig,
-    seed: int,
-    batch_residuals: Optional[BatchResidualsFn] = None,
-    misfit: float = 0.0,
-    noise_sse: float = 0.0,
+        specs: Sequence[ParamSpec],
+        map_params: Dict[str, float],
+        residuals: ResidualsFn,
+        noise_sigma: float,
+        prior_centers: Dict[str, float],
+        prior_sigmas: Dict[str, float],
+        config: BeliefConfig,
+        seed: int,
+        batch_residuals: Optional[BatchResidualsFn] = None,
+        misfit: float = 0.0,
+        noise_sse: float = 0.0,
+        free_names: Collection[str] = (),
 ) -> ParameterBelief:
     """Build ``q(theta)`` around ``map_params`` and draw from it.
 
@@ -754,7 +759,9 @@ def build_parameter_belief(
     temperature is at least ``misfit / noise_sigma^2``. ``noise_sse``
     (SSE units) is the declared noise's expected SSE the misfit is
     measured above; the description states the misfit as a multiple of
-    it.
+    it. ``free_names`` are parameters the fit held at ``map_params``
+    rather than estimated: a line of theirs that the recordings leave
+    flat stops after its outward probes (``_line_points``).
     """
     assert noise_sigma > 0.0, noise_sigma
     at_map = np.asarray(residuals(dict(map_params)), dtype=float)
@@ -793,12 +800,14 @@ def build_parameter_belief(
             continue
         lo_arr, hi_arr = fit_space_bounds([spec])
         traced.append((spec, line, float(lo_arr[0]), float(hi_arr[0])))
+    free = set(free_names)
     if batch_residuals is not None:
-        _trace_lines([(line, lo, hi) for _spec, line, lo, hi in traced],
-                     config, batch_residuals)
+        _trace_lines([(line, lo, hi, spec.name in free)
+                      for spec, line, lo, hi in traced], config,
+                     batch_residuals)
     else:
-        for _spec, line, lo, hi in traced:
-            _trace_line(line, lo, hi, config)
+        for spec, line, lo, hi in traced:
+            _trace_line(line, lo, hi, config, spec.name in free)
     for spec, line, _lo, _hi in traced:
         evaluations += line.count
         grid = line.points()
@@ -963,8 +972,11 @@ class _LineEvaluator:
         return sorted(self.sse)
 
 
-def _line_points(line: _LineEvaluator, lo: float, hi: float,
-                 config: BeliefConfig) -> Iterator[float]:
+def _line_points(line: _LineEvaluator,
+                 lo: float,
+                 hi: float,
+                 config: BeliefConfig,
+                 flat_stop: bool = False) -> Iterator[float]:
     """The points :func:`_trace_line` evaluates, as a generator.
 
     It yields each point the line has not scored yet and resumes once the
@@ -975,7 +987,9 @@ def _line_points(line: _LineEvaluator, lo: float, hi: float,
     Each side is probed outward from the MAP, first shrinking the step
     until a probe falls inside the cutoff, then doubling it until the
     cutoff or the declared bound is reached. The remaining budget
-    bisects the grid interval holding the most mass.
+    bisects the grid interval holding the most mass. With
+    ``flat_stop`` the line ends after the outward probes when none of
+    them moves the likelihood by more than ``_FLAT_LIKELIHOOD``.
     """
 
     def value(z: float) -> Generator[float, None, float]:
@@ -1018,6 +1032,9 @@ def _line_points(line: _LineEvaluator, lo: float, hi: float,
         while g <= cutoff and z != edge and line.count < budget:
             step *= 2.0
             z, g = yield from probe(step)
+    if flat_stop and all((sse - line.sse_min) * line.k <= _FLAT_LIKELIHOOD
+                         for sse in line.sse.values()):
+        return
     while line.count < budget:
         grid = np.array(line.points())
         if grid.size < 2:
@@ -1037,16 +1054,19 @@ def _line_points(line: _LineEvaluator, lo: float, hi: float,
         yield from value(float(mid))
 
 
-def _trace_line(line: _LineEvaluator, lo: float, hi: float,
-                config: BeliefConfig) -> None:
+def _trace_line(line: _LineEvaluator,
+                lo: float,
+                hi: float,
+                config: BeliefConfig,
+                flat_stop: bool = False) -> None:
     """Evaluate a parameter's line until its posterior mass is resolved
     (:func:`_line_points`), one point at a time."""
-    for z in _line_points(line, lo, hi, config):
+    for z in _line_points(line, lo, hi, config, flat_stop):
         line(z)
 
 
-def _trace_lines(traced: Sequence[Tuple[_LineEvaluator, float,
-                                        float]], config: BeliefConfig,
+def _trace_lines(traced: Sequence[Tuple[_LineEvaluator, float, float,
+                                        bool]], config: BeliefConfig,
                  batch_residuals: BatchResidualsFn) -> None:
     """Trace several lines in lockstep: each round scores every unfinished
     line's next point in one ``batch_residuals`` call.
@@ -1056,7 +1076,8 @@ def _trace_lines(traced: Sequence[Tuple[_LineEvaluator, float,
     costs one batch where tracing line by line costs a call per point.
     """
     generators = [
-        _line_points(line, lo, hi, config) for line, lo, hi in traced
+        _line_points(line, lo, hi, config, flat_stop)
+        for line, lo, hi, flat_stop in traced
     ]
     pending: Dict[int, float] = {}
     for i, generator in enumerate(generators):

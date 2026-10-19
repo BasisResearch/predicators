@@ -160,6 +160,13 @@ class GlobalSettings:
     # four recorded peaks), and a failure that turns on how far a body goes
     # can then happen while a rehearsal clears it.
     continual_fit_reach_check = False
+    # Whether a from-assets fit's belief traces a line for each engine
+    # material the model does not declare, through the model's own value
+    # of it, so the joint draws of that material follow the recordings.
+    # Off, each is drawn from its plausible range alone, which can
+    # contradict what the recordings show (a ball drawn with a rolling
+    # friction that would have stopped it in every recording).
+    belief_material_lines = False
     # Whether a model arm checks each skill request that ran in full
     # against the joint-draw rehearsal from the live observation that
     # began with it: when the outcome lies outside the draws (beyond what

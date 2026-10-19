@@ -121,6 +121,7 @@ def test_from_assets_arm_runs_only_by_name() -> None:
         "continual_refuse_training_give_up": True,
         "continual_belief_window": 64,
         "continual_pooled_level_init": True,
+        "belief_material_lines": True,
     }
 
 
