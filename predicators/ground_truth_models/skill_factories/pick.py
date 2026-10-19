@@ -77,7 +77,6 @@ def create_pick_skill(
     config: SkillConfig,
     get_target_pose_fn: TargetPoseFn,
     approach_open: bool = False,
-    anchor_lift: bool = False,
     grasp_finger_tol: Optional[float] = None,
     lift_dz: float = 0.01,
     verify_lift: bool = False,
@@ -101,7 +100,15 @@ def create_pick_skill(
            started to tip a standing block stops with it still
            standing instead of chasing it over.
         2. **Grasp** -- Close fingers.
-        3. **LiftSlightly** -- Lift slightly above the grasp height.
+        3. **LiftSlightly** -- Lift straight up from the grasp pose (the
+           xy and yaw the descent ended at) to slightly above the grasp
+           height. The lift never re-reads the object: a held object
+           hangs at an offset from the end effector, and a grasp that
+           shifts or turns it moves that offset, so a target that
+           follows the object moves with every step the arm takes
+           toward it and is never reached. Where a grasp lands on a
+           handle varies by millimetres with the arm's path, so a
+           lift that follows the object fails or succeeds by chance.
 
     Continuous parameters:
         ``(grasp_z_offset,)`` -- offset added to z returned by
@@ -118,12 +125,6 @@ def create_pick_skill(
             fingers only gradually during the descend, so the still-closed
             gripper can ram a light object and drag it a few cm before the
             grasp -- breaking tight downstream placement tolerances.
-        anchor_lift: If True, the LiftSlightly phase lifts straight up
-            from the xy cached at descend time instead of re-reading the
-            (now held) object's xy each step. A held object hangs at a
-            small offset from the EE, so a chasing lift target is
-            unreachable and the lift can spin or fail IK near the reach
-            limit.
         grasp_finger_tol: Optional override for the Grasp phase's finger
             terminal tolerance (squared). Needed when the grasped object
             is wide enough to block the fingers above the default
@@ -231,11 +232,8 @@ def create_pick_skill(
         params: Array,
         cfg: SkillConfig,
     ) -> Tuple[float, float, float, float]:
-        del params
-        if anchor_lift:
-            x, y, yaw = _shared["grasp_xy_yaw"]
-        else:
-            x, y, _, yaw = get_target_pose_fn(state, objects, _empty, cfg)
+        del state, objects, params, cfg
+        x, y, yaw = _shared["grasp_xy_yaw"]
         return x, y, _shared["grasp_z"] + lift_dz, yaw
 
     def _object_rose_with_gripper(

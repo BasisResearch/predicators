@@ -1417,10 +1417,14 @@ def test_pick_holds_domino_with_motion_planning():
         f"is_held={is_held}")
 
 
-@pytest.mark.xfail(reason="PyBullet pick may fail in headless CI")
 def test_pick_holds_domino_without_motion_planning():
-    """Pick option WITHOUT motion planning should hold the domino
-    (baseline)."""
+    """Pick option WITHOUT motion planning should hold the domino (baseline).
+
+    The pick used to fail here on some machines and pass on others: its
+    lift chased the held domino's xy, which the grasp had moved by an
+    amount that changed with the platform's numerics, and stalled when
+    the move was large. It lifts from the grasp pose now.
+    """
     try:
         from predicators.envs.pybullet_domino import PyBulletDominoEnv
     except ImportError:

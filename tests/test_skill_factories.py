@@ -1398,6 +1398,55 @@ class TestCreatePickSkill:
         assert [ph.name for ph in _phases_of(opt)
                 ] == ["MoveAbove", "MoveToGrasp", "Grasp", "LiftSlightly"]
 
+    def test_lift_rises_from_the_grasp_pose(self, robot_scene):
+        """LiftSlightly rises straight up from the pose the descent ended at,
+        wherever the held object has moved since.
+
+        A grasp that shifts or turns the object carries it with the
+        gripper, so a lift target read from the object moves with every
+        step the arm takes toward it and is never reached: Boil's
+        PickJug stalled this way in agent-built scenes, where the grasp
+        landed a few millimetres off the handle.
+        """
+        _, robot = robot_scene
+        config = SkillConfig(
+            robot=robot,
+            open_fingers_joint=robot.open_fingers,
+            closed_fingers_joint=robot.closed_fingers,
+            fingers_state_to_joint=_fingers_state_to_joint,
+            transport_z=0.8,
+        )
+        opt = create_pick_skill(
+            name="Pick",
+            types=[_ROBOT_TYPE, _OBJ_TYPE],
+            config=config,
+            get_target_pose_fn=lambda s, o, p_, c:
+            (s.get(o[1], "x"), s.get(o[1], "y"), s.get(o[1], "z"), 0.0),
+            lift_dz=0.02,
+        )
+        phases = {ph.name: ph for ph in _phases_of(opt)}
+        robot_obj = _make_robot_obj()
+        obj = _make_obj()
+        params = np.array([0.03], dtype=np.float32)
+        resting = _make_home_state(robot_obj,
+                                   robot,
+                                   obj=obj,
+                                   obj_xyz=(1.35, 0.75, 0.4))
+        _, grasp, _ = phases["MoveToGrasp"].target_fn(resting,
+                                                      [robot_obj, obj], params,
+                                                      config)
+        # The closing fingers pushed the object 2 cm along y and it now
+        # hangs from the gripper.
+        held = _make_home_state(robot_obj,
+                                robot,
+                                obj=obj,
+                                obj_xyz=(1.35, 0.77, 0.41))
+        _, lift, _ = phases["LiftSlightly"].target_fn(held, [robot_obj, obj],
+                                                      params, config)
+        assert np.allclose(lift.position[:2], grasp.position[:2])
+        assert abs(lift.position[2] - (grasp.position[2] + 0.02)) < 1e-9
+        assert np.allclose(lift.orientation, grasp.orientation)
+
     def test_half_gap_adds_pre_open_and_holds_width(self, robot_scene):
         """With a half-gap callback a PreOpen finger phase precedes the
         descent, the descent holds the width, and the PreOpen target is half-
