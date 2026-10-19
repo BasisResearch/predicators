@@ -291,9 +291,9 @@ def _ball_frames(xs, engine=True):
 
 
 def test_motion_gets_the_slope_of_its_readings_and_rest_stays_still():
-    """A body rolling through the window gets the slope of its readings as its
-    velocity: the frame carries it and draws scatter around it by the slope's
-    standard error, leaving the position draws as they were.
+    """A body rolling through the window gets the slope of the line through its
+    readings as its velocity: the frame carries it and draws scatter around it
+    by the slope's standard error, leaving the position draws as they were.
 
     A resting body, and frames without a simulator state, get none.
     """
@@ -305,12 +305,8 @@ def test_motion_gets_the_slope_of_its_readings_and_rest_stays_still():
     belief = change_point_belief(frames[-8:], noise, window=8, hazard=0.02)
     moved = with_motion(belief, frames, dt)
     mean, error = moved.velocities["ball"]
-    steps = np.arange(16.0)
-    design = np.stack([np.ones(16), steps, steps**2], axis=1)
-    latest = np.array([0.0, 1.0, 30.0])
-    assert error[0] == pytest.approx(
-        0.01 * np.sqrt(latest @ np.linalg.inv(design.T @ design) @ latest) /
-        dt)
+    centred = np.arange(16.0) - 7.5
+    assert error[0] == pytest.approx(0.01 / np.sqrt(np.sum(centred**2)) / dt)
     assert abs(mean[0] - 0.12) < 3 * error[0]
     assert moved.frame.simulator_state["body_velocities"]["ball"] == (tuple(
         float(v) for v in mean), (0.0, 0.0, 0.0))
@@ -330,13 +326,37 @@ def test_motion_gets_the_slope_of_its_readings_and_rest_stays_still():
     assert with_motion(no_engine, bare, dt) is no_engine
 
 
-def test_motion_of_a_body_speeding_up_is_its_latest_velocity():
-    """A body speeding up from rest gets its velocity at the latest frame, not
-    the window's mean velocity."""
+def test_motion_whose_speed_changed_takes_the_latest_half():
+    """A body whose speed changed in the window gets the slope of the line
+    through the latest half of its readings, which that line explains."""
     dt = 1.0 / 12.0
-    noise = ObservationNoise(position=1e-4, orientation=0.0)
-    times = np.arange(16) * dt
-    frames = _ball_frames(0.3 + 0.5 * 0.6 * times**2)
+    noise = ObservationNoise(position=0.002, orientation=0.0)
+    rng = np.random.default_rng(7)
+    xs = [0.3 + 0.004 * k for k in range(8)]
+    xs += [xs[-1] + 0.02 * (k + 1) for k in range(8)]
+    frames = _ball_frames([x + rng.normal(0.0, 0.002) for x in xs])
     belief = change_point_belief(frames[-8:], noise, window=8, hazard=0.02)
-    mean, _ = with_motion(belief, frames, dt).velocities["ball"]
-    assert mean[0] == pytest.approx(0.6 * times[-1], rel=1e-3)
+    mean, error = with_motion(belief, frames, dt).velocities["ball"]
+    assert abs(mean[0] - 0.02 / dt) < 3 * error[0]
+    centred = np.arange(8.0) - 3.5
+    assert error[0] == pytest.approx(0.002 / np.sqrt(np.sum(centred**2)) / dt)
+
+
+def test_a_bobbing_or_stopped_body_stays_at_rest():
+    """A body that bobs, or that moved and has just stopped, has readings no
+    line explains within the noise, so the belief stages it at rest: a slope
+    over the window would give it a velocity it does not have at the frame."""
+    dt = 1.0 / 12.0
+    noise = ObservationNoise(position=0.003, orientation=0.0)
+    rng = np.random.default_rng(9)
+    bobbing = [
+        0.3 + 0.03 * np.sin(2 * np.pi * k / 16) + rng.normal(0.0, 0.003)
+        for k in range(16)
+    ]
+    stopped = [
+        0.3 + 0.02 * min(k, 12) + rng.normal(0.0, 0.003) for k in range(16)
+    ]
+    for xs in (bobbing, stopped):
+        frames = _ball_frames(xs)
+        belief = change_point_belief(frames[-8:], noise, window=8, hazard=0.02)
+        assert "ball" not in with_motion(belief, frames, dt).velocities
