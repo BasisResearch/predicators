@@ -255,6 +255,7 @@ def test_agent_builds_the_scene_and_rehearses_in_it(tmp_path: Any,
     assert ("onset lies beyond them" in prompt) == from_assets
     assert ("how the task seems to have been designed"
             in prompt) == from_assets
+    assert ("make your first step on a new level" in prompt) == from_assets
     # The test-level gate also waits for a fit in EMPIRIC from assets.
     assert ("Test levels require a fitted model" in prompt) == from_assets
     assert ("Test levels require a loaded model" in prompt) != from_assets
@@ -418,6 +419,9 @@ def test_agent_builds_the_scene_and_rehearses_in_it(tmp_path: Any,
         assert "jug_spinning_friction" not in sampled
         assert (sampled <= approach._physical_param_names()) and \
             (bool(sampled) == from_assets)
+        # A rehearsal's report marks the draws' undeclared materials.
+        assert approach._tool_context.undeclared_param_names_provider() == \
+            sampled
         if from_assets:
             assert "step applied" in _call(approach,
                                            "env_step",

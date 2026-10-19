@@ -173,6 +173,10 @@ class ToolContext:
     # episode's recorded frames and step labels for scoring a rehearsal
     # on the episode so far.
     physical_param_names_provider: Optional[Callable[[], Set[str]]] = None
+    # The parameters of a joint draw the model does not declare (the
+    # engine materials EMPIRIC from assets draws over their plausible
+    # ranges), marked in a rehearsal's report as ones to declare.
+    undeclared_param_names_provider: Optional[Callable[[], Set[str]]] = None
     joint_draw_scope: Optional[Callable[[Dict[str, float]], Any]] = None
     episode_prefix_provider: Optional[Callable[[], Tuple[List[State],
                                                          List[Any]]]] = None

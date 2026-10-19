@@ -7,12 +7,14 @@ information their subgoal readings carry about the parameters (paper
 Sections 3.3 and 3.4, Appendix B.4).
 """
 # pylint: disable=protected-access
+import re
+
 import numpy as np
 import pytest
 
 from predicators import utils
 from predicators.agent_sdk.belief_probe import BeliefProbe, ProbeJointResult, \
-    ProbeResult, _line_states, _separating_ranges
+    ProbeResult, _line_states, _outcome_leads, _separating_ranges
 from predicators.agent_sdk.plan_execution import StepOutcome
 from predicators.structs import GroundAtom, State, Task, TaskEvaluator
 from tests.agent_sdk.test_belief_probe_physics_sweep import _block, \
@@ -205,6 +207,67 @@ def test_separating_ranges_name_the_failing_side():
         "[0.4, 0.5]"
     ]
     assert not _separating_ranges([dict(d, success=True) for d in draws])
+
+
+def test_outcome_leads_name_what_the_failing_draws_lean_on():
+    """When no parameter separates the failing draws outright, the report names
+    the ones they lean on, marks the undeclared ones, and says how often
+    shuffled outcomes lean as far."""
+    # Eight failing then eight passing draws. mu sits lower on the failing
+    # draws, mat higher, each with an overlap, and noise follows neither.
+    mu = [0.1, 0.15, 0.2, 0.22, 0.25, 0.3, 0.33, 0.45
+          ] + [0.35, 0.4, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75]
+    mat = [0.6, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 0.5
+           ] + [0.2, 0.3, 0.35, 0.4, 0.45, 0.55, 0.65, 0.3]
+    noise = [0.1, 0.9, 0.2, 0.8, 0.3, 0.7, 0.4, 0.6
+             ] + [0.15, 0.85, 0.25, 0.75, 0.35, 0.65, 0.45, 0.55]
+    draws = [{
+        "params": {
+            "mu": mu[k],
+            "mat": mat[k],
+            "noise": noise[k]
+        },
+        "success": k >= 8
+    } for k in range(16)]
+    assert not _separating_ranges(draws)
+    lines = _outcome_leads(draws, {"mat"})
+    assert lines[0].startswith("The failing draws lean on these parameters")
+    assert lines[1] == ("  mu: AUC 0.03, failing draws lower (median 0.235 "
+                        "against 0.575)")
+    assert lines[2] == ("  mat*: AUC 0.95, failing draws higher (median "
+                        "0.775 against 0.375)")
+    assert "not declared in simulator.py" in lines[3]
+    shuffled = re.match(
+        r"  Shuffling which draws failed leans some parameter this far in "
+        r"(\d+)% of 400 shuffles", lines[4])
+    assert shuffled is not None and int(shuffled.group(1)) <= 5
+    assert len(lines) == 5
+    # Declared parameters get no mark and no footnote.
+    assert not any("*" in line for line in _outcome_leads(draws, set()))
+    # Too few failing draws, or no parameter leaning far enough, give none.
+    assert not _outcome_leads(draws[6:], {"mat"})
+    only_noise = [{
+        "params": {
+            "noise": d["params"]["noise"]
+        },
+        "success": d["success"]
+    } for d in draws]
+    assert not _outcome_leads(only_noise, set())
+    # The report prints them in place of the no-separator line.
+    report = repr(
+        ProbeJointResult([
+            dict(d,
+                 solved=d["success"],
+                 goal_reached=d["success"],
+                 failure=None,
+                 num_actions=5) for d in draws
+        ],
+                         0.5,
+                         0.12,
+                         True,
+                         leads=lines))
+    assert lines[1] in report
+    assert "no single parameter separates" not in report
 
 
 class _PrefixEvaluator(TaskEvaluator):
