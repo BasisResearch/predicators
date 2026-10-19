@@ -144,10 +144,8 @@ class PyBulletBridgeGroundTruthOptionFactory(GroundTruthOptionFactory):
             config=config,
             get_target_pose_fn=_get_block_grasp_pose,
             # Open-fingered approach avoids dragging the block before
-            # the grasp; anchored lift avoids the unreachable chase of
-            # the held block's xy near the reach limit (see bond).
+            # the grasp.
             approach_open=True,
-            anchor_lift=True,
             # Staging is dense (grid slots ~11 cm apart), so end the
             # pick 3 cm up: a 1 cm lift can leave the gripper grazing
             # a neighboring block, poisoning the next option's BiRRT
@@ -189,7 +187,6 @@ class PyBulletBridgeGroundTruthOptionFactory(GroundTruthOptionFactory):
             config=config,
             get_target_pose_fn=_get_bottle_grasp_pose,
             approach_open=True,
-            anchor_lift=True,
             # The default 1 cm lift is within the move-to acceptance
             # radius, so the pick can end with the bottle still at
             # table height; grasp-constraint droop then models it in
