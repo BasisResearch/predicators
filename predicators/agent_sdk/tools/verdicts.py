@@ -30,16 +30,30 @@ class _EvalStateCollector:
         self.coarse = False
 
     def collect(self, outcome: Any) -> None:
-        """Record one executed option's outcome."""
+        """Record one executed option's outcome.
+
+        A skill that failed partway contributes the states it reached
+        before failing (the option model's ``last_partial_trajectory``),
+        as the real episode keeps them; one that took no action adds
+        nothing.
+        """
         if outcome.post_state is None:
             return
         opt = outcome.option
         label = (opt.name, tuple(o.name for o in opt.objects),
                  tuple(float(p) for p in opt.params))
         step_traj = getattr(self._option_model, "last_trajectory", None)
+        if step_traj is None or len(step_traj.states) < 2:
+            step_traj = getattr(self._option_model, "last_partial_trajectory",
+                                None)
+        pre_state = getattr(outcome, "pre_state", None)
         if step_traj is not None and len(step_traj.states) >= 2:
             self.states.extend(step_traj.states[1:])
             self.labels.extend([label] * len(step_traj.actions))
+        elif getattr(outcome, "num_actions", None) == 0 and \
+                pre_state is not None and \
+                outcome.post_state.allclose(pre_state):
+            return
         else:
             self.states.append(outcome.post_state)
             self.labels.append(label)

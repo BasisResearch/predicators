@@ -755,11 +755,16 @@ class ProbeJointResult(_StrLikeResult):
                 "evaluator and count by whether the goal atoms held.")
         for k, d in enumerate(self.draws):
             head = f"  draw {k} [{_fmt_draw_params(d['params'])}]"
-            if d["failure"]:
-                lines.append(f"{head}: FAILED - {d['failure']}")
+            ended = (", GAME_OVER"
+                     if d.get("lost") and _counts_game_over() else "")
+            if d["failure"] and d["success"]:
+                # The evaluator counted the episode solved before the
+                # step failed, as a real episode ends there.
+                lines.append(f"{head}: solved ({d['num_actions']} actions), "
+                             f"then FAILED - {d['failure']}")
+            elif d["failure"]:
+                lines.append(f"{head}: FAILED{ended} - {d['failure']}")
             elif d["solved"] is False:
-                ended = (", GAME_OVER"
-                         if d.get("lost") and _counts_game_over() else "")
                 lines.append(
                     f"{head}: goal atoms "
                     f"{'held' if d['goal_reached'] else 'did not hold'}"
