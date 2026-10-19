@@ -1023,10 +1023,13 @@ class AgentSimLearningApproach(AgentBaseApproach):
         state = self._probe_fit_state()
         stored = state.get("belief")
         key: Tuple[Any, ...]
+        # The fit's belief covers every current parameter; it may also hold
+        # lines for parameters the fit kept at the model's own values
+        # (belief_free_specs).
         if (stored is not None and digest is not None
                 and state.get("digest") == digest
                 and not state.get("pinned", False)
-                and sorted(stored["names"]) == sorted(names)):
+                and set(names) <= set(stored["names"])):
             key = ("fit", state.get("version"), digest)
         else:
             stored = None
@@ -1886,6 +1889,12 @@ class AgentSimLearningApproach(AgentBaseApproach):
                        for name, entry in registry.items()})
             self._baseline_param_cache = cached
         return {name: dict(entry) for name, entry in cached[1].items()}
+
+    def belief_free_specs(self) -> List[ParamSpec]:
+        """Parameters a rollout fit holds at the model's own values while its
+        belief traces their lines too (``run_rollout_sysid``'s
+        ``belief_free_specs``): none for this arm."""
+        return []
 
     def fit_prior_anchors(
             self, physical_specs: Sequence[ParamSpec]) -> Dict[str, float]:

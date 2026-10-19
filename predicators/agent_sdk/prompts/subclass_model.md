@@ -94,6 +94,15 @@ Declare a material to fit it to the recordings.
 A declared material's range covers at least its plausible range: a narrower declared range is widened to it, and the model status lists each one widened.
 The recordings narrow the range only where they test the material, so put your best value in `init_value`.
 
+<!-- section: undeclared_materials_lined -->
+Undeclared, a material is not fitted: the fit keeps the value your scene gives it, or PyBullet's default (lateral friction 0.5, spinning and rolling friction 0, restitution 0 and damping 0.04).
+Each joint draw of `sim.run` moves it only as far as the recordings allow while every other parameter stays at its fitted value, within its plausible range widened to hold your value, and `physics_sweep` tests the ends of that interval.
+The plausible ranges are __PLAUSIBLE_RANGES__.
+A material that the recordings do not test keeps its whole plausible range in the draws.
+Declare a material to fit it together with the other parameters.
+A declared material's range covers at least its plausible range: a narrower declared range is widened to it, and the model status lists each one widened.
+The recordings narrow the range only where they test the material, so put your best value in `init_value`.
+
 <!-- section: dynamics -->
 ## Step and restoration behavior
 

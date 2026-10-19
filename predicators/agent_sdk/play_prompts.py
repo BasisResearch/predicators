@@ -412,8 +412,10 @@ def build_model_contract(
     replaces the domain-twin subclass contract with the ``SceneBase``
     one: the agent loads the scene itself. ``sampled_materials`` (EMPIRIC
     from assets) says rehearsal samples the materials the scene leaves
-    undeclared and a declared material keeps at least its plausible range;
-    otherwise undeclared materials keep the scene's values.
+    undeclared (as far as the recordings allow, under
+    ``belief_material_lines``) and a declared material keeps at least its
+    plausible range; otherwise undeclared materials keep the scene's
+    values.
     """
     if supplied_model:
         parts = [
@@ -424,8 +426,12 @@ def build_model_contract(
             parts.append(render("play_model_contract", "predicates_latent"))
         return _join_contract(parts)
     if scene_built:
+        # Under belief_material_lines the draws of an undeclared material
+        # follow the recordings instead of its plausible range alone.
+        section = ("undeclared_materials_lined" if CFG.belief_material_lines
+                   else "undeclared_materials_sampled")
         undeclared = (render("subclass_model",
-                             "undeclared_materials_sampled",
+                             section,
                              plausible_ranges=plausible_materials_text())
                       if sampled_materials else render(
                           "subclass_model", "undeclared_materials_kept"))

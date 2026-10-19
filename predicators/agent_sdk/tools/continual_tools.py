@@ -543,12 +543,13 @@ def build_continual_tools(
                  if len(match.mean_states) >= num_lines else None)
         if point is not None and point_predicts(
                 frame, point, check.missed, noise, check.num_features, widths):
+            sampled = ("" if CFG.belief_material_lines else
+                       " and samples over its plausible range")
             return text + (
                 " The rehearsal's rollout at the belief's mean predicted "
                 "it, so the draws spread the wrong way, through a factor "
                 "this outcome rules out (a material the model leaves "
-                "undeclared and samples over its plausible range, say), "
-                "and the temperature stays.")
+                f"undeclared{sampled}, say), and the temperature stays.")
         if check.out_of_reach:
             missed = ", ".join(f"{n}.{f}" for n, f in check.out_of_reach)
             text += (f" The parameters the belief allows barely move {missed} "

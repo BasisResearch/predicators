@@ -242,6 +242,12 @@ def test_outcome_leads_name_what_the_failing_draws_lean_on():
         r"(\d+)% of 400 shuffles", lines[4])
     assert shuffled is not None and int(shuffled.group(1)) <= 5
     assert len(lines) == 5
+    # Under belief_material_lines the footnote says the draws follow the
+    # recordings.
+    utils.reset_config({"belief_material_lines": True})
+    assert "only as far as the recordings allow" in _outcome_leads(
+        draws, {"mat"})[3]
+    utils.reset_config({})
     # Declared parameters get no mark and no footnote.
     assert not any("*" in line for line in _outcome_leads(draws, set()))
     # Too few failing draws, or no parameter leaning far enough, give none.
