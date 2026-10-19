@@ -1026,6 +1026,7 @@ def fit_params_rollout_trimmed(
     rms_cache: Optional[Dict[Tuple, Tuple[List[float],
                                           List[Dict[str, float]]]]] = None,
     config: Optional[SysIdConfig] = None,
+    rms_cache_tag: Any = None,
 ) -> Tuple[FitResult, List[RolloutTrajectory], List[float], List[Dict[str,
                                                                       float]]]:
     """Drop trajectories no parameters can explain, fit on the rest.
@@ -1051,6 +1052,10 @@ def fit_params_rollout_trimmed(
     expensive part of repeated ``sim.fit`` calls - under a
     key that captures everything the verdict depends on, which both
     saves rollouts and pins the verdict for identical inputs.
+    ``rms_cache_tag`` names the model the verdicts are for (its
+    simulator version, say) and joins that key: an edit of the model's
+    code changes every recording's best-achievable RMS while its
+    declarations and data stay the same.
 
     Returns ``(fit_result, surviving_trajectories, per_trajectory_rms,
     hull_candidates)`` — callers must compute their post-fit SSE /
@@ -1107,10 +1112,9 @@ def fit_params_rollout_trimmed(
     cache_key: Optional[Tuple] = None
     cached: Optional[Tuple[List[float], List[Dict[str, float]]]] = None
     if rms_cache is not None:
-        cache_key = _explainability_cache_key(physical_specs, rule_specs,
-                                              trajectories, anchors, scaling,
-                                              config.grid_seed_points,
-                                              len(design))
+        cache_key = (rms_cache_tag, ) + _explainability_cache_key(
+            physical_specs, rule_specs, trajectories, anchors, scaling,
+            config.grid_seed_points, len(design))
         cached = rms_cache.get(cache_key)
         if cached is not None:
             logger.info(
