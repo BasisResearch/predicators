@@ -1588,6 +1588,13 @@ class PyBulletEnv(BaseEnv):
         closed finger values look like."""
         return gripper_joint_layout_from_robot(self._pybullet_robot)
 
+    def seconds_per_step(self) -> float:
+        """The simulated seconds one env step covers."""
+        params = p.getPhysicsEngineParameters(
+            physicsClientId=self._physics_client_id)
+        return float(CFG.pybullet_sim_steps_per_action) * float(
+            params["fixedTimeStep"])
+
     def settle_state(self, state: State) -> State:
         """``state`` after a quasi-static settle in this engine.
 
@@ -1599,7 +1606,10 @@ class PyBulletEnv(BaseEnv):
         supports and attachments; the others keep their drawn poses (see
         :mod:`predicators.pybullet_helpers.settle`). The objects take the
         engine's features after the settle; the robot, virtual objects
-        and the latent block keep the draw's.
+        and the latent block keep the draw's. Under
+        ``continual_belief_velocities`` each body then moves at the
+        velocity the draw records (at rest when it records none), since
+        a rollout from a draw of a rolling body must roll on.
         """
         self._set_state(state)
         # _set_state binds the state's objects to this engine's bodies.
@@ -1613,6 +1623,15 @@ class PyBulletEnv(BaseEnv):
         settle_bodies(self._physics_client_id,
                       [obj.id for obj in physical.values()],
                       [self._pybullet_robot.robot_id])
+        if CFG.continual_belief_velocities:
+            # The settle stops every body; a body the draw records as
+            # moving moves on from its settled pose.
+            for obj in physical.values():
+                linear, angular = self._body_velocity_in_state(obj, state)
+                p.resetBaseVelocity(obj.id,
+                                    linear,
+                                    angular,
+                                    physicsClientId=self._physics_client_id)
         placed = self._get_state()
         settled = state.copy()
         for obj in state:

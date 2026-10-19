@@ -33,7 +33,7 @@ Two ways of judging how long an object has rested:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
@@ -71,6 +71,11 @@ class BeliefFrame:
     sigmas: Dict[Tuple[str, str], float] = field(default_factory=dict)
     ranges: Dict[Tuple[str, str], Range] = field(default_factory=dict)
     angular: Set[Tuple[str, str]] = field(default_factory=set)
+    # object name -> the (mean, standard error) of its linear velocity
+    # along x, y and z, for the bodies seen moving at the frame
+    # (:func:`with_motion`); a body absent here is at rest.
+    velocities: Dict[str, Tuple[np.ndarray,
+                                np.ndarray]] = field(default_factory=dict)
 
     def max_spread(self) -> float:
         """The largest standard error in the frame, 0 when exact."""
@@ -368,6 +373,90 @@ def change_point_belief(
     return out
 
 
+# A body moves at the frame when the slope of its readings along some axis
+# is at least this many standard errors from zero (see with_motion).
+_MOTION_Z = 2.5
+_POSITION = ("x", "y", "z")
+
+
+def _velocity_fit(values: np.ndarray,
+                  sigmas: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """Per column of ``values`` (one reading per step, oldest first), the
+    velocity at the latest step in units per step and its standard error under
+    the declared ``sigmas``: the derivative there of a least- squares
+    quadratic, which a body speeding up or slowing down at a steady rate leaves
+    unbiased (a line's slope is the window's mean velocity, behind the latest
+    one by half the window's speed-up, and choosing between the two by a test
+    of the curvature leaves the estimate's error well above the one either fit
+    states).
+
+    Fewer than four readings get the line's slope.
+    """
+    steps = np.arange(len(values), dtype=float)
+    degree = 2 if len(values) >= 4 else 1
+    design = np.stack([steps**k for k in range(degree + 1)], axis=1)
+    cov = np.linalg.inv(design.T @ design)
+    latest = np.array(
+        [k * steps[-1]**(k - 1) if k else 0.0 for k in range(degree + 1)])
+    velocity = latest @ cov @ design.T @ values
+    error = sigmas * np.sqrt(latest @ cov @ latest)
+    return velocity, error
+
+
+def with_motion(belief: BeliefFrame, frames: Sequence[State],
+                seconds_per_step: float) -> BeliefFrame:
+    """``belief`` with the linear velocity of each body it sees moving.
+
+    The frames record positions only, so a rollout staged from them
+    starts every body at rest, and a body rolling or sliding at the
+    frame stops dead in the rehearsal. Along each of x, y and z, a fit
+    to a body's readings over ``frames`` (oldest first, one per step)
+    estimates its velocity at the latest frame, with the estimate's
+    standard error under the declared noise (:func:`_velocity_fit`). A
+    body whose window slope is ``_MOTION_Z`` standard errors from zero
+    along some axis is moving: the frame carries its estimate in
+    ``simulator_state["body_velocities"]`` (no angular velocity, since
+    no reading shows it, so a rolling body starts sliding), and
+    :func:`belief_draw` draws around it. Every other body stays at rest.
+    """
+    if not frames or seconds_per_step <= 0.0 or not isinstance(
+            getattr(belief.frame, "simulator_state", None), dict):
+        return belief
+    velocities: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
+    for obj in belief.frame:
+        keys = [(obj.name, f) for f in _POSITION]
+        if not all(k in belief.sigmas for k in keys):
+            continue
+        series = []
+        for frame in frames:
+            match = [o for o in frame if o.name == obj.name]
+            if match:
+                series.append(
+                    [float(frame.get(match[0], f)) for f in _POSITION])
+        if len(series) < 3:
+            continue
+        values = np.asarray(series)
+        sigmas = np.array([belief.sigmas[k] for k in keys])
+        centred = np.arange(len(values)) - (len(values) - 1) / 2.0
+        slope = centred @ (values - values.mean(axis=0)) / np.sum(centred**2)
+        if np.max(np.abs(slope) * np.sqrt(np.sum(centred**2)) /
+                  sigmas) < _MOTION_Z:
+            continue
+        velocity, error = _velocity_fit(values, sigmas)
+        velocities[obj.name] = (velocity / seconds_per_step,
+                                error / seconds_per_step)
+    if not velocities:
+        return belief
+    frame = belief.frame.copy()
+    sim_state = frame.simulator_state
+    assert isinstance(sim_state, dict)
+    recorded = dict(sim_state.get("body_velocities") or {})
+    for name, (mean, _) in velocities.items():
+        recorded[name] = (tuple(float(v) for v in mean), (0.0, 0.0, 0.0))
+    sim_state["body_velocities"] = recorded
+    return replace(belief, frame=frame, velocities=velocities)
+
+
 def _truncated_normal(mean: float, sd: float, lo: float, hi: float,
                       rng: np.random.Generator) -> float:
     """One draw of ``N(mean, sd^2)`` restricted to ``[lo, hi]``, by inverse
@@ -377,6 +466,20 @@ def _truncated_normal(mean: float, sd: float, lo: float, hi: float,
         # No mass the float CDF resolves: the nearer end of the range.
         return float(np.clip(mean, lo, hi))
     return float(np.clip(mean + sd * ndtri(rng.uniform(a, b)), lo, hi))
+
+
+def _draw_velocities(belief: BeliefFrame, draw: State,
+                     rng: np.random.Generator) -> None:
+    """Set each moving body's velocity in ``draw`` to a draw around its
+    estimate (see :func:`with_motion`)."""
+    sim_state = getattr(draw, "simulator_state", None)
+    if not belief.velocities or not isinstance(sim_state, dict):
+        return
+    recorded = dict(sim_state.get("body_velocities") or {})
+    for name, (mean, sd) in belief.velocities.items():
+        value = mean + sd * rng.standard_normal(mean.shape)
+        recorded[name] = (tuple(float(v) for v in value), (0.0, 0.0, 0.0))
+    sim_state["body_velocities"] = recorded
 
 
 def belief_draw(belief: BeliefFrame, rng: np.random.Generator) -> State:
@@ -408,12 +511,14 @@ def belief_draw(belief: BeliefFrame, rng: np.random.Generator) -> State:
                     lo, hi = belief.ranges.get(key, (-np.inf, np.inf))
                     value = _truncated_normal(mean, sd, lo, hi, rng)
                 draw.set(obj, feat, value)
+        _draw_velocities(belief, draw, rng)
         return draw
     for obj in draw:
         for feat in obj.type.feature_names:
             sd = belief.spread.get((obj.name, feat), 0.0)
             if sd > 0.0:
                 draw.set(obj, feat, draw.get(obj, feat) + rng.normal(0.0, sd))
+    _draw_velocities(belief, draw, rng)
     return draw
 
 
