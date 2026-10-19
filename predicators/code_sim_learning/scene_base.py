@@ -148,6 +148,12 @@ class SceneBase(PyBulletEnv):
     # Bound by scene_base_class.
     _scene_env_name: ClassVar[str] = "agent_scene"
     _plausible_floor: ClassVar[bool] = False
+    # An observed body's (roll, pitch, yaw) is one rotation: the
+    # reconstruction check compares it as one, so a pose near pitch
+    # +-pi/2, which Euler angles can write two ways, reads back as the
+    # same pose (as the real Bridge env declares it).
+    _ORIENTATION_EULER_TRIPLES: ClassVar[Tuple[Tuple[str, str, str], ...]] = \
+        PyBulletEnv._ORIENTATION_EULER_TRIPLES + (("roll", "pitch", "yaw"), )
     _scene_types: ClassVar[Tuple[Type, ...]] = ()
     _robot_home_orn: ClassVar[Optional[Quaternion]] = None
     _asset_dir: ClassVar[str] = ""
@@ -345,9 +351,21 @@ class SceneBase(PyBulletEnv):
 
     def _scene_value(self, groups: Dict[str, List[int]], group: str,
                      prop: str) -> float:
-        """The value the scene itself gave a group's first body."""
+        """The value the scene itself gave a group's representative body."""
         return self._material_baseline.get(
-            (group, prop), self._read_material(groups[group][0], prop))
+            (group, prop),
+            self._read_material(self._representative(groups[group], prop),
+                                prop))
+
+    def _representative(self, bodies: List[int], prop: str) -> int:
+        """The body whose value of ``prop`` stands for its group's: the first,
+        or for a mass the first that moves, since a group that moves can hold
+        static bodies of mass 0 (a balloon tied in place)."""
+        if prop == "mass":
+            for body in bodies:
+                if self._read_material(body, "mass") > 0.0:
+                    return body
+        return bodies[0]
 
     @classmethod
     def _material_property(cls, name: str) -> Optional[str]:
@@ -483,7 +501,7 @@ class SceneBase(PyBulletEnv):
         for group, prop in menu.values():
             if (group, prop) not in self._material_baseline:
                 self._material_baseline[(group, prop)] = self._read_material(
-                    groups[group][0], prop)
+                    self._representative(groups[group], prop), prop)
             for body in groups[group]:
                 if (body, prop) not in self._body_baseline:
                     self._body_baseline[(body, prop)] = self._read_material(
