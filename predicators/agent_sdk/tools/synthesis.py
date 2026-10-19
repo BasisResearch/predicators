@@ -1440,8 +1440,6 @@ def create_synthesis_tools(
                                     }, scope,
                                     sorted(set(baseline_physical) | {name}),
                                     rules, latent_init, scaling))
-                    except ProbeBudgetExceeded:
-                        raise
                     except Exception as e:  # pylint: disable=broad-except
                         lines.append(f"  {name}: sweep failed:\n    {e}")
                         swept.append(name)
