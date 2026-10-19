@@ -84,13 +84,22 @@ def test_rehearsal_reports_p_hat_draws_and_the_mean_rollout():
 
 
 def test_rehearsal_modes_and_replaced_flags():
-    """draws=0 is one rollout; trials, solved and belief_draws are replaced by
-    the rehearsal; without the joint belief draws= is refused."""
+    """draws=0 is one rollout and draws=K the rehearsal, while any other count
+    is refused; trials, solved and belief_draws are replaced by the rehearsal;
+    without the joint belief draws= is refused."""
     ctx, _, _, calls = _joint_ctx()
     sim = BeliefProbe(ctx)
     _on_observation(sim, ctx)
     single = sim.run(_PLAN, render=False, draws=0)
     assert isinstance(single, ProbeResult) and not calls
+    for count in (2, 12):
+        with pytest.raises(ValueError, match="fixed at this decision point"):
+            sim.run(_PLAN, render=False, draws=count)
+    assert not calls
+    _on_observation(sim, ctx)
+    rehearsal = sim.run(_PLAN, render=False, draws=len(_FRICTIONS))
+    assert isinstance(rehearsal, ProbeJointResult)
+    assert calls == [(len(_FRICTIONS), False)]
     replaced = [{"trials": 2}, {"solved": True, "trials": 2}]
     replaced.append({"belief_draws": 3})
     for flags in replaced:

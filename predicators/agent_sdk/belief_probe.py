@@ -1852,7 +1852,8 @@ class BeliefProbe:
         the parameter ranges on which draws fail, followed by a
         step-by-step rollout from the belief mean at the most likely
         parameters, with contacts, which advances the current state.
-        ``draws=0`` runs only that single rollout. The ``belief_draws``,
+        ``draws=0`` runs only that single rollout; ``draws=K`` is the
+        rehearsal, and any other count is refused. The ``belief_draws``,
         ``trials`` and ``solved`` modes below apply only without the
         joint belief (``belief_joint_draws`` 0); under it they raise,
         since the rehearsal replaces them. ``physics_sweep``,
@@ -1970,6 +1971,17 @@ class BeliefProbe:
         if draws is not None and not joint:
             raise ValueError("draws= needs the joint belief, which this "
                              "session does not carry.")
+        if joint and draws not in (None, 0):
+            # The draws are fixed per decision point: a count other than
+            # theirs would quietly mean something else.
+            if draws != int(CFG.belief_joint_draws):
+                raise ValueError(
+                    f"draws={draws!r}: the rehearsal runs on the "
+                    f"{int(CFG.belief_joint_draws)} joint draws fixed at "
+                    "this decision point. Leave draws out to rehearse on "
+                    "them, or pass draws=0 for one rollout from the belief "
+                    "mean.")
+            draws = None
         if joint and (trials > 1 or solved or belief_draws > 0):
             raise ValueError(
                 "trials, solved and belief_draws are replaced by the "
