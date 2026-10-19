@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 import pytest
+from gym.spaces import Box
 
 from predicators import observation_noise, utils
 from predicators.agent_sdk.belief_probe import BeliefProbe
@@ -864,9 +865,59 @@ def test_rehearsal_gate_waits_for_a_joint_rehearsal_of_the_request(
     ContinualRun(env, approach, driver).run()
 
 
+def _wait_option() -> utils.SingletonParameterizedOption:
+    """A one-step Wait skill for the cover env, whose actions place nothing
+    where no block is held."""
+    return utils.SingletonParameterizedOption(
+        "Wait",
+        lambda s, m, o, p: Action(np.zeros(1, dtype=np.float32)),
+        params_space=Box(0.0, 1000.0, (1, )))
+
+
+def test_rehearsal_gate_lets_the_wait_lines_that_end_a_request_through(
+        tmp_path: Any) -> None:
+    """The Wait lines that end a request need not match the rehearsed plan's: a
+    rehearsal of the request's other lines lets it through whatever Wait
+    follows them, while a Wait before a motion must match, since it changes the
+    state the motion starts from."""
+    env, approach, ctx = _setup(tmp_path)
+    ctx.options = set(ctx.options) | {_wait_option()}
+    first_task = env.get_train_tasks()[0].task
+    line = _oracle_plan_text(approach, first_task).splitlines()[0]
+    driver = _Driver()
+
+    def body(session: ProtocolSession) -> None:
+        ctx.rehearsal_gate = lambda: True
+        ctx.live_rehearsals.clear()
+        ctx.current_observation = session.observe().frame
+        tools = build_continual_tools(ctx,
+                                      session,
+                                      PlayState(),
+                                      save_render=lambda tag: None)
+
+        def refused(plan: str) -> bool:
+            out = _call(tools, "skills_execute_plan", plan=plan)
+            return "rehearse this on the joint belief" in out
+
+        ctx.live_rehearsals.append(
+            LiveRehearsal(ctx.current_observation,
+                          "Wait()[20]\n" + line + "\nWait()[20]", 0.9))
+        assert refused("Wait()[25]\n" + line)
+        assert refused(line)
+        ctx.live_rehearsals.append(
+            LiveRehearsal(ctx.current_observation, line + "\nWait()[20]", 0.9))
+        assert session.observe().ledger.level_steps == 0
+        assert not refused(line + "\nWait()[25]\nWait()[5]")
+        assert session.observe().ledger.level_steps > 0
+        ctx.rehearsal_gate = None
+
+    driver.body = body
+    ContinualRun(env, approach, driver).run()
+
+
 @pytest.mark.parametrize("case", [
     "calibrated", "surprised", "unreachable", "mean_covers", "prior", "edited",
-    "broken", "stopped"
+    "broken", "stopped", "trailing_wait"
 ])
 def test_predictive_check_scores_a_request_against_its_rehearsal(
         tmp_path: Any, monkeypatch: Any, caplog: Any, case: str) -> None:
@@ -877,7 +928,9 @@ def test_predictive_check_scores_a_request_against_its_rehearsal(
     earlier program.
 
     A check that fails says so beside the step's result, and a skill
-    whose controller stopped short is not scored.
+    whose controller stopped short is not scored. A request whose last
+    Wait line the rehearsal did not repeat is scored after the last line
+    it did.
     """
     env, approach, ctx = _setup(tmp_path)
     first_task = env.get_train_tasks()[0].task
@@ -887,6 +940,8 @@ def test_predictive_check_scores_a_request_against_its_rehearsal(
     if case == "stopped":
         monkeypatch.setattr(InvocationResult, "status",
                             property(lambda self: "failed"))
+    if case == "trailing_wait":
+        ctx.options = set(ctx.options) | {_wait_option()}
     # The targets never move, so the rehearsal's prediction of their pose
     # decides the check.
     offset = 0.0 if case == "calibrated" else 0.2
@@ -928,7 +983,12 @@ def test_predictive_check_scores_a_request_against_its_rehearsal(
                                       PlayState(),
                                       save_render=lambda tag: None)
         with caplog.at_level(logging.INFO):
-            out = _call(tools, "skills_invoke", skill=line)
+            if case == "trailing_wait":
+                out = _call(tools,
+                            "skills_execute_plan",
+                            plan=line + "\nWait()[5]")
+            else:
+                out = _call(tools, "skills_invoke", skill=line)
         assert session.observe().ledger.level_steps > 0
         # Every check that runs is logged, surprising or not.
         logged = [
@@ -943,13 +1003,18 @@ def test_predictive_check_scores_a_request_against_its_rehearsal(
             assert "Prediction check: could not be evaluated" in out
             assert "no features" in out
         else:
-            assert "Prediction check: this outcome lies outside" in out
+            assert "lies outside the rehearsal's draws" in out
+            assert ("Prediction check: this outcome"
+                    in out) is (case != "trailing_wait")
             assert f"{target.name}.pose is" in out
         if case == "unreachable":
             assert "barely move" in out and "stays as it was" in out
         if case == "mean_covers":
             assert "rollout at the belief's mean predicted it" in out
-        if case == "surprised":
+        if case == "trailing_wait":
+            assert ("the outcome of line 1, the last the rehearsal "
+                    "repeated, lies outside" in out)
+        if case in ("surprised", "trailing_wait"):
             assert ctx.predictive_program == "program"
             assert ctx.predictive_temperature > 2.0 * 50
             assert "a refit keeps that temperature as a floor" in out
@@ -967,20 +1032,38 @@ def test_predictive_check_scores_a_request_against_its_rehearsal(
     ContinualRun(env, approach, driver).run()
 
 
-def test_wait_alone_commands_no_motion() -> None:
-    """Only a request with a line other than Wait waits for the rehearsal
-    gate."""
+def test_a_rehearsal_must_repeat_a_request_up_to_its_last_motion() -> None:
+    """A rehearsal must repeat a request's lines up to its last line other than
+    Wait: Wait lines after it command no motion, so they need not match, and a
+    request of Wait lines alone needs no rehearsal; a Wait before a motion
+    changes the state the motion starts from, so it must match."""
     # pylint: disable-next=import-outside-toplevel
-    from predicators.agent_sdk.tools.continual_tools import _commands_motion
+    from predicators.agent_sdk.tools.continual_tools import _motion_lines, \
+        _shared_lines
 
-    def line(name: str) -> Tuple[_Option, Set[GroundAtom], Set[GroundAtom]]:
+    def line(
+            name: str, *params: float
+    ) -> Tuple[_Option, Set[GroundAtom], Set[GroundAtom]]:
         option = utils.SingletonParameterizedOption(
-            name, lambda s, m, o, p: Action(np.zeros(1, dtype=np.float32)))
-        return option.ground([], np.zeros(0, dtype=np.float32)), set(), set()
+            name,
+            lambda s, m, o, p: Action(np.zeros(1, dtype=np.float32)),
+            params_space=Box(-np.inf, np.inf, (len(params), )))
+        return option.ground([], np.array(params, dtype=np.float32)), set(), \
+            set()
 
-    assert not _commands_motion([line("Wait")])
-    assert not _commands_motion([line("Wait"), line("Wait")])
-    assert _commands_motion([line("Wait"), line("Push")])
+    assert _motion_lines([line("Wait", 20)]) == 0
+    assert _motion_lines([line("Wait", 20), line("Wait", 5)]) == 0
+    assert _motion_lines([line("Wait", 20), line("Push", 0.1)]) == 2
+    assert _motion_lines([line("Push", 0.1), line("Wait", 25)]) == 1
+    rehearsed = [line("Push", 0.1), line("Wait", 20), line("Pick", 0.2)]
+    assert _shared_lines(rehearsed, [line("Push", 0.1), line("Wait", 25)]) == 1
+    assert _shared_lines(rehearsed, [line("Push", 0.1), line("Wait", 20)]) == 2
+    assert _shared_lines(
+        rehearsed, [line("Push", 0.1),
+                    line("Wait", 25),
+                    line("Pick", 0.2)]) == 1
+    assert _shared_lines(rehearsed, [line("Push", 0.10002)]) == 1
+    assert _shared_lines(rehearsed, [line("Push", 0.1002)]) == 0
 
 
 @pytest.mark.parametrize("preflight", [False, True])

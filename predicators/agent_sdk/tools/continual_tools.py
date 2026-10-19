@@ -16,7 +16,7 @@ import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Dict, \
-    Iterable, List, Optional, Sequence, Set, Tuple
+    Iterable, List, NamedTuple, Optional, Sequence, Set, Tuple
 
 import numpy as np
 
@@ -321,31 +321,50 @@ def parse_plan_lines(
 _SAME_PARAM_TOL = 1e-4
 
 
-def _plan_starts_with(
+def _same_line(option: _Option, wanted: _Option) -> bool:
+    """Whether two parsed plan lines name the same request: the same skill on
+    the same objects with the same parameters."""
+    return (option.name == wanted.name
+            and [o.name
+                 for o in option.objects] == [o.name for o in wanted.objects]
+            and option.params.shape == wanted.params.shape and np.allclose(
+                option.params, wanted.params, rtol=0.0, atol=_SAME_PARAM_TOL))
+
+
+def _shared_lines(
         plan: List[Tuple[_Option, Set[GroundAtom], Set[GroundAtom]]],
-        prefix: List[Tuple[_Option, Set[GroundAtom],
-                           Set[GroundAtom]]]) -> bool:
-    """Whether the parsed ``plan`` begins with the parsed ``prefix``: the same
-    skills on the same objects with the same parameters, in order."""
-    if len(plan) < len(prefix):
-        return False
-    for (option, _, _), (wanted, _, _) in zip(plan, prefix):
-        if option.name != wanted.name or [o.name for o in option.objects] != [
-                o.name for o in wanted.objects
-        ]:
-            return False
-        if option.params.shape != wanted.params.shape or not np.allclose(
-                option.params, wanted.params, rtol=0.0, atol=_SAME_PARAM_TOL):
-            return False
-    return True
+        request: List[Tuple[_Option, Set[GroundAtom],
+                            Set[GroundAtom]]]) -> int:
+    """How many leading lines of the parsed ``request`` the parsed ``plan``
+    begins with, in order."""
+    count = 0
+    for (option, _, _), (wanted, _, _) in zip(plan, request):
+        if not _same_line(option, wanted):
+            break
+        count += 1
+    return count
 
 
-def _commands_motion(
-        parsed: List[Tuple[_Option, Set[GroundAtom],
-                           Set[GroundAtom]]]) -> bool:
-    """Whether a parsed request has a line other than Wait, which commands no
-    motion; only such a request waits for the rehearsal gate."""
-    return any(option.name != "Wait" for option, _, _ in parsed)
+def _motion_lines(
+        parsed: List[Tuple[_Option, Set[GroundAtom], Set[GroundAtom]]]) -> int:
+    """How many leading lines of a parsed request a rehearsal must repeat:
+    every line up to its last line other than Wait.
+
+    Wait commands no motion, so the request runs as those lines and then
+    a request of Wait lines alone, which passes the rehearsal gate. A
+    request of Wait lines alone needs no rehearsal (0).
+    """
+    for index in range(len(parsed), 0, -1):
+        if parsed[index - 1][0].name != "Wait":
+            return index
+    return 0
+
+
+class _RehearsalMatch(NamedTuple):
+    """A rehearsal that let a request through, and how many of the request's
+    leading lines its plan repeated."""
+    rehearsal: LiveRehearsal
+    lines: int
 
 
 # ── Tools ──────────────────────────────────────────────────────────
@@ -430,11 +449,14 @@ def build_continual_tools(
 
     def _matching_rehearsal(
         parsed: List[Tuple[_Option, Set[GroundAtom], Set[GroundAtom]]]
-    ) -> Optional[LiveRehearsal]:
+    ) -> Optional[_RehearsalMatch]:
         """The newest rehearsal on the joint belief from the current
-        observation whose plan begins with the request, if any."""
+        observation whose plan begins with the request's lines up to its last
+        line other than Wait (its first line, for a request of Wait lines
+        alone), if any."""
         if not ctx.live_rehearsals:
             return None
+        needed = max(_motion_lines(parsed), 1)
         # The live frame: a skill step does not refresh
         # ctx.current_observation, so that copy can be a step behind. The
         # comparison reads the observed features only, never the memory a
@@ -448,22 +470,24 @@ def build_continual_tools(
                                              _level_task())
             except ValueError:
                 continue
-            if _plan_starts_with(rehearsed, parsed):
-                return rehearsal
+            shared = _shared_lines(rehearsed, parsed)
+            if shared >= needed:
+                return _RehearsalMatch(rehearsal, shared)
         return None
 
     def _unrehearsed(
             parsed: List[Tuple[_Option, Set[GroundAtom], Set[GroundAtom]]],
-            match: Optional[LiveRehearsal]) -> Optional[Dict[str, Any]]:
+            match: Optional[_RehearsalMatch]) -> Optional[Dict[str, Any]]:
         """The arm's rehearsal gate, when it installed one and it applies now:
         a refusal that charges nothing, unless a rehearsal on the joint belief
-        from the current observation began with the request (``match``).
+        from the current observation began with the request's lines up to its
+        last line other than Wait (``match``).
 
         A request of Wait lines alone commands no motion and passes.
         """
         if ctx.rehearsal_gate is None or not ctx.rehearsal_gate():
             return None
-        if not _commands_motion(parsed) or match is not None:
+        if _motion_lines(parsed) == 0 or match is not None:
             return None
         return _error_result(
             "Test level: rehearse this on the joint belief first. In "
@@ -471,15 +495,17 @@ def build_continual_tools(
             "plan whose first lines are this request, best followed by the "
             "rest of your plan: a rehearsal on the joint draws from the "
             "current observation lets the request through, and its P-hat is "
-            "yours to weigh. Wait lines need none; runs at the point "
-            "estimate (draws=0) and runs from staged states do not count. "
-            "Nothing was charged." + _footer())
+            "yours to weigh. A request of Wait lines alone needs none, and "
+            "the Wait lines that end a request need not match the rehearsed "
+            "plan's; runs at the point estimate (draws=0) and runs from "
+            "staged states do not count. Nothing was charged." + _footer())
 
-    def _prediction_note(match: Optional[LiveRehearsal], num_lines: int,
+    def _prediction_note(match: Optional[_RehearsalMatch],
                          progress: ExecutionProgress) -> str:
-        """The predictive check of a request that ran in full, under the arm's
-        continual_predictive_check: its outcome scored against the draws of
-        the rehearsal that began with it.
+        """The predictive check of a request, under the arm's
+        continual_predictive_check: its outcome after the last line the
+        rehearsal that let it through repeated, scored against that
+        rehearsal's draws there.
 
         A surprise is reported and raises the fitted program's
         temperature floor; an outcome within the draws adds nothing. The
@@ -487,35 +513,40 @@ def build_continual_tools(
         place of the check and never hides the step's result.
         """
         try:
-            return _scored_prediction(match, num_lines, progress)
+            return _scored_prediction(match, progress)
         except Exception as e:  # pylint: disable=broad-except
             logging.exception("Prediction check failed")
             return f"\nPrediction check: could not be evaluated: {e!r}"
 
-    def _scored_prediction(match: Optional[LiveRehearsal], num_lines: int,
+    def _scored_prediction(match: Optional[_RehearsalMatch],
                            progress: ExecutionProgress) -> str:
         """:func:`_prediction_note` without its guard."""
         provider = ctx.scored_features_provider
-        if (provider is None or match is None or not match.line_states
-                or len(progress.skills) != num_lines or progress.stop_reason):
+        if provider is None or match is None:
+            return ""
+        rehearsal, num_lines = match
+        ran = progress.skills[:num_lines]
+        # A plan that stopped at or before the last shared line, by a
+        # divergence or the end of the episode, is not scored.
+        if (not rehearsal.line_states or len(ran) < num_lines or
+            (progress.stop_reason and len(progress.skills) <= num_lines)):
             return ""
         # A controller that stopped short ran a different step from the one
         # the draws rehearsed.
-        if any(skill.result.status != "succeeded"
-               for skill in progress.skills):
+        if any(skill.result.status != "succeeded" for skill in ran):
             return ""
-        outcome = progress.skills[-1].result.outcome
+        outcome = ran[-1].result.outcome
         if outcome.episode_state is not EpisodeState.NOT_FINISHED:
             return ""
         predicted: List[State] = []
-        for states in match.line_states:
+        for states in rehearsal.line_states:
             last = states[num_lines - 1] if len(states) >= num_lines else None
             if last is not None:
                 predicted.append(last)
         features = provider()
         if len(predicted) < 2 or not features:
             return ""
-        frame = session.observe().frame
+        frame = ran[-1].after
         noise = ObservationNoise.from_cfg()
         widths = (ctx.feature_width_provider()
                   if ctx.feature_width_provider is not None else None)
@@ -532,15 +563,21 @@ def build_continual_tools(
         if check is None or not check.surprising:
             return ""
         name, feat = check.worst
+        # Wait lines past the rehearsed ones leave the draws no prediction
+        # of the request's end, so the check scores the last line they
+        # predicted.
+        which = ("this outcome" if len(progress.skills) == num_lines else
+                 f"the outcome of line {num_lines}, the last the rehearsal "
+                 "repeated,")
         text = (
-            "\nPrediction check: this outcome lies outside the rehearsal's "
+            f"\nPrediction check: {which} lies outside the rehearsal's "
             f"draws: {name}.{feat} is {check.observed:.4g} where the "
             f"{check.num_draws} draws gave {check.mean:.4g} +- "
             f"{check.spread:.2g}, {check.z_max:.1f} predictive spreads away "
             f"(a calibrated prediction stays within {check.critical:.1f} "
             f"over these {check.num_features} features).")
-        point = (match.mean_states[num_lines - 1]
-                 if len(match.mean_states) >= num_lines else None)
+        point = (rehearsal.mean_states[num_lines - 1]
+                 if len(rehearsal.mean_states) >= num_lines else None)
         if point is not None and point_predicts(
                 frame, point, check.missed, noise, check.num_features, widths):
             return text + (
@@ -556,7 +593,7 @@ def build_continual_tools(
                      "form, not its parameters' uncertainty, misses it there.")
         if check.inflation <= 1.0:
             return text + " The belief's temperature stays as it was."
-        return text + _widen(match.basis, check.inflation)
+        return text + _widen(rehearsal.basis, check.inflation)
 
     def _widen(basis: Optional[Tuple[str, float]], inflation: float) -> str:
         """Raise the temperature floor of the fitted program the surprised
@@ -944,7 +981,7 @@ def build_continual_tools(
             await _execute(
                 ExecuteSkill(option, expected, str(args.get("note", "")),
                              absent), progress, _skill_reporter(lines))
-            text = lines[0] + _prediction_note(match, 1, progress)
+            text = lines[0] + _prediction_note(match, progress)
             render = save_render(f"invoke_{state.charged_calls:04d}")
             if render:
                 text += f"\n[render] {render}"
@@ -1013,7 +1050,7 @@ def build_continual_tools(
             elif progress.stop_reason not in ("", "terminal"):
                 lines.append(f"plan stopped: skill {count} "
                              f"{progress.stop_reason}")
-            checked = _prediction_note(match, len(parsed), progress)
+            checked = _prediction_note(match, progress)
             if checked:
                 lines.append(checked.lstrip("\n"))
             render = save_render(f"plan_{state.charged_calls:04d}")

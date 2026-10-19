@@ -4,7 +4,9 @@ Levenberg-Marquardt in ``code_sim_learning.lm``."""
 from typing import List
 
 import numpy as np
+import pytest
 
+from predicators.agent_sdk.belief_probe import ProbeBudgetExceeded
 from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.code_sim_learning.lm import \
     bracket_search_zero_gradient_params, solve_lm, zero_jacobian_columns
@@ -219,3 +221,22 @@ def test_solve_lm_batched_jacobian_matches_least_squares() -> None:
     assert jac is not None and fast_jac is not None
     assert np.array_equal(jac, fast_jac)
     assert batches and all(0 < n <= len(specs) for n in batches)
+
+
+def test_solve_lm_lets_a_budget_stop_through() -> None:
+    """A budget stop raised inside the LM step reaches the caller: the handler
+    that turns an LM failure into "skipping" does not swallow it."""
+    specs = [ParamSpec("k", 1.0, lo=0.1, hi=10.0)]
+    calls: List[float] = []
+
+    def residuals(theta: np.ndarray) -> np.ndarray:
+        # The first pass scores the starting point outside the guarded
+        # least-squares call; the stop lands inside it.
+        calls.append(float(theta[0]))
+        if len(calls) > 1:
+            raise ProbeBudgetExceeded()
+        return np.array([float(theta[0]) - 2.0])
+
+    with pytest.raises(ProbeBudgetExceeded):
+        solve_lm(residuals, specs, 50, "test")
+    assert len(calls) == 2

@@ -144,6 +144,32 @@ def test_rehearsal_modes_and_replaced_flags():
     utils.reset_config({})
 
 
+def test_a_single_run_from_the_observation_starts_at_the_belief_mean():
+    """Under the joint belief, run(plan, draws=0) from the last observation
+    starts at the belief's mean frame, where the rehearsal's rollout starts; a
+    run that raises leaves the probe on the observation, and a run from a
+    staged state starts there."""
+    ctx, _, _, _ = _joint_ctx()
+    sim = BeliefProbe(ctx)
+    _on_observation(sim, ctx)
+    observed = ctx.current_observation
+    assert observed is not None
+    mean = observed.copy()
+    mean.set(_block, "x", 0.1)
+    ctx.current_belief = SimpleNamespace(frame=mean)
+    with pytest.raises(ValueError):
+        sim.run("Nonsense(block0:block)[0.5]", render=False, draws=0)
+    assert sim._require_state().allclose(observed)
+    single = sim.run(_PLAN, render=False, draws=0)
+    assert isinstance(single, ProbeResult)
+    assert single.states[0].get(_block, "x") == pytest.approx(0.1)
+    assert sim._require_state().allclose(single.final_state)
+    again = sim.run(_PLAN, render=False, draws=0)
+    assert isinstance(again, ProbeResult)
+    assert again.states[0].allclose(single.final_state)
+    utils.reset_config({"belief_joint_draws": 0})
+
+
 def test_rehearsal_names_draws_that_did_not_start_from_their_state():
     """A draw whose world reads a feature back differently from the state it
     was set to ran from another state; the rehearsal says so and names the
@@ -400,14 +426,23 @@ def test_draws_are_scored_on_the_recorded_prefix_and_their_rollout():
         "episode in GAME_OVER" in res.splitlines()[0]
     assert sum("NOT solved, GAME_OVER" in line
                for line in res.splitlines()) == 2
-    # A step that ends no draw's episode says so.
+    # A step that ends no draw's episode says so, and so does one that
+    # stopped at no failed skill; the draws that did are counted.
+    assert "; no draw stopped at a failed skill;" in res.splitlines()[0]
     safe = ProbeJointResult([
         dict(d, lost=False, goal_reached=False, failure=None)
         for d in res.draws
     ], 0.0, 0.0, True)
     assert "; none of the 4 failing draws the task's evaluator scored " \
         "ends the episode in GAME_OVER" in safe.splitlines()[0]
+    stuck = ProbeJointResult([
+        dict(d, failure="step 0 (Move): not initiable" if k < 3 else None)
+        for k, d in enumerate(res.draws)
+    ], 0.0, 0.0, True)
+    assert "(0/4 succeeded; 3 draw(s) stopped at a failed skill;" in \
+        stuck.splitlines()[0]
     utils.reset_config({})
+    assert "failed skill" not in stuck.splitlines()[0]
 
 
 def test_refine_scores_proposals_on_the_joint_draws():

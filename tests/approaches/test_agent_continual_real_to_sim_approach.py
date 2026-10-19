@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Set, Tuple
 
+import numpy as np
 import pybullet as p
 import pytest
 
@@ -19,7 +20,7 @@ from predicators.ground_truth_models import get_gt_options
 from predicators.pybullet_helpers import studio_visuals
 from predicators.run.continual import ContinualRun
 from predicators.run.level_players import create_level_player
-from predicators.structs import Dataset
+from predicators.structs import Dataset, Object, State, Type
 from scripts.cluster_utils import generate_run_configs
 from tests.approaches.test_agent_continual_approach import _call, _config, \
     _result
@@ -582,6 +583,58 @@ def test_scene_base_offers_engine_materials(tmp_path: Any) -> None:
     p.changeDynamics(jug, -1, spinningFriction=0.0, physicsClientId=client)
     world._set_state(init)
     assert dynamics(jug)[7] == pytest.approx(0.6)
+
+
+def test_scene_reads_roll_pitch_yaw_as_one_rotation() -> None:
+    """A body's (roll, pitch, yaw) read back on the other Euler branch near
+    pitch -pi/2 is the same pose to a scene, where an axis-by-axis check sees a
+    turn of pi."""
+    leg = Object("leg0", Type("leg", ["roll", "pitch", "yaw"]))
+    requested = State({leg: np.array([0.1, -1.5849, 0.2])})
+    # (r, p, y) and (r + pi, pi - p, y + pi) are one rotation.
+    other = np.array([0.1 - np.pi, np.pi + 1.5849 - 2 * np.pi, 0.2 - np.pi])
+    assert PyBulletEnv._euler_orientation_angle(requested[leg].tolist(),
+                                                other.tolist()) < 1e-6
+    reconstructed = State({leg: other})
+    assert PyBulletEnv._reconstruction_diff(requested, reconstructed)
+    assert not SceneBase._reconstruction_diff(requested, reconstructed)
+
+
+def test_a_static_body_does_not_set_its_groups_mass(tmp_path: Any) -> None:
+    """A group that moves can hold a static body of mass 0; the group's sampled
+    mass ranges around a moving body's mass instead of crashing on a log scale
+    at 0."""
+    _config(tmp_path, **_arm_flags())
+    env = create_new_env("pybullet_boil", do_cache=False, use_gui=False)
+    # The test level has two jugs; the first training level has one.
+    init = env.get_test_tasks()[0].task.init
+    names = [o.name for o in init if o.type.name != "robot"]
+    jugs = sorted(o.name for o in init if o.type.name == "jug")
+    assert len(jugs) == 2
+    base: Any = scene_base_class("pybullet_boil", env.types, str(tmp_path))
+
+    class Scene(base):  # type: ignore[misc,valid-type]
+        """The first jug is fixed in place; the other moves."""
+
+        @classmethod
+        def initialize_pybullet(cls, using_gui: bool) -> Any:
+            client, robot, bodies = super().initialize_pybullet(using_gui)
+            box = p.createCollisionShape(p.GEOM_BOX,
+                                         halfExtents=[0.03] * 3,
+                                         physicsClientId=client)
+            for name in names:
+                mass = 0.0 if name == jugs[0] else 0.2
+                bodies[name] = (p.createMultiBody(
+                    mass, box, physicsClientId=client)
+                                if name in jugs else None)
+            return client, robot, bodies
+
+    world = Scene(use_gui=False, skip_residual_dynamics=False)
+    world._set_state(init)
+    sampled = {spec.name: spec for spec in world.sampled_material_specs()}
+    assert sampled["jug_mass"].init_value == pytest.approx(0.2)
+    assert (sampled["jug_mass"].lo, sampled["jug_mass"].hi) == \
+        pytest.approx((0.2 / 3, 0.6))
 
 
 def test_declared_material_ranges_cover_the_plausible_range(

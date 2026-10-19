@@ -96,6 +96,27 @@ def test_restore_reports_memory_loss_and_euler_alias(tmp_path: Path) -> None:
     assert same_memory(state.latent, {"held": {"links": np.array([1, 2])}})
 
 
+def test_restore_reports_the_robots_pose_apart() -> None:
+    """The robot comes back through inverse kinematics, so its deltas are
+    reported apart and do not reject a restore; another object's do."""
+    robot = Object("robot", Type("robot", ["x", "wrist"]))
+    block = Object("block", Type("block", ["x"]))
+    state = State({
+        robot: np.array([0.5, 0.1], dtype=np.float32),
+        block: np.array([0.2], dtype=np.float32)
+    })
+    after = state.copy()
+    after.set(robot, "wrist", 0.1049)
+    report = restoration_report(state, after)
+    assert report["status"] == "accepted"
+    assert set(report["robot_deltas"]) == {"robot.wrist"}
+    assert not report["feature_errors"]
+    after.set(block, "x", 0.21)
+    report = restoration_report(state, after)
+    assert report["status"] == "rejected"
+    assert set(report["feature_errors"]) == {"block.x"}
+
+
 def test_shadow_errors_remain_errors_and_budget_survives_resume(
         tmp_path: Path) -> None:
     """Unavailable checks and diagnostic exceptions are never accepted."""
