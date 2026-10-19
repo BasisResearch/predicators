@@ -556,9 +556,18 @@ def _outcome_leads(draws: List[Dict[str, Any]],
                      f"{side} (median {np.median(table[k][failing]):.4g} "
                      f"against {np.median(table[k][~failing]):.4g})")
     if any(k in undeclared for k in top):
-        lines.append("  * not declared in simulator.py: every rehearsal "
-                     "draws it over its plausible range; declare it and "
-                     "the recordings fit it.")
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.settings import CFG
+        if CFG.belief_material_lines:
+            lines.append("  * not declared in simulator.py: the fit keeps "
+                         "your scene's value, and the draws move it only "
+                         "as far as the recordings allow with the other "
+                         "parameters at their fitted values; declare it "
+                         "to fit it together with them.")
+        else:
+            lines.append("  * not declared in simulator.py: every "
+                         "rehearsal draws it over its plausible range; "
+                         "declare it and the recordings fit it.")
     lines.append(
         f"  Shuffling which draws failed leans some parameter this far in "
         f"{hits / _LEAD_SHUFFLES:.0%} of {_LEAD_SHUFFLES} shuffles: these "

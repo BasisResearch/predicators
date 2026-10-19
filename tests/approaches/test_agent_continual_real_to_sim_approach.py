@@ -4,11 +4,14 @@ import re
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Set, Tuple
 
+import numpy as np
 import pybullet as p
 import pytest
 
+from predicators import utils
 from predicators.approaches import create_approach
 from predicators.code_sim_learning.fit_space import ParamSpec
+from predicators.code_sim_learning.parameter_belief import ParameterBelief
 from predicators.code_sim_learning.scene_base import SceneBase, \
     scene_base_class
 from predicators.code_sim_learning.scene_manifest import build_scene_manifest
@@ -427,10 +430,22 @@ def test_agent_builds_the_scene_and_rehearses_in_it(tmp_path: Any,
                                            "env_step",
                                            action=[0.0] *
                                            env.action_space.shape[0])
+            # Under belief_material_lines the fit traces a line for each
+            # undeclared material, so the belief joins no prior for them.
+            assert not approach.belief_free_specs()
+            utils.update_config({"belief_material_lines": True})
+            assert {s.name for s in approach.belief_free_specs()} == sampled
             fitted = _call(approach, "run_python", code="print(sim.fit())")
             assert not fitted.startswith("ERROR"), fitted
             assert approach._probe_fit_state().get(
                 "fit_result") is not None, fitted
+            # The rehearsal's belief is the fit's own, lines and all.
+            stored = approach._probe_fit_state()["belief"]
+            assert sampled <= set(stored["names"])
+            belief = approach.parameter_belief()
+            assert belief is not None and belief.names == stored["names"]
+            assert np.array_equal(belief.draws,
+                                  ParameterBelief.from_dict(stored).draws)
             assert approach._model_readiness(str(sandbox / "simulator.py"),
                                              []) is None
             # An edit needs a new fit.
@@ -497,6 +512,12 @@ def test_scene_base_offers_engine_materials(tmp_path: Any) -> None:
                 bodies[name] = (p.createMultiBody(
                     0.2, box, physicsClientId=client)
                                 if name in jugs else None)
+            # A damping of the scene's own, past the plausible range.
+            for name in jugs:
+                p.changeDynamics(bodies[name],
+                                 -1,
+                                 linearDamping=0.5,
+                                 physicsClientId=client)
             table = p.createCollisionShape(p.GEOM_BOX,
                                            halfExtents=[0.4, 0.4, 0.2],
                                            physicsClientId=client)
@@ -549,6 +570,21 @@ def test_scene_base_offers_engine_materials(tmp_path: Any) -> None:
     assert {"jug_mass", "jug_rolling_friction", "support_lateral_friction"
             } <= set(sampled)
     assert "support_mass" not in sampled
+    # PyBullet reports no damping, so the scene's own is the one its code
+    # set while it was built; the engine's call is left as it was.
+    assert world._body_baseline[(jug, "linear_damping")] == pytest.approx(0.5)
+    assert world._body_baseline[(jug,
+                                 "angular_damping")] == pytest.approx(0.04)
+    assert p.changeDynamics.__name__ == "changeDynamics"
+    # A fit holds the same materials at the scene's own values, each range
+    # widened to hold its value, where the sampled ones start inside it.
+    owned = {spec.name: spec for spec in world.own_material_specs()}
+    assert set(owned) == set(sampled)
+    assert sampled["jug_linear_damping"].init_value == pytest.approx(0.2)
+    assert owned["jug_linear_damping"].init_value == pytest.approx(0.5)
+    assert (owned["jug_linear_damping"].lo,
+            owned["jug_linear_damping"].hi) == pytest.approx((0.0, 0.5))
+    assert owned["jug_rolling_friction"] == sampled["jug_rolling_friction"]
     assert (sampled["jug_mass"].lo, sampled["jug_mass"].hi) == \
         pytest.approx((0.2 / 3, 0.6))
     assert sampled["jug_rolling_friction"].init_value == pytest.approx(0.0)

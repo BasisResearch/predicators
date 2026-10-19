@@ -119,6 +119,10 @@ class SynthesisBackend(Protocol):
         """The prior centres of a rollout fit: the registry anchors, or the
         carried posterior's values under code_sim_learning_carry_posterior."""
 
+    def belief_free_specs(self) -> List[ParamSpec]:
+        """Parameters a rollout fit holds at the model's own values while its
+        belief traces their lines too."""
+
     def note_carried_posterior(self, applied: Dict[str, float],
                                report: Dict[str, Dict[str, Any]]) -> None:
         """Record a fit's deployed values as the next fit's prior centres."""

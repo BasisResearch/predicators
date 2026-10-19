@@ -130,6 +130,14 @@ class _FitComputation:
     belief: Optional[ParameterBelief] = None
 
 
+# The free parameters' lines (run_rollout_sysid's belief_free_specs) are
+# traced only while at least this share of the fit's elapsed time is left
+# before its deadline: they cost about a third of a fit (EMPIRIC from
+# assets, Fan: 1328 s against 1028 s), and a fit past its deadline yields
+# nothing.
+_FREE_LINE_TIME_SHARE = 0.5
+
+
 def run_rollout_sysid(
     fit_env: Any,
     rollouts: List[RolloutTrajectory],
@@ -148,6 +156,7 @@ def run_rollout_sysid(
     held: Optional[Dict[str, float]] = None,
     config: Optional[SysIdConfig] = None,
     belief_config: Optional[BeliefConfig] = None,
+    belief_free_specs: Sequence[ParamSpec] = ()
 ) -> SysIdOutcome:
     """Run the full rollout sysID flow on recorded trajectories.
 
@@ -173,7 +182,11 @@ def run_rollout_sysid(
     parameter factor of the joint belief (:mod:`.parameter_belief`) and
     applies the MAP as the nominal point; the report adjuster and the
     trust selection belong to the legacy uncertainty path and are
-    skipped.
+    skipped. ``belief_free_specs`` are parameters the fit holds at their
+    ``init_value`` (the model's own value, e.g. an engine material the
+    model does not declare) whose lines the belief traces as well, under
+    the same Gaussian prior an unfitted parameter has, so its draws of
+    them are conditioned on the recordings.
     """
     config = config or SysIdConfig.from_cfg()
     belief_config = belief_config or BeliefConfig.from_cfg()
@@ -196,7 +209,9 @@ def run_rollout_sysid(
                      _explainability_cache_key(physical_specs, rule_specs,
                                                rollouts, anchors,
                                                scaling_for_key,
-                                               config.grid_seed_points))
+                                               config.grid_seed_points),
+                     tuple((f.name, f.init_value, f.lo, f.hi, f.scale)
+                           for f in belief_free_specs))
         core = fit_cache.get(cache_key)
         if core is not None:
             logger.info("Rollout sysID: reusing the cached fit for this "
@@ -209,7 +224,7 @@ def run_rollout_sysid(
             core = _compute_fit(fit_env, rollouts, physical_specs,
                                 residual_features, rules, rule_specs,
                                 latent_init, anchors, rms_cache, config,
-                                belief_config)
+                                belief_config, belief_free_specs)
         if fit_cache is not None and cache_key is not None:
             fit_cache[cache_key] = core
 
@@ -299,8 +314,10 @@ def _compute_fit(
                                                                  float]]]]],
     config: SysIdConfig,
     belief_config: Optional[BeliefConfig] = None,
+    belief_free_specs: Sequence[ParamSpec] = ()
 ) -> _FitComputation:
     """The cacheable fit core: trim + fit + report on the survivors."""
+    fit_t0 = time.monotonic()
     physical_names = [s.name for s in physical_specs]
     init_params = {
         s.name: s.init_value
@@ -400,22 +417,34 @@ def _compute_fit(
             report[name]["candidate_values"] = vals
     belief: Optional[ParameterBelief] = None
     if belief_config is not None and belief_config.num_draws > 0:
+        free_specs = list(belief_free_specs)
+        now = time.monotonic()
+        if free_specs and config.deadline is not None and \
+                config.deadline - now < _FREE_LINE_TIME_SHARE * (now - fit_t0):
+            logger.info(
+                "Rollout sysID: the %d free parameters keep their priors; "
+                "too little time is left before the fit's deadline to "
+                "trace their lines.", len(free_specs))
+            free_specs = []
+        # The belief's lines move the free parameters too, so its replays
+        # set them like the fitted ones.
+        line_names = physical_names + [f.name for f in free_specs]
 
         def rollout_residuals_fn(params: Dict[str, float]) -> np.ndarray:
             return compute_rollout_residuals(fit_env, survivors, params,
-                                             residual_features, physical_names,
+                                             residual_features, line_names,
                                              rules, latent_init, scaling)
 
         def rollout_residuals_batch_fn(
                 points: List[Dict[str, float]]) -> List[np.ndarray]:
             return rollout_residuals_by_point(fit_env, survivors, points,
-                                              residual_features,
-                                              physical_names, rules,
-                                              latent_init, scaling)
+                                              residual_features, line_names,
+                                              rules, latent_init, scaling)
 
         belief = _build_belief(result, all_specs, anchors,
                                rollout_residuals_fn, belief_config,
-                               len(survivors), rollout_residuals_batch_fn)
+                               len(survivors), rollout_residuals_batch_fn,
+                               free_specs)
     return _FitComputation(fit_result=result,
                            report=report,
                            num_survivors=len(survivors),
@@ -472,7 +501,8 @@ def _build_belief(
     belief_config: BeliefConfig,
     num_survivors: int,
     batch_residuals_fn: Optional[Callable[[List[Dict[str, float]]],
-                                          List[np.ndarray]]] = None
+                                          List[np.ndarray]]] = None,
+    free_specs: Sequence[ParamSpec] = ()
 ) -> ParameterBelief:
     """The parameter factor around ``result``'s MAP, under its own prior.
 
@@ -483,6 +513,11 @@ def _build_belief(
     its draws. When the fit measured its misfit (the global multi-start
     did), every basin's factor counts it as one persistent error, the
     same scale that weighs the basins.
+
+    ``free_specs`` (see ``run_rollout_sysid``'s ``belief_free_specs``)
+    sit at their ``init_value`` in every basin's point, under the prior
+    ``prior_parameter_belief`` gives an unfitted parameter, and get
+    lines like the fitted parameters.
     """
     # pylint: disable-next=import-outside-toplevel
     from predicators.settings import CFG
@@ -491,28 +526,41 @@ def _build_belief(
     if sigmas is None or len(sigmas) != len(all_specs):
         sigmas = _prior_widths_for(all_specs, centers)
     fitted = result.point_estimate
+    free = {f.name: float(f.init_value) for f in free_specs}
+    prior_centers = {
+        s.name: scalar_to_fit_space(s, float(centers[s.name]))
+        for s in all_specs
+    }
+    prior_centers.update(
+        {f.name: scalar_to_fit_space(f, free[f.name])
+         for f in free_specs})
+    prior_sigmas = {
+        s.name: float(sigma)
+        for s, sigma in zip(all_specs, sigmas)
+    }
+    prior_sigmas.update({
+        f.name: float(sigma)
+        for f, sigma in zip(free_specs, _prior_widths_for(free_specs, free))
+    })
 
     def around(point: Dict[str, float], config: BeliefConfig,
                *seed_parts: Any) -> ParameterBelief:
         return build_parameter_belief(
-            list(all_specs),
-            point,
+            list(all_specs) + list(free_specs), {
+                **point,
+                **free
+            },
             residuals_fn,
             noise_sigma=float(result.noise_sigma or DEFAULT_NOISE_SIGMA),
-            prior_centers={
-                s.name: scalar_to_fit_space(s, float(centers[s.name]))
-                for s in all_specs
-            },
-            prior_sigmas={
-                s.name: float(sigma)
-                for s, sigma in zip(all_specs, sigmas)
-            },
+            prior_centers=prior_centers,
+            prior_sigmas=prior_sigmas,
             config=config,
             seed=stable_seed(CFG.seed, sorted(point.items()), num_survivors,
                              *seed_parts),
             batch_residuals=batch_residuals_fn,
             misfit=float(result.misfit or 0.0),
-            noise_sse=float(result.noise_sse or 0.0))
+            noise_sse=float(result.noise_sse or 0.0),
+            free_names=free)
 
     basins = list(result.basins or [])
     if len(basins) <= 1:

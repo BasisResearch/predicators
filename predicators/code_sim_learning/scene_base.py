@@ -24,8 +24,11 @@ value the scene gives it until the subclass declares it.
 """
 from __future__ import annotations
 
+import contextlib
 import os
-from typing import Any, ClassVar, Dict, Iterable, List, Optional, Set, Tuple
+import threading
+from typing import Any, Callable, ClassVar, Dict, Iterable, Iterator, List, \
+    Optional, Set, Tuple
 from typing import Type as TypingType
 
 import pybullet as p
@@ -118,6 +121,51 @@ _CHANGE_DYNAMICS_KEYS = {
     "angular_damping": "angularDamping",
 }
 
+# A scene's own damping is recorded as its code sets it with
+# p.changeDynamics while the scene is built (_recording_damping): the
+# records of each build in progress, keyed by (client, body).
+_DAMPING_KEYWORDS = {
+    "linearDamping": "linear_damping",
+    "angularDamping": "angular_damping",
+}
+_DampingRecord = Dict[Tuple[int, int], Dict[str, float]]
+_DAMPING_RECORDS: Dict[int, _DampingRecord] = {}
+_DAMPING_LOCK = threading.Lock()
+_UNRECORDED_CHANGE_DYNAMICS: List[Callable[..., Any]] = []
+
+
+def _recording_change_dynamics(*args: Any, **kwargs: Any) -> Any:
+    """``p.changeDynamics`` that also notes the damping it sets."""
+    body = kwargs.get("bodyUniqueId", args[0] if args else None)
+    client = int(kwargs.get("physicsClientId", 0))
+    for keyword, prop in _DAMPING_KEYWORDS.items():
+        if keyword in kwargs and body is not None:
+            for record in list(_DAMPING_RECORDS.values()):
+                record.setdefault((client, int(body)),
+                                  {})[prop] = float(kwargs[keyword])
+    return _UNRECORDED_CHANGE_DYNAMICS[0](*args, **kwargs)
+
+
+@contextlib.contextmanager
+def _recording_damping() -> Iterator[_DampingRecord]:
+    """The damping ``p.changeDynamics`` sets (by keyword) while the block runs,
+    by (client, body); builds in other threads land in the record too, under
+    their own clients."""
+    record: _DampingRecord = {}
+    token = id(record)
+    with _DAMPING_LOCK:
+        if not _DAMPING_RECORDS:
+            _UNRECORDED_CHANGE_DYNAMICS[:] = [p.changeDynamics]
+            setattr(p, "changeDynamics", _recording_change_dynamics)
+        _DAMPING_RECORDS[token] = record
+    try:
+        yield record
+    finally:
+        with _DAMPING_LOCK:
+            del _DAMPING_RECORDS[token]
+            if not _DAMPING_RECORDS:
+                setattr(p, "changeDynamics", _UNRECORDED_CHANGE_DYNAMICS[0])
+
 
 class SceneBase(PyBulletEnv):
     """The concrete base an agent-built scene model subclasses.
@@ -172,8 +220,12 @@ class SceneBase(PyBulletEnv):
         self._body_baseline: Dict[Tuple[int, str], float] = {}
         # Values set on undeclared materials (a rehearsal draw's).
         self._sampled_materials: Dict[str, float] = {}
-        super().__init__(use_gui=use_gui,
-                         skip_residual_dynamics=skip_residual_dynamics)
+        # The damping the scene's own code sets while it is built, which
+        # PyBullet cannot report back.
+        with _recording_damping() as damping:
+            self._scene_damping = damping
+            super().__init__(use_gui=use_gui,
+                             skip_residual_dynamics=skip_residual_dynamics)
         self._robot = Object("robot", self._type_named("robot"))
         self._robot.id = self._pybullet_robot.robot_id
         self._body_objects["robot"] = self._robot
@@ -410,6 +462,44 @@ class SceneBase(PyBulletEnv):
         set a state yet; a world that has bound none offers only the
         support's.
         """
+        return [
+            ParamSpec(name,
+                      min(max(own, lo), hi),
+                      lo=lo,
+                      hi=hi,
+                      scale=PLAUSIBLE_MATERIALS[prop][2])
+            for name, prop, own, lo, hi in self._undeclared_materials(objects)
+        ]
+
+    def own_material_specs(
+        self, objects: Iterable[Object] = ()) -> List[ParamSpec]:
+        """:meth:`sampled_material_specs`, each starting at the scene's own
+        value and with its range widened to hold that value.
+
+        A fit that holds these at their starting values replays the
+        scene as it is, so the lines of its belief through them measure
+        how the recordings bear on each. A log-scale material the scene
+        sets to zero starts at its plausible range's floor instead.
+        """
+        specs = []
+        for name, prop, own, lo, hi in self._undeclared_materials(objects):
+            scale = PLAUSIBLE_MATERIALS[prop][2]
+            if scale == "log" and own <= 0.0:
+                own = lo
+            specs.append(
+                ParamSpec(name,
+                          own,
+                          lo=min(lo, own),
+                          hi=max(hi, own),
+                          scale=scale))
+        return specs
+
+    def _undeclared_materials(
+        self, objects: Iterable[Object]
+    ) -> List[Tuple[str, str, float, float, float]]:
+        """(name, property, the scene's own value, plausible low, plausible
+        high) of each material the scene's model does not declare, after
+        binding ``objects`` (see :meth:`sampled_material_specs`)."""
         for obj in objects:
             self._bind(obj)
         # The scene's own values of a group the binding named, recorded
@@ -417,19 +507,14 @@ class SceneBase(PyBulletEnv):
         self._note_material_baselines()
         declared = {spec.name for spec in type(self).AGENT_PARAM_SPECS}
         groups, menu = self._materials()
-        specs = []
+        materials = []
         for name, (group, prop) in sorted(menu.items()):
             if name in declared:
                 continue
             own = self._scene_value(groups, group, prop)
             lo, hi = _plausible_range(prop, own)
-            specs.append(
-                ParamSpec(name,
-                          min(max(own, lo), hi),
-                          lo=lo,
-                          hi=hi,
-                          scale=PLAUSIBLE_MATERIALS[prop][2]))
-        return specs
+            materials.append((name, prop, own, lo, hi))
+        return materials
 
     @classmethod
     def _material_names(cls) -> Set[str]:
@@ -519,7 +604,9 @@ class SceneBase(PyBulletEnv):
                     p.getDynamicsInfo(body, link, physicsClientId=client)[0]
                     for link in self._body_links(body)))
         if prop in ("linear_damping", "angular_damping"):
-            return _DEFAULT_DAMPING
+            # What the scene set while it was built, else PyBullet's default.
+            return self._scene_damping.get((client, body),
+                                           {}).get(prop, _DEFAULT_DAMPING)
         info = p.getDynamicsInfo(body, -1, physicsClientId=client)
         return float({
             "lateral_friction": info[1],

@@ -6,6 +6,8 @@ memoization per (artifact, data) signature, and caller-local report
 adjustment on cache hits.
 """
 # pylint: disable=protected-access
+import dataclasses
+import time
 
 import numpy as np
 import pybullet as p
@@ -13,6 +15,7 @@ import pytest
 
 import predicators.approaches  # noqa: F401  # pylint: disable=unused-import
 from predicators import utils
+from predicators.code_sim_learning.config import SysIdConfig
 from predicators.code_sim_learning.fit_space import FitResult, ParamSpec
 from predicators.code_sim_learning.identifiability import Verdict
 from predicators.code_sim_learning.orchestrator import _build_belief, \
@@ -270,3 +273,72 @@ def test_belief_mixes_the_fit_basins():
     assert [c.noise_scale for c in belief.components] == \
         pytest.approx([0.3 / 0.05**2] * 2)
     assert belief.misfit == pytest.approx(0.3)
+
+
+def test_belief_traces_lines_for_the_free_parameters():
+    """A free parameter sits at its own value in every point the belief scores
+    and gets a line like a fitted one, under the prior an unfitted parameter
+    has: one the recordings bind keeps its draws near its own value, and one
+    they ignore keeps its prior's spread."""
+    spec = ParamSpec("k", 0.5, lo=0.0, hi=1.0)
+    bound = ParamSpec("roll", 0.001, lo=0.0, hi=0.02)
+    loose = ParamSpec("tint", 0.5, lo=0.0, hi=1.0)
+    scored = []
+
+    def residuals(params):
+        scored.append(dict(params))
+        # One noise sigma per 0.01 of k and per 0.0005 of roll.
+        return 0.05 * np.array([(params["k"] - 0.5) / 0.01,
+                                (params["roll"] - 0.001) / 0.0005])
+
+    result = FitResult(names=["k"],
+                       samples=np.array([[0.5]]),
+                       log_probs=np.zeros(1),
+                       noise_sigma=0.05,
+                       prior_sigma=np.array([1e6]),
+                       scales=["linear"])
+    belief = _build_belief(result, [spec], {"k": 0.5},
+                           residuals,
+                           BeliefConfig(num_draws=64),
+                           1,
+                           free_specs=[bound, loose])
+    assert belief.names == ["k", "roll", "tint"]
+    assert belief.map_estimate["roll"] == pytest.approx(0.001)
+    assert all(point.keys() == {"k", "roll", "tint"} for point in scored)
+    assert {point["roll"] for point in scored} != {0.001}
+    roll = belief.draws[:, 1]
+    assert np.all(np.abs(roll - 0.001) < 0.003)
+    assert np.std(belief.draws[:, 2]) > 0.1
+    # The recordings leave tint's line flat, so it stops after its outward
+    # probes; roll's is traced in full.
+    tint_points = [point for point in scored if point["tint"] != 0.5]
+    roll_points = [point for point in scored if point["roll"] != 0.001]
+    assert len(tint_points) <= 8 < len(roll_points)
+
+
+def test_free_lines_wait_for_time_before_the_deadline():
+    """A fit traces its free parameters' lines only while enough of its time is
+    left before its deadline; otherwise they keep their priors."""
+    utils.reset_config({})
+    env = _GainEnv()
+    spec = ParamSpec("gain", 1.0, lo=0.1, hi=10.0, scale="log")
+    free = ParamSpec("drag", 0.5, lo=0.0, hi=1.0)
+    belief_config = BeliefConfig(num_draws=8)
+    roomy = run_rollout_sysid(env, [_trajectory()], [spec],
+                              _RESIDUAL_FEATURES,
+                              anchors={"gain": 1.0},
+                              rms_cache={},
+                              belief_config=belief_config,
+                              belief_free_specs=[free])
+    assert roomy.belief is not None
+    assert roomy.belief.names == ["gain", "drag"]
+    late = run_rollout_sysid(env, [_trajectory()], [spec],
+                             _RESIDUAL_FEATURES,
+                             anchors={"gain": 1.0},
+                             rms_cache={},
+                             config=dataclasses.replace(
+                                 SysIdConfig.from_cfg(),
+                                 deadline=time.monotonic()),
+                             belief_config=belief_config,
+                             belief_free_specs=[free])
+    assert late.belief is not None and late.belief.names == ["gain"]

@@ -607,7 +607,10 @@ def create_synthesis_tools(
                     fit_cache=(None if exploratory else getattr(
                         approach, "_sysid_fit_cache", None)),
                     fit_cache_key=version_tag,
-                    config=fit_config)
+                    config=fit_config,
+                    # An exploratory fit's belief decides nothing.
+                    belief_free_specs=(() if exploratory else
+                                       approach.belief_free_specs()))
         except ProbeBudgetExceeded:
             return (
                 f"[{version_tag}] Error: the rollout system-ID fit ran past "
