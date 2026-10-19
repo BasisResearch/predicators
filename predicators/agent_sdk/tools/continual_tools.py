@@ -37,7 +37,7 @@ from predicators.run.interaction import ActionSelector, ExecutePlan, \
     ExecutionRequest, GiveUp, PrimitiveAction, RequestReset, SkillExecution
 from predicators.settings import CFG
 from predicators.structs import Action, GroundAtom, Predicate, State, Task, \
-    _Option
+    _Option, excluded_object_type_names
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle through approaches
     from predicators.run.continual import InvocationResult, \
@@ -243,15 +243,25 @@ def format_observation(obs: "ProtocolObservation",
                 and CFG.continual_uncertainty_decisions):
             lines.append("[belief] each object smoothed over the frames it "
                          "rested through (value+-spread):")
-            for obj in sorted(obs.frame, key=lambda o: o.name):
-                if obj.name in obs.belief.frames_used:
-                    lines.append("  " + obs.belief.object_line(obj))
+            lines.extend(belief_object_lines(obs.frame, obs.belief))
     if render_path:
         lines.append(f"[render] {render_path}")
     if with_budget:
         lines.append(obs.ledger.footer())
         lines.append(context_status(ctx))
     return "\n".join(lines)
+
+
+def belief_object_lines(frame: State, belief: Any) -> List[str]:
+    """The ``[belief]`` block's line for each object the belief smoothed,
+    leaving out the types every state listing hides
+    (``excluded_object_type_names``)."""
+    hidden = excluded_object_type_names()
+    return [
+        "  " + belief.object_line(obj)
+        for obj in sorted(frame, key=lambda o: o.name)
+        if obj.name in belief.frames_used and obj.type.name not in hidden
+    ]
 
 
 def _atoms_change_line(before: Set[GroundAtom], after: Set[GroundAtom]) -> str:
