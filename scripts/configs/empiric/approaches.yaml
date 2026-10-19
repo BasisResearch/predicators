@@ -34,6 +34,9 @@ APPROACHES:
       # A rehearsal staged while a body moves keeps it moving, at the
       # velocity the state belief estimates from the noisy frames.
       continual_belief_velocities: true
+      # A raw action may move an arm joint only as far as the robot can
+      # in one step.
+      continual_raw_step_limit: true
   # Model-free: the same agent with the model-side machinery switched
   # off, so the two differ only in the model.
   mf_opus:

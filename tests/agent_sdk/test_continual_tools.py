@@ -23,9 +23,10 @@ from predicators.approaches import create_approach
 from predicators.approaches.agent_continual_approach import \
     AgentContinualModelFreeApproach
 from predicators.envs import create_new_env
+from predicators.envs.pybullet_fan import PyBulletFanEnv
 from predicators.ground_truth_models import get_gt_options
 from predicators.run.continual import ContinualRun, InvocationResult, \
-    ProtocolSession, RunEnded
+    ProtocolSession, RunEnded, StepRefused
 from predicators.run.episode import EpisodeState
 from predicators.settings import CFG
 from predicators.structs import Action, GroundAtom, State, _Option
@@ -1003,3 +1004,110 @@ def test_skill_tools_mention_the_preflight_only_when_it_is_on(
 
     driver.body = body
     ContinualRun(env, approach, driver).run()
+
+
+def test_a_raw_jump_past_the_robots_speed_is_refused_uncharged(
+        tmp_path: Any) -> None:
+    """Under continual_raw_step_limit the action space shows how far each arm
+    joint can move in one step (twice its velocity limit over the step's
+    duration), and a primitive step past that is refused before anything is
+    charged; a step within it is applied, and without the flag so is the
+    jump."""
+    utils.reset_config({
+        "env":
+        "pybullet_fan",
+        "approach":
+        "oracle",
+        "seed":
+        0,
+        "num_train_tasks":
+        1,
+        "num_test_tasks":
+        1,
+        "experiment_protocol":
+        "continual",
+        "continual_render":
+        False,
+        "continual_runs_dir":
+        os.path.join(str(tmp_path), "runs"),
+        "experiment_id":
+        "tools",
+        "fan_train_num_walls_per_task": [0],
+        "fan_test_num_walls_per_task": [0],
+        "continual_raw_step_limit":
+        True,
+    })
+    env = PyBulletFanEnv(use_gui=False)
+    options = get_gt_options(env.get_name())
+    approach = create_approach("oracle", env.predicates, options, env.types,
+                               env.action_space,
+                               [t.task for t in env.get_train_tasks()])
+    ctx = ToolContext(types=set(env.types),
+                      predicates=set(env.predicates),
+                      options=set(options),
+                      env=env)
+    seen: Dict[str, Any] = {}
+    driver = _Driver()
+
+    def joints(session: ProtocolSession) -> np.ndarray:
+        frame = session.observe().frame
+        assert isinstance(frame, utils.PyBulletState)
+        return np.asarray(frame.joint_positions)
+
+    def body(session: ProtocolSession) -> None:
+        tools = build_continual_tools(ctx,
+                                      session,
+                                      PlayState(),
+                                      save_render=lambda tag: None)
+        assert "max_change_per_step" in next(
+            t for t in tools if t.name == "env_step").description
+        world = session._run._level_env  # pylint: disable=protected-access
+        assert isinstance(world, PyBulletFanEnv)
+        seconds = world.seconds_per_step()
+        limits = session.action_spec["max_change_per_step"]
+        assert limits == {
+            joint.name: pytest.approx(2.0 * joint.speed * seconds, abs=1e-4)
+            for joint in world.joint_speed_limits()
+        }
+        names = session.action_spec["joint_names"]
+        assert set(limits) == {n for n in names if "finger" not in n}
+        assert '"max_change_per_step"' in _call(tools, "env_observe")
+        here = joints(session)
+        first = names[0]
+        jump = here.copy()
+        jump[0] += 1.5 * limits[first]
+        steps = session.level_card().steps
+        out = _call(tools, "env_step", action=jump.tolist())
+        assert out.startswith("ERROR: Step refused, nothing charged")
+        assert f"{first} by " in out and " rad (limit " in out
+        with pytest.raises(StepRefused):
+            session.step(Action(jump.astype(np.float32)))
+        assert session.level_card().steps == steps
+        assert np.allclose(joints(session), here)
+        within = here.copy()
+        within[0] += limits[first]
+        assert "step applied" in _call(tools,
+                                       "env_step",
+                                       action=within.tolist())
+        assert session.level_card().steps == steps + 1
+        utils.update_config({"continual_raw_step_limit": False})
+        assert "max_change_per_step" not in session.action_spec
+        assert "max_change_per_step" not in next(
+            t for t in build_continual_tools(
+                ctx, session, PlayState(), save_render=lambda tag: None)
+            if t.name == "env_step").description
+        here = joints(session)
+        jump = here.copy()
+        jump[0] += 1.5 * limits[first]
+        assert "step applied" in _call(tools, "env_step", action=jump.tolist())
+        assert session.level_card().steps == steps + 2
+        seen["ok"] = True
+        session.end_run("checked")
+
+    driver.body = body
+    try:
+        card = ContinualRun(env, approach, driver).run()
+    finally:
+        env.dispose()
+    assert seen["ok"]
+    assert card.end_reason == "agent_ended"
