@@ -1248,7 +1248,9 @@ class BeliefProbe:
 
         This checks reconstruction, not whether the inferred state is
         true. Use after model edits and on held assemblies before
-        trusting lifts.
+        trusting lifts. The robot's pose comes back through inverse
+        kinematics, approximately by design, so its deltas are listed
+        apart (``robot_deltas``) and do not reject the check.
         """
         # pylint: disable-next=import-outside-toplevel
         from predicators.agent_sdk.restoration import check_restore
