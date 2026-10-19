@@ -216,6 +216,21 @@ def test_settled_draw_keeps_the_velocity_it_records(env):
                                                        (0.0, ) * 3)
             assert np.allclose(after[0], expected[0], atol=1e-9)
             assert np.allclose(after[1], expected[1], atol=1e-9)
+        # The state belief records a velocity without spin; the settled
+        # ball then rolls without slipping on its platform.
+        estimated = state.copy()
+        estimated.simulator_state["body_velocities"] = {
+            env._ball.name: (tuple(linear), (0.0, 0.0, 0.0))
+        }
+        env.settle_state(estimated)
+        after = p.getBaseVelocity(env._ball.id,
+                                  physicsClientId=env._physics_client_id)
+        radius = p.getCollisionShapeData(
+            env._ball.id, -1, physicsClientId=env._physics_client_id)[0][3][0]
+        assert np.allclose(after[0], linear, atol=1e-9)
+        assert np.allclose(after[1],
+                           np.cross([0.0, 0.0, 1.0], linear) / radius,
+                           atol=1e-3)
     finally:
         utils.update_config({"continual_belief_velocities": False})
 
