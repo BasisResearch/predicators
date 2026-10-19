@@ -355,6 +355,8 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         check = CFG.continual_predictive_check
         ctx.scored_features_provider = self._scored_features if check else None
         ctx.feature_width_provider = self._feature_widths if check else None
+        ctx.recorded_ranges_provider = (self._recorded_ranges
+                                        if check else None)
         ctx.prediction_basis_provider = (self._prediction_basis
                                          if check else None)
         probe_ns = build_probe_namespace(ctx)
@@ -502,6 +504,7 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         ctx.rehearsal_gate = None
         ctx.scored_features_provider = None
         ctx.feature_width_provider = None
+        ctx.recorded_ranges_provider = None
         ctx.prediction_basis_provider = None
         ctx.skill_preflight = None
         ctx.execution_audit = None
@@ -553,6 +556,36 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         declared = getattr(getattr(self, "_residual_env_cls", None),
                            "RESIDUAL_FEATURES", None)
         return declared if isinstance(declared, dict) else None
+
+    def _recorded_ranges(
+            self) -> Optional[Dict[Tuple[str, str], Tuple[float, float]]]:
+        """Each feature the loaded model scores, over every recorded state:
+
+        (type name, feature) -> (lowest, highest). Cached per scored set
+        and recording count.
+        """
+        features = self._scored_features()
+        if not features or not self._fit_trajectories:
+            return None
+        key = (tuple(sorted((t, tuple(f)) for t, f in features.items())),
+               sum(len(traj.states) for traj in self._fit_trajectories))
+        cached = getattr(self, "_recorded_range_cache", None)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        ranges: Dict[Tuple[str, str], Tuple[float, float]] = {}
+        for traj in self._fit_trajectories:
+            for state in traj.states:
+                for obj in state:
+                    for feature in features.get(obj.type.name, ()):
+                        if feature not in obj.type.feature_names:
+                            continue
+                        value = float(state.get(obj, feature))
+                        lo, hi = ranges.get((obj.type.name, feature),
+                                            (value, value))
+                        ranges[(obj.type.name, feature)] = (min(lo, value),
+                                                            max(hi, value))
+        setattr(self, "_recorded_range_cache", (key, ranges))
+        return ranges
 
     def parameter_belief(self) -> Optional[ParameterBelief]:
         """The parameter belief, at no less than the temperature the

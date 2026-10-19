@@ -40,6 +40,9 @@ APPROACHES:
       # A rehearsal counts the failing draws that end the episode in
       # GAME_OVER.
       continual_rehearsal_game_over: true
+      # A rehearsal names the scored features its most likely rollout takes
+      # past the range the recordings show.
+      continual_rehearsal_support_note: true
   # Model-free: the same agent with the model-side machinery switched
   # off, so the two differ only in the model.
   mf_opus:

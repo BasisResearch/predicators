@@ -128,6 +128,13 @@ class GlobalSettings:
     # is 0 whether it is safe or loses the level; this count tells the two
     # apart.
     continual_rehearsal_game_over = False
+    # Whether a joint rehearsal's report names the scored features its
+    # rollout from the belief mean drives past the range the recordings
+    # show, by more than twice their declared observation noise: no
+    # recording tests the model there, so its error there can exceed the
+    # draws' spread (a lift law used above any recorded height). Needs
+    # continual_predictive_check, which installs the scored features.
+    continual_rehearsal_support_note = False
     # Whether a model arm checks each skill request that ran in full
     # against the joint-draw rehearsal from the live observation that
     # began with it: when the outcome lies outside the draws (beyond what
