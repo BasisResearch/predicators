@@ -114,6 +114,11 @@ class ToolContext:
     feature_width_provider: Optional[Callable[[],
                                               Optional[Dict[Tuple[str, str],
                                                             float]]]] = None
+    # Installed with it: each scored feature's range over every recorded
+    # state, (type name, feature) -> (lowest, highest), or None without
+    # recordings.
+    recorded_ranges_provider: Optional[Callable[[], Optional[Dict[Tuple[
+        str, str], Tuple[float, float]]]]] = None
     # Installed with it: the fitted program the joint draws come from
     # (the digest of its simulator.py) and the temperature they are drawn
     # at, or None while they come from the prior.

@@ -9,13 +9,15 @@ Sections 3.3 and 3.4, Appendix B.4).
 # pylint: disable=protected-access
 import re
 from types import SimpleNamespace
+from typing import List
 
 import numpy as np
 import pytest
 
 from predicators import utils
 from predicators.agent_sdk.belief_probe import BeliefProbe, ProbeJointResult, \
-    ProbeResult, _line_states, _outcome_leads, _separating_ranges
+    ProbeResult, _beyond_recordings, _line_states, _outcome_leads, \
+    _separating_ranges
 from predicators.agent_sdk.plan_execution import StepOutcome
 from predicators.structs import GroundAtom, Object, State, Task, \
     TaskEvaluator, Type
@@ -163,6 +165,51 @@ def test_rehearsal_names_draws_that_did_not_start_from_their_state():
     assert "did not start from the state" not in sim.run(_PLAN,
                                                          render=False).text
     utils.reset_config({})
+
+
+def test_support_note_names_features_past_the_recordings():
+    """Under continual_rehearsal_support_note, the rollout's scored features
+    that leave the recorded range, and their own start, by more than two sigmas
+    of their declared observation noise are named with that range, the robot's
+    aside; an exact feature counts 1% of its recorded span as its sigma, and
+    within the margin, or without the flag, there is no note."""
+    ctx, _, _, _ = _joint_ctx()
+    robot_type = Type("robot", ["x"])
+    robot = Object("robot", robot_type)
+    ctx.recorded_ranges_provider = lambda: {
+        ("block", "x"): (0.0, 0.5),
+        ("robot", "x"): (0.0, 0.1)
+    }
+
+    def rollout(*xs: float) -> List[State]:
+        return [
+            State({
+                _block: np.array([x], dtype=np.float32),
+                robot: np.array([0.9], dtype=np.float32)
+            }) for x in xs
+        ]
+
+    utils.reset_config({
+        "continual_rehearsal_support_note": True,
+        "continual_obs_noise_position": 0.01,
+    })
+    note = _beyond_recordings(ctx, rollout(0.3, 0.9, 0.7))
+    assert note is not None
+    assert "block0.x to 0.9 (recorded block x: 0 to 0.5)" in note
+    assert "robot" not in note
+    # Within two sigmas of the recorded edge.
+    assert _beyond_recordings(ctx, rollout(0.3, 0.515)) is None
+    # A start past the recordings counts as recorded; moving on from it
+    # does not.
+    assert _beyond_recordings(ctx, rollout(0.8, 0.8)) is None
+    moved = _beyond_recordings(ctx, rollout(0.8, 0.9))
+    assert moved is not None and "block0.x to 0.9" in moved
+    # Read exactly, the margin is 2% of the recorded span.
+    utils.update_config({"continual_obs_noise_position": 0.0})
+    exact = _beyond_recordings(ctx, rollout(0.3, 0.515))
+    assert exact is not None and "block0.x to 0.515" in exact
+    utils.reset_config({})
+    assert _beyond_recordings(ctx, rollout(0.3, 0.9)) is None
 
 
 def test_hypothetical_state_varies_only_the_parameters():

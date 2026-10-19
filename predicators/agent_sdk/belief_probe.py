@@ -501,6 +501,14 @@ def _separating_ranges(draws: List[Dict[str, Any]]) -> List[str]:
 # often shuffled outcomes do.
 _LEAD_STRENGTH = 0.3
 _LEAD_SHUFFLES = 400
+# A rollout value counts as past the recordings when it lies beyond their
+# range, and beyond its own start, by more than _SUPPORT_SIGMAS of the
+# feature's declared observation noise: a recorded extreme is one noisy
+# reading. A feature read exactly counts _SUPPORT_EXACT of its recorded
+# span as its sigma. The support note names at most _SUPPORT_NAMED.
+_SUPPORT_SIGMAS = 2.0
+_SUPPORT_EXACT = 0.01
+_SUPPORT_NAMED = 3
 
 
 def _unreconstructed(env: Any) -> List[str]:
@@ -512,6 +520,64 @@ def _unreconstructed(env: Any) -> List[str]:
         f"{obj.name}.{feature}" for obj, feature in lossy
         if obj.type.name != "robot"
     ]
+
+
+def _beyond_recordings(ctx: "ToolContext",
+                       states: Sequence[State]) -> Optional[str]:
+    """Under ``continual_rehearsal_support_note``, the scored features the
+    rollout from the belief mean takes past the range every recorded state
+    shows, and past where the rollout starts, by more than twice their declared
+    observation noise; None when there are none.
+
+    The margin is the data's own: a recorded extreme is one noisy
+    reading, so a value within two of its sigmas is about as well
+    tested. The rollout's start counts as recorded, so a new level's
+    layout is not named for being new.
+    """
+    # pylint: disable=import-outside-toplevel
+    from predicators.observation_noise import ObservationNoise
+    from predicators.settings import CFG
+
+    # pylint: enable=import-outside-toplevel
+    if not CFG.continual_rehearsal_support_note or not states or \
+            ctx.recorded_ranges_provider is None:
+        return None
+    ranges = ctx.recorded_ranges_provider() or {}
+    noise = ObservationNoise.from_cfg()
+    start = states[0]
+    worst: Dict[Tuple[str, str], Tuple[float, float]] = {}
+    for state in states[1:]:
+        for obj in state:
+            if obj.type.name == "robot" or obj not in start:
+                continue
+            for feature in obj.type.feature_names:
+                span = ranges.get((obj.type.name, feature))
+                if span is None:
+                    continue
+                first = float(start.get(obj, feature))
+                lo, hi = min(span[0], first), max(span[1], first)
+                sigma = (noise.feature_sigma(obj.type, feature)
+                         if noise.declared else 0.0)
+                if sigma <= 0.0:
+                    sigma = _SUPPORT_EXACT * max(span[1] - span[0], 1e-9)
+                value = float(state.get(obj, feature))
+                past = max(value - hi, lo - value) / sigma
+                key = (obj.name, feature)
+                if past > _SUPPORT_SIGMAS and past > worst.get(
+                        key, (0.0, 0.0))[0]:
+                    worst[key] = (past, value)
+    if not worst:
+        return None
+    named = sorted(worst.items(), key=lambda kv: -kv[1][0])[:_SUPPORT_NAMED]
+    parts = []
+    for (name, feature), (_past, value) in named:
+        type_name = next(o.type.name for o in start if o.name == name)
+        lo, hi = ranges[(type_name, feature)]
+        parts.append(f"{name}.{feature} to {value:.4g} (recorded "
+                     f"{type_name} {feature}: {lo:.4g} to {hi:.4g})")
+    return ("The rollout from the belief mean takes " + "; ".join(parts) +
+            ". No recording tests the model there, so its prediction there "
+            "can be off by more than the draws' spread.")
 
 
 def _counts_game_over() -> bool:
@@ -2011,6 +2077,10 @@ class BeliefProbe:
                                contacts=bool(ctx.probe_engine_available),
                                seed=seed,
                                draws=0)
+        if isinstance(result.mean, ProbeResult):
+            beyond = _beyond_recordings(ctx, result.mean.states)
+            if beyond:
+                result.notes.append(beyond)
         _log_rehearsal(ctx, plan_text, result)
         if result.from_observation and ctx.current_observation is not None:
             # What the rehearsal gate lets through: this plan, from this
