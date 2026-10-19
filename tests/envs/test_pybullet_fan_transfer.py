@@ -196,6 +196,45 @@ def test_opposing_fan_brakes_moving_ball(env):
     assert results[1][1] < results[0][1]
 
 
+def test_settled_draw_keeps_the_velocity_it_records(env):
+    """A draw of the state belief settles onto its support; under
+    continual_belief_velocities the ball then rolls on at the velocity the draw
+    records, and without it the settle stops the ball."""
+    state = env.reset("train", 0).copy()
+    state.set(env._switches[0], "is_on", 1.0)
+    for _ in range(35):
+        state = env.simulate(state, _noop(state))
+    linear, angular = state.simulator_state["body_velocities"][env._ball.name]
+    assert np.linalg.norm(linear) > 0.01
+    try:
+        for keep in (False, True):
+            utils.update_config({"continual_belief_velocities": keep})
+            env.settle_state(state)
+            after = p.getBaseVelocity(env._ball.id,
+                                      physicsClientId=env._physics_client_id)
+            expected = (linear, angular) if keep else ((0.0, ) * 3,
+                                                       (0.0, ) * 3)
+            assert np.allclose(after[0], expected[0], atol=1e-9)
+            assert np.allclose(after[1], expected[1], atol=1e-9)
+        # The state belief records a velocity without spin; the settled
+        # ball then rolls without slipping on its platform.
+        estimated = state.copy()
+        estimated.simulator_state["body_velocities"] = {
+            env._ball.name: (tuple(linear), (0.0, 0.0, 0.0))
+        }
+        env.settle_state(estimated)
+        after = p.getBaseVelocity(env._ball.id,
+                                  physicsClientId=env._physics_client_id)
+        radius = p.getCollisionShapeData(
+            env._ball.id, -1, physicsClientId=env._physics_client_id)[0][3][0]
+        assert np.allclose(after[0], linear, atol=1e-9)
+        assert np.allclose(after[1],
+                           np.cross([0.0, 0.0, 1.0], linear) / radius,
+                           atol=1e-3)
+    finally:
+        utils.update_config({"continual_belief_velocities": False})
+
+
 def test_transfer_wind_model_and_moving_restart(env):
     """A learned force model matches coasting and can restart mid-flight."""
     model_cls = base_simulator_class("pybullet_fan")

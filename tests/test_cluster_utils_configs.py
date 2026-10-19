@@ -113,6 +113,7 @@ def test_from_assets_arm_runs_only_by_name() -> None:
         "code_sim_learning_prior_spans_bounds": True,
         "continual_rehearsal_gate": True,
         "continual_predictive_check": True,
+        "continual_belief_velocities": True,
     }
 
 

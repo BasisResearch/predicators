@@ -121,6 +121,11 @@ class ActionExecutor(Protocol):
         """
 
 
+# How close a sphere must be to a support below it to roll on it when a
+# state belief stages its velocity (see PyBulletEnv._rolling_spin).
+_ROLL_CONTACT = 0.01
+
+
 class PyBulletEnv(BaseEnv):
     """Base class for a PyBullet environment."""
     # The subclass model form declares its learnable constants here (a
@@ -1588,6 +1593,13 @@ class PyBulletEnv(BaseEnv):
         closed finger values look like."""
         return gripper_joint_layout_from_robot(self._pybullet_robot)
 
+    def seconds_per_step(self) -> float:
+        """The simulated seconds one env step covers."""
+        params = p.getPhysicsEngineParameters(
+            physicsClientId=self._physics_client_id)
+        return float(CFG.pybullet_sim_steps_per_action) * float(
+            params["fixedTimeStep"])
+
     def settle_state(self, state: State) -> State:
         """``state`` after a quasi-static settle in this engine.
 
@@ -1599,7 +1611,10 @@ class PyBulletEnv(BaseEnv):
         supports and attachments; the others keep their drawn poses (see
         :mod:`predicators.pybullet_helpers.settle`). The objects take the
         engine's features after the settle; the robot, virtual objects
-        and the latent block keep the draw's.
+        and the latent block keep the draw's. Under
+        ``continual_belief_velocities`` each body then moves at the
+        velocity the draw records (at rest when it records none), since
+        a rollout from a draw of a rolling body must roll on.
         """
         self._set_state(state)
         # _set_state binds the state's objects to this engine's bodies.
@@ -1613,6 +1628,15 @@ class PyBulletEnv(BaseEnv):
         settle_bodies(self._physics_client_id,
                       [obj.id for obj in physical.values()],
                       [self._pybullet_robot.robot_id])
+        if CFG.continual_belief_velocities:
+            # The settle stops every body; a body the draw records as
+            # moving moves on from its settled pose.
+            for obj in physical.values():
+                linear, angular = self._staged_velocity(obj, state)
+                p.resetBaseVelocity(obj.id,
+                                    linear,
+                                    angular,
+                                    physicsClientId=self._physics_client_id)
         placed = self._get_state()
         settled = state.copy()
         for obj in state:
@@ -2132,11 +2156,61 @@ class PyBulletEnv(BaseEnv):
         # state, an agent-built one) starts still: a teleport keeps the
         # body's old velocities, and a ball still spinning from the
         # previous episode would fly off the moment a probe placed it.
-        linear, angular = self._body_velocity_in_state(obj, state)
+        linear, angular = self._staged_velocity(obj, state)
         p.resetBaseVelocity(obj.id,
                             linear,
                             angular,
                             physicsClientId=self._physics_client_id)
+
+    def _staged_velocity(
+        self, obj: Object, state: State
+    ) -> Tuple[Tuple[float, float, float], Tuple[float, float, float]]:
+        """The velocity to stage ``obj`` at: what ``state`` records (see
+        ``_body_velocity_in_state``), except that under
+        ``continual_belief_velocities`` a linear velocity recorded without
+        spin, the form the state belief estimates one in, gets the spin of
+        rolling when ``obj`` is a sphere on a support (see
+        ``_rolling_spin``)."""
+        linear, angular = self._body_velocity_in_state(obj, state)
+        if CFG.continual_belief_velocities and any(linear) and \
+                not any(angular):
+            angular = self._rolling_spin(obj.id, linear)
+        return linear, angular
+
+    def _rolling_spin(self, body: int,
+                      linear: Sequence[float]) -> Tuple[float, float, float]:
+        """The spin at which a sphere on a support rolls without slipping at
+        velocity ``linear``: ``n x v / r``, with ``n`` the support's normal at
+        the contact.
+
+        A ball that has rolled for a while rolls without slipping, and
+        staged without spin it would slide, losing speed to friction
+        until it rolled. Zero for a body of any other shape, or a sphere
+        ``_ROLL_CONTACT`` or farther from every support below it.
+        """
+        cid = self._physics_client_id
+        shapes = p.getCollisionShapeData(body, -1, physicsClientId=cid)
+        if len(shapes) != 1 or shapes[0][2] != p.GEOM_SPHERE:
+            return (0.0, 0.0, 0.0)
+        radius = float(shapes[0][3][0])
+        normal: Optional[np.ndarray] = None
+        for index in range(p.getNumBodies(physicsClientId=cid)):
+            other = p.getBodyUniqueId(index, physicsClientId=cid)
+            if other == body:
+                continue
+            for point in p.getClosestPoints(body,
+                                            other,
+                                            _ROLL_CONTACT,
+                                            physicsClientId=cid):
+                # The normal on the other body points towards the ball.
+                candidate = np.asarray(point[7], dtype=float)
+                if candidate[2] > 0.5 and (normal is None
+                                           or candidate[2] > normal[2]):
+                    normal = candidate
+        if normal is None or radius <= 0.0:
+            return (0.0, 0.0, 0.0)
+        spin = np.cross(normal, np.asarray(linear, dtype=float)) / radius
+        return (float(spin[0]), float(spin[1]), float(spin[2]))
 
     @staticmethod
     def _body_velocity_in_state(

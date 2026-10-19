@@ -29,7 +29,8 @@ from predicators.approaches import ApproachFailure, ApproachTimeout, \
     BaseApproach
 from predicators.envs import BaseEnv
 from predicators.observation_belief import BeliefFrame, atom_fractions, \
-    belief_draw, change_point_belief, likely_atoms, smooth_frames
+    belief_draw, change_point_belief, likely_atoms, smooth_frames, \
+    with_motion
 from predicators.observation_noise import ObservationNoise, noise_or_none, \
     step_rng
 from predicators.run import paths
@@ -724,7 +725,23 @@ class ContinualRun:
         else:
             belief = smooth_frames(frames, self._noise, window,
                                    float(CFG.continual_belief_sigmas))
+        if CFG.continual_belief_velocities:
+            # A velocity needs a longer run of noisy readings than a
+            # position does.
+            states = episode["states"][-2 * window:]
+            offset = len(episode["states"]) - len(states)
+            motion = [
+                self._observed(s, lv.index, episode["episode"], offset + k)
+                for k, s in enumerate(states)
+            ]
+            belief = with_motion(belief, motion, self._seconds_per_step())
         return replace(belief, frame=self._execution_frame(belief.frame))
+
+    def _seconds_per_step(self) -> float:
+        """The simulated seconds one env step covers on the current level, 0
+        when its env does not say."""
+        seconds = getattr(self._level_env, "seconds_per_step", None)
+        return float(seconds()) if callable(seconds) else 0.0
 
     def joint_draws(
         self,
@@ -927,6 +944,14 @@ class ContinualRun:
         belief = None if truth else self.belief()
         if belief is not None and not CFG.continual_uncertainty_decisions:
             frame = belief.frame
+        elif belief is not None and belief.velocities:
+            # A rollout staged from the frame continues the motion the
+            # belief sees, at its estimate.
+            frame = frame.copy()
+            sim_state = frame.simulator_state
+            source = belief.frame.simulator_state
+            if isinstance(sim_state, dict) and isinstance(source, dict):
+                sim_state["body_velocities"] = dict(source["body_velocities"])
         evaluation = None
         if runner.episode_state is not EpisodeState.NOT_FINISHED:
             evaluation = runner.evaluate()
@@ -1029,6 +1054,11 @@ class ContinualRun:
             else:
                 view = self._noise.perturb(
                     state, step_rng(CFG.seed, level, episode, step))
+                if CFG.continual_belief_velocities:
+                    # No reading shows a body's velocity.
+                    sim_state = getattr(view, "simulator_state", None)
+                    if isinstance(sim_state, dict):
+                        sim_state.pop("body_velocities", None)
             self._observed_views[key] = view
         return view
 

@@ -7,9 +7,10 @@ import pytest
 from predicators.observation_belief import _prefix_sums, _run_length_weights, \
     _run_means, _truncated_normal, atom_fractions, belief_draw, \
     change_point_belief, describe_fractions, likely_atoms, smooth_frames, \
-    uncertain_atoms
+    uncertain_atoms, with_motion
 from predicators.observation_noise import ObservationNoise
 from predicators.structs import GroundAtom, Object, Predicate, State, Type
+from predicators.utils import PyBulletState
 
 _BLOCK = Type("block", ["x", "yaw", "lit"], angular_features=["yaw"])
 _ROBOT = Type("robot", ["x"])
@@ -271,3 +272,71 @@ def test_draws_at_a_range_end_follow_the_truncated_posterior():
     assert np.mean(values > 0.999) < 0.02
     # A range the Gaussian puts no resolvable mass on: the nearer end.
     assert _truncated_normal(5.0, 0.1, 0.0, 1.0, rng) == 1.0
+
+
+_BALL = Type("ball", ["x", "y", "z"])
+_ball = Object("ball", _BALL)
+
+
+def _ball_frames(xs, engine=True):
+    """One frame per reading of the ball's x; ``engine`` frames carry a
+    simulator state, as a PyBullet observation does."""
+    frames = []
+    for x in xs:
+        data = {_ball: np.array([x, 1.5, 0.44], dtype=float)}
+        frames.append(
+            PyBulletState(data, simulator_state={"joint_positions": [0.0]}
+                          ) if engine else State(data))
+    return frames
+
+
+def test_motion_gets_the_slope_of_its_readings_and_rest_stays_still():
+    """A body rolling through the window gets the slope of its readings as its
+    velocity: the frame carries it and draws scatter around it by the slope's
+    standard error, leaving the position draws as they were.
+
+    A resting body, and frames without a simulator state, get none.
+    """
+    dt = 1.0 / 12.0
+    noise = ObservationNoise(position=0.01, orientation=0.0)
+    rng = np.random.default_rng(5)
+    xs = [0.3 + 0.12 * dt * k + rng.normal(0.0, 0.01) for k in range(16)]
+    frames = _ball_frames(xs)
+    belief = change_point_belief(frames[-8:], noise, window=8, hazard=0.02)
+    moved = with_motion(belief, frames, dt)
+    mean, error = moved.velocities["ball"]
+    steps = np.arange(16.0)
+    design = np.stack([np.ones(16), steps, steps**2], axis=1)
+    latest = np.array([0.0, 1.0, 30.0])
+    assert error[0] == pytest.approx(
+        0.01 * np.sqrt(latest @ np.linalg.inv(design.T @ design) @ latest) /
+        dt)
+    assert abs(mean[0] - 0.12) < 3 * error[0]
+    assert moved.frame.simulator_state["body_velocities"]["ball"] == (tuple(
+        float(v) for v in mean), (0.0, 0.0, 0.0))
+    assert "body_velocities" not in belief.frame.simulator_state
+    draws = [belief_draw(moved, np.random.default_rng(k)) for k in range(400)]
+    vx = np.array(
+        [d.simulator_state["body_velocities"]["ball"][0][0] for d in draws])
+    assert vx.mean() == pytest.approx(mean[0], abs=4 * error[0] / 20)
+    assert vx.std() == pytest.approx(error[0], rel=0.15)
+    assert belief_draw(moved, np.random.default_rng(3)).allclose(
+        belief_draw(belief, np.random.default_rng(3)))
+    rest = _ball_frames([0.3 + rng.normal(0.0, 0.01) for _ in range(16)])
+    resting = change_point_belief(rest[-8:], noise, window=8, hazard=0.02)
+    assert with_motion(resting, rest, dt) is resting
+    bare = _ball_frames(xs, engine=False)
+    no_engine = change_point_belief(bare[-8:], noise, window=8, hazard=0.02)
+    assert with_motion(no_engine, bare, dt) is no_engine
+
+
+def test_motion_of_a_body_speeding_up_is_its_latest_velocity():
+    """A body speeding up from rest gets its velocity at the latest frame, not
+    the window's mean velocity."""
+    dt = 1.0 / 12.0
+    noise = ObservationNoise(position=1e-4, orientation=0.0)
+    times = np.arange(16) * dt
+    frames = _ball_frames(0.3 + 0.5 * 0.6 * times**2)
+    belief = change_point_belief(frames[-8:], noise, window=8, hazard=0.02)
+    mean, _ = with_motion(belief, frames, dt).velocities["ball"]
+    assert mean[0] == pytest.approx(0.6 * times[-1], rel=1e-3)
