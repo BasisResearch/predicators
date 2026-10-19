@@ -230,3 +230,16 @@ def test_oracle_option_model_returns_partial_state_on_failure():
     # Two actions were applied before the raise: the returned state is
     # the partial post-failure state, not the pre-option state.
     assert post.get(obj, "x") == 2.0
+    # The states it reached are kept for a verdict on the partial run;
+    # only a successful execution sets last_trajectory.
+    assert model.last_trajectory is None
+    partial = model.last_partial_trajectory
+    assert partial is not None
+    assert [st.get(obj, "x") for st in partial.states] == [0.0, 1.0, 2.0]
+    assert len(partial.actions) == 2
+    # A raise before any action keeps no partial trajectory, and the
+    # next call clears the last one.
+    calls["n"] = 5
+    post, n = model.get_next_state_and_num_actions(init, opt.ground([], []))
+    assert n == 0 and post.get(obj, "x") == 0.0
+    assert model.last_partial_trajectory is None
