@@ -419,6 +419,9 @@ def test_agent_builds_the_scene_and_rehearses_in_it(tmp_path: Any,
         assert "jug_spinning_friction" not in sampled
         assert (sampled <= approach._physical_param_names()) and \
             (bool(sampled) == from_assets)
+        # A rehearsal's report marks the draws' undeclared materials.
+        assert approach._tool_context.undeclared_param_names_provider() == \
+            sampled
         if from_assets:
             assert "step applied" in _call(approach,
                                            "env_step",

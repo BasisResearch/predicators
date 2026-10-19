@@ -495,6 +495,77 @@ def _separating_ranges(draws: List[Dict[str, Any]]) -> List[str]:
     return lines
 
 
+# A lead is a parameter whose failing draws sit mostly on one side of its
+# passing draws: the AUC below is at least this far from 0.5. Chance
+# alone reaches it for some of many parameters, so the report says how
+# often shuffled outcomes do.
+_LEAD_STRENGTH = 0.3
+_LEAD_SHUFFLES = 400
+
+
+def _outcome_leads(draws: List[Dict[str, Any]],
+                   undeclared: Set[str]) -> List[str]:
+    """The parameters the failing draws lean on when none separates them
+    outright, and how often shuffled outcomes lean as far.
+
+    Needs at least three failing and three passing draws; returns no
+    lines when no parameter's AUC is ``_LEAD_STRENGTH`` from 0.5.
+    """
+    # pylint: disable=import-outside-toplevel
+    import numpy as np
+
+    def _auc(values: Any, failing: Any) -> float:
+        """The chance that a failing draw's value exceeds a passing draw's,
+        ties counting half: the Mann-Whitney statistic."""
+        bad = values[failing][:, None]
+        good = values[~failing][None, :]
+        wins = float(np.sum(bad > good)) + 0.5 * float(np.sum(bad == good))
+        return wins / (bad.size * good.size)
+
+    failing = np.array([not d["success"] for d in draws])
+    if failing.sum() < 3 or (~failing).sum() < 3:
+        return []
+    names = set.intersection(*(set(d["params"]) for d in draws))
+    table = {
+        name: np.array([float(d["params"][name]) for d in draws])
+        for name in sorted(names)
+    }
+    table = {k: v for k, v in table.items() if np.ptp(v) > 0}
+    if not table:
+        return []
+    aucs = {k: _auc(v, failing) for k, v in table.items()}
+    ranked = sorted(aucs, key=lambda k: -abs(aucs[k] - 0.5))
+    top = [k for k in ranked[:3] if abs(aucs[k] - 0.5) >= _LEAD_STRENGTH]
+    if not top:
+        return []
+    best = abs(aucs[top[0]] - 0.5)
+    rng = np.random.default_rng(0)
+    hits = 0
+    for _ in range(_LEAD_SHUFFLES):
+        shuffled = rng.permutation(failing)
+        if max(abs(_auc(v, shuffled) - 0.5) for v in table.values()) >= best:
+            hits += 1
+    lines = [
+        "The failing draws lean on these parameters (AUC: the chance that "
+        "a failing draw's value exceeds a passing draw's):"
+    ]
+    for k in top:
+        side = "higher" if aucs[k] > 0.5 else "lower"
+        star = "*" if k in undeclared else ""
+        lines.append(f"  {k}{star}: AUC {aucs[k]:.2f}, failing draws "
+                     f"{side} (median {np.median(table[k][failing]):.4g} "
+                     f"against {np.median(table[k][~failing]):.4g})")
+    if any(k in undeclared for k in top):
+        lines.append("  * not declared in simulator.py: every rehearsal "
+                     "draws it over its plausible range; declare it and "
+                     "the recordings fit it.")
+    lines.append(
+        f"  Shuffling which draws failed leans some parameter this far in "
+        f"{hits / _LEAD_SHUFFLES:.0%} of {_LEAD_SHUFFLES} shuffles: these "
+        "are leads to test before you rely on them.")
+    return lines
+
+
 @dataclasses.dataclass(repr=False)
 class ProbeJointResult(_StrLikeResult):
     """Outcome of ``BeliefProbe.run(plan)`` under the joint belief.
@@ -517,6 +588,9 @@ class ProbeJointResult(_StrLikeResult):
     from_observation: bool
     mean: Optional[Any] = None
     notes: List[str] = dataclasses.field(default_factory=list)
+    # The report's lines on the parameters the failing draws lean on
+    # (``_outcome_leads``), when none separates them outright.
+    leads: List[str] = dataclasses.field(default_factory=list)
 
     @property
     def successes(self) -> int:
@@ -576,6 +650,8 @@ class ProbeJointResult(_StrLikeResult):
         if separating:
             lines.append("Where the draws fail:")
             lines.extend(f"  {line}" for line in separating)
+        elif self.leads:
+            lines.extend(self.leads)
         elif 0 < self.successes < n:
             lines.append("  no single parameter separates the failing draws "
                          "from the passing ones: the state draws, or "
@@ -1738,11 +1814,16 @@ class BeliefProbe:
                 f"{len(over)} successful draw(s) exceeded the remaining "
                 f"execution step budget ({budget} low-level steps) - the "
                 "real executor would run out of steps.")
+        undeclared_provider = ctx.undeclared_param_names_provider
+        undeclared = set(undeclared_provider() if undeclared_provider else ())
+        leads = ([] if _separating_ranges(results) else _outcome_leads(
+            results, undeclared))
         return ProbeJointResult(results,
                                 p_hat,
                                 stderr,
                                 from_observation,
-                                notes=notices)
+                                notes=notices,
+                                leads=leads)
 
     def _parse_sketch(self, plan_text: str) -> Any:
         """Parse ``plan_text`` against the current state.
