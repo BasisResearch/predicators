@@ -19,8 +19,8 @@ from predicators.agent_sdk.belief_probe import BeliefProbe, ProbeJointResult, \
     ProbeResult, _beyond_recordings, _line_states, _outcome_leads, \
     _separating_ranges
 from predicators.agent_sdk.plan_execution import StepOutcome
-from predicators.structs import GroundAtom, Object, State, Task, \
-    TaskEvaluator, Type
+from predicators.structs import Action, GroundAtom, LowLevelTrajectory, \
+    Object, State, Task, TaskEvaluator, Type
 from tests.agent_sdk.test_belief_probe_physics_sweep import _block, \
     _make_ctx, _Move, _ReachedHi
 
@@ -443,6 +443,66 @@ def test_draws_are_scored_on_the_recorded_prefix_and_their_rollout():
         stuck.splitlines()[0]
     utils.reset_config({})
     assert "failed skill" not in stuck.splitlines()[0]
+
+
+class _OverrunEvaluator(TaskEvaluator):
+    """Ends the episode unsolved once the block stops between 0.55 and the
+    goal: a fall the level cannot undo."""
+
+    def terminated_trajectory(self, states):
+        return any(0.55 <= s.get(_block, "x") < 0.9
+                   for s in states) or super().terminated_trajectory(states)
+
+    def _certify(self, states, step_options, sim_env=None):
+        del step_options, sim_env
+        if any(0.55 <= s.get(_block, "x") < 0.9 for s in states):
+            return False, "the block fell short of the goal"
+        return True, ""
+
+
+def test_a_draw_whose_skill_fails_partway_is_scored_on_what_it_did(
+        monkeypatch):
+    """A draw whose skill failed after it moved the world is scored on the
+    states it reached, as the real episode keeps them, so the evaluator's
+    GAME_OVER there is counted."""
+    ctx, model, _, _ = _joint_ctx()
+    ctx.probe_engine_available = True
+    assert ctx.current_task is not None
+    ctx.current_task = Task(ctx.current_task.init,
+                            ctx.current_task.goal,
+                            evaluator=_OverrunEvaluator(ctx.current_task.goal))
+    plain = model.get_next_state_and_num_actions
+
+    def stalls_in_the_hole(state, option):
+        # Inside the friction hole the move stalls at 0.6 and fails.
+        model.last_partial_trajectory = None
+        if not 0.49 < model.friction < 0.51:
+            return plain(state, option)
+        partial = state.copy()
+        partial.set(_block, "x", 0.6)
+        model.last_trajectory = None
+        model.last_partial_trajectory = LowLevelTrajectory(
+            [state, partial], [Action(np.zeros(1, dtype=np.float32))])
+        model.last_execution_failure = "stalled"
+        return partial, 0
+
+    monkeypatch.setattr(model, "get_next_state_and_num_actions",
+                        stalls_in_the_hole)
+    utils.update_config({"continual_rehearsal_game_over": True})
+    sim = BeliefProbe(ctx)
+    _on_observation(sim, ctx)
+    res = sim.run(_PLAN, render=False)
+    # Draws 1 and 3 sit in the hole.
+    assert [d["failure"] is not None
+            for d in res.draws] == [False, True, False, True]
+    assert [d["solved"] for d in res.draws] == [True, False, True, False]
+    assert [d["lost"] for d in res.draws] == [False, True, False, True]
+    assert "could not be scored" not in res.text
+    assert sum(": FAILED, GAME_OVER - " in line
+               for line in res.splitlines()) == 2
+    assert "; 2 of the 2 failing draws the task's evaluator scored end " \
+        "the episode in GAME_OVER" in res.splitlines()[0]
+    utils.reset_config({})
 
 
 def test_refine_scores_proposals_on_the_joint_draws():

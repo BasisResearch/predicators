@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import abc
 import logging
-from typing import Any, Callable, Dict, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 import pybullet
@@ -125,11 +125,15 @@ class _OracleOptionModel(_OptionModelBase):
         self.last_execution_failure: str | None = None
         # Stores the full trajectory from the last successful execution.
         self.last_trajectory: LowLevelTrajectory | None = None
+        # The states an execution that failed partway reached before it
+        # failed, or None.
+        self.last_partial_trajectory: LowLevelTrajectory | None = None
 
     def get_next_state_and_num_actions(self, state: State,
                                        option: _Option) -> Tuple[State, int]:
         self.last_execution_failure = None
         self.last_trajectory = None
+        self.last_partial_trajectory = None
 
         # We do not want to actually execute the option; we want to know what
         # *would* happen if we were to execute the option. So, we will make a
@@ -210,10 +214,21 @@ class _OracleOptionModel(_OptionModelBase):
             last_state = s
             return False
 
+        # The states the option reaches, kept so that an execution that
+        # fails partway still shows what it did before failing.
+        reached: List[State] = [state]
+        applied: List[Action] = []
+
+        def _simulate(s: State, action: Action) -> State:
+            nxt = self._simulator(s, action)
+            reached.append(nxt)
+            applied.append(action)
+            return nxt
+
         try:
             traj = utils.run_policy_with_simulator(
                 option_copy.policy,
-                self._simulator,
+                _simulate,
                 state,
                 _terminal,
                 max_num_steps=CFG.max_num_steps_option_rollout)
@@ -221,6 +236,9 @@ class _OracleOptionModel(_OptionModelBase):
             # Treat PyBullet physics engine errors the same as planned
             # execution failures (e.g. GUI/Metal crash on macOS).
             self.last_execution_failure = str(e)
+            if applied:
+                self.last_partial_trajectory = LowLevelTrajectory(
+                    reached, applied)
             # Return the LAST simulated state, not the pre-option state:
             # a skill that raises mid-execution (e.g. post-release
             # placement verification, after the fingers already opened)
