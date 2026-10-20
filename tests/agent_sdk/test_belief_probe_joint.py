@@ -460,6 +460,29 @@ class _OverrunEvaluator(TaskEvaluator):
         return True, ""
 
 
+def test_a_draw_is_lost_in_the_line_its_first_lost_state_belongs_to():
+    """The line where a draw was lost holds the first state up to which the
+    evaluator calls the trajectory terminated; a trajectory it never calls
+    terminated was lost nowhere."""
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.agent_sdk.tools.verdicts import _EvalStateCollector
+    states = []
+    for x in (0.1, 0.2, 0.3, 0.4, 0.6, 0.7):
+        state = State({_block: np.array([x], dtype=float)})
+        states.append(state)
+    collector = _EvalStateCollector(None, states[0])
+    collector.states = list(states)
+    # Line 0 ends after the third state, line 1 after the fifth, line 2
+    # after the sixth.
+    collector.line_ends = [(0, 3), (1, 5), (2, 6)]
+    evaluator = _OverrunEvaluator(set())
+    assert collector.first_lost_line(evaluator, []) == 1
+    assert collector.first_lost_line(evaluator, states[:1]) == 1
+    collector.states = list(states[:4])
+    collector.line_ends = [(0, 3), (1, 4)]
+    assert collector.first_lost_line(evaluator, []) is None
+
+
 def test_a_draw_whose_skill_fails_partway_is_scored_on_what_it_did(
         monkeypatch):
     """A draw whose skill failed after it moved the world is scored on the
@@ -497,6 +520,10 @@ def test_a_draw_whose_skill_fails_partway_is_scored_on_what_it_did(
             for d in res.draws] == [False, True, False, True]
     assert [d["solved"] for d in res.draws] == [True, False, True, False]
     assert [d["lost"] for d in res.draws] == [False, True, False, True]
+    # Both lost during the plan's only line, and the rehearsal the gate
+    # reads keeps that.
+    assert [d["lost_line"] for d in res.draws] == [None, 0, None, 0]
+    assert ctx.live_rehearsals[-1].lost_lines == [None, 0, None, 0]
     assert "could not be scored" not in res.text
     assert sum(": FAILED, GAME_OVER - " in line
                for line in res.splitlines()) == 2

@@ -23,6 +23,7 @@ class LiveRehearsal:
     their temperature (see ``ToolContext.prediction_basis_provider``),
     or None when they came from the prior. ``mean_states`` are the line
     states of the rehearsal's rollout at the belief's mean.
+    ``lost_lines`` says where each draw ended the episode in GAME_OVER.
     """
     observation: State
     plan_text: str
@@ -30,6 +31,10 @@ class LiveRehearsal:
     line_states: List[List[Optional[State]]] = field(default_factory=list)
     basis: Optional[Tuple[str, float]] = None
     mean_states: List[Optional[State]] = field(default_factory=list)
+    # Per draw, the plan line during which the task's evaluator first finds
+    # the episode lost (GAME_OVER), or None for a draw it did not lose or
+    # did not score.
+    lost_lines: List[Optional[int]] = field(default_factory=list)
 
 
 @dataclass

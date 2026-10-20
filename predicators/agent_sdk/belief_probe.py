@@ -1868,6 +1868,7 @@ class BeliefProbe:
             rule = {n: v for n, v in theta.items() if n not in physical}
             solved: Optional[bool] = None
             lost: Optional[bool] = None
+            lost_line: Optional[int] = None
             unreconstructed: List[str] = []
             with (draw_scope(rule) if (rule and draw_scope is not None)
                   else contextlib.nullcontext()), \
@@ -1912,11 +1913,17 @@ class BeliefProbe:
                         # The evaluator ends the episode without counting
                         # it, as a real one ends in GAME_OVER.
                         lost = bool(verdict["terminated"]) and not solved
+                        if lost:
+                            # Where it was lost: the rehearsal gate weighs
+                            # only the losses a request's own lines risk.
+                            lost_line = collector.first_lost_line(
+                                evaluator, prefix_states)
                     except Exception as e:  # pylint: disable=broad-except
                         # The report says the draw went unscored; the log
                         # keeps why.
                         logging.warning("Joint-draw verdict failed: %r", e)
                         solved = lost = None
+                        lost_line = None
             failure: Optional[str] = None
             if r.first_failure_idx is not None:
                 fs = r.steps[r.first_failure_idx]
@@ -1943,6 +1950,7 @@ class BeliefProbe:
                 "goal_reached": bool(r.goal_reached),
                 "solved": solved,
                 "lost": lost,
+                "lost_line": lost_line,
                 "success": success,
                 "num_actions": sum(st.num_actions for st in r.steps),
                 "failure": failure,
@@ -2131,7 +2139,8 @@ class BeliefProbe:
                 LiveRehearsal(
                     ctx.current_observation, plan_text, float(result.p_hat),
                     [list(d.get("line_states") or [])
-                     for d in result.draws], basis, mean_states))
+                     for d in result.draws], basis, mean_states,
+                    [d.get("lost_line") for d in result.draws]))
             del ctx.live_rehearsals[:-_LIVE_REHEARSALS_KEPT]
         return result
 
