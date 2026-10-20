@@ -28,6 +28,9 @@ class _EvalStateCollector:
         self.states: List[State] = [init_state]
         self.labels: List[Any] = []
         self.coarse = False
+        # Per plan line that ran, its index and how many states the rollout
+        # had once it ended.
+        self.line_ends: List[Tuple[int, int]] = []
 
     def collect(self, outcome: Any) -> None:
         """Record one executed option's outcome.
@@ -59,9 +62,31 @@ class _EvalStateCollector:
             self.labels.append(label)
             self.coarse = True
 
-    def on_step(self, _i: int, outcome: Any) -> None:
+    def on_step(self, i: int, outcome: Any) -> None:
         """``execute_plan_forward`` ``on_step`` adapter."""
         self.collect(outcome)
+        self.line_ends.append((i, len(self.states)))
+
+    def first_lost_line(self, evaluator: Any,
+                        prefix_states: Sequence[State]) -> Optional[int]:
+        """The plan line during which ``evaluator`` first finds the episode
+        lost: the line holding the first state up to which, after
+        ``prefix_states``, it calls the trajectory terminated (a lost episode
+        stays lost); None when the whole rollout is not terminated."""
+        prefix = list(prefix_states)
+        if not evaluator.terminated_trajectory(prefix + self.states):
+            return None
+        low, high = 1, len(self.states)
+        while low < high:
+            middle = (low + high) // 2
+            if evaluator.terminated_trajectory(prefix + self.states[:middle]):
+                high = middle
+            else:
+                low = middle + 1
+        for line, end in self.line_ends:
+            if low <= end:
+                return line
+        return None
 
 
 def evaluate_states_with(evaluator: Any,

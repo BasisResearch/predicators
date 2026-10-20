@@ -260,6 +260,12 @@ def build_play_system_prompt(tool_names: Sequence[str],
                        "model_gate_fit" if fit_gate else "model_gate"))
         if CFG.continual_rehearsal_gate and joint:
             sections.append(render("play_system", "rehearsal_gate"))
+            if CFG.continual_rehearsal_game_over_gate > 0.0:
+                sections.append(
+                    render(
+                        "play_system",
+                        "rehearsal_game_over_gate",
+                        share=f"{CFG.continual_rehearsal_game_over_gate:.0%}"))
         if CFG.continual_predictive_check and joint:
             sections.append(render("play_system", "predictive_check"))
         if CFG.continual_skill_preflight:

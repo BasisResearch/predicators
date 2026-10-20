@@ -201,6 +201,10 @@ Rehearse the whole remaining plan from `sim.reset(current=True)`: its first line
 Each real step changes the observation, so rehearse the rest of the plan again before the next step.
 A request of `Wait` lines alone needs no rehearsal, and the `Wait` lines that end a request need not match the rehearsed plan's; runs at the point estimate (`draws=0`) and runs from staged states do not count.
 
+<!-- section: rehearsal_game_over_gate -->
+A rehearsed request is refused too, charging nothing, when more than __SHARE__ of its rehearsal's draws end the episode in GAME_OVER during the request or the `Wait` lines that directly follow it in the rehearsed plan: a GAME_OVER ends a test level.
+Rehearse another step whose draws avoid it, or, if your model is wrong there, repair it and rehearse again.
+
 <!-- section: predictive_check -->
 ### Each rehearsed step is checked against its rehearsal
 
