@@ -128,6 +128,13 @@ class GlobalSettings:
     # contradict what the recordings show (a ball drawn with a rolling
     # friction that would have stopped it in every recording).
     belief_material_lines = False
+    # Whether a from-assets scene model gives each body it built as one box
+    # or sphere the size its object's observation gives (x_len, y_len and
+    # z_len, half_x, half_y and half_z, or radius), rebuilding the body when
+    # a state sets another size. Off, a body keeps the size it was built
+    # with, so a model built for one level's sizes cannot replay another
+    # level's recordings, and the fit drops them.
+    scene_observed_sizes = False
     # Whether a model arm checks each skill request that ran in full
     # against the joint-draw rehearsal from the live observation that
     # began with it: when the outcome lies outside the draws (beyond what

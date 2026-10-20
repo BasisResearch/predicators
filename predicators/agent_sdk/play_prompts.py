@@ -435,9 +435,15 @@ def build_model_contract(
                              plausible_ranges=plausible_materials_text())
                       if sampled_materials else render(
                           "subclass_model", "undeclared_materials_kept"))
+        # Under scene_observed_sizes the base gives box and sphere bodies
+        # each level's observed sizes.
+        levels = render(
+            "subclass_model", "level_scenes_sized"
+            if CFG.scene_observed_sizes else "level_scenes_fixed")
         simulator = render("subclass_model",
                            "simulator_scene",
-                           undeclared_materials=undeclared)
+                           undeclared_materials=undeclared,
+                           level_scenes=levels)
     else:
         simulator = render("subclass_model", "simulator")
     parts = [

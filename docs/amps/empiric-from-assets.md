@@ -51,6 +51,17 @@ Seed 0 of `fixes_r2` found the level-1 fit slow and uninformative, tuned its val
 The supplied-base arms keep the anchored prior and leave fitting to the agent: their starting values are the base's calibrated defaults.
 The real-to-sim comparison fits nothing, samples nothing and keeps the declared ranges.
 
+## Scenes that change between levels
+
+Added October 2026, after seed 0 of the Fan round `fixes_r14`.
+Its model hard-coded level 2's platform sizes, as the scene contract then asked (edit `initialize_pybullet` when a level's scene changes).
+Level 1's platforms were twice as deep, so every replay of a level-1 recording dropped the ball off the model's platforms within two steps, and the fit dropped 13 of its 19 recorded segments as unexplainable.
+Those segments held the ball's rolls over the ramp, so the ramp's rolling friction kept its whole plausible range, and 13 of 16 rehearsal draws held the ball still where the real ball rolled 0.4 m.
+
+Under `scene_observed_sizes` (set by the `from_assets_opus` menu entry), `SceneBase` gives each body built as one box or sphere the size its object's observation gives (`x_len`, `y_len` and `z_len`, `half_x`, `half_y` and `half_z`, or `radius`).
+When a state sets another size, it rebuilds the body at that size with the same shape frame, pose, velocity, mass, materials and look, so one model replays every level's recordings.
+A body of another kind keeps its size, and the reset lists its size features as not reconstructed.
+
 ## Pilot
 
 The configuration is [continual_from_assets_pilot_r1.yaml](https://github.com/BasisResearch/predicators/blob/72d7258ed3992728c8501c615ca1261ec3f49feb/scripts/configs/predicatorv3/continual_from_assets_pilot_r1.yaml).
