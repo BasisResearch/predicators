@@ -2276,6 +2276,60 @@ def test_forked_children_replay_on_copies_of_one_template_world(monkeypatch):
     assert all(not env.connected for env in built)
 
 
+def test_segment_gaps_add_each_segments_gap_at_its_own_temperature(
+        monkeypatch):
+    """Under a temperature per segment, a point's gap from the best is each
+    segment's SSE gap over twice its own temperature times sigma^2, added up;
+    terms that do not add up to the fit's SSE give no gaps."""
+    from predicators.code_sim_learning.config import SysIdConfig
+    from predicators.code_sim_learning.parameter_belief import \
+        segment_temperatures
+    built = []
+    trajectories = [
+        _trajectory([0.0, 0.1, 0.2, 0.3]),
+        _trajectory([0.0, 0.1, 0.2]),
+    ]
+    points = [{"k": 0.1}, {"k": 0.15}, {"k": 0.3}]
+
+    def factory():
+        return _LinearParamEnv(built)
+
+    config = SysIdConfig.from_cfg()
+    per_point = rollout_objective.trajectory_terms_by_point(
+        factory, trajectories, points, _RESIDUAL_FEATURES, ["k"])
+    sses = [[float(np.dot(t, t)) for t in row] for row in per_point]
+    finals = [sum(row) for row in sses]
+    sigma = 0.05
+    gaps = physical_sysid._segment_gaps(factory, trajectories, points, 0,
+                                        finals, _RESIDUAL_FEATURES, ["k"], (),
+                                        None, None, config, sigma)
+    temperatures = segment_temperatures(sses[0],
+                                        [len(t) for t in per_point[0]],
+                                        [0.0, 0.0], sigma)
+    assert temperatures == [1.0, 1.0]
+    assert gaps[0] == 0.0
+    for gap, row in zip(gaps[1:], sses[1:]):
+        assert gap == pytest.approx(
+            sum(sse - top
+                for sse, top in zip(row, sses[0])) / (2.0 * sigma**2))
+    assert gaps[1] < gaps[2]
+    # A best point that misfits one segment tempers that segment's gaps.
+    hot = physical_sysid._segment_gaps(factory, trajectories, points, 1,
+                                       finals, _RESIDUAL_FEATURES, ["k"], (),
+                                       None, None, config, sigma)
+    warm = segment_temperatures(sses[1], [len(t) for t in per_point[1]],
+                                [0.0, 0.0], sigma)
+    assert max(warm) > 1.0
+    assert hot[2] == pytest.approx(
+        sum((sse - top) / (2.0 * t * sigma**2)
+            for sse, top, t in zip(sses[2], sses[1], warm)))
+    monkeypatch.setattr(physical_sysid, "trajectory_terms_by_point",
+                        lambda *_a, **_k: [[np.ones(2)] * 2 for _ in points])
+    assert physical_sysid._segment_gaps(factory, trajectories, points, 0,
+                                        finals, _RESIDUAL_FEATURES, ["k"],
+                                        (), None, None, config, sigma) is None
+
+
 def test_rollout_residuals_shared_env_instance_stays_serial(monkeypatch):
     """A caller-owned env instance never takes the parallel path: its rollouts
     mutate the caller's env, which must happen in-process."""

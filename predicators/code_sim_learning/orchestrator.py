@@ -47,9 +47,9 @@ from predicators.code_sim_learning.rollout_env import RolloutTrajectory, \
     fork_template, num_rollouts_run
 from predicators.code_sim_learning.rollout_objective import \
     compute_rollout_residuals, compute_rollout_sse, \
-    rollout_residuals_by_point
+    rollout_residuals_by_point, trajectory_terms_by_point
 from predicators.code_sim_learning.trajectory_prep import \
-    compute_residual_scaling
+    compute_residual_scaling, expected_noise_sse
 
 logger = logging.getLogger(__name__)
 
@@ -449,10 +449,31 @@ def _compute_fit(
         if config.deadline is not None:
             belief_deadline = config.deadline - _BELIEF_DEADLINE_MARGIN * (
                 config.deadline - fit_t0)
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.settings import CFG
+        segments: Optional[Tuple[List[int], List[float]]] = None
+        # Interval scoring scores each episode's events together, so its
+        # residuals do not split by segment.
+        if CFG.belief_segment_temperature and not config.score_observed_only:
+            # How many residuals each surviving segment contributes (the
+            # same at every point) and the SSE its declared noise alone
+            # leaves: the belief then sets a temperature per segment.
+            point = {
+                **result.point_estimate,
+                **{f.name: float(f.init_value)
+                   for f in free_specs}
+            }
+            terms = trajectory_terms_by_point(fit_env, survivors, [point],
+                                              residual_features, line_names,
+                                              rules, latent_init, scaling)[0]
+            segments = ([int(np.asarray(t).size) for t in terms], [
+                expected_noise_sse([segment], residual_features, scaling,
+                                   config) for segment in survivors
+            ])
         belief = _build_belief(result, all_specs, anchors,
                                rollout_residuals_fn, belief_config,
                                len(survivors), rollout_residuals_batch_fn,
-                               free_specs, belief_deadline)
+                               free_specs, belief_deadline, segments)
     return _FitComputation(fit_result=result,
                            report=report,
                            num_survivors=len(survivors),
@@ -501,16 +522,19 @@ def prior_parameter_belief(all_specs: Sequence[ParamSpec],
                         seed=seed)
 
 
-def _build_belief(result: FitResult,
-                  all_specs: Sequence[ParamSpec],
-                  anchors: Dict[str, float],
-                  residuals_fn: Callable[[Dict[str, float]], np.ndarray],
-                  belief_config: BeliefConfig,
-                  num_survivors: int,
-                  batch_residuals_fn: Optional[Callable[
-                      [List[Dict[str, float]]], List[np.ndarray]]] = None,
-                  free_specs: Sequence[ParamSpec] = (),
-                  deadline: Optional[float] = None) -> ParameterBelief:
+def _build_belief(
+    result: FitResult,
+    all_specs: Sequence[ParamSpec],
+    anchors: Dict[str, float],
+    residuals_fn: Callable[[Dict[str, float]], np.ndarray],
+    belief_config: BeliefConfig,
+    num_survivors: int,
+    batch_residuals_fn: Optional[Callable[[List[Dict[str, float]]],
+                                          List[np.ndarray]]] = None,
+    free_specs: Sequence[ParamSpec] = (),
+    deadline: Optional[float] = None,
+    segments: Optional[Tuple[List[int],
+                             List[float]]] = None) -> ParameterBelief:
     """The parameter factor around ``result``'s MAP, under its own prior.
 
     The prior is the one the fit folded in: centred on each parameter's
@@ -569,7 +593,9 @@ def _build_belief(result: FitResult,
             misfit=float(result.misfit or 0.0),
             noise_sse=float(result.noise_sse or 0.0),
             free_names=free,
-            deadline=deadline)
+            deadline=deadline,
+            segment_sizes=segments[0] if segments else (),
+            segment_noise_sse=segments[1] if segments else ())
 
     basins = list(result.basins or [])
     if len(basins) <= 1:

@@ -82,12 +82,13 @@ from predicators.code_sim_learning.identifiability import NOISE_FLOOR_EVALS, \
     format_identifiability, identifiability_report, \
     select_trustworthy_params
 from predicators.code_sim_learning.lm import log_hessian_identifiability
-from predicators.code_sim_learning.parameter_belief import stable_seed
+from predicators.code_sim_learning.parameter_belief import \
+    segment_temperatures, stable_seed
 from predicators.code_sim_learning.rollout_env import RolloutTrajectory, \
     dispose_env, num_rollouts_run, physical_param_anchors, rollout_states
 from predicators.code_sim_learning.rollout_objective import \
     compute_rollout_residuals, compute_rollout_sse, fit_map_lm_rollout, \
-    per_trajectory_rms, rollout_sse_by_point
+    per_trajectory_rms, rollout_sse_by_point, trajectory_terms_by_point
 from predicators.code_sim_learning.trajectory_prep import ResidualScaling, \
     compute_residual_scaling, expected_noise_sse, split_at_rest_points, \
     truncate_settled_tail
@@ -673,15 +674,28 @@ def _global_multistart(
     best = ranked[0]
     misfit: Optional[float] = None
     band = 0.0
+    # How much worse than the best each point fits, in nats: the SSE gap
+    # over twice the misfit, the misfit counted as one error; under
+    # segment_temperature, each segment's gap over its own error, as the
+    # belief's lines count them.
+    gaps: List[float] = [0.0] * len(points)
     if noise_sse > 0.0:
         misfit = max(finals[best] - noise_sse, sigma_tol)
         band = 2.0 * misfit
+        gaps = [(sse - finals[best]) / band for sse in finals]
+        if config.segment_temperature:
+            per_segment = _segment_gaps(base_env, trajectories, points, best,
+                                        finals, residual_features,
+                                        physical_names, rules, latent_init,
+                                        scaling, config, noise_sigma)
+            if per_segment is not None:
+                gaps = per_segment
     lo, hi = _search_box(all_specs, center_int, prior_sigma)
     width = hi - lo
     basins: List[Tuple[Dict[str, float], float, float]] = []
     kept: List[np.ndarray] = []
     for i in ranked:
-        if finals[i] > finals[best] + band or (misfit is None and i != best):
+        if gaps[i] > 1.0 or (misfit is None and i != best):
             continue
         z = to_fit_space(list(all_specs), thetas[i])
         if any(
@@ -689,8 +703,7 @@ def _global_multistart(
                 for other in kept):
             continue
         kept.append(z)
-        gap = finals[i] - finals[best]
-        weight = float(np.exp(-gap / (2.0 * misfit))) if misfit else 1.0
+        weight = float(np.exp(-gaps[i])) if misfit else 1.0
         basins.append((points[i], float(finals[i]), weight))
     logger.info(
         "Rollout sysID global multi-start: %d design points (best SSE %.4g), "
@@ -700,6 +713,42 @@ def _global_multistart(
         len(thetas) - 1, finals[0], [round(float(s), 4) for s in finals[1:]],
         len(basins), band)
     return thetas[best], jacobians[best], basins, misfit, note
+
+
+def _segment_gaps(base_env: Any, trajectories: List[RolloutTrajectory],
+                  points: List[Dict[str, float]], best: int,
+                  finals: List[float], residual_features: Dict[str, List[str]],
+                  physical_names: List[str], rules: Sequence[Any],
+                  latent_init: Any, scaling: Optional[ResidualScaling],
+                  config: SysIdConfig,
+                  noise_sigma: float) -> Optional[List[float]]:
+    """Per point, how many nats worse than ``points[best]`` the recordings find
+    it, with each segment's error above its declared noise counted as one error
+    that persists through that segment (``segment_temperatures``), and separate
+    segments' gaps added up.
+
+    None when the per-segment terms do not add up to the fit's SSE
+    (``finals``), as under interval scoring.
+    """
+    per_point = trajectory_terms_by_point(base_env, trajectories, points,
+                                          residual_features, physical_names,
+                                          rules, latent_init, scaling, config)
+    sses = [[float(np.dot(terms, terms)) for terms in row]
+            for row in per_point]
+    if any(
+            abs(sum(row) - total) > 1e-6 * max(1.0, abs(total))
+            for row, total in zip(sses, finals)):
+        return None
+    temperatures = segment_temperatures(
+        sses[best], [len(terms) for terms in per_point[best]], [
+            expected_noise_sse([trajectory], residual_features, scaling,
+                               config) for trajectory in trajectories
+        ], noise_sigma)
+    return [
+        sum((sse - top) / (2.0 * temperature * noise_sigma**2)
+            for sse, top, temperature in zip(row, sses[best], temperatures))
+        for row in sses
+    ]
 
 
 # A MAP within this fit-space distance of its anchor counts as unmoved
