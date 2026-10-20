@@ -123,6 +123,7 @@ def test_from_assets_arm_runs_only_by_name() -> None:
         "continual_pooled_level_init": True,
         "belief_material_lines": True,
         "scene_observed_sizes": True,
+        "belief_segment_temperature": True,
     }
 
 

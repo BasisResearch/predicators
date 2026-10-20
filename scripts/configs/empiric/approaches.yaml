@@ -64,6 +64,9 @@ APPROACHES:
       # A box or sphere body takes each level's observed size, so the fit
       # can replay every level's recordings with one model.
       scene_observed_sizes: true
+      # The belief's temperature is set per recorded segment, so more
+      # recordings narrow it.
+      belief_segment_temperature: true
   # Model-free: the same agent with the model-side machinery switched
   # off, so the two differ only in the model.
   mf_opus:

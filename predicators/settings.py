@@ -174,6 +174,12 @@ class GlobalSettings:
     # with, so a model built for one level's sizes cannot replay another
     # level's recordings, and the fit drops them.
     scene_observed_sizes = False
+    # Whether a fit's parameter belief sets its temperature per recorded
+    # segment: each segment's error above its declared noise counts as one
+    # error that persists through that segment, and separate segments'
+    # evidence adds up. Off, the whole fit's error above the noise counts
+    # as one error, so the temperature grows with the number of recordings.
+    belief_segment_temperature = False
     # Whether a model arm checks each skill request that ran in full
     # against the joint-draw rehearsal from the live observation that
     # began with it: when the outcome lies outside the draws (beyond what

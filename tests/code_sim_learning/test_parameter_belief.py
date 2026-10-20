@@ -545,6 +545,93 @@ def test_a_persistent_misfit_counts_as_one_error():
     }, fits, misfit=_SIGMA_N**2).noise_scale == pytest.approx(1.0)
 
 
+def test_a_temperature_per_segment_lets_separate_segments_add_up():
+    """Ten segments that each leave the same persistent error: counted once
+    over the fit, the misfit is ten times each segment's, and the line is as
+    wide as one segment alone would allow; counted per segment, the ten
+    segments' evidence adds up and the line narrows by sqrt(10)."""
+    specs = [ParamSpec("a", 0.3, lo=-10, hi=10)]
+    segments, size, bias = 10, 20, 2.0 * _SIGMA_N
+
+    # A bias the program cannot explain, of alternating sign, so the
+    # best fit stays at a = 0.3.
+    pattern = bias * np.resize([1.0, -1.0], size)
+
+    def residuals(params):
+        # Each segment: residuals that move with a off its true 0.3.
+        return np.concatenate([
+            _SIGMA_N * (params["a"] - 0.3) * np.ones(size) + pattern
+            for _ in range(segments)
+        ])
+
+    noise = size * _SIGMA_N**2
+    excess = size * bias**2
+    global_misfit = segments * excess - segments * noise
+    once = _build(specs, {"a": 0.3},
+                  residuals,
+                  misfit=global_misfit,
+                  noise_sse=segments * noise)
+    per_segment = build_parameter_belief(specs, {"a": 0.3},
+                                         residuals,
+                                         noise_sigma=_SIGMA_N,
+                                         prior_centers={"a": 0.3},
+                                         prior_sigmas={"a": 1e6},
+                                         config=BeliefConfig(
+                                             num_draws=64, line_max_evals=40),
+                                         seed=0,
+                                         misfit=global_misfit,
+                                         noise_sse=segments * noise,
+                                         segment_sizes=[size] * segments,
+                                         segment_noise_sse=[noise] * segments)
+    each = (excess - noise) / _SIGMA_N**2
+    assert per_segment.segment_temperatures == pytest.approx(
+        (each, ) * segments)
+    assert once.noise_scale == pytest.approx(segments * each)
+    assert per_segment.noise_scale == pytest.approx(each)
+    ratio = np.sqrt(once.lines["a"].variance() /
+                    per_segment.lines["a"].variance())
+    assert ratio == pytest.approx(np.sqrt(segments), rel=0.06)
+    text = "\n".join(per_segment.describe())
+    assert "one error per segment" in text
+    assert "10 of 10 segments run hotter" in text
+    restored = ParameterBelief.from_dict(per_segment.to_dict())
+    assert restored.segment_temperatures == per_segment.segment_temperatures
+    mixed = mix_beliefs([per_segment, per_segment], [1.0, 1.0])
+    assert mixed.segment_temperatures == per_segment.segment_temperatures
+
+
+def test_a_segment_within_its_noise_keeps_its_full_weight():
+    """A segment the program fits within the noise runs at temperature 1 beside
+    a segment it misfits; sizes that do not add up to the residuals leave one
+    temperature for all."""
+    specs = [ParamSpec("a", 0.3, lo=-10, hi=10)]
+
+    def residuals(params):
+        shift = _SIGMA_N * (params["a"] - 0.3)
+        return np.concatenate([
+            shift * np.ones(4) + _SIGMA_N * np.array([1.0, -1.0, 1.0, -1.0]),
+            shift * np.ones(4) +
+            5.0 * _SIGMA_N * np.array([1.0, -1.0, 1.0, -1.0])
+        ])
+
+    common = dict(noise_sigma=_SIGMA_N,
+                  prior_centers={"a": 0.3},
+                  prior_sigmas={"a": 1e6},
+                  config=BeliefConfig(num_draws=16, line_max_evals=40),
+                  seed=0)
+    belief = build_parameter_belief(specs, {"a": 0.3},
+                                    residuals,
+                                    segment_sizes=[4, 4],
+                                    segment_noise_sse=[4 * _SIGMA_N**2] * 2,
+                                    **common)
+    assert belief.segment_temperatures == pytest.approx((1.0, 96.0))
+    unsplit = build_parameter_belief(specs, {"a": 0.3},
+                                     residuals,
+                                     segment_sizes=[4, 3],
+                                     **common)
+    assert unsplit.segment_temperatures == ()
+
+
 def test_draws_are_seeded_bounded_and_sample_discrete_parameters():
     """Draws respect the box, the scale, discreteness and the seed."""
     specs = [
