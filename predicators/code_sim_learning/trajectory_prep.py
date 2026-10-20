@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, FrozenSet, List, Optional, Set, Tuple
+from typing import Dict, FrozenSet, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 
@@ -379,6 +379,36 @@ def expected_noise_sse(
                 scale = scaling.scales.get((obj.type.name, feat), 1.0)
                 total += (sigma / scale)**2 * (n_steps + weight)
     return float(total)
+
+
+def segment_origins(
+        sources: Sequence[Sequence[State]],
+        segments: Sequence[RolloutTrajectory]
+) -> List[Optional[Tuple[int, int]]]:
+    """Where each segment starts in the recordings it was cut from.
+
+    Per segment, the index of its recording in ``sources`` and the index
+    of the recording's state the segment starts at, found by the
+    identity of the segment's next states: truncation and rest-point
+    segmentation slice the recordings' own states, and only a segment's
+    first state may be a new one (a rest-window mean, or one that
+    carries memory). None for a segment none of whose next states is a
+    recording's own.
+    """
+    where: Dict[int, Tuple[int, int]] = {}
+    for index, states in enumerate(sources):
+        for step, state in enumerate(states):
+            where.setdefault(id(state), (index, step))
+    origins: List[Optional[Tuple[int, int]]] = []
+    for seg_states, _actions in segments:
+        found = None
+        for offset, state in enumerate(seg_states[1:3], start=1):
+            hit = where.get(id(state))
+            if hit is not None:
+                found = (hit[0], hit[1] - offset)
+                break
+        origins.append(found)
+    return origins
 
 
 def split_at_rest_points(

@@ -73,6 +73,7 @@ from scipy.stats import qmc
 
 from predicators.code_sim_learning.config import DEFAULT_NOISE_SIGMA, \
     SysIdConfig
+from predicators.code_sim_learning.departures import segment_departures
 from predicators.code_sim_learning.fit_space import FitResult, ParamSpec, \
     fit_space_bounds, from_fit_space, prior_widths, to_fit_space
 from predicators.code_sim_learning.grid_seed import \
@@ -1152,12 +1153,27 @@ def fit_params_rollout_trimmed(
             "unexplainable trajectories.", [f"{r:.4g}" for r in rms],
             threshold, factor, noise_sigma,
             len(trajectories) - len(survivors), len(trajectories))
+    # Where the model's replay leaves each unexplainable segment, at the
+    # segment's own best values: what the report tells the agent to repair.
+    dropped = [i for i, r in enumerate(rms) if r > threshold]
+    departures: Tuple[Any, ...] = ()
+    if dropped:
+        base = {s.name: anchors.get(s.name, s.init_value) for s in all_specs}
+        departures = tuple(
+            segment_departures(base_env, trajectories, dropped, [{
+                **base,
+                **argmins[i]
+            } for i in dropped], residual_features,
+                               [s.name for s in physical_specs], rules,
+                               latent_init, scaling, config))
     if not survivors:
         logger.warning(
             "Rollout sysID trimming: NO trajectory is explainable at any "
             "parameter set tried; skipping the fit and pinning the result "
             "at the declared inits.")
-        return _init_point_fit_result(all_specs, noise_sigma), [], rms, []
+        return dataclasses.replace(_init_point_fit_result(
+            all_specs, noise_sigma),
+                                   departures=departures), [], rms, []
 
     # Consistency loop. Explainability alone is not enough: a chaotic
     # recording can be ACCIDENTALLY explainable at wrong params (measured:
@@ -1219,4 +1235,5 @@ def fit_params_rollout_trimmed(
         survivors.pop(drop_idx)
         best.pop(drop_idx)
         surv_argmins.pop(drop_idx)
-    return result, survivors, rms, hull_candidates
+    return (dataclasses.replace(result, departures=departures), survivors, rms,
+            hull_candidates)
