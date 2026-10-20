@@ -523,9 +523,12 @@ def _patch_fit_and_rms(monkeypatch, fit_thetas, rms_by_count):
     monkeypatch.setattr(grid_seed, "trajectory_terms_by_point",
                         _batched(fake_rms))
     # The stub trajectories are plain strings; skip the data-derived
-    # residual scaling (exercised by its own tests).
+    # residual scaling and the replays of the dropped ones (both
+    # exercised by their own tests).
     monkeypatch.setattr(physical_sysid, "compute_residual_scaling",
                         lambda *_a, **_k: None)
+    monkeypatch.setattr(physical_sysid, "segment_departures",
+                        lambda *_a, **_k: [])
 
 
 def test_trimming_drops_unexplainable_and_refits(monkeypatch):
@@ -557,6 +560,40 @@ def test_trimming_keeps_all_when_explainable(monkeypatch):
     assert survivors == ["a", "b"]
     assert result.point_estimate["friction"] == 0.1
     assert rms == [0.001, 0.002]
+
+
+def test_trimming_notes_where_the_model_leaves_each_dropped_segment(
+        monkeypatch):
+    """Each unexplainable segment is replayed at its own best values for the
+    report, whether or not anything survives the trimming."""
+    specs = [ParamSpec("friction", 0.5, lo=0.01, hi=2)]
+    calls = []
+
+    def fake_departures(_env, trajectories, segments, params, *_args,
+                        **_kwargs):
+        calls.append((list(trajectories), list(segments), list(params)))
+        return [f"departure of segment {s}" for s in segments]
+
+    _patch_fit_and_rms(monkeypatch, {
+        2: 0.34,
+        1: 0.1
+    }, {
+        2: [0.7, 0.001],
+        1: [0.001]
+    })
+    monkeypatch.setattr(physical_sysid, "segment_departures", fake_departures)
+    result, survivors, _rms, _hull = fit_params_rollout_trimmed(
+        None, ["chaotic", "clean"], specs, {"domino": ["x"]})
+    assert survivors == ["clean"]
+    assert result.departures == ("departure of segment 0", )
+    assert calls == [(["chaotic", "clean"], [0], [{"friction": 0.5}])]
+    _patch_fit_and_rms(monkeypatch, {}, {2: [0.8, 0.6]})
+    monkeypatch.setattr(physical_sysid, "segment_departures", fake_departures)
+    result, survivors, _rms, _hull = fit_params_rollout_trimmed(
+        None, ["chaos1", "chaos2"], specs, {"domino": ["x"]})
+    assert survivors == []
+    assert result.departures == ("departure of segment 0",
+                                 "departure of segment 1")
 
 
 def test_consistency_loop_drops_disagreeing_survivor(monkeypatch):
@@ -670,6 +707,8 @@ def test_guessed_starting_values_judge_explainability_over_the_box(
     monkeypatch.setattr(grid_seed, "trajectory_terms_by_point", fake_terms)
     monkeypatch.setattr(physical_sysid, "compute_residual_scaling",
                         lambda *_a, **_k: None)
+    monkeypatch.setattr(physical_sysid, "segment_departures",
+                        lambda *_a, **_k: [])
     base = dataclasses.replace(SysIdConfig.from_cfg(),
                                trim_rms_factor=2.0,
                                grid_seed_points=7,

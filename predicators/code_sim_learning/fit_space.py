@@ -136,6 +136,11 @@ class FitResult:
     # to keep the fit call inside its time budget, for the report; empty
     # when it ran in full or did not run.
     search_note: str = ""
+    # Where the model's replay leaves each recorded motion segment the
+    # trimming dropped (departures.Departure), for the report; empty when
+    # it dropped none. A tuple, so a result pickled before this field
+    # reads the class default.
+    departures: Tuple[Any, ...] = ()
 
     @property
     def point_estimate(self) -> Dict[str, float]:
