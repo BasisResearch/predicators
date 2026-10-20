@@ -331,6 +331,92 @@ def test_lines_traced_in_lockstep_are_the_same():
     assert len(batches) < alone.evaluations
 
 
+def test_a_deadline_cuts_the_lines_short_and_they_keep_their_priors(
+        monkeypatch):
+    """No round of replays starts that would end after the deadline, judged by
+    the slowest round so far.
+
+    A free parameter whose line was cut short keeps its prior; a
+    declared one keeps what was traced when that brackets its point
+    estimate, else its prior; the report names them.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning import parameter_belief as module
+    specs = [
+        ParamSpec("a", 0.3, lo=-10, hi=10),
+        ParamSpec("b", 0.7, lo=0.0, hi=2.0),
+    ]
+    residuals = _gaussian_residuals(["a", "b"], [0.3, 0.7],
+                                    np.diag([20.0, 15.0]))
+    clock = {"now": 0.0}
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock["now"])
+
+    def batch(points):
+        clock["now"] += 10.0
+        return [residuals(params) for params in points]
+
+    def build(deadline, free_names=()):
+        return build_parameter_belief(specs, {
+            "a": 0.3,
+            "b": 0.7
+        },
+                                      residuals,
+                                      noise_sigma=_SIGMA_N,
+                                      prior_centers={
+                                          "a": 0.3,
+                                          "b": 0.7
+                                      },
+                                      prior_sigmas={
+                                          "a": 2.0,
+                                          "b": 0.5
+                                      },
+                                      config=BeliefConfig(num_draws=16,
+                                                          line_max_evals=40),
+                                      seed=0,
+                                      batch_residuals=batch,
+                                      free_names=free_names,
+                                      deadline=deadline)
+
+    clock["now"] = 0.0
+    full = build(None)
+    assert full.cut_short == ()
+    # A deadline already past: no round starts, and every line keeps its
+    # prior.
+    clock["now"] = 100.0
+    late = build(50.0, free_names=("b", ))
+    assert late.cut_short == ("a", "b")
+    assert late.lines["a"].mean() == pytest.approx(0.3, abs=1e-3)
+    assert np.sqrt(late.lines["a"].variance()) == pytest.approx(2.0, rel=0.02)
+    assert "time ran out before it finished the lines of a, b" in \
+        "\n".join(late.describe())
+    # Four rounds fit before the deadline, the fifth would not. The
+    # declared line has probed both sides of its estimate by then (three
+    # probes on the left, one on the right) and keeps them; the free one
+    # keeps its prior.
+    clock["now"] = 0.0
+    cut = build(45.0, free_names=("b", ))
+    assert clock["now"] == pytest.approx(40.0)
+    assert cut.cut_short == ("a", "b")
+    grid = cut.lines["a"].grid
+    assert grid[0] < 0.3 < grid[-1]
+    assert np.sqrt(cut.lines["a"].variance()) < 2.0
+    assert np.sqrt(cut.lines["b"].variance()) == pytest.approx(np.sqrt(
+        _prior_line_variance(0.7, 0.5, 0.0, 2.0)),
+                                                               rel=0.02)
+    restored = ParameterBelief.from_dict(cut.to_dict())
+    assert restored.cut_short == ("a", "b")
+
+
+def _prior_line_variance(center, sigma, lo, hi):
+    """The variance of a Gaussian prior truncated to [lo, hi]."""
+    grid = np.linspace(max(lo, center - 6 * sigma),
+                       min(hi, center + 6 * sigma), 20001)
+    dens = np.exp(-0.5 * ((grid - center) / sigma)**2)
+    dens /= np.trapz(dens, grid)
+    mean = np.trapz(grid * dens, grid)
+    return float(np.trapz((grid - mean)**2 * dens, grid))
+
+
 def test_flat_line_keeps_the_prior():
     """A parameter the data do not touch gets its (bounded) prior."""
     specs = [

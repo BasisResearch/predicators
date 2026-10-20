@@ -275,6 +275,54 @@ def test_belief_mixes_the_fit_basins():
     assert belief.misfit == pytest.approx(0.3)
 
 
+def test_a_basin_the_deadline_leaves_untraced_is_left_out(monkeypatch):
+    """No basin's lines start that, by the longest basin so far, would end
+    after the deadline: the belief mixes the basins traced, their draws make up
+    the whole count, and the report says how many were left out."""
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning import orchestrator
+    spec = ParamSpec("k", 0.5, lo=0.0, hi=1.0)
+    clock = {"now": 0.0}
+    monkeypatch.setattr(orchestrator.time, "monotonic", lambda: clock["now"])
+
+    def residuals(params):
+        clock["now"] += 1.0
+        k = params["k"]
+        return np.array([0.05 * 40.0 * (k - 0.2) * (k - 0.8) / 0.6])
+
+    result = FitResult(names=["k"],
+                       samples=np.array([[0.8]]),
+                       log_probs=np.zeros(1),
+                       noise_sigma=0.05,
+                       prior_sigma=np.array([1e6]),
+                       scales=["linear"],
+                       basins=[({
+                           "k": 0.8
+                       }, 10.3, 1.0),
+                               ({
+                                   "k": 0.2
+                               }, 10.5, float(np.exp(-1.0 / 3.0)))],
+                       misfit=0.3)
+    config = BeliefConfig(num_draws=16, line_max_evals=40)
+    both = _build_belief(result, [spec], {"k": 0.5}, residuals, config, 1)
+    assert both.untraced_basins == 0
+    # The basins mirror each other, so each takes half of the time both
+    # took; after the first, the time left is less than that.
+    total = clock["now"]
+    clock["now"] = 0.0
+    alone = _build_belief(result, [spec], {"k": 0.5},
+                          residuals,
+                          config,
+                          1,
+                          deadline=0.75 * total)
+    assert alone.untraced_basins == 1
+    assert len(alone.components) == 1
+    assert alone.num_draws == 16
+    assert alone.components[0].map_estimate == {"k": 0.8}
+    assert alone.components[0].num_draws == 16
+    assert "1 more of the parameter sets" in "\n".join(alone.describe())
+
+
 def test_belief_traces_lines_for_the_free_parameters():
     """A free parameter sits at its own value in every point the belief scores
     and gets a line like a fitted one, under the prior an unfitted parameter
@@ -318,7 +366,11 @@ def test_belief_traces_lines_for_the_free_parameters():
 
 def test_free_lines_wait_for_time_before_the_deadline():
     """A fit traces its free parameters' lines only while enough of its time is
-    left before its deadline; otherwise they keep their priors."""
+    left before its deadline; otherwise they keep their priors.
+
+    Past its deadline it still returns a belief: the lines it could not
+    trace keep their priors and the belief names them.
+    """
     utils.reset_config({})
     env = _GainEnv()
     spec = ParamSpec("gain", 1.0, lo=0.1, hi=10.0, scale="log")
@@ -332,6 +384,7 @@ def test_free_lines_wait_for_time_before_the_deadline():
                               belief_free_specs=[free])
     assert roomy.belief is not None
     assert roomy.belief.names == ["gain", "drag"]
+    assert roomy.belief.cut_short == ()
     late = run_rollout_sysid(env, [_trajectory()], [spec],
                              _RESIDUAL_FEATURES,
                              anchors={"gain": 1.0},
@@ -342,3 +395,4 @@ def test_free_lines_wait_for_time_before_the_deadline():
                              belief_config=belief_config,
                              belief_free_specs=[free])
     assert late.belief is not None and late.belief.names == ["gain"]
+    assert late.belief.cut_short == ("gain", )
