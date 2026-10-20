@@ -475,7 +475,9 @@ def test_a_draw_is_lost_in_the_line_its_first_lost_state_belongs_to():
     # Line 0 ends after the third state, line 1 after the fifth, line 2
     # after the sixth.
     collector.line_ends = [(0, 3), (1, 5), (2, 6)]
-    evaluator = _OverrunEvaluator(set())
+    # A goal these states never reach: an empty goal holds from the start,
+    # which would end every trajectory at its first state.
+    evaluator = _OverrunEvaluator({GroundAtom(_ReachedHi, [_block])})
     assert collector.first_lost_line(evaluator, []) == 1
     assert collector.first_lost_line(evaluator, states[:1]) == 1
     collector.states = list(states[:4])
