@@ -83,6 +83,11 @@ class ForwardResult:
     # an unparsable line, or ungroundable option), or None. Fixed-plan
     # execution never sets it.
     policy_error: Optional[str] = None
+    # Where execution stopped: the failing step's own post-state when that
+    # step ran and failed partway (a real skill that fails leaves the world
+    # where it stopped), else ``final_state``. None from callers that do
+    # not track it.
+    stopped_state: Optional[State] = None
 
     @property
     def executed_all(self) -> bool:
@@ -146,6 +151,7 @@ def execute_plan_forward(
     (kept for ``validate_plan_forward``'s per-step diagnostics).
     """
     state = task.init
+    stopped: Optional[State] = None
     steps: List[StepOutcome] = []
     first_failure_idx: Optional[int] = None
     first_div_idx: Optional[int] = None
@@ -205,7 +211,11 @@ def execute_plan_forward(
         if post is None:
             break  # cannot continue without a post-state
         if failure_reason is not None and stop_on_failure:
-            break  # mirror the real executor: abort at the first failure
+            # Mirror the real executor: abort at the first failure. The
+            # plan's state stays before the failed step; the world, as
+            # after a real failure, is where the step stopped.
+            stopped = post
+            break
         state = post
         total_actions += num_actions
         # Record when the goal *first* holds, plus the cumulative actions to
@@ -225,6 +235,7 @@ def execute_plan_forward(
         total_actions=total_actions,
         goal_step_idx=goal_step_idx,
         actions_to_goal=actions_to_goal,
+        stopped_state=state if stopped is None else stopped,
     )
 
 
