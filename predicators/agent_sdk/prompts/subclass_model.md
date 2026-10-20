@@ -82,7 +82,18 @@ RESIDUAL_ENV = MyScene
 
 `widget` and `update_widgets` above illustrate the structure; use this environment's manifest, types and features.
 A URDF may place a body's origin away from the observed pose reference; check that `sim.reset(current=True)` reconstructs the initial observation before relying on the scene.
+__LEVEL_SCENES__
+
+<!-- section: level_scenes_fixed -->
 When a level's scene changes, edit `initialize_pybullet` to load the new bodies; the harness rebuilds your world when the file changes.
+
+<!-- section: level_scenes_sized -->
+The fit replays the recordings of every level with your current model, so build a scene that fits every level the observation can show, not the numbers of one level.
+The base gives a body built as one box or one sphere on a base without links (`p.createCollisionShape` with `p.GEOM_BOX` or `p.GEOM_SPHERE`, then `p.createMultiBody`) the size that its object's observation gives (`x_len`, `y_len` and `z_len`, or `half_x`, `half_y` and `half_z`, or `radius`).
+When a state sets another size, the base rebuilds the body at that size, with the same shape frame, pose, mass, materials and look.
+So get a body's id from `self.body(name)` or from its object's `id` when you use it; do not keep a copy from the build.
+A body of another kind keeps the size you build it with, and a rehearsal names the size features that it cannot take.
+When a level adds objects that your scene does not load, edit `initialize_pybullet` to load them too; the harness rebuilds your world when the file changes.
 
 <!-- section: undeclared_materials_kept -->
 Undeclared, a material keeps the value your scene gives it, or PyBullet's default: lateral friction 0.5, spinning and rolling friction 0, restitution 0 and damping 0.04.

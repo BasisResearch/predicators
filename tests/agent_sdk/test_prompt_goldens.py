@@ -249,6 +249,21 @@ def test_undeclared_materials_section_follows_the_flag(lined):
     utils.reset_config({})
 
 
+@pytest.mark.parametrize("sized", [False, True])
+def test_level_scenes_section_follows_the_flag(sized):
+    """The scene contract says a box or sphere body takes each level's observed
+    size under scene_observed_sizes, and asks for an edit of
+    initialize_pybullet per level otherwise."""
+    utils.reset_config({"scene_observed_sizes": sized})
+    contract = play_prompts.build_model_contract(partially_observable=False,
+                                                 scene_built=True,
+                                                 sampled_materials=True)
+    assert ("the base rebuilds the body at that size" in contract) is sized
+    assert ("When a level's scene changes, edit `initialize_pybullet`"
+            in contract) is not sized
+    utils.reset_config({})
+
+
 @pytest.mark.parametrize("gate", [False, True])
 def test_rehearsal_gate_section_follows_the_flag(gate):
     """The system prompt announces the test-level rehearsal gate exactly when
