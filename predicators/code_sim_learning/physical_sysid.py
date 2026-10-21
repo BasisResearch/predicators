@@ -691,20 +691,9 @@ def _global_multistart(
             if per_segment is not None:
                 gaps = per_segment
     lo, hi = _search_box(all_specs, center_int, prior_sigma)
-    width = hi - lo
-    basins: List[Tuple[Dict[str, float], float, float]] = []
-    kept: List[np.ndarray] = []
-    for i in ranked:
-        if gaps[i] > 1.0 or (misfit is None and i != best):
-            continue
-        z = to_fit_space(list(all_specs), thetas[i])
-        if any(
-                np.all(np.abs(z - other) <= _SAME_BASIN_FRACTION * width)
-                for other in kept):
-            continue
-        kept.append(z)
-        weight = float(np.exp(-gaps[i])) if misfit else 1.0
-        basins.append((points[i], float(finals[i]), weight))
+    basins = _select_basins(
+        points, [to_fit_space(list(all_specs), theta) for theta in thetas],
+        finals, costs, gaps, best, misfit is not None, hi - lo)
     logger.info(
         "Rollout sysID global multi-start: %d design points (best SSE %.4g), "
         "LM from the best %d; SSE %.4g from the guesses, %s from the design "
@@ -713,6 +702,46 @@ def _global_multistart(
         len(thetas) - 1, finals[0], [round(float(s), 4) for s in finals[1:]],
         len(basins), band)
     return thetas[best], jacobians[best], basins, misfit, note
+
+
+def _select_basins(
+        points: List[Dict[str,
+                          float]], zs: List[np.ndarray], finals: List[float],
+        costs: List[float], gaps: List[float], best: int, weighed: bool,
+        width: np.ndarray) -> List[Tuple[Dict[str, float], float, float]]:
+    """The multi-start's basins as ``(point, SSE, weight)``, heaviest first.
+
+    ``gaps`` say how many nats worse than some reference the recordings
+    find each point; they are measured here from the point the
+    recordings find most likely, which need not be ``best``: the cost
+    that ranks ``best`` first also pays the prior, and under a
+    temperature per segment a point with more summed SSE can fit better.
+    A point within 1 nat of that one is a basin, weighted ``exp(-gap)``,
+    unless it lies within ``_SAME_BASIN_FRACTION`` of ``width`` (fit
+    space) of a basin already kept. ``best``, the fit's point estimate,
+    always keeps its basin, at its own weight. Without ``weighed`` (no
+    misfit measured), ``best`` is the one basin. The belief traces
+    basins in the returned order, and a deadline drops the last ones.
+    """
+    lowest = min(gaps) if weighed else 0.0
+    rel = [gap - lowest for gap in gaps]
+    rest = sorted((i for i in range(len(points)) if i != best),
+                  key=lambda i: (rel[i], costs[i]))
+    basins: List[Tuple[Dict[str, float], float, float]] = []
+    kept: List[np.ndarray] = []
+    for i in [best] + rest:
+        if i != best and (not weighed or rel[i] > 1.0):
+            continue
+        if any(
+                np.all(np.abs(zs[i] - other) <= _SAME_BASIN_FRACTION * width)
+                for other in kept):
+            continue
+        kept.append(zs[i])
+        weight = float(np.exp(-rel[i])) if weighed else 1.0
+        basins.append((points[i], float(finals[i]), weight))
+    # Stable: equal weights keep the point estimate's basin first.
+    basins.sort(key=lambda basin: -basin[2])
+    return basins
 
 
 def _segment_gaps(base_env: Any, trajectories: List[RolloutTrajectory],

@@ -2408,3 +2408,27 @@ def test_fit_params_rollout_folds_bracket_flat_into_sensitivity(monkeypatch):
     # 3 MAP evals (noise floor) + 2 perturbations of mu only.
     assert len(calls) == 5
     assert all(p["gate"] == 2.0 for p in calls)
+
+
+def test_basins_are_measured_from_the_point_the_recordings_favour():
+    """Basin gaps count from the most likely point, which the cost need not
+    rank first; the point estimate keeps its basin at its own weight, and
+    basins come heaviest first."""
+    # pylint: disable=protected-access
+    points = [{"k": 0.1}, {"k": 0.5}, {"k": 0.9}, {"k": 0.52}]
+    zs = [np.array([p["k"]]) for p in points]
+    finals = [10.0, 9.0, 12.0, 9.1]
+    # The cost ranks point 0 best (the prior favours it); the recordings
+    # favour point 1 by 2 nats, point 3 sits in point 1's basin, and
+    # point 2 is 3.5 nats worse than point 1.
+    costs = [1.0, 2.0, 5.0, 2.1]
+    gaps = [0.0, -2.0, 1.5, -1.9]
+    basins = physical_sysid._select_basins(points, zs, finals, costs, gaps, 0,
+                                           True, np.array([1.0]))
+    assert [b[0]["k"] for b in basins] == [0.5, 0.1]
+    assert basins[0][2] == pytest.approx(1.0)
+    assert basins[1][2] == pytest.approx(np.exp(-2.0))
+    # Without a measured misfit the point estimate is the one basin.
+    alone = physical_sysid._select_basins(points, zs, finals, costs, gaps, 0,
+                                          False, np.array([1.0]))
+    assert [(b[0]["k"], b[2]) for b in alone] == [(0.1, 1.0)]

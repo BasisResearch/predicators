@@ -453,8 +453,11 @@ def _compute_fit(
         from predicators.settings import CFG
         segments: Optional[Tuple[List[int], List[float]]] = None
         # Interval scoring scores each episode's events together, so its
-        # residuals do not split by segment.
-        if CFG.belief_segment_temperature and not config.score_observed_only:
+        # residuals do not split by segment; without a declared noise
+        # channel the objective adds an onset term only where a body moves,
+        # so the terms a point scores depend on the point.
+        if (CFG.belief_segment_temperature and not config.score_observed_only
+                and config.observation_noise is not None):
             # How many residuals each surviving segment contributes (the
             # same at every point) and the SSE its declared noise alone
             # leaves: the belief then sets a temperature per segment.
