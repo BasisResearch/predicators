@@ -35,6 +35,9 @@ class LiveRehearsal:
     # the episode lost (GAME_OVER), or None for a draw it did not lose or
     # did not score.
     lost_lines: List[Optional[int]] = field(default_factory=list)
+    # Per draw, whether the task's evaluator scored it: an unscored draw's
+    # lost line is None too, and it says nothing about a GAME_OVER.
+    scored: List[bool] = field(default_factory=list)
 
 
 @dataclass

@@ -919,9 +919,10 @@ def test_the_game_over_gate_refuses_a_request_its_draws_lose(
         tmp_path: Any) -> None:
     """Under continual_rehearsal_game_over_gate, a rehearsed request is
     refused, charging nothing, when more than the gate's share of its
-    rehearsal's draws end the episode in GAME_OVER during the request or the
-    Wait lines right after it; losses in later lines do not count, and a share
-    at the limit lets it through."""
+    rehearsal's scored draws end the episode in GAME_OVER during the request or
+    the Wait lines right after it; losses in later lines do not count, a share
+    at the limit lets it through, and a request that waits longer than its
+    rehearsal did is refused."""
     env, approach, ctx = _setup(tmp_path)
     ctx.options = set(ctx.options) | {_wait_option()}
     lines = _oracle_plan_text(approach,
@@ -940,12 +941,14 @@ def test_the_game_over_gate_refuses_a_request_its_draws_lose(
                                       PlayState(),
                                       save_render=lambda tag: None)
 
-        def refused(lost_lines: List[Optional[int]]) -> bool:
+        def refused(lost_lines: List[Optional[int]],
+                    scored: Optional[List[bool]] = None) -> bool:
             ctx.live_rehearsals.append(
                 LiveRehearsal(ctx.current_observation,
                               plan,
                               0.5,
-                              lost_lines=lost_lines))
+                              lost_lines=lost_lines,
+                              scored=scored or []))
             out = _call(tools, "skills_invoke", skill=lines[0])
             return ("end the episode in GAME_OVER" in out
                     and "Nothing was charged" in out)
@@ -954,6 +957,21 @@ def test_the_game_over_gate_refuses_a_request_its_draws_lose(
         # rehearsed plan lets follow it.
         assert refused([0, 0, None, None])
         assert refused([1, 1, None, None])
+        # Draws the evaluator did not score do not count: one of the one
+        # scored draw is lost.
+        assert refused([0, None, None, None], [True, False, False, False])
+        # A request that waits longer than its rehearsal did is refused:
+        # the draws say nothing about the steps beyond.
+        ctx.live_rehearsals.append(
+            LiveRehearsal(ctx.current_observation,
+                          plan,
+                          0.5,
+                          lost_lines=[None] * 4))
+        out = _call(tools,
+                    "skills_execute_plan",
+                    plan=lines[0] + "\nWait()[40]")
+        assert "waits 40 steps after its last motion line" in out
+        assert "waited 20" in out and "Nothing was charged" in out
         assert session.observe().ledger.level_steps == 0
         # Three lost only in the plan's later line, one during the request:
         # one of four is at the limit.
