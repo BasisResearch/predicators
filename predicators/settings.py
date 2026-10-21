@@ -304,6 +304,12 @@ class GlobalSettings:
     # body's position needs does not stretch the line over a motion that
     # started a few frames ago.
     continual_belief_velocity_frames = 16
+    # A reached level's initial state as the agent's list of levels gives
+    # it (ProtocolSession.observed_tasks). Off: episode zero's first noisy
+    # frame. On, with the belief: the pooled belief over the opening frames
+    # of every episode of the level, all of which start from that one state
+    # (observation_belief.initial_frame_belief).
+    continual_pooled_level_init = False
     # Slack (in reward units) below a task's ``early_stop_min_reward`` bar
     # that still counts as solved for early stopping. Only tasks that set
     # ``EnvironmentTask.early_stop_min_reward`` are affected (e.g. domino

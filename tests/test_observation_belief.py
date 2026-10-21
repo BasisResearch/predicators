@@ -6,8 +6,8 @@ import pytest
 
 from predicators.observation_belief import _prefix_sums, _run_length_weights, \
     _run_means, _truncated_normal, atom_fractions, belief_draw, \
-    change_point_belief, describe_fractions, likely_atoms, smooth_frames, \
-    uncertain_atoms, with_motion
+    change_point_belief, describe_fractions, initial_frame_belief, \
+    likely_atoms, smooth_frames, uncertain_atoms, with_motion
 from predicators.observation_noise import ObservationNoise
 from predicators.structs import GroundAtom, Object, Predicate, State, Type
 from predicators.utils import PyBulletState
@@ -150,6 +150,46 @@ def test_change_point_weights_concentrate_on_the_whole_rest():
                                                        rel=0.35)
     assert ("r", "x") not in belief.spread
     assert belief.frame.get(_b0, "lit") == 1.0
+
+
+def test_a_level_start_pools_every_episode_s_opening_rest():
+    """A level's initial state pools each episode's opening frames, which all
+    observe that one state: a body that rested through the first 10 frames of
+    one episode and the first 6 of another is estimated from all 16, at sigma /
+    sqrt(16); its later move does not reach the estimate, and exact features
+    keep the first frame."""
+    rng = np.random.default_rng(7)
+    noise = ObservationNoise(position=0.01, orientation=0.0)
+    first = [0.5 + rng.normal(0.0, 0.01) for _ in range(10)]
+    second = [0.5 + rng.normal(0.0, 0.01) for _ in range(6)]
+    belief = initial_frame_belief(
+        [_scene_frames(first),
+         _scene_frames(second + [0.7, 0.75, 0.8])],
+        noise,
+        window=64,
+        hazard=0.02)
+    assert belief.frame.get(_b0, "x") == pytest.approx(np.mean(first + second),
+                                                       abs=1e-3)
+    assert belief.spread[("b0", "x")] == pytest.approx(0.01 / np.sqrt(16),
+                                                       rel=0.2)
+    assert belief.frames_used["b0"] == 16
+    assert belief.frame.get(_b0, "lit") == 1.0
+    assert belief.frame.get(_r, "x") == pytest.approx(0.3)
+    assert ("r", "x") not in belief.spread
+    # A window caps each episode's opening, as it caps the latest frame's.
+    capped = initial_frame_belief([_scene_frames(first)],
+                                  noise,
+                                  window=4,
+                                  hazard=0.02)
+    assert capped.frame.get(_b0, "x") == pytest.approx(np.mean(first[:4]),
+                                                       abs=1e-3)
+    # One episode of one frame: that frame.
+    only = initial_frame_belief([_scene_frames([0.51])],
+                                noise,
+                                window=64,
+                                hazard=0.02)
+    assert only.frame.get(_b0, "x") == pytest.approx(0.51)
+    assert only.spread[("b0", "x")] == pytest.approx(0.01)
 
 
 def test_change_point_jump_moves_the_mass_to_the_latest_frame():

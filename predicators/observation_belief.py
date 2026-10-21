@@ -374,6 +374,58 @@ def change_point_belief(
     return out
 
 
+def initial_frame_belief(episodes: Sequence[Sequence[State]],
+                         noise: ObservationNoise, window: int,
+                         hazard: float) -> BeliefFrame:
+    """The belief over a level's initial state, from the opening frames of
+    every episode of the level (``episodes``, each its observed views, oldest
+    first): every episode starts from that one state.
+
+    Per episode, :func:`change_point_belief` over its first ``window``
+    frames read backward, so the run that ends at the first frame is a
+    body's rest since the episode began. The episodes' estimates of each
+    noisy feature then pool by precision, each a Gaussian with its own
+    spread (angles by their weighted circular mean). Exact features, and
+    bodies of exact types, keep the first episode's first frame.
+    """
+    openings = [
+        list(frames[:max(int(window), 1)]) for frames in episodes if frames
+    ]
+    assert openings, "a belief needs at least one frame"
+    beliefs = [
+        change_point_belief(list(reversed(frames)), noise, window, hazard)
+        for frames in openings
+    ]
+    frame = openings[0][0].copy()
+    out = BeliefFrame(frame=frame)
+    by_name = [{o.name: o for o in b.frame} for b in beliefs]
+    for obj in frame:
+        if obj.type.name in EXACT_TYPES:
+            continue
+        for feat in obj.type.feature_names:
+            key = (obj.name, feat)
+            readings = [(float(b.frame.get(names[obj.name],
+                                           feat)), b.spread[key])
+                        for b, names in zip(beliefs, by_name)
+                        if key in b.spread and obj.name in names]
+            if not readings:
+                continue
+            values = np.array([v for v, _ in readings])
+            weights = np.array([1.0 / max(sd, 1e-12)**2 for _, sd in readings])
+            if any(key in b.angular for b in beliefs):
+                mean = float(
+                    np.arctan2(np.dot(weights, np.sin(values)),
+                               np.dot(weights, np.cos(values))))
+                out.angular.add(key)
+            else:
+                mean = float(np.dot(weights, values) / weights.sum())
+            frame.set(obj, feat, mean)
+            out.spread[key] = float(1.0 / np.sqrt(weights.sum()))
+        out.frames_used[obj.name] = sum(
+            b.frames_used.get(obj.name, 0) for b in beliefs)
+    return out
+
+
 # A body moves at the frame when a line through its recent readings has a
 # slope at least this many standard errors from zero along some axis, and
 # its readings stray from that line no more than the declared noise allows

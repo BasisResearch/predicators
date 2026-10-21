@@ -20,6 +20,7 @@ from predicators.code_sim_learning.inference_recording import \
     RecordingProjection, load_recorded_level
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
+from predicators.observation_belief import initial_frame_belief
 from predicators.run import continual, paths
 from predicators.run.continual import ContinualRun, LevelAlreadyWon, \
     LevelLost, ProtocolSession, ResetUnavailable, RunEnded, build_levels, \
@@ -1009,6 +1010,71 @@ def test_belief_frame_smooths_resting_objects(tmp_path: Any,
             assert invokes
             assert all("atom_fractions" in e for e in invokes)
             assert all(e["belief_spread"] is not None for e in invokes)
+            seen["ok"] = True
+
+    run = ContinualRun(env, approach, _Probe())
+    card = run.run()
+    assert card.end_reason == "all_levels_won"
+    assert seen["ok"]
+
+
+def test_a_reached_level_s_start_pools_its_episodes_opening_frames(
+        tmp_path: Any, monkeypatch: Any) -> None:
+    """Under continual_pooled_level_init the agent's list of reached levels
+    gives a level's initial state as the pooled belief over the opening frames
+    of every episode of the level, which all observe one true state; without
+    it, episode zero's first frame."""
+    monkeypatch.setattr(observation_noise, "POSITION_FEATURES",
+                        frozenset({"pose"}))
+    sigma = 0.002
+    _config(tmp_path,
+            "oracle",
+            num_test_tasks=1,
+            continual_obs_noise_position=sigma,
+            continual_belief_frame=True,
+            belief_joint_draws=4,
+            continual_belief_window=64,
+            continual_pooled_level_init=True)
+    env, approach = _make("oracle")
+    seen: Dict[str, Any] = {}
+
+    class _Probe:
+
+        def play_level(self, session: ProtocolSession) -> None:
+            """Level 0: rest, reset, rest, then win; level 1: read level 0's
+            start."""
+            if session.level_index == 0:
+                seen["truth"] = session.observe_truth().frame
+                zero = Action(
+                    np.zeros(env.action_space.shape, dtype=np.float32))
+                for _ in range(5):
+                    session.step(zero)
+                session.reset()
+                for _ in range(5):
+                    session.step(zero)
+                OracleLevelPlayer(approach).play_level(session)
+                return
+            episodes = [
+                ep["states"] for ep in session.previous_level_episodes(0)
+            ]
+            assert len(episodes) >= 2
+            pooled = session.observed_tasks()[0].init
+            expect = initial_frame_belief(
+                episodes, observation_noise.ObservationNoise.from_cfg(), 64,
+                CFG.continual_belief_motion_hazard).frame
+            assert pooled.allclose(expect)
+            assert not pooled.allclose(episodes[0][0])
+            # Every block rested through at least the 6 opening frames of
+            # each of the first two episodes.
+            truth = seen["truth"]
+            for block in (o for o in pooled if o.type.name == "block"):
+                error = abs(
+                    pooled.get(block, "pose") - truth.get(block, "pose"))
+                assert error < 4 * sigma / np.sqrt(12)
+            utils.update_config({"continual_pooled_level_init": False})
+            assert session.observed_tasks()[0].init.allclose(episodes[0][0])
+            utils.update_config({"continual_pooled_level_init": True})
+            OracleLevelPlayer(approach).play_level(session)
             seen["ok"] = True
 
     run = ContinualRun(env, approach, _Probe())
