@@ -10,9 +10,10 @@ from gym.spaces import Box
 
 from predicators import utils
 from predicators.agent_sdk.belief_probe import BeliefProbe, ProbeJointResult, \
-    _flag_changes, _motion_failures
+    ProbeResult, _flag_changes, _motion_failures
 from predicators.agent_sdk.plan_execution import execute_plan_forward
 from predicators.agent_sdk.tools import ToolContext
+from predicators.observation_belief import BeliefFrame
 from predicators.structs import Action, GroundAtom, LowLevelTrajectory, \
     Object, ParameterizedOption, Predicate, State, Task, Type
 from tests.agent_sdk.test_belief_probe_joint import _joint_ctx, _on_observation
@@ -239,4 +240,71 @@ def test_joint_rehearsal_counts_draws_whose_controller_failed():
     assert res.p_hat == pytest.approx(0.5)
     assert ("In 2 of the 4 draws a skill's controller failed. The real "
             "controller plans on the true scene") in res.text
+    utils.reset_config({})
+
+
+def test_a_motion_failure_says_how_few_frames_its_start_rests_on():
+    """When a rehearsal's draws, or the rollout from the belief mean, start
+    from a belief with fewer frames of the plan's bodies than its window, the
+    caveat says so and how far a Wait would narrow them; a full window, or a
+    start the probe staged itself, says nothing of frames."""
+
+    class _AlwaysStalls(_PhysicsHoleModel):
+        """The move's controller stalls wherever it starts."""
+
+        def get_next_state_and_num_actions(self, state, option):
+            nxt, _ = super().get_next_state_and_num_actions(state, option)
+            self.last_execution_failure = "[Move/Push] stalled"
+            return nxt, 0
+
+    ctx, model, _, _ = _joint_ctx()
+    model.__class__ = _AlwaysStalls
+    utils.reset_config({
+        "belief_joint_draws": 4,
+        "continual_uncertainty_decisions": True,
+        "continual_obs_noise_position": 0.01,
+        "continual_obs_noise_orientation": 0.02,
+        "continual_belief_window": 8,
+    })
+    sim = BeliefProbe(ctx)
+    _on_observation(sim, ctx)
+    ctx.current_belief = BeliefFrame(frame=ctx.current_observation.copy(),
+                                     frames_used={"block0": 1})
+    hint = ("The state belief has 1 frame of block0, so its position "
+            "spread is 0.01 m. While a body stays at rest, each new frame "
+            "narrows that spread as 1 / sqrt(frames), to 0.0035 m at 8 "
+            "frames, so a Wait before this request makes these rollouts plan "
+            "on positions nearer the true ones (a Wait of 3 steps halves the "
+            "spread).")
+    res = sim.run("Move(block0:block)[0.95]", render=False)
+    assert isinstance(res, ProbeJointResult) and res.from_observation
+    assert any(
+        "In 4 of the 4 draws a skill's controller failed." in n and hint in n
+        for n in res.notes)
+    assert isinstance(res.mean, ProbeResult)
+    assert any(hint in n for n in res.mean.notes)
+    # Four frames: a Wait can still narrow them, but no Wait within the
+    # window halves the spread.
+    ctx.current_belief = BeliefFrame(frame=ctx.current_observation.copy(),
+                                     frames_used={"block0": 4})
+    _on_observation(sim, ctx)
+    res = sim.run("Move(block0:block)[0.95]", render=False)
+    assert "has 4 frames of block0, so its position spread is 0.005 m" in \
+        res.text
+    assert "nearer the true ones." in res.text
+    assert "halves the spread" not in res.text
+    # A full window: nothing a Wait would sharpen.
+    ctx.current_belief = BeliefFrame(frame=ctx.current_observation.copy(),
+                                     frames_used={"block0": 8})
+    _on_observation(sim, ctx)
+    res = sim.run("Move(block0:block)[0.95]", render=False)
+    assert "controller failed" in res.text
+    assert "The state belief has" not in res.text
+    # A start the probe staged is not the observed belief.
+    ctx.current_belief = BeliefFrame(frame=ctx.current_observation.copy(),
+                                     frames_used={"block0": 1})
+    sim.reset(mods={"block0": {"x": 0.1}})
+    res = sim.run("Move(block0:block)[0.95]", render=False)
+    assert "controller failed" in res.text
+    assert "The state belief has" not in res.text
     utils.reset_config({})
