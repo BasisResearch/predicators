@@ -67,12 +67,16 @@ class _EvalStateCollector:
         self.collect(outcome)
         self.line_ends.append((i, len(self.states)))
 
-    def first_lost_line(self, evaluator: Any,
-                        prefix_states: Sequence[State]) -> Optional[int]:
-        """The plan line during which ``evaluator`` first finds the episode
-        lost: the line holding the first state up to which, after
-        ``prefix_states``, it calls the trajectory terminated (a lost episode
-        stays lost); None when the whole rollout is not terminated."""
+    def first_terminal(self, evaluator: Any,
+                       prefix_states: Sequence[State]) -> Optional[int]:
+        """How many of the rollout's states lead up to the first one at which
+        ``evaluator``, after ``prefix_states``, calls the episode terminated,
+        won or lost; None when it never does. A real episode stops there, so a
+        draw is judged on those states only.
+
+        Found by halving: a terminal event, once in a trajectory, stays
+        in every longer one.
+        """
         prefix = list(prefix_states)
         if not evaluator.terminated_trajectory(prefix + self.states):
             return None
@@ -83,8 +87,15 @@ class _EvalStateCollector:
                 high = middle
             else:
                 low = middle + 1
+        return low
+
+    def line_of(self, count: int) -> Optional[int]:
+        """The plan line during which the rollout reached its ``count``-th
+        state; None for the start state, which no line reached."""
+        if count <= 1:
+            return None
         for line, end in self.line_ends:
-            if low <= end:
+            if count <= end:
                 return line
         return None
 

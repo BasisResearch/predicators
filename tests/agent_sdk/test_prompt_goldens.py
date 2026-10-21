@@ -271,8 +271,9 @@ def test_game_over_gate_section_follows_the_flag():
     utils.reset_config({**base, "continual_rehearsal_game_over_gate": 0.25})
     text = play_prompts.build_play_system_prompt(["run_python"] +
                                                  list(CONTINUAL_TOOL_NAMES))
-    assert ("when more than 25% of its rehearsal's draws end the episode in "
-            "GAME_OVER during the request") in text
+    assert ("when more than 25% of its rehearsal's scored draws end the "
+            "episode in GAME_OVER during the request") in text
+    assert "Those `Wait` lines must cover the request's own" in text
     utils.reset_config({})
 
 
