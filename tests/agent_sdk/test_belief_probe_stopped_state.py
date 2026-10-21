@@ -136,7 +136,10 @@ def test_a_failed_step_leaves_the_probe_where_it_stopped():
     assert step["changed"] == ["lever0.is_on 0 -> 1"]
     assert sim._require_state().get(_lever, "is_on") == 1.0
     assert res.final_state.get(_lever, "is_on") == 1.0
-    assert not res.goal_reached
+    # The lever the step flipped before it failed is the goal, and a real
+    # episode ends the moment its goal holds.
+    assert res.goal_reached
+    assert "Goal reached: True" in res.text
     text = res.text
     assert ("It ran 7 actions before it stopped; the state after this run "
             "is where it stopped, as after a real failure.") in text
