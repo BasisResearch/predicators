@@ -19,10 +19,13 @@ _FRAME = (0.0, 0.0, 0.01)
 _RED = (1.0, 0.0, 0.0, 1.0)
 
 
-def _world(tmp_path: Any) -> Tuple[Any, State]:
+def _world(
+    tmp_path: Any, inertial: Tuple[float, float, float] = (0.0, 0.0, 0.0)
+) -> Tuple[Any, State]:
     """A Fan scene whose platform_0 is a box built at level 2's size, offset in
-    its own frame, and whose ball is a sphere with damping of its own; every
-    other object has no body."""
+    its own frame, with its centre of mass at ``inertial`` in its link frame,
+    and whose ball is a sphere with damping of its own; every other object has
+    no body."""
     utils.reset_config({
         "env": "pybullet_fan",
         "num_train_tasks": 1,
@@ -58,6 +61,7 @@ def _world(tmp_path: Any) -> Tuple[Any, State]:
                                     rgbaColor=_RED,
                                     visualFramePosition=_FRAME,
                                     physicsClientId=client),
+                baseInertialFramePosition=inertial,
                 physicsClientId=client)
             bodies["ball"] = p.createMultiBody(
                 0.05,
@@ -86,19 +90,24 @@ def _lossy(world: Any) -> List[Tuple[str, str]]:
             if o.type.name != "robot"]
 
 
-def _level(init: State, depth: float, radius: float) -> State:
-    """``init`` with platform_0 ``depth`` deep and centred under the ball, and
-    the ball of ``radius`` resting on it."""
+def _level(init: State,
+           depth: float,
+           radius: float,
+           rot: float = 0.0,
+           length: float = _PLATFORM[0]) -> State:
+    """``init`` with platform_0 ``length`` long, ``depth`` deep, turned by
+    ``rot`` and centred under the ball, and the ball of ``radius`` resting on
+    it."""
     state = init.copy()
     platform = next(o for o in state if o.name == "platform_0")
     ball = next(o for o in state if o.name == "ball")
-    state.set(platform, "x_len", _PLATFORM[0])
+    state.set(platform, "x_len", length)
     state.set(platform, "y_len", depth)
     state.set(platform, "z_len", _PLATFORM[2])
     state.set(platform, "x", 0.4)
     state.set(platform, "y", 1.65)
     state.set(platform, "z", _PLATFORM[2] / 2.0)
-    state.set(platform, "rot", 0.0)
+    state.set(platform, "rot", rot)
     state.set(ball, "radius", radius)
     state.set(ball, "x", 0.4)
     state.set(ball, "y", 1.95)
@@ -186,3 +195,43 @@ def test_a_body_a_constraint_holds_keeps_its_size_and_says_so(tmp_path):
     world._set_state(_level(init, _PLATFORM[1], 0.05))
     assert world.body("ball") == ball
     assert _lossy(world) == [("ball", "radius")]
+
+
+def test_a_rebuilt_body_keeps_its_place_with_its_mass_off_centre(tmp_path):
+    """A body whose centre of mass sits off its link frame is rebuilt where it
+    was: PyBullet reports a shape's frame from the centre of mass and takes a
+    new one's from the link frame."""
+    world, init = _world(tmp_path, inertial=(0.0, 0.0, 0.03))
+    client = world._physics_client_id
+    world._set_state(_level(init, _PLATFORM[1], 0.04))
+    low, high = p.getAABB(world.body("platform_0"), -1, physicsClientId=client)
+    world._set_state(_level(init, 0.7, 0.04))
+    new_low, new_high = p.getAABB(world.body("platform_0"),
+                                  -1,
+                                  physicsClientId=client)
+    assert new_low[2] == pytest.approx(low[2], abs=1e-6)
+    assert new_high[2] == pytest.approx(high[2], abs=1e-6)
+    assert new_low[0] == pytest.approx(low[0], abs=1e-6)
+    assert new_high[1] - new_low[1] == pytest.approx(0.7, abs=1e-6)
+    assert (new_low[1] + new_high[1]) / 2 == pytest.approx(
+        (low[1] + high[1]) / 2, abs=1e-6)
+
+
+def test_a_turned_box_is_resized_only_when_its_reading_is_plain(tmp_path):
+    """A box turned a quarter turn reads its own lengths and its world extents
+    differently: sizes that match either reading leave it as built, and sizes
+    that match neither are listed as not reconstructed, with no rebuild."""
+    world, init = _world(tmp_path)
+    turn = np.pi / 2
+    world._set_state(_level(init, _PLATFORM[1], 0.04, rot=turn))
+    platform = world.body("platform_0")
+    # Its own lengths, then its world extents: both match the box built.
+    world._set_state(_level(init, _PLATFORM[1], 0.04, rot=turn))
+    assert world.body("platform_0") == platform and not _lossy(world)
+    world._set_state(
+        _level(init, _PLATFORM[0], 0.04, rot=turn, length=_PLATFORM[1]))
+    assert world.body("platform_0") == platform and not _lossy(world)
+    # A depth neither reading gives.
+    world._set_state(_level(init, 0.7, 0.04, rot=turn))
+    assert world.body("platform_0") == platform
+    assert ("platform_0", "y_len") in _lossy(world)
