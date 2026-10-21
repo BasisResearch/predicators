@@ -449,7 +449,7 @@ def _log_rehearsal(ctx: "ToolContext", plan_text: str,
     """
     if not ctx.log_dir:
         return
-    keys = ("params", "success", "solved", "goal_reached", "lost")
+    keys = ("params", "success", "solved", "goal_reached", "lost", "lost_line")
     draws = [{k: d.get(k) for k in keys} for d in result.draws]
     record = {
         "time": time.time(),
@@ -1868,6 +1868,9 @@ class BeliefProbe:
             rule = {n: v for n, v in theta.items() if n not in physical}
             solved: Optional[bool] = None
             lost: Optional[bool] = None
+            lost_line: Optional[int] = None
+            lines_run: List[int] = []
+            moving_lines: List[int] = []
             unreconstructed: List[str] = []
             with (draw_scope(rule) if (rule and draw_scope is not None)
                   else contextlib.nullcontext()), \
@@ -1903,20 +1906,40 @@ class BeliefProbe:
                 if (collector is not None and not collector.coarse
                         and len(collector.states) > 1):
                     try:
+                        # A real episode stops at its first terminal step,
+                        # won or lost, so the draw is judged on the states
+                        # up to it: a win there is not undone by later
+                        # lines.
+                        end = collector.first_terminal(evaluator,
+                                                       prefix_states)
+                        upto = len(collector.states) if end is None else end
                         verdict = evaluate_states_with(
                             evaluator,
-                            prefix_states + collector.states,
-                            prefix_labels + collector.labels,
+                            prefix_states + collector.states[:upto],
+                            prefix_labels + collector.labels[:upto - 1],
                             sim_env=getattr(model, "sim_env", None))
                         solved = bool(verdict["solved"])
                         # The evaluator ends the episode without counting
                         # it, as a real one ends in GAME_OVER.
                         lost = bool(verdict["terminated"]) and not solved
+                        if lost and end is not None:
+                            # Where it was lost: the rehearsal gate weighs
+                            # only the losses a request's own lines risk; a
+                            # draw lost at its start charges no line.
+                            lost_line = collector.line_of(end)
+                        # Where the scene was still moving: the gate asks
+                        # that a request's rehearsal run until it rests.
+                        lines_run = [line for line, _ in collector.line_ends]
+                        moving_lines = [
+                            line for line, count in collector.line_ends
+                            if collector.moving_at(count)
+                        ]
                     except Exception as e:  # pylint: disable=broad-except
                         # The report says the draw went unscored; the log
                         # keeps why.
                         logging.warning("Joint-draw verdict failed: %r", e)
                         solved = lost = None
+                        lost_line = None
             failure: Optional[str] = None
             if r.first_failure_idx is not None:
                 fs = r.steps[r.first_failure_idx]
@@ -1943,6 +1966,9 @@ class BeliefProbe:
                 "goal_reached": bool(r.goal_reached),
                 "solved": solved,
                 "lost": lost,
+                "lost_line": lost_line,
+                "lines_run": lines_run,
+                "moving_lines": moving_lines,
                 "success": success,
                 "num_actions": sum(st.num_actions for st in r.steps),
                 "failure": failure,
@@ -2129,9 +2155,19 @@ class BeliefProbe:
                 result.mean, ProbeResult) else [])
             ctx.live_rehearsals.append(
                 LiveRehearsal(
-                    ctx.current_observation, plan_text, float(result.p_hat),
-                    [list(d.get("line_states") or [])
-                     for d in result.draws], basis, mean_states))
+                    ctx.current_observation,
+                    plan_text,
+                    float(result.p_hat),
+                    [list(d.get("line_states") or []) for d in result.draws],
+                    basis,
+                    mean_states, [d.get("lost_line") for d in result.draws],
+                    scored=[d.get("lost") is not None for d in result.draws],
+                    lines_run=[
+                        list(d.get("lines_run") or []) for d in result.draws
+                    ],
+                    moving_lines=[
+                        list(d.get("moving_lines") or []) for d in result.draws
+                    ]))
             del ctx.live_rehearsals[:-_LIVE_REHEARSALS_KEPT]
         return result
 

@@ -11,6 +11,11 @@ from predicators.agent_sdk.proposal_exec import build_exec_context, \
 from predicators.agent_sdk.tools.context import ToolContext
 from predicators.structs import Predicate, State, Task
 
+# A body moving more than this (metres a step, averaged over up to
+# _MOVING_SPAN transitions) has not come to rest.
+_MOVING_PER_STEP = 1e-3
+_MOVING_SPAN = 5
+
 
 class _EvalStateCollector:
     """Per-step states + option labels of one rollout, for evaluator verdicts.
@@ -28,6 +33,9 @@ class _EvalStateCollector:
         self.states: List[State] = [init_state]
         self.labels: List[Any] = []
         self.coarse = False
+        # Per plan line that ran, its index and how many states the rollout
+        # had once it ended.
+        self.line_ends: List[Tuple[int, int]] = []
 
     def collect(self, outcome: Any) -> None:
         """Record one executed option's outcome.
@@ -59,9 +67,65 @@ class _EvalStateCollector:
             self.labels.append(label)
             self.coarse = True
 
-    def on_step(self, _i: int, outcome: Any) -> None:
+    def on_step(self, i: int, outcome: Any) -> None:
         """``execute_plan_forward`` ``on_step`` adapter."""
         self.collect(outcome)
+        self.line_ends.append((i, len(self.states)))
+
+    def first_terminal(self, evaluator: Any,
+                       prefix_states: Sequence[State]) -> Optional[int]:
+        """How many of the rollout's states lead up to the first one at which
+        ``evaluator``, after ``prefix_states``, calls the episode terminated,
+        won or lost; None when it never does. A real episode stops there, so a
+        draw is judged on those states only.
+
+        Found by halving: a terminal event, once in a trajectory, stays
+        in every longer one.
+        """
+        prefix = list(prefix_states)
+        if not evaluator.terminated_trajectory(prefix + self.states):
+            return None
+        low, high = 1, len(self.states)
+        while low < high:
+            middle = (low + high) // 2
+            if evaluator.terminated_trajectory(prefix + self.states[:middle]):
+                high = middle
+            else:
+                low = middle + 1
+        return low
+
+    def moving_at(self, count: int) -> bool:
+        """Whether a body other than the robot was still moving at the
+        rollout's ``count``-th state: over the last few transitions before it,
+        some body's position changed by more than ``_MOVING_PER_STEP`` a step
+        on average."""
+        if count < 2:
+            return False
+        steps = min(_MOVING_SPAN, count - 1)
+        last, first = self.states[count - 1], self.states[count - 1 - steps]
+        names = {obj.name: obj for obj in first}
+        for obj in last:
+            if obj.type.name == "robot" or obj.name not in names:
+                continue
+            for feature in ("x", "y", "z"):
+                if feature not in obj.type.feature_names:
+                    continue
+                change = abs(
+                    float(last.get(obj, feature)) -
+                    float(first.get(names[obj.name], feature)))
+                if change > _MOVING_PER_STEP * steps:
+                    return True
+        return False
+
+    def line_of(self, count: int) -> Optional[int]:
+        """The plan line during which the rollout reached its ``count``-th
+        state; None for the start state, which no line reached."""
+        if count <= 1:
+            return None
+        for line, end in self.line_ends:
+            if count <= end:
+                return line
+        return None
 
 
 def evaluate_states_with(evaluator: Any,

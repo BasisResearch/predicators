@@ -915,6 +915,87 @@ def test_rehearsal_gate_lets_the_wait_lines_that_end_a_request_through(
     ContinualRun(env, approach, driver).run()
 
 
+def test_the_game_over_gate_refuses_a_request_its_draws_lose(
+        tmp_path: Any) -> None:
+    """Under continual_rehearsal_game_over_gate, a rehearsed request is
+    refused, charging nothing, when more than the gate's share of its
+    rehearsal's scored draws end the episode in GAME_OVER during the request or
+    the Wait lines right after it; losses in later lines do not count, a share
+    at the limit lets it through, and a request that waits longer than its
+    rehearsal did is refused."""
+    env, approach, ctx = _setup(tmp_path)
+    ctx.options = set(ctx.options) | {_wait_option()}
+    lines = _oracle_plan_text(approach,
+                              env.get_train_tasks()[0].task).splitlines()
+    assert len(lines) >= 2
+    plan = lines[0] + "\nWait()[20]\n" + lines[1]
+    driver = _Driver()
+
+    def body(session: ProtocolSession) -> None:
+        utils.update_config({"continual_rehearsal_game_over_gate": 0.25})
+        ctx.rehearsal_gate = lambda: True
+        ctx.live_rehearsals.clear()
+        ctx.current_observation = session.observe().frame
+        tools = build_continual_tools(ctx,
+                                      session,
+                                      PlayState(),
+                                      save_render=lambda tag: None)
+
+        def refused(lost_lines: List[Optional[int]],
+                    scored: Optional[List[bool]] = None) -> bool:
+            ctx.live_rehearsals.append(
+                LiveRehearsal(ctx.current_observation,
+                              plan,
+                              0.5,
+                              lost_lines=lost_lines,
+                              scored=scored or []))
+            out = _call(tools, "skills_invoke", skill=lines[0])
+            return ("end the episode in GAME_OVER" in out
+                    and "Nothing was charged" in out)
+
+        # Two of four draws lost during the request, or during the Wait the
+        # rehearsed plan lets follow it.
+        assert refused([0, 0, None, None])
+        assert refused([1, 1, None, None])
+        # Draws the evaluator did not score do not count: one of the one
+        # scored draw is lost.
+        assert refused([0, None, None, None], [True, False, False, False])
+        # Draws whose scene still moved when the rehearsed Wait after the
+        # request ended count as risk too: two of four, beside no loss.
+        ctx.live_rehearsals.append(
+            LiveRehearsal(ctx.current_observation,
+                          plan,
+                          0.5,
+                          lost_lines=[None] * 4,
+                          scored=[True] * 4,
+                          moving_lines=[[0, 1], [1], [], [0]]))
+        out = _call(tools, "skills_invoke", skill=lines[0])
+        assert "the scene was still moving when the Wait lines" in out
+        assert "Nothing was charged" in out
+        # A request that waits longer than its rehearsal did is refused:
+        # the draws say nothing about the steps beyond.
+        ctx.live_rehearsals.append(
+            LiveRehearsal(ctx.current_observation,
+                          plan,
+                          0.5,
+                          lost_lines=[None] * 4))
+        out = _call(tools,
+                    "skills_execute_plan",
+                    plan=lines[0] + "\nWait()[40]")
+        assert "waits 40 steps after its last motion line" in out
+        assert "waited 20" in out and "Nothing was charged" in out
+        assert session.observe().ledger.level_steps == 0
+        # Three lost only in the plan's later line, one during the request:
+        # one of four is at the limit.
+        assert not refused([2, 2, 2, 0])
+        assert session.observe().ledger.level_steps > 0
+        utils.update_config({"continual_rehearsal_game_over_gate": 0.0})
+        ctx.rehearsal_gate = None
+
+    driver.body = body
+    ContinualRun(env, approach, driver).run()
+
+
 @pytest.mark.parametrize("case", [
     "calibrated", "surprised", "unreachable", "mean_covers", "prior", "edited",
     "broken", "stopped", "trailing_wait"

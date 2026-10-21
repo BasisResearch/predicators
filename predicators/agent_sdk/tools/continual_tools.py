@@ -360,6 +360,21 @@ def _motion_lines(
     return 0
 
 
+def _wait_steps(
+    lines: List[Tuple[_Option, Set[GroundAtom], Set[GroundAtom]]]
+) -> Optional[int]:
+    """How many steps the Wait lines in ``lines`` ask for in all; None when one
+    of them names no step count."""
+    total = 0
+    for option, _, _ in lines:
+        if option.name != "Wait":
+            continue
+        if not option.params.size:
+            return None
+        total += int(round(float(option.params[0])))
+    return total
+
+
 class _RehearsalMatch(NamedTuple):
     """A rehearsal that let a request through, and how many of the request's
     leading lines its plan repeated."""
@@ -499,6 +514,84 @@ def build_continual_tools(
             "the Wait lines that end a request need not match the rehearsed "
             "plan's; runs at the point estimate (draws=0) and runs from "
             "staged states do not count. Nothing was charged." + _footer())
+
+    def _risky(parsed: List[Tuple[_Option, Set[GroundAtom], Set[GroundAtom]]],
+               match: Optional[_RehearsalMatch]) -> Optional[Dict[str, Any]]:
+        """Under ``continual_rehearsal_game_over_gate``, while the rehearsal
+        gate applies: a refusal that charges nothing when more than that share
+        of the matching rehearsal's scored draws end the episode in GAME_OVER
+        during the request's lines or the Wait lines that directly follow them
+        in the rehearsed plan, where the scene moves on its own, or, with the
+        draws whose scene was still moving when those lines ended, could.
+
+        Those Wait lines must cover the request's own: a request that
+        waits longer than its rehearsal did is refused, since the draws
+        say nothing about the steps beyond. A request of Wait lines
+        alone commands no motion and passes: what it waits through is
+        already under way.
+        """
+        limit = float(CFG.continual_rehearsal_game_over_gate)
+        if (limit <= 0.0 or match is None or ctx.rehearsal_gate is None
+                or not ctx.rehearsal_gate()):
+            return None
+        motion = _motion_lines(parsed)
+        if motion == 0:
+            return None
+        rehearsal, _ = match
+        try:
+            rehearsed = parse_plan_lines(rehearsal.plan_text, ctx,
+                                         _level_task())
+        except ValueError:
+            rehearsed = []
+        horizon = motion
+        while (horizon < len(rehearsed)
+               and rehearsed[horizon][0].name == "Wait"):
+            horizon += 1
+        asked = _wait_steps(parsed[motion:])
+        covered = _wait_steps(rehearsed[motion:horizon])
+        if asked is not None and covered is not None and asked > covered:
+            return _error_result(
+                f"Test level: this request waits {asked} steps after its "
+                f"last motion line, and the rehearsal that let it through "
+                f"waited {covered}; its draws say nothing about the steps "
+                "beyond, where a GAME_OVER can still come. Rehearse the plan "
+                "with at least that much Wait after that line. Nothing was "
+                "charged." + _footer())
+        count = len(rehearsal.lost_lines)
+        flags = rehearsal.scored or [True] * count
+        moving = rehearsal.moving_lines or [[]] * count
+        draws = lost = unsettled = 0
+        for line, done, moved in zip(rehearsal.lost_lines, flags, moving):
+            if not done:
+                continue
+            draws += 1
+            if line is not None and line < horizon:
+                lost += 1
+            elif horizon - 1 in moved:
+                unsettled += 1
+        if not draws:
+            return None
+        if lost > limit * draws:
+            return _error_result(
+                f"Test level: {lost} of the {draws} scored draws of the "
+                "rehearsal that let this request through end the episode in "
+                "GAME_OVER during it or the Wait lines that follow it, more "
+                f"than the {limit:.0%} of draws a test-level step may risk; a "
+                "GAME_OVER ends a test level. Rehearse a step whose draws "
+                "avoid it, or, if your model is wrong there, repair it and "
+                "rehearse again. Nothing was charged." + _footer())
+        if lost + unsettled > limit * draws:
+            return _error_result(
+                f"Test level: in {unsettled} of the {draws} scored draws of "
+                "the rehearsal that let this request through, the scene was "
+                "still moving when the Wait lines after it ended, so they do "
+                "not show how it ends; with the "
+                f"{lost} lost in it, more than the {limit:.0%} of draws a "
+                "test-level step may risk could still end in GAME_OVER, and "
+                "what happens until the scene rests follows from this request. "
+                "Rehearse it with more Wait after it, until the scene rests. "
+                "Nothing was charged." + _footer())
+        return None
 
     def _prediction_note(match: Optional[_RehearsalMatch],
                          progress: ExecutionProgress) -> str:
@@ -971,6 +1064,9 @@ def build_continual_tools(
         unrehearsed = _unrehearsed(parsed, match)
         if unrehearsed is not None:
             return unrehearsed
+        risky = _risky(parsed, match)
+        if risky is not None:
+            return risky
         refused = _preflight(str(args.get("skill", "")), args)
         if refused is not None:
             return refused
@@ -1029,6 +1125,9 @@ def build_continual_tools(
         unrehearsed = _unrehearsed(parsed, match)
         if unrehearsed is not None:
             return unrehearsed
+        risky = _risky(parsed, match)
+        if risky is not None:
+            return risky
         refused = _preflight(str(args.get("plan", "")), args)
         if refused is not None:
             return refused

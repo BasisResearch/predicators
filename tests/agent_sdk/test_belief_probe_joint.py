@@ -460,6 +460,41 @@ class _OverrunEvaluator(TaskEvaluator):
         return True, ""
 
 
+def test_a_draw_is_judged_where_its_episode_first_ends():
+    """The rollout stops at the first state up to which the evaluator calls the
+    episode terminated, won or lost, and the plan line that reached it is where
+    it ended; a rollout never terminated ends nowhere, and one terminated from
+    its start charges no line."""
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.agent_sdk.tools.verdicts import _EvalStateCollector
+
+    def states_at(*xs):
+        return [State({_block: np.array([x], dtype=float)}) for x in xs]
+
+    states = states_at(0.1, 0.2, 0.3, 0.4, 0.6, 0.7)
+    collector = _EvalStateCollector(None, states[0])
+    collector.states = list(states)
+    # Line 0 ends after the third state, line 1 after the fifth, line 2
+    # after the sixth.
+    collector.line_ends = [(0, 3), (1, 5), (2, 6)]
+    # A goal these states never reach: an empty goal holds from the start,
+    # which would end every trajectory at its first state.
+    evaluator = _OverrunEvaluator({GroundAtom(_ReachedHi, [_block])})
+    assert collector.first_terminal(evaluator, []) == 5
+    assert collector.line_of(5) == 1
+    assert collector.first_terminal(evaluator, states[:1]) == 5
+    # Lost in the start state itself: no line reached it.
+    assert collector.line_of(1) is None
+    collector.states = list(states[:4])
+    collector.line_ends = [(0, 3), (1, 4)]
+    assert collector.first_terminal(evaluator, []) is None
+    # Won in line 1, then overrun in line 2: the episode ends at the win.
+    collector.states = states_at(0.1, 0.4, 0.95, 0.6)
+    collector.line_ends = [(0, 2), (1, 3), (2, 4)]
+    assert collector.first_terminal(evaluator, []) == 3
+    assert collector.line_of(3) == 1
+
+
 def test_a_draw_whose_skill_fails_partway_is_scored_on_what_it_did(
         monkeypatch):
     """A draw whose skill failed after it moved the world is scored on the
@@ -497,11 +532,56 @@ def test_a_draw_whose_skill_fails_partway_is_scored_on_what_it_did(
             for d in res.draws] == [False, True, False, True]
     assert [d["solved"] for d in res.draws] == [True, False, True, False]
     assert [d["lost"] for d in res.draws] == [False, True, False, True]
+    # Both lost during the plan's only line, and the rehearsal the gate
+    # reads keeps that.
+    assert [d["lost_line"] for d in res.draws] == [None, 0, None, 0]
+    assert ctx.live_rehearsals[-1].lost_lines == [None, 0, None, 0]
     assert "could not be scored" not in res.text
     assert sum(": FAILED, GAME_OVER - " in line
                for line in res.splitlines()) == 2
     assert "; 2 of the 2 failing draws the task's evaluator scored end " \
         "the episode in GAME_OVER" in res.splitlines()[0]
+    utils.reset_config({})
+
+
+def test_the_collector_says_where_the_scene_was_still_moving():
+    """A body other than the robot that moved more than a millimetre a step
+    over the last few states had not come to rest; one that stayed put had."""
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.agent_sdk.tools.verdicts import _EvalStateCollector
+    track = [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.12, 0.14, 0.16, 0.18, 0.2, 0.22]
+    states = [State({_block: np.array([x], dtype=float)}) for x in track]
+    collector = _EvalStateCollector(None, states[0])
+    collector.states = list(states)
+    assert not collector.moving_at(6)
+    assert collector.moving_at(12)
+    assert not collector.moving_at(1)
+
+
+def test_a_draw_that_wins_before_a_later_loss_counts_as_won():
+    """A real episode stops at its first terminal step, so a draw that reaches
+    the goal and is overrun by a later line counts as solved, and no line of it
+    is lost; every scored draw is marked scored."""
+    ctx, _, _, _ = _joint_ctx()
+    ctx.probe_engine_available = True
+    assert ctx.current_task is not None
+    ctx.current_task = Task(ctx.current_task.init,
+                            ctx.current_task.goal,
+                            evaluator=_OverrunEvaluator(ctx.current_task.goal))
+    sim = BeliefProbe(ctx)
+    _on_observation(sim, ctx)
+    res = sim.run("Move(block0:block)[0.95]\nMove(block0:block)[0.6]",
+                  render=False)
+    # Draws 0 and 2 reach the goal in line 0 and are overrun in line 1;
+    # draws 1 and 3 sit in the friction hole and never move.
+    assert [d["solved"] for d in res.draws] == [True, False, True, False]
+    assert [d["lost"] for d in res.draws] == [False, False, False, False]
+    assert [d["lost_line"] for d in res.draws] == [None] * 4
+    assert ctx.live_rehearsals[-1].scored == [True] * 4
+    # Both lines ran in every draw; a draw whose block jumped in a line was
+    # still moving at its end.
+    assert ctx.live_rehearsals[-1].lines_run == [[0, 1]] * 4
+    assert ctx.live_rehearsals[-1].moving_lines[0] == [0, 1]
     utils.reset_config({})
 
 
