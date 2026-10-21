@@ -1134,10 +1134,18 @@ class _LineEvaluator:
         res = np.asarray(residuals, dtype=float)
         if self.weights is None:
             self.sse[float(z)] = float(np.dot(res, res))
+        elif self.weights.size != res.size:
+            # The objective scored other terms here than at the MAP, so
+            # the segments' weights do not line up with them: weigh them
+            # all by the mean weight, which tempers them as much on
+            # average.
+            logger.warning(
+                "Parameter belief: %s scored %d terms at %.4g against %d at "
+                "the MAP; weighing them by the mean segment weight.",
+                self.spec.name, res.size, z, self.weights.size)
+            self.sse[float(z)] = float(
+                np.mean(self.weights) * np.dot(res, res))
         else:
-            # The objective scores the same terms at every point, so the
-            # weights line up with them.
-            assert self.weights.size == res.size, (self.weights.size, res.size)
             self.sse[float(z)] = float(np.dot(self.weights, res * res))
         self.count += 1
 

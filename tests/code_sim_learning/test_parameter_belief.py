@@ -773,3 +773,31 @@ def test_joined_beliefs_pair_their_draws():
                          seed=1)
     with pytest.raises(ValueError, match="as many"):
         join_beliefs(fitted, short)
+
+
+def test_segment_weights_survive_terms_that_change_with_the_point():
+    """A point whose objective scores other terms than the MAP does is weighed
+    by the mean segment weight; the line is still traced."""
+    specs = [ParamSpec("a", 0.3, lo=-10, hi=10)]
+    base = _gaussian_residuals(["a"], [0.3], np.diag([20.0]))
+
+    def residuals(params):
+        terms = np.concatenate([base(params), base(params)])
+        # An extra term appears away from the MAP, as an onset term does
+        # where a body starts to move.
+        if abs(params["a"] - 0.3) > 0.2:
+            terms = np.concatenate([terms, [_SIGMA_N]])
+        return terms
+
+    belief = build_parameter_belief(specs, {"a": 0.3},
+                                    residuals,
+                                    noise_sigma=_SIGMA_N,
+                                    prior_centers={"a": 0.3},
+                                    prior_sigmas={"a": 2.0},
+                                    config=BeliefConfig(num_draws=16,
+                                                        line_max_evals=40),
+                                    seed=0,
+                                    segment_sizes=[1, 1],
+                                    segment_noise_sse=[0.0, 0.0])
+    width = np.sqrt(belief.lines["a"].variance())
+    assert np.isfinite(width) and 0.0 < width < 1.0
