@@ -167,13 +167,20 @@ def test_a_motion_failure_under_observation_noise_carries_a_caveat():
         "continual_obs_noise_position": 0.01,
         "continual_obs_noise_orientation": 0.02,
     })
-    sim = BeliefProbe(_ctx(_RetreatStallModel(stall=True)))
+    ctx = _ctx(_RetreatStallModel(stall=True))
+    sim = BeliefProbe(ctx)
     sim.reset()
     text = sim.run(_PLAN, render=False).text
     assert ("NOTE: A skill's controller failed in this rollout. The real "
             "controller plans on the true scene; these rollouts planned on "
             "positions with the observation noise (0.01 m, 0.02 rad)") in text
-    assert "./attempts.md" in text
+    assert "real calls of it" not in text
+    # With the run's real record, the note gives the failing skill's.
+    ctx.skill_record_provider = lambda: {"Push": (25, 0), "Wait": (9, 0)}
+    sim.reset()
+    text = sim.run(_PLAN, render=False).text
+    assert "This run's real calls of it succeeded in: Push 25 of 25." in text
+    assert "Wait" not in text
     utils.reset_config({})
 
 

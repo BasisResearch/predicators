@@ -1120,22 +1120,34 @@ def _flag_changes(pre: State, post: State) -> List[str]:
 
 
 # A skill phase's controller failure names its skill and phase first.
-_PHASE_FAILURE = re.compile(r"\[[A-Za-z_]\w*/[^\]]+\]")
+_PHASE_FAILURE = re.compile(r"\[([A-Za-z_]\w*)/[^\]]+\]")
 
 
 def _motion_failures(failures: Sequence[Optional[str]]) -> int:
-    """How many of ``failures`` are a skill controller's own (``[Skill/Phase]
-
-    ...``: an IK stall, no motion plan), not a refusal to start.
-    """
+    """How many of ``failures`` are a skill controller's own (an IK stall, no
+    motion plan: ``[Skill/Phase] ...``), not a refusal to start."""
     return sum(1 for f in failures if f and _PHASE_FAILURE.search(f))
 
 
-def _motion_failure_note(lead: str) -> Optional[str]:
+def _failed_skills(failures: Sequence[Optional[str]]) -> List[str]:
+    """The skills whose controllers failed in ``failures``, in order."""
+    names: List[str] = []
+    for failure in failures:
+        found = _PHASE_FAILURE.search(failure or "")
+        if found and found.group(1) not in names:
+            names.append(found.group(1))
+    return names
+
+
+def _motion_failure_note(
+        lead: str,
+        skills: Sequence[str] = (),
+        record: Optional[Dict[str, Tuple[int, int]]] = None) -> Optional[str]:
     """``lead`` plus a caveat on a skill controller's failure in a rollout
     under observation noise: the real controller plans on the true scene, this
     one on observed or drawn positions, and a few millimetres can change its
-    plan.
+    plan. With this run's real ``record`` (per skill, calls that succeeded and
+    failed), the note gives each of ``skills``'s.
 
     None when the observations are exact.
     """
@@ -1144,14 +1156,32 @@ def _motion_failure_note(lead: str) -> Optional[str]:
     noise = ObservationNoise.from_cfg()
     if noise.position <= 0.0 and noise.orientation <= 0.0:
         return None
-    return (
-        f"{lead} The real controller plans on the true scene; these "
-        "rollouts planned on positions with the observation noise "
-        f"({noise.position:g} m, {noise.orientation:g} rad), and a few "
-        "millimetres can change the arm's plan. Weigh such a failure against "
-        "the skill's real record (./attempts.md) and against starts a few "
-        "millimetres away (reset(current=True, mods=...)) before you "
-        "conclude the real skill would fail.")
+    real = [
+        f"{name} {record[name][0]} of {sum(record[name])}" for name in skills
+        if record and sum(record.get(name, (0, 0)))
+    ]
+    history = ("This run's real calls of it succeeded in: " + ", ".join(real) +
+               ". " if real else "")
+    return (f"{lead} The real controller plans on the true scene; these "
+            "rollouts planned on positions with the observation noise "
+            f"({noise.position:g} m, {noise.orientation:g} rad), and a few "
+            f"millimetres can change the arm's plan. {history}Weigh such a "
+            "failure against the skill's real record and against starts a few "
+            "millimetres away (reset(current=True, mods=...)) before you "
+            "conclude the real skill would fail.")
+
+
+def _skill_record(ctx: Any) -> Optional[Dict[str, Tuple[int, int]]]:
+    """This run's real skill record from the session, if it has one."""
+    provider = getattr(ctx, "skill_record_provider", None)
+    if provider is None:
+        return None
+    try:
+        return provider()
+    except Exception:  # pylint: disable=broad-except
+        logging.warning("Could not read the run's skill record.",
+                        exc_info=True)
+        return None
 
 
 class BeliefProbe:
@@ -2067,7 +2097,9 @@ class BeliefProbe:
         stalled = _motion_failures([d["failure"] for d in results])
         if stalled:
             motion = _motion_failure_note(
-                f"In {stalled} of the {n} draws a skill's controller failed.")
+                f"In {stalled} of the {n} draws a skill's controller failed.",
+                _failed_skills([d["failure"] for d in results]),
+                _skill_record(ctx))
             if motion is not None:
                 notices.append(motion)
         undeclared_provider = ctx.undeclared_param_names_provider
@@ -2918,7 +2950,9 @@ class BeliefProbe:
             notices.append(hn)
         if _motion_failures([s["failure"] for s in step_dicts]):
             motion = _motion_failure_note(
-                "A skill's controller failed in this rollout.")
+                "A skill's controller failed in this rollout.",
+                _failed_skills([s["failure"] for s in step_dicts]),
+                _skill_record(ctx))
             if motion is not None:
                 notices.append(motion)
         return ProbeResult(step_dicts,

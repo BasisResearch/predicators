@@ -509,6 +509,31 @@ class ProtocolSession:
         """The recording index of the level in progress."""
         return self._run.index_entries()
 
+    def skill_record(self) -> Dict[str, Tuple[int, int]]:
+        """Per skill name, how many of this run's real calls of it, over every
+        level so far, succeeded and how many failed; a call an episode's end
+        interrupted counts as neither."""
+        try:
+            current: Optional[int] = self.level_index
+        except EpisodeOver:
+            current = None  # between levels, or after the last
+        finished = len(self.levels) if current is None else current
+        entries = [
+            entry for level in range(finished)
+            for entry in self.previous_level_index_entries(level)
+        ] + (self.index_entries() if current is not None else [])
+        record: Dict[str, Tuple[int, int]] = {}
+        for entry in entries:
+            if entry.get("event") != "invoke":
+                continue
+            name = str(entry.get("skill", "")).split("(", 1)[0]
+            done, failed = record.get(name, (0, 0))
+            if entry.get("status") == "succeeded":
+                record[name] = (done + 1, failed)
+            elif entry.get("status") == "failed":
+                record[name] = (done, failed + 1)
+        return record
+
     def run_policy(self,
                    policy: Callable[[State], Action],
                    note: str = "") -> PolicyRunOutcome:
