@@ -333,6 +333,7 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
             return obs.frame
 
         ctx.current_observation_provider = current_observation
+        ctx.skill_record_provider = session.skill_record
         if int(CFG.belief_joint_draws) > 0 and \
                 CFG.continual_uncertainty_decisions:
             ctx.joint_draws_provider = session.joint_draws
@@ -500,6 +501,7 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         ctx.probe_validation_provider = None
         ctx.probe_residuals_provider = None
         ctx.current_observation_provider = None
+        ctx.skill_record_provider = None
         ctx.skill_gate = None
         ctx.rehearsal_gate = None
         ctx.scored_features_provider = None
