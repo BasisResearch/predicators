@@ -27,7 +27,7 @@ from __future__ import annotations
 import logging
 import os
 import re
-from typing import Optional
+from typing import Optional, Tuple
 
 from predicators import utils
 from predicators.run.scorecard import RunCard
@@ -51,14 +51,11 @@ def experiment_dir() -> str:
                         CFG.experiment_id, f"seed{CFG.seed}")
 
 
-def resumable_run_subdir() -> Optional[str]:
-    """The ``run_subdir`` a resuming launch adopts, or ``None`` for a new run.
-
-    Under ``--auto_resume`` in the continual protocol, the newest run of
-    this approach, experiment id and seed that has a scorecard is the
-    one to continue when that scorecard is unfinished. When it is over,
-    or there is none, or it cannot be read, the launch starts a new run.
-    """
+def _newest_run() -> Optional[Tuple[str, Optional[RunCard]]]:
+    """Under ``--auto_resume`` in the continual protocol, the newest run of
+    this approach, experiment id and seed that has a scorecard, with that
+    scorecard, or None for an unreadable one; None when there is no such run or
+    no ``--auto_resume``."""
     if not getattr(CFG, "auto_resume", False) or \
             CFG.experiment_protocol != "continual":
         return None
@@ -72,17 +69,47 @@ def resumable_run_subdir() -> Optional[str]:
         if not os.path.isfile(card_path):
             continue
         try:
-            card = RunCard.load(card_path)
+            return name, RunCard.load(card_path)
         except (OSError, ValueError, KeyError, TypeError):
-            logging.warning(
-                "--auto_resume: %s is unreadable; starting a new run.",
-                card_path)
-            return None
-        if card.is_finished:
-            return None
-        return (f"{CFG.approach}/{CFG.experiment_id}/seed{CFG.seed}/"
-                f"{name}/")
+            logging.warning("--auto_resume: %s is unreadable.", card_path)
+            return name, None
     return None
+
+
+def resumable_run_subdir() -> Optional[str]:
+    """The ``run_subdir`` a resuming launch adopts, or ``None`` for a new run.
+
+    Under ``--auto_resume`` in the continual protocol, the newest run of
+    this approach, experiment id and seed that has a scorecard is the
+    one to continue when that scorecard is unfinished. When it is over,
+    or there is none, or it cannot be read, the launch starts a new run.
+    """
+    newest = _newest_run()
+    if newest is None or newest[1] is None or newest[1].is_finished:
+        return None
+    return f"{CFG.approach}/{CFG.experiment_id}/seed{CFG.seed}/{newest[0]}/"
+
+
+def finished_run_requeued() -> Optional[str]:
+    """The newest run's directory when this process is a requeued Slurm job
+    (``SLURM_RESTART_COUNT`` of 1 or more) under ``--auto_resume`` whose run
+    has already finished, else None.
+
+    Such a job was requeued after its run ended (a time limit's requeue
+    signal or a preemption came while it wrapped up), so it has nothing
+    to resume, and a new run would repeat the experiment under the same
+    round. A first launch still starts a new run after a finished one.
+    """
+    try:
+        restarts = int(os.environ.get("SLURM_RESTART_COUNT", "0"))
+    except ValueError:
+        return None
+    if restarts < 1:
+        return None
+    newest = _newest_run()
+    if newest is None or newest[1] is None or not newest[1].is_finished:
+        return None
+    return os.path.join(experiment_dir(), newest[0])
 
 
 def ensure_run_subdir() -> str:
