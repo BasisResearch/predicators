@@ -51,6 +51,17 @@ Seed 0 of `fixes_r2` found the level-1 fit slow and uninformative, tuned its val
 The supplied-base arms keep the anchored prior and leave fitting to the agent: their starting values are the base's calibrated defaults.
 The real-to-sim comparison fits nothing, samples nothing and keeps the declared ranges.
 
+## A temperature per recorded segment
+
+Added October 2026, after a replay of seed 0 of the Fan round `fixes_r14`.
+The parameter belief counted the fit's whole error above the declared noise as one error that persists through the recordings, so its temperature was that misfit over the noise variance.
+The misfit grows with the number of recordings, so keeping more data made the belief wider: the replay's temperature was 213 with 6 segments kept and 3,390 with 19.
+Its rehearsal draws held the ball still on the ramp in 13 of 16 cases while the real ball rolled 0.4 m.
+
+Under `belief_segment_temperature` (set by the `from_assets_opus` menu entry), each recorded segment's own error above its declared noise counts as one error that persists through that segment, and separate segments' evidence adds up.
+The global search weighs its basins the same way.
+On the replay with all 19 segments, the temperature was 6, the ramp's rolling friction narrowed from a 68% interval of 0 to 0.0116 to 0 to 0.00033, and every draw that ran moved the ball, spanning 0.66 to 1.04 m around the real 1.03 m.
+
 ## Pilot
 
 The configuration is [continual_from_assets_pilot_r1.yaml](https://github.com/BasisResearch/predicators/blob/72d7258ed3992728c8501c615ca1261ec3f49feb/scripts/configs/predicatorv3/continual_from_assets_pilot_r1.yaml).

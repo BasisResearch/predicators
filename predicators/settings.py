@@ -128,6 +128,12 @@ class GlobalSettings:
     # contradict what the recordings show (a ball drawn with a rolling
     # friction that would have stopped it in every recording).
     belief_material_lines = False
+    # Whether a fit's parameter belief sets its temperature per recorded
+    # segment: each segment's error above its declared noise counts as one
+    # error that persists through that segment, and separate segments'
+    # evidence adds up. Off, the whole fit's error above the noise counts
+    # as one error, so the temperature grows with the number of recordings.
+    belief_segment_temperature = False
     # Whether a model arm checks each skill request that ran in full
     # against the joint-draw rehearsal from the live observation that
     # began with it: when the outcome lies outside the draws (beyond what
