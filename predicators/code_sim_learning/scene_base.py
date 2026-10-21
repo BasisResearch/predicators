@@ -25,20 +25,25 @@ value the scene gives it until the subclass declares it.
 from __future__ import annotations
 
 import contextlib
+import dataclasses
+import logging
 import os
 import threading
 from typing import Any, Callable, ClassVar, Dict, Iterable, Iterator, List, \
-    Optional, Set, Tuple
+    Optional, Sequence, Set, Tuple
 from typing import Type as TypingType
 
+import numpy as np
 import pybullet as p
 
 from predicators import utils
 from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.envs.pybullet_env import PyBulletEnv
+from predicators.observation_noise import ObservationNoise
 from predicators.pybullet_helpers.geometry import Quaternion
 from predicators.pybullet_helpers.robots.single_arm import \
     SingleArmPyBulletRobot
+from predicators.settings import CFG
 from predicators.structs import EnvironmentTask, Object, Predicate, State, Type
 
 # The robot-side class attributes a scene base copies from the deployment
@@ -165,6 +170,33 @@ def _recording_damping() -> Iterator[_DampingRecord]:
             del _DAMPING_RECORDS[token]
             if not _DAMPING_RECORDS:
                 setattr(p, "changeDynamics", _UNRECORDED_CHANGE_DYNAMICS[0])
+
+
+# The observed features a body's primitive collision shape takes
+# (SceneBase._fit_body_sizes): a box's lengths along its own axes, or their
+# halves, and a sphere's radius.
+_BOX_LENGTHS = ("x_len", "y_len", "z_len")
+_BOX_HALVES = ("half_x", "half_y", "half_z")
+_SPHERE_RADIUS = "radius"
+# A body takes an observed size that differs from its own by more than
+# _SIZE_SIGMAS of the size's declared observation noise and by more than
+# _SIZE_ATOL: a noisy reading of the size it has is no new size.
+_SIZE_SIGMAS = 4.0
+_SIZE_ATOL = 1e-4
+# A box whose axes each lie within about 15 degrees of the world's reads its
+# own lengths and its world extents alike.
+_ALIGNED_COSINE = float(np.cos(np.radians(15.0)))
+
+
+@dataclasses.dataclass(frozen=True)
+class _Primitive:
+    """A body built as one box or sphere collision shape on a base without
+    links: its geometry, its size (a box's lengths along its own axes, or a
+    sphere's radius) and the shape's frame on the base."""
+    geometry: int
+    size: Tuple[float, ...]
+    frame_position: Tuple[float, ...]
+    frame_orientation: Tuple[float, ...]
 
 
 class SceneBase(PyBulletEnv):
@@ -321,11 +353,251 @@ class SceneBase(PyBulletEnv):
                 f"The scene loads no body for {missing}. Return each one's "
                 "body id from initialize_pybullet under its observed name, "
                 "or None under that name for an object with no body.")
+        unfit = (self._fit_body_sizes(rebound)
+                 if CFG.scene_observed_sizes else [])
         super()._set_state(rebound)
+        # A size no body here can take is a feature this reset could not
+        # reproduce, like a pose it could not reach.
+        self._last_unreconstructible_features = list(
+            self._last_unreconstructible_features) + unfit
         # Binding names the groups; a reset may have rebuilt bodies or
         # restored the scene's own dynamics.
         self._note_material_baselines()
         self._apply_materials()
+
+    # -- Observed sizes ---------------------------------------------------
+
+    @staticmethod
+    def _observed_size(
+        obj: Object, state: State
+    ) -> Optional[Tuple[int, Tuple[str, ...], Tuple[float, ...], float]]:
+        """The primitive shape an object's observed size features describe:
+
+        its geometry, the features, their values and how many of the
+        shape's sizes one feature unit is (2 for a half length); None
+        for an object whose type has no size features.
+        """
+        names = set(obj.type.feature_names)
+        for features, geometry, per_unit in ((_BOX_LENGTHS, p.GEOM_BOX, 1.0),
+                                             (_BOX_HALVES, p.GEOM_BOX,
+                                              2.0), ((_SPHERE_RADIUS, ),
+                                                     p.GEOM_SPHERE, 1.0)):
+            if set(features) <= names:
+                return geometry, features, tuple(
+                    float(state.get(obj, f)) for f in features), per_unit
+        return None
+
+    def _primitive(self, body: int) -> Optional[_Primitive]:
+        """``body``'s shape when it is one box or sphere on a base without
+        links, else None."""
+        client = self._physics_client_id
+        if p.getNumJoints(body, physicsClientId=client):
+            return None
+        shapes = p.getCollisionShapeData(body, -1, physicsClientId=client)
+        if len(shapes) != 1:
+            return None
+        geometry, dims = int(shapes[0][2]), shapes[0][3]
+        if geometry == p.GEOM_BOX:
+            size = tuple(float(d) for d in dims[:3])
+        elif geometry == p.GEOM_SPHERE:
+            size = (float(dims[0]), )
+        else:
+            return None
+        return _Primitive(geometry, size,
+                          tuple(float(v) for v in shapes[0][5]),
+                          tuple(float(v) for v in shapes[0][6]))
+
+    def _fit_body_sizes(self, state: State) -> List[Tuple[Object, str]]:
+        """Give each body built as one box or sphere the size its object's
+        observation gives (``x_len``, ``y_len``, ``z_len``; ``half_x``,
+        ``half_y``, ``half_z``; or ``radius``), rebuilding the body when the
+        size differs from its own.
+
+        A level can change a body's size while the model is built for
+        another level's, and the fit replays every level's recordings.
+        Returns the (object, feature) pairs whose observed size a body
+        of this kind could not take: one held by a constraint, or one
+        whose visual shape is no box or sphere like its collision shape.
+        """
+        noise = ObservationNoise.from_cfg()
+        unfit: List[Tuple[Object, str]] = []
+        for obj in state:
+            if obj.id is None or obj.type.name == "robot":
+                continue
+            observed = self._observed_size(obj, state)
+            if observed is None:
+                continue
+            geometry, features, values, per_unit = observed
+            built = self._primitive(obj.id)
+            if built is None or built.geometry != geometry:
+                continue
+
+            def off_from(sizes: Sequence[float],
+                         features: Tuple[str, ...] = features,
+                         values: Tuple[float, ...] = values,
+                         per_unit: float = per_unit,
+                         obj: Object = obj) -> List[str]:
+                return [
+                    feature
+                    for feature, value, have in zip(features, values, sizes)
+                    if abs(value - have / per_unit) > max(
+                        _SIZE_ATOL,
+                        _SIZE_SIGMAS * noise.feature_sigma(obj.type, feature))
+                ]
+
+            off = off_from(built.size)
+            if off and geometry == p.GEOM_BOX:
+                # A box turned off its axes reads the same whether its size
+                # features give its own lengths or its extents along the
+                # world's axes (an env may publish either), so it is resized
+                # only when neither reading matches it.
+                turn = np.abs(
+                    np.array(
+                        p.getMatrixFromQuaternion(
+                            p.multiplyTransforms(
+                                (0.0, 0.0, 0.0),
+                                self._orientation_in_state(obj, state),
+                                (0.0, 0.0, 0.0),
+                                built.frame_orientation)[1])).reshape(3, 3))
+                if np.min(np.diag(turn)) < _ALIGNED_COSINE:
+                    if off_from(tuple(turn @ np.array(built.size))):
+                        unfit.extend((obj, feature) for feature in off)
+                    continue
+            if off and not self._rebuild_body(
+                    obj, built, tuple(v * per_unit for v in values)):
+                unfit.extend((obj, feature) for feature in off)
+        return unfit
+
+    def _rebuild_body(self, obj: Object, built: _Primitive,
+                      size: Tuple[float, ...]) -> bool:
+        """Replace ``obj``'s body by one of ``size`` with the same shape,
+        frame, pose, velocity, mass and materials, and the same look scaled
+        alike; False, with nothing changed, for a body a constraint holds or
+        whose visual shape is no single shape of its collision geometry."""
+        client = self._physics_client_id
+        old = int(obj.id)
+        for index in range(p.getNumConstraints(physicsClientId=client)):
+            info = p.getConstraintInfo(p.getConstraintUniqueId(
+                index, physicsClientId=client),
+                                       physicsClientId=client)
+            if old in (info[0], info[2]):
+                return False
+        visuals = [
+            v for v in p.getVisualShapeData(old, physicsClientId=client)
+            if v[1] == -1
+        ]
+        if len(visuals) > 1 or (visuals and visuals[0][2] != built.geometry):
+            return False
+        ratio = [
+            want / have if have > 0.0 else 1.0
+            for want, have in zip(size, built.size)
+        ]
+        dynamics = p.getDynamicsInfo(old, -1, physicsClientId=client)
+        # PyBullet reports a shape's frame relative to the body's inertial
+        # frame and takes a new shape's relative to its link frame: compose
+        # the inertial offset with it.
+        place, turn = p.multiplyTransforms(dynamics[3], dynamics[4],
+                                           built.frame_position,
+                                           built.frame_orientation)
+        frame = {
+            "collisionFramePosition": list(place),
+            "collisionFrameOrientation": list(turn),
+        }
+        if built.geometry == p.GEOM_BOX:
+            collision = p.createCollisionShape(
+                p.GEOM_BOX,
+                halfExtents=[s / 2.0 for s in size],
+                physicsClientId=client,
+                **frame)
+        else:
+            collision = p.createCollisionShape(p.GEOM_SPHERE,
+                                               radius=size[0],
+                                               physicsClientId=client,
+                                               **frame)
+        visual = -1
+        if visuals:
+            dims, place, turn, rgba = (visuals[0][3], visuals[0][5],
+                                       visuals[0][6], visuals[0][7])
+            look = {
+                "rgbaColor": list(rgba),
+                "visualFramePosition": list(place),
+                "visualFrameOrientation": list(turn),
+                "physicsClientId": client,
+            }
+            if built.geometry == p.GEOM_BOX:
+                visual = p.createVisualShape(
+                    p.GEOM_BOX,
+                    halfExtents=[d * r / 2.0 for d, r in zip(dims[:3], ratio)],
+                    **look)
+            else:
+                visual = p.createVisualShape(p.GEOM_SPHERE,
+                                             radius=dims[0] * ratio[0],
+                                             **look)
+        position, orientation = p.getBasePositionAndOrientation(
+            old, physicsClientId=client)
+        linear, angular = p.getBaseVelocity(old, physicsClientId=client)
+        new = p.createMultiBody(baseMass=self._body_baseline.get((old, "mass"),
+                                                                 dynamics[0]),
+                                baseCollisionShapeIndex=collision,
+                                baseVisualShapeIndex=visual,
+                                basePosition=list(position),
+                                baseOrientation=list(orientation),
+                                baseInertialFramePosition=list(dynamics[3]),
+                                baseInertialFrameOrientation=list(dynamics[4]),
+                                physicsClientId=client)
+        p.resetBasePositionAndOrientation(new,
+                                          position,
+                                          orientation,
+                                          physicsClientId=client)
+        p.resetBaseVelocity(new, linear, angular, physicsClientId=client)
+        # The scene's own materials and damping: the declared and sampled
+        # values go back on when the reset applies the materials.
+        own = {
+            prop: self._body_baseline.get((old, prop), current)
+            for prop, current in (("lateral_friction",
+                                   dynamics[1]), ("restitution", dynamics[5]),
+                                  ("rolling_friction", dynamics[6]),
+                                  ("spinning_friction", dynamics[7]))
+        }
+        damping = self._scene_damping.pop((client, old), None)
+        if damping is not None:
+            self._scene_damping[(client, new)] = damping
+        p.changeDynamics(new,
+                         -1,
+                         lateralFriction=own["lateral_friction"],
+                         restitution=own["restitution"],
+                         rollingFriction=own["rolling_friction"],
+                         spinningFriction=own["spinning_friction"],
+                         linearDamping=(damping
+                                        or {}).get("linear_damping",
+                                                   _DEFAULT_DAMPING),
+                         angularDamping=(damping
+                                         or {}).get("angular_damping",
+                                                    _DEFAULT_DAMPING),
+                         physicsClientId=client)
+        if dynamics[8] > 0.0 and dynamics[9] > 0.0:
+            p.changeDynamics(new,
+                             -1,
+                             contactDamping=dynamics[8],
+                             contactStiffness=dynamics[9],
+                             physicsClientId=client)
+        for prop in MATERIALS:
+            value = self._body_baseline.pop((old, prop), None)
+            if value is not None:
+                self._body_baseline[(new, prop)] = value
+        p.removeBody(old, physicsClientId=client)
+        obj.id = new
+        for name, body in list(self._scene_bodies.items()):
+            if body == old:
+                self._scene_bodies[name] = new
+        if self._contact_relevant_ids is not None and \
+                old in self._contact_relevant_ids:
+            self._contact_relevant_ids.discard(old)
+            self._contact_relevant_ids.add(new)
+        self._material_layout = None
+        logging.debug("Scene: rebuilt %s's body at the observed size %s.",
+                      obj.name, size)
+        return True
 
     def _set_domain_specific_state(self, state: State) -> None:
         """Round-trip every feature no body pose carries through the feature
