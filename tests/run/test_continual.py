@@ -620,6 +620,25 @@ def test_one_directory_per_run(tmp_path: Any) -> None:
     CFG.run_subdir = ""
 
 
+def test_the_session_counts_the_run_s_real_skill_calls(tmp_path: Any) -> None:
+    """The skill record counts, per skill, the real calls of every level so far
+    that succeeded and that failed."""
+    _config(tmp_path, "oracle", num_test_tasks=1)
+    env, approach = _make("oracle")
+    run = ContinualRun(env, approach, create_level_player(env, approach))
+    run.run()
+    statuses: Dict[str, List[str]] = {}
+    for level in range(len(run.levels)):
+        for entry in run.previous_level_index_entries(level):
+            if entry.get("event") == "invoke":
+                name = entry["skill"].split("(", 1)[0]
+                statuses.setdefault(name, []).append(entry["status"])
+    assert statuses
+    record = ProtocolSession(run).skill_record()
+    for name, seen in statuses.items():
+        assert record[name] == (seen.count("succeeded"), seen.count("failed"))
+
+
 def test_run_ended_carries_reason() -> None:
     """RunEnded exposes its reason and note."""
     err = RunEnded("step_cap", "note")

@@ -31,6 +31,7 @@ import functools
 import json
 import logging
 import os
+import re
 import time
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, \
     Sequence, Set, Tuple, Union
@@ -261,6 +262,15 @@ class ProbeResult(_StrLikeResult):
             line = f"Step {i}: {s['option']} ({s['num_actions']} actions)"
             if s["failure"]:
                 line += f"\n  FAILURE: {s['failure']}"
+                if s.get("partial_actions"):
+                    line += (f"\n  It ran {s['partial_actions']} actions "
+                             "before it stopped; the state after this run "
+                             "is where it stopped, as after a real "
+                             "failure.")
+            if s.get("changed"):
+                label = ("Changed before it stopped"
+                         if s["failure"] else "Changed")
+                line += f"\n  {label}: {', '.join(s['changed'])}"
             if s["added"] or s["deleted"]:
                 line += (f"\n  Added: {{{', '.join(s['added'])}}}"
                          f"\n  Deleted: {{{', '.join(s['deleted'])}}}")
@@ -1077,6 +1087,101 @@ def _line_states(steps: Sequence[StepOutcome]) -> List[Optional[State]]:
         if st.post_state is not None and st.failure_reason is None else None
         for st in steps
     ]
+
+
+# A step report lists at most this many changed flags.
+_MAX_FLAG_CHANGES = 8
+
+
+def _flag_changes(pre: State, post: State) -> List[str]:
+    """The whole-number features (a switch's state, a flag, a count) of the
+    objects other than the robot that a step changed, as ``name.feature old.
+
+    -> new``: what a step did, for a model with no predicates to say it.
+    """
+    before = {obj.name: obj for obj in pre}
+    out: List[str] = []
+    for obj in sorted(post, key=lambda o: o.name):
+        old_obj = before.get(obj.name)
+        if old_obj is None or obj.type.name == "robot":
+            continue
+        for feature in obj.type.feature_names:
+            if feature not in old_obj.type.feature_names:
+                continue
+            old = float(pre.get(old_obj, feature))
+            new = float(post.get(obj, feature))
+            if old != new and old.is_integer() and new.is_integer():
+                out.append(f"{obj.name}.{feature} {old:g} -> {new:g}")
+    if len(out) > _MAX_FLAG_CHANGES:
+        out = out[:_MAX_FLAG_CHANGES] + [
+            f"and {len(out) - _MAX_FLAG_CHANGES} more"
+        ]
+    return out
+
+
+# A skill phase's controller failure names its skill and phase first.
+_PHASE_FAILURE = re.compile(r"\[([A-Za-z_]\w*)/[^\]]+\]")
+
+
+def _motion_failures(failures: Sequence[Optional[str]]) -> int:
+    """How many of ``failures`` are a skill controller's own (an IK stall, no
+    motion plan: ``[Skill/Phase] ...``), not a refusal to start."""
+    return sum(1 for f in failures if f and _PHASE_FAILURE.search(f))
+
+
+def _failed_skills(failures: Sequence[Optional[str]]) -> List[str]:
+    """The skills whose controllers failed in ``failures``, in order."""
+    names: List[str] = []
+    for failure in failures:
+        found = _PHASE_FAILURE.search(failure or "")
+        if found and found.group(1) not in names:
+            names.append(found.group(1))
+    return names
+
+
+def _motion_failure_note(
+        lead: str,
+        skills: Sequence[str] = (),
+        record: Optional[Dict[str, Tuple[int, int]]] = None) -> Optional[str]:
+    """``lead`` plus a caveat on a skill controller's failure in a rollout
+    under observation noise: the real controller plans on the true scene, this
+    one on observed or drawn positions, and a few millimetres can change its
+    plan. With this run's real ``record`` (per skill, calls that succeeded and
+    failed), the note gives each of ``skills``'s.
+
+    None when the observations are exact.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.observation_noise import ObservationNoise
+    noise = ObservationNoise.from_cfg()
+    if noise.position <= 0.0 and noise.orientation <= 0.0:
+        return None
+    real = [
+        f"{name} {record[name][0]} of {sum(record[name])}" for name in skills
+        if record and sum(record.get(name, (0, 0)))
+    ]
+    history = ("This run's real calls of it succeeded in: " + ", ".join(real) +
+               ". " if real else "")
+    return (f"{lead} The real controller plans on the true scene; these "
+            "rollouts planned on positions with the observation noise "
+            f"({noise.position:g} m, {noise.orientation:g} rad), and a few "
+            f"millimetres can change the arm's plan. {history}Weigh such a "
+            "failure against the skill's real record and against starts a few "
+            "millimetres away (reset(current=True, mods=...)) before you "
+            "conclude the real skill would fail.")
+
+
+def _skill_record(ctx: Any) -> Optional[Dict[str, Tuple[int, int]]]:
+    """This run's real skill record from the session, if it has one."""
+    provider = getattr(ctx, "skill_record_provider", None)
+    if provider is None:
+        return None
+    try:
+        return provider()
+    except Exception:  # pylint: disable=broad-except
+        logging.warning("Could not read the run's skill record.",
+                        exc_info=True)
+        return None
 
 
 class BeliefProbe:
@@ -1989,6 +2094,14 @@ class BeliefProbe:
                 f"{len(over)} successful draw(s) exceeded the remaining "
                 f"execution step budget ({budget} low-level steps) - the "
                 "real executor would run out of steps.")
+        stalled = _motion_failures([d["failure"] for d in results])
+        if stalled:
+            motion = _motion_failure_note(
+                f"In {stalled} of the {n} draws a skill's controller failed.",
+                _failed_skills([d["failure"] for d in results]),
+                _skill_record(ctx))
+            if motion is not None:
+                notices.append(motion)
         undeclared_provider = ctx.undeclared_param_names_provider
         undeclared = set(undeclared_provider() if undeclared_provider else ())
         leads = ([] if _separating_ranges(results) else _outcome_leads(
@@ -2705,11 +2818,18 @@ class BeliefProbe:
             failure = outcome.failure_reason
             if not outcome.initiable:
                 failure = failure or "not initiable"
+            changed: List[str] = []
+            partial_actions: Optional[int] = None
             if outcome.post_state is not None:
                 before = utils.abstract(outcome.pre_state, report_preds)
                 after = utils.abstract(outcome.post_state, report_preds)
                 added = [str(a) for a in sorted(after - before)]
                 deleted = [str(a) for a in sorted(before - after)]
+                changed = _flag_changes(outcome.pre_state, outcome.post_state)
+                if failure is not None:
+                    partial = getattr(model, "last_partial_trajectory", None)
+                    if partial is not None and partial.actions:
+                        partial_actions = len(partial.actions)
             if i == 0 and fresh:
                 env = getattr(model, "sim_env", None)
                 lossy = getattr(env, "_last_unreconstructible_features",
@@ -2753,6 +2873,10 @@ class BeliefProbe:
                 [str(a) for a in sorted(outcome.subgoal_missing or set())],
                 "image":
                 img.get("saved_path") if img else None,
+                "changed":
+                changed,
+                "partial_actions":
+                partial_actions,
             })
 
         _count_rollout(ctx)
@@ -2801,22 +2925,40 @@ class BeliefProbe:
                     "contacts are attached to the last step and spans "
                     "there are relative to that step's start.")
             _attach_step_contacts(contact_events, step_dicts)
+        # A step that failed partway leaves the world where it stopped, as
+        # a real skill's failure does: an effect it had before it failed
+        # (a switch it flipped) stays.
+        stopped = (result.final_state
+                   if result.stopped_state is None else result.stopped_state)
         if not fresh:
             # A fresh-env rollout's final state is not the warm session
             # state; advancing to it would silently mix substrates.
-            self._state = result.final_state
+            self._state = stopped
             self._pristine = False
         final_atoms = [
-            str(a)
-            for a in sorted(utils.abstract(result.final_state, report_preds))
+            str(a) for a in sorted(utils.abstract(stopped, report_preds))
         ]
-        hn = _horizon_note(sum(s["num_actions"] for s in step_dicts))
+        # A real episode ends the moment its goal holds, so a goal the
+        # failed step reached before it stopped counts as reached.
+        goal_reached = result.goal_reached or (
+            stopped is not result.final_state
+            and probe_task.goal_holds(stopped))
+        hn = _horizon_note(
+            sum(s["num_actions"] + (s.get("partial_actions") or 0)
+                for s in step_dicts))
         if hn is not None:
             notices.append(hn)
+        if _motion_failures([s["failure"] for s in step_dicts]):
+            motion = _motion_failure_note(
+                "A skill's controller failed in this rollout.",
+                _failed_skills([s["failure"] for s in step_dicts]),
+                _skill_record(ctx))
+            if motion is not None:
+                notices.append(motion)
         return ProbeResult(step_dicts,
-                           result.goal_reached,
+                           goal_reached,
                            final_atoms,
-                           result.final_state,
+                           stopped,
                            notices,
                            states=list(collectors[0].states),
                            line_states=_line_states(result.steps))

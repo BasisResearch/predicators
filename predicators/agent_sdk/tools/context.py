@@ -159,6 +159,10 @@ class ToolContext:
     # Refresh inferred memory after a model edit/refit before a current-state
     # probe. Continual MB sessions install this; other sessions keep None.
     current_observation_provider: Optional[Callable[[], State]] = None
+    # Per skill name, this run's real calls that succeeded and failed so far
+    # (ProtocolSession.skill_record); None outside continual play.
+    skill_record_provider: Optional[Callable[[], Dict[str, Tuple[int,
+                                                                 int]]]] = None
     execution_step_budget_provider: Optional[Callable[[], int]] = None
     # Arm-specific invariant checked before any charged continual request.
     before_real_action: Optional[Callable[[], None]] = None
