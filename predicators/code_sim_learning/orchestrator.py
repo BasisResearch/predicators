@@ -39,7 +39,7 @@ from predicators.code_sim_learning.inference_result import \
     LegacyInferenceResult
 from predicators.code_sim_learning.parameter_belief import BeliefConfig, \
     ParameterBelief, build_parameter_belief, mix_beliefs, prior_belief, \
-    stable_seed
+    redrawn, stable_seed
 from predicators.code_sim_learning.physical_sysid import \
     _ROLLOUT_PRIOR_SIGMA_SCALE, _explainability_cache_key, \
     fit_params_rollout_trimmed
@@ -136,6 +136,10 @@ class _FitComputation:
 # assets, Fan: 1328 s against 1028 s), and a fit past its deadline yields
 # nothing.
 _FREE_LINE_TIME_SHARE = 0.5
+# The share of the fit's time budget the belief's lines leave free before
+# the deadline, for what the fit call does after them: a line cut short
+# keeps its prior, while a fit stopped at its deadline returns nothing.
+_BELIEF_DEADLINE_MARGIN = 0.05
 
 
 def run_rollout_sysid(
@@ -441,10 +445,14 @@ def _compute_fit(
                                               residual_features, line_names,
                                               rules, latent_init, scaling)
 
+        belief_deadline: Optional[float] = None
+        if config.deadline is not None:
+            belief_deadline = config.deadline - _BELIEF_DEADLINE_MARGIN * (
+                config.deadline - fit_t0)
         belief = _build_belief(result, all_specs, anchors,
                                rollout_residuals_fn, belief_config,
                                len(survivors), rollout_residuals_batch_fn,
-                               free_specs)
+                               free_specs, belief_deadline)
     return _FitComputation(fit_result=result,
                            report=report,
                            num_survivors=len(survivors),
@@ -493,17 +501,16 @@ def prior_parameter_belief(all_specs: Sequence[ParamSpec],
                         seed=seed)
 
 
-def _build_belief(
-    result: FitResult,
-    all_specs: Sequence[ParamSpec],
-    anchors: Dict[str, float],
-    residuals_fn: Callable[[Dict[str, float]], np.ndarray],
-    belief_config: BeliefConfig,
-    num_survivors: int,
-    batch_residuals_fn: Optional[Callable[[List[Dict[str, float]]],
-                                          List[np.ndarray]]] = None,
-    free_specs: Sequence[ParamSpec] = ()
-) -> ParameterBelief:
+def _build_belief(result: FitResult,
+                  all_specs: Sequence[ParamSpec],
+                  anchors: Dict[str, float],
+                  residuals_fn: Callable[[Dict[str, float]], np.ndarray],
+                  belief_config: BeliefConfig,
+                  num_survivors: int,
+                  batch_residuals_fn: Optional[Callable[
+                      [List[Dict[str, float]]], List[np.ndarray]]] = None,
+                  free_specs: Sequence[ParamSpec] = (),
+                  deadline: Optional[float] = None) -> ParameterBelief:
     """The parameter factor around ``result``'s MAP, under its own prior.
 
     The prior is the one the fit folded in: centred on each parameter's
@@ -517,7 +524,8 @@ def _build_belief(
     ``free_specs`` (see ``run_rollout_sysid``'s ``belief_free_specs``)
     sit at their ``init_value`` in every basin's point, under the prior
     ``prior_parameter_belief`` gives an unfitted parameter, and get
-    lines like the fitted parameters.
+    lines like the fitted parameters. ``deadline`` (``time.monotonic()``)
+    stops the lines' tracing (see :func:`build_parameter_belief`).
     """
     # pylint: disable-next=import-outside-toplevel
     from predicators.settings import CFG
@@ -560,18 +568,44 @@ def _build_belief(
             batch_residuals=batch_residuals_fn,
             misfit=float(result.misfit or 0.0),
             noise_sse=float(result.noise_sse or 0.0),
-            free_names=free)
+            free_names=free,
+            deadline=deadline)
 
     basins = list(result.basins or [])
     if len(basins) <= 1:
         return around(fitted, belief_config)
-    shares = _draw_shares(belief_config.num_draws,
-                          [weight for _point, _sse, weight in basins])
-    return mix_beliefs([
-        around(point, replace(belief_config, num_draws=share), index)
-        for index, ((point, _sse, _weight),
-                    share) in enumerate(zip(basins, shares))
-    ], [weight for _point, _sse, weight in basins])
+    weights = [weight for _point, _sse, weight in basins]
+    shares = _draw_shares(belief_config.num_draws, weights)
+    # Best basin first; no basin starts that, by the longest one so far,
+    # would end after the deadline: a basin left untraced is left out,
+    # while one traced past the deadline would cost the whole fit.
+    parts: List[ParameterBelief] = []
+    longest = 0.0
+    for index, ((point, _sse, _weight),
+                share) in enumerate(zip(basins, shares)):
+        if parts and deadline is not None and \
+                time.monotonic() + longest > deadline:
+            break
+        start = time.monotonic()
+        parts.append(
+            around(point, replace(belief_config, num_draws=share), index))
+        longest = max(longest, time.monotonic() - start)
+    untraced = len(basins) - len(parts)
+    if untraced:
+        logger.warning(
+            "Rollout sysID: the fit's deadline left %d of %d basins "
+            "untraced; the belief mixes the %d traced.", untraced, len(basins),
+            len(parts))
+        weights = weights[:len(parts)]
+        rng = np.random.default_rng(
+            stable_seed(CFG.seed, sorted(fitted.items()), num_survivors,
+                        "traced basins", len(parts)))
+        parts = [
+            redrawn(part, share, rng) for part, share in zip(
+                parts, _draw_shares(belief_config.num_draws, weights))
+        ]
+    mixed = mix_beliefs(parts, weights)
+    return replace(mixed, untraced_basins=untraced) if untraced else mixed
 
 
 def _draw_shares(total: int, weights: Sequence[float]) -> List[int]:
