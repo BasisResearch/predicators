@@ -1222,7 +1222,10 @@ def fit_params_rollout_trimmed(
         hull_candidates.append(
             {n: float(result.point_estimate[n])
              for n in physical_names})
-        hull_candidates.append(dict(surv_argmins[drop_idx]))
+        hull_candidates.append({
+            n: float(v)
+            for n, v in surv_argmins[drop_idx].items() if n in physical_names
+        })
         logger.info(
             "Rollout sysID consistency: survivors disagree (RMS at joint "
             "fit %s vs own best %s); dropping the least trustworthy "

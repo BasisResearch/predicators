@@ -17,6 +17,8 @@ import dataclasses
 import logging
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+import numpy as np
+
 from predicators.code_sim_learning.config import SysIdConfig
 from predicators.code_sim_learning.rollout_env import RolloutTrajectory
 from predicators.code_sim_learning.rollout_objective import StepResidual, \
@@ -65,6 +67,21 @@ def find_departure(segment: int,
         key: sum(v.residual**2 for v in values)
         for key, values in by_feature.items()
     }
+    # A replay that stops being a number departs where it first does.
+    broken = [v for v in residuals if not np.isfinite(v.residual)]
+    if broken:
+        first = min(broken, key=lambda v: v.step)
+        return Departure(segment=segment,
+                         num_steps=max(v.step for v in residuals) + 1,
+                         obj_name=first.obj_name,
+                         feature=first.feature,
+                         share=1.0,
+                         first_step=first.step + 1,
+                         first_model=first.model,
+                         first_recorded=first.recorded,
+                         worst_step=first.step + 1,
+                         worst_model=first.model,
+                         worst_recorded=first.recorded)
     grand = sum(totals.values())
     if grand <= 0.0:
         return None
@@ -119,14 +136,14 @@ def segment_departures(
                                        scaling,
                                        config,
                                        episode_count=len(trajectories))
+            if residuals is None:
+                return []
+            departure = find_departure(index, residuals)
         except Exception:  # pylint: disable=broad-except
             logger.warning("Departure note: replaying segment %d failed.",
                            index,
                            exc_info=True)
             continue
-        if residuals is None:
-            return []
-        departure = find_departure(index, residuals)
         if departure is not None:
             found.append(departure)
     return found
@@ -155,7 +172,8 @@ def describe_departures(
         "segment's own best values from that sweep: the feature that "
         "carries most of the segment's error, your model's value against "
         "the recording's from the first step it is half as far off as at "
-        "its farthest, and at its farthest."
+        "its farthest, and at its farthest. Recordings are numbered as "
+        "sim.fit's traj_idxs number them."
     ]
     for (obj_name, feature), members in sorted(groups.items(),
                                                key=lambda kv: -len(kv[1])):
@@ -181,7 +199,7 @@ def _describe_one(departure: Departure, origin: Optional[Tuple[int,
         episode, start = origin
         first = start + departure.first_step
         worst = start + departure.worst_step
-        where = (f"segment {departure.segment} (episode {episode + 1}, "
+        where = (f"segment {departure.segment} (recording {episode}, "
                  f"steps {start + 1}-{start + departure.num_steps})")
         step_word = "step"
     text = (f"{where}: {departure.first_model:.4g} against "

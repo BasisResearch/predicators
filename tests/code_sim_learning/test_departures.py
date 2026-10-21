@@ -44,6 +44,21 @@ def test_a_replay_that_matches_its_recording_has_no_departure():
     assert find_departure(0, []) is None
 
 
+def test_a_replay_that_stops_being_a_number_departs_there():
+    """A replay whose values turn NaN departs at the first such step, which is
+    named with the model's value, in place of an error that would end the
+    fit."""
+    residuals = (
+        _series("ball", "x", [0.01, 0.02, 0.01]) +
+        _series("ball", "z", [float("nan"), float("nan"), 0.1]))
+    found = find_departure(4, residuals)
+    assert found is not None
+    assert (found.obj_name, found.feature) == ("ball", "z")
+    assert found.first_step == found.worst_step == 1
+    assert np.isnan(found.first_model)
+    assert found.share == 1.0
+
+
 def test_each_dropped_segment_is_replayed_at_its_own_values():
     """A real replay: the domino the model moves by k = 0.05 per step falls
     behind a recording that moves 0.1 per step."""
@@ -116,14 +131,14 @@ def test_the_note_groups_departures_by_feature():
     lines = describe_departures(found, 6, [origins.get(s) for s in range(10)])
     assert lines[0].startswith("Where your model leaves each dropped segment")
     assert lines[1] == (
-        "  ball.z, in 4 of the 6: segment 1 (episode 1, steps 1231-1252): "
+        "  ball.z, in 4 of the 6: segment 1 (recording 0, steps 1231-1252): "
         "0.342 against 0.433 from step 1232, 0.04 against 0.445 at step "
-        "1252; segment 3 (episode 1, steps 1431-1452): 0.342 against 0.433 "
+        "1252; segment 3 (recording 0, steps 1431-1452): 0.342 against 0.433 "
         "from step 1432, 0.04 against 0.445 at step 1452; segment 4 "
-        "(episode 1, steps 1531-1552): 0.342 against 0.433 from step 1532, "
+        "(recording 0, steps 1531-1552): 0.342 against 0.433 from step 1532, "
         "0.04 against 0.445 at step 1552; and 1 more.")
     assert lines[2] == (
-        "  ball.y, in 1 of the 6: segment 9 (episode 1, steps 2031-2080): "
+        "  ball.y, in 1 of the 6: segment 9 (recording 0, steps 2031-2080): "
         "0.342 against 0.433 from step 2032, 0.04 against 0.445 at step "
         "2080 (40% of its error; other features carry the rest).")
     # Without provenance the steps are the segment's own.
