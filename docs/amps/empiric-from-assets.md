@@ -21,6 +21,7 @@ It does not require a source-code replica of the benchmark environment.
 
 The manifest is generated from the benchmark simulator's initial scene, not inferred from images.
 Its geometry, articulation and observed-object associations are supplied reconstruction.
+A mesh the benchmark builds from vertices in memory, such as Fan's ramp, comes as a generated OBJ file with whether it is a concave triangle mesh and its collision margin.
 The manifest omits masses, friction, restitution and damping, but raw asset files may contain nominal physical constants.
 The agent is instructed to treat these as assumptions to validate, not calibrated ground truth.
 The generic wrapper still supplies the robot controller, grasp conventions, generic body-pose synchronization and a passive scalar feature store.

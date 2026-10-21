@@ -36,6 +36,7 @@ Required overrides in subclasses:
 import abc
 import copy
 import logging
+from dataclasses import dataclass
 from typing import Any, ClassVar, Dict, FrozenSet, List, Optional, Protocol, \
     Sequence, Set, Tuple, Type, cast
 
@@ -119,6 +120,17 @@ class ActionExecutor(Protocol):
 
         Called exactly once per episode, on every exit path.
         """
+
+
+@dataclass(frozen=True)
+class BuiltMesh:
+    """A mesh collision shape an env built from vertices in memory: its
+    vertices in the shape's frame, its triangles as vertex indices (three per
+    triangle), and whether it is a concave triangle mesh
+    (``p.GEOM_FORCE_CONCAVE_TRIMESH``) or the vertices' convex hull."""
+    vertices: Tuple[Tuple[float, float, float], ...]
+    indices: Tuple[int, ...]
+    concave: bool
 
 
 class PyBulletEnv(BaseEnv):
@@ -317,6 +329,12 @@ class PyBulletEnv(BaseEnv):
         self._held_constraint_id: Optional[int] = None
         self._held_obj_to_base_link: Optional[Any] = None
         self._held_obj_id: Optional[int] = None
+
+        # (body id, link index) -> a mesh collision shape this env built from
+        # vertices in memory. PyBullet reads back neither its vertices nor
+        # its triangles, so the scene manifest exports them from here
+        # (code_sim_learning/scene_manifest.py).
+        self._built_meshes: Dict[Tuple[int, int], BuiltMesh] = {}
 
         # When True, _domain_specific_step() is skipped in step().
         # Used by sim-learning to create base-sim-only envs.
