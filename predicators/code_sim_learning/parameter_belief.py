@@ -52,6 +52,12 @@ _MAX_SHRINKS = 6
 # Refinement stops once no grid interval holds more than this fraction
 # of the line's mass.
 _MAX_INTERVAL_MASS = 0.1
+# A line the fit's deadline cut short keeps what it traced only when no
+# interval of its grid holds more than this share of the mass. Measured on
+# Gaussian lines cut round by round: with one interval holding 96% to 100%
+# of the mass the traced width was 7% to 32% off the full line's, at 64%
+# or less within 3%.
+_CUT_LINE_MAX_INTERVAL_MASS = 0.75
 # Points per evaluated interval on which a line's density is stored.
 _SUBDIVISIONS = 16
 # A free parameter's line (see build_parameter_belief) stops after its
@@ -510,8 +516,8 @@ class ParameterBelief:
             lines.append(
                 "The fit's time ran out before it finished the lines of "
                 f"{', '.join(self.cut_short)}: each keeps its prior, or the "
-                "part of its line that was traced when that part brackets "
-                "the point estimate.")
+                "part of its line that was traced when it had reached the "
+                "cutoff or a bound on both sides of the point estimate.")
         if self.inflation > 1.0:
             lines.append(
                 "A real step's outcome lay outside the draws its rehearsal "
@@ -808,8 +814,11 @@ def build_parameter_belief(
     returned: tracing stops before a round of replays that would end
     after it, judged by the longest round so far. A free parameter whose
     line was cut short keeps its prior; a declared one keeps the part of
-    its line that was traced when that part brackets the point estimate,
-    else its prior. The belief names them (``cut_short``).
+    its line that was traced when that part resolves its mass
+    (:func:`_resolved`), else its prior: a side cut before its probes
+    passed the cutoff would lose the rest of its mass, and a grid too
+    coarse would misstate the width, either way leaving the draws too
+    narrow or lopsided. The belief names them (``cut_short``).
     """
     assert noise_sigma > 0.0, noise_sigma
     at_map = np.asarray(residuals(dict(map_params)), dtype=float)
@@ -865,8 +874,7 @@ def build_parameter_belief(
         grid = line.points()
         if index in unfinished:
             cut_short.append(spec.name)
-            brackets = grid[0] < line.z0 < grid[-1]
-            if spec.name in free or not brackets:
+            if spec.name in free or not _resolved(line):
                 lines[spec.name] = _prior_line(line, lo, hi)
                 continue
         lines[spec.name] = LinePosterior.from_neg_log(grid,
@@ -1003,6 +1011,10 @@ class _LineEvaluator:
         self.sigma_p = prior[1] if prior is not None else None
         self.sse: Dict[float, float] = {self.z0: sse_min}
         self.count = 0
+        # Set by _line_points once its outward probes on both sides are
+        # done: the line then spans its mass, and later points only
+        # refine it.
+        self.outward_done = False
 
     def _prior(self, z: float) -> float:
         if self.prior is None:
@@ -1095,16 +1107,12 @@ def _line_points(line: _LineEvaluator,
         while g <= cutoff and z != edge and line.count < budget:
             step *= 2.0
             z, g = yield from probe(step)
+    line.outward_done = True
     if flat_stop and all((sse - line.sse_min) * line.k <= _FLAT_LIKELIHOOD
                          for sse in line.sse.values()):
         return
     while line.count < budget:
-        grid = np.array(line.points())
-        if grid.size < 2:
-            return
-        neg_log = np.array([line(z) for z in grid])
-        dens = np.exp(-(neg_log - np.min(neg_log)))
-        mass = np.diff(grid) * np.maximum(dens[:-1], dens[1:])
+        grid, mass = _interval_masses(line)
         total = float(np.sum(mass))
         if total <= 0.0:
             return
@@ -1115,6 +1123,31 @@ def _line_points(line: _LineEvaluator,
         if mid in (grid[widest], grid[widest + 1]):
             return
         yield from value(float(mid))
+
+
+def _interval_masses(line: _LineEvaluator) -> Tuple[np.ndarray, np.ndarray]:
+    """The line's evaluated grid and an upper bound on the posterior mass of
+    each interval between its points (the larger end's density times the
+    interval's width); no intervals with fewer than two points."""
+    grid = np.array(line.points())
+    if grid.size < 2:
+        return grid, np.zeros(0)
+    neg_log = np.array([line(z) for z in grid])
+    dens = np.exp(-(neg_log - np.min(neg_log)))
+    return grid, np.diff(grid) * np.maximum(dens[:-1], dens[1:])
+
+
+def _resolved(line: _LineEvaluator) -> bool:
+    """Whether a line cut short already resolves its mass: its outward probes
+    passed the cutoff or reached a bound on both sides of the point estimate,
+    and no interval of its grid holds more than ``_CUT_LINE_MAX_INTERVAL_MASS``
+    of the mass, so the refinement it missed would change its width little."""
+    if not line.outward_done:
+        return False
+    _, mass = _interval_masses(line)
+    total = float(np.sum(mass))
+    return total > 0.0 and float(np.max(mass)) / total <= \
+        _CUT_LINE_MAX_INTERVAL_MASS
 
 
 def _prior_line(line: _LineEvaluator, lo: float, hi: float) -> LinePosterior:
