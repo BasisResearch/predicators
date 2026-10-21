@@ -2906,7 +2906,14 @@ class BeliefProbe:
         final_atoms = [
             str(a) for a in sorted(utils.abstract(stopped, report_preds))
         ]
-        hn = _horizon_note(sum(s["num_actions"] for s in step_dicts))
+        # A real episode ends the moment its goal holds, so a goal the
+        # failed step reached before it stopped counts as reached.
+        goal_reached = result.goal_reached or (
+            stopped is not result.final_state
+            and probe_task.goal_holds(stopped))
+        hn = _horizon_note(
+            sum(s["num_actions"] + (s.get("partial_actions") or 0)
+                for s in step_dicts))
         if hn is not None:
             notices.append(hn)
         if _motion_failures([s["failure"] for s in step_dicts]):
@@ -2915,7 +2922,7 @@ class BeliefProbe:
             if motion is not None:
                 notices.append(motion)
         return ProbeResult(step_dicts,
-                           result.goal_reached,
+                           goal_reached,
                            final_atoms,
                            stopped,
                            notices,
