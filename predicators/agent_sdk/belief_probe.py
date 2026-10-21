@@ -1510,6 +1510,9 @@ class BeliefProbe:
                 "max_shift": _shift(starts[k]),
             }
 
+        # Resolve the model before forking children that build their worlds
+        # from it (see _run_joint_draws).
+        self._option_model()
         prefetched = prefetch_parallel(
             [functools.partial(_one_draw, k) for k in range(num_draws)],
             "probe belief draws")
@@ -1574,6 +1577,11 @@ class BeliefProbe:
 
         # pylint: enable=import-outside-toplevel
         ctx = self._ctx
+        # Resolve the model in this process before the draws. The draws come
+        # from its belief, and each forked child builds its world from it.
+        # So a missing or broken simulator.py refuses once, before any draw
+        # or child, and the draws follow the latest edit of the file.
+        self._option_model()
         provider = ctx.joint_draws_provider
         assert provider is not None
         if from_observation is None:
@@ -2081,6 +2089,10 @@ class BeliefProbe:
                     "scope (unavailable here): perturbing the shared "
                     "session env would leak the perturbation into every "
                     "later call.")
+            # Resolve the model before reading its stress points and forking
+            # children that build their worlds from it (see
+            # _run_joint_draws).
+            self._option_model()
             provider = ctx.physics_margin_provider
             sweep_points = list(provider() or []) if provider else []
             if not sweep_points:
@@ -2299,6 +2311,9 @@ class BeliefProbe:
                     "inexact_start_features": sorted(set(trial_inexact)),
                 }
 
+            # Resolve the model before forking children that build their
+            # worlds from it (see _run_joint_draws).
+            self._option_model()
             trial_prefetched = prefetch_parallel(
                 [functools.partial(_one_trial, k) for k in range(trials)],
                 "probe trials")

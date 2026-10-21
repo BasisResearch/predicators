@@ -223,6 +223,7 @@ def test_scene_base_binds_the_deployment(tmp_path: Any) -> None:
 @pytest.mark.parametrize("from_assets", [False, True])
 def test_agent_builds_the_scene_and_rehearses_in_it(tmp_path: Any,
                                                     monkeypatch: Any,
+                                                    caplog: Any,
                                                     from_assets: bool) -> None:
     """References, prompt, probe refusal before a model, then a real skill
     rehearsed inside the agent-built scene, and the gate accepting it."""
@@ -432,6 +433,9 @@ def test_agent_builds_the_scene_and_rehearses_in_it(tmp_path: Any,
                                                            approach)).run()
     assert card.end_note == "done"
     assert len(seen) == 1
+    # No forked rollout failed. The refusals before a model come before any
+    # child forks, and every later child runs in the agent's scene.
+    assert "failed in child" not in caplog.text
     assert approach._last_round_modelled
     # No fit ran: the deployed values are the declared init values
     # (the stand-in result's first sample).
