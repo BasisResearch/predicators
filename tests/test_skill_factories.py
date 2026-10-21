@@ -174,6 +174,19 @@ def _make_home_state(
                                    robot.initial_joint_positions))
 
 
+def _state_at_joints(robot_obj: Object, robot, joints) -> utils.PyBulletState:
+    """A self-consistent PyBulletState with the arm at ``joints``: the EE
+    features are its forward kinematics."""
+    robot.set_joints(list(joints))
+    rx, ry, rz, qx, qy, qz, qw, _ = robot.get_state()
+    _, tilt, wrist = p.getEulerFromQuaternion([qx, qy, qz, qw])
+    data = {
+        robot_obj:
+        np.array([rx, ry, rz, tilt, wrist, _OPEN_STATE], dtype=np.float32)
+    }
+    return utils.PyBulletState(data, simulator_state=list(joints))
+
+
 # ===========================================================================
 # 1. SkillConfig
 # ===========================================================================
@@ -991,6 +1004,122 @@ class TestExecutorRails:
         action = grounded.policy(state)
         assert isinstance(action, Action)
         assert grounded.memory[_BIRRT_STEP_KEY.format(pid)] == 1
+
+    def _tail_skill(self, robot, target):
+        """A one-phase planned move whose target, ``target["pose"]``, is read
+        live on every step, like a target computed from the scene; and its
+        option, grounded at the end of a replayed path that sits at the home
+        pose."""
+        robot_obj = _make_robot_obj()
+
+        def target_fn(state, _objects, _params, _cfg):
+            orn = p.getQuaternionFromEuler([
+                0,
+                state.get(robot_obj, "tilt"),
+                state.get(robot_obj, "wrist")
+            ])
+            current = Pose((state.get(robot_obj, "x"), state.get(
+                robot_obj, "y"), state.get(robot_obj, "z")), orn)
+            return current, target["pose"], "open"
+
+        phase = Phase(name="MoveAbove",
+                      action_type=PhaseAction.MOVE_TO_POSE,
+                      target_fn=target_fn,
+                      use_motion_planning=True)
+        skill = PhaseSkill("Tail", [_ROBOT_TYPE], Box(0, 1, (0, )),
+                           _make_config(robot), [phase])
+        state = _make_home_state(robot_obj, robot)
+        grounded = skill.build().ground([robot_obj], np.zeros(0))
+        assert grounded.initiable(state)
+        pid = id(phase)
+        grounded.memory[_BIRRT_TRAJ_KEY.format(pid)] = [
+            list(state.joint_positions)
+        ]
+        grounded.memory[_BIRRT_STEP_KEY.format(pid)] = 1
+        grounded.memory[f"birrt_finger_{pid}"] = "open"
+        return skill, grounded, robot_obj, state
+
+    def test_replay_tail_replans_a_target_that_moved(self, robot_scene,
+                                                     monkeypatch):
+        """A target that turned after its path was planned is not reached by
+        one incremental-IK step that swings the wrist through the turn (bridge
+        r15 seed 1: 1.84 rad out and back between two actions).
+
+        The phase plans a fresh path from where the arm is, once, and
+        fails if the end of that path still needs such a jump.
+        """
+        # pylint: disable=protected-access
+        _, robot = robot_scene
+        utils.reset_config({"seed": 123})
+        target = {}
+        skill, grounded, robot_obj, state = self._tail_skill(robot, target)
+        joints = list(state.joint_positions)
+        home = robot.forward_kinematics(joints)
+        # Since the path was planned, the target turned 2.1 rad about the
+        # vertical and rose 2 cm (out of the terminal's reach).
+        turned = p.multiplyTransforms((0, 0, 0),
+                                      p.getQuaternionFromEuler((0, 0, 2.1)),
+                                      (0, 0, 0), home.orientation)[1]
+        target["pose"] = Pose(
+            (home.position[0], home.position[1], home.position[2] + 0.02),
+            turned)
+        arm = [
+            i for i in range(len(joints))
+            if i not in (robot.left_finger_joint_idx,
+                         robot.right_finger_joint_idx)
+        ]
+        # The fresh path only gets the wrist 0.1 rad round.
+        path_end = list(joints)
+        path_end[arm[-1]] += 0.1
+        planned = []
+
+        def plan(*_args):
+            planned.append(True)
+            return [joints, path_end]
+
+        monkeypatch.setattr(skill, "_plan_without_simulator", plan)
+        action = grounded.policy(state)
+        assert len(planned) == 1
+        assert max(abs(float(action.arr[i]) - joints[i])
+                   for i in arm) <= PhaseSkill._ik_joint_jump_max
+        assert np.allclose(action.arr[arm], np.array(path_end)[arm])
+        # At the end of the fresh path the target is still a jump away.
+        with pytest.raises(utils.OptionExecutionFailure,
+                           match="target moved after the path"):
+            grounded.policy(_state_at_joints(robot_obj, robot, path_end))
+        assert len(planned) == 1
+
+    def test_replay_tail_settles_once(self, robot_scene):
+        """At the end of a replayed path the arm settles on the last waypoint,
+        then converges to the target: a convergence step is not undone by
+        settling again (bridge r14 seed 0: a dwell rocked 0.06 rad out and back
+        every third step)."""
+        _, robot = robot_scene
+        utils.reset_config({"seed": 123})
+        target = {}
+        _, grounded, robot_obj, state = self._tail_skill(robot, target)
+        joints = np.array(state.joint_positions)
+        home = robot.forward_kinematics(list(joints))
+        target["pose"] = Pose(
+            (home.position[0], home.position[1], home.position[2] + 0.07),
+            home.orientation)
+        arm = [
+            i for i in range(len(joints))
+            if i not in (robot.left_finger_joint_idx,
+                         robot.right_finger_joint_idx)
+        ]
+        # Short of the last waypoint: settle on it.
+        short = joints.copy()
+        short[arm[0]] += 0.02
+        action = grounded.policy(_state_at_joints(robot_obj, robot, short))
+        assert np.allclose(action.arr[arm], joints[arm], atol=1e-6)
+        # On it: the first convergence step, 5 cm of the 7 cm up.
+        action = grounded.policy(state)
+        stepped = np.array(action.arr, dtype=np.float64)
+        assert not np.allclose(stepped[arm], joints[arm], atol=1e-3)
+        # Where that step took the arm: converge on, not back.
+        action = grounded.policy(_state_at_joints(robot_obj, robot, stepped))
+        assert not np.allclose(action.arr[arm], joints[arm], atol=1e-3)
 
 
 # ===========================================================================

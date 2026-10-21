@@ -6,8 +6,8 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import TYPE_CHECKING, Any, Callable, ClassVar, Dict, List, \
-    Optional, Sequence, Set, Tuple, cast
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Dict, Iterable, \
+    List, Optional, Sequence, Set, Tuple, cast
 
 if TYPE_CHECKING:
     from predicators.envs.pybullet_env import PyBulletEnv
@@ -238,6 +238,8 @@ _BIRRT_DETOUR_KEY = "birrt_detour_{}"  # planned free-space approach detour
 _BIRRT_FINGER_KEY = "birrt_finger_{}"  # stores finger_status str
 _BIRRT_HOLD_KEY = "birrt_hold_{}"  # consecutive re-commands of a waypoint
 _BIRRT_LAST_CMD_KEY = "birrt_last_cmd_{}"  # index of the waypoint last sent
+_BIRRT_SETTLED_KEY = "birrt_settled_{}"  # replay tail done settling
+_BIRRT_TAIL_REPLANS_KEY = "birrt_tail_replans_{}"  # replans for a moved target
 _FINGER_TARGET_KEY = "finger_target_{}"  # anchored CHANGE_FINGERS target
 
 # Grasp-relative release (SkillConfig.release_until_ungrasped): the
@@ -934,7 +936,8 @@ class PhaseSkill:
         pid = id(phase)
         for key_fmt in (_BIRRT_TRAJ_KEY, _BIRRT_STEP_KEY, _BIRRT_FINGER_KEY,
                         _BIRRT_DETOUR_KEY, _BIRRT_HOLD_KEY,
-                        _BIRRT_LAST_CMD_KEY, _FINGER_TARGET_KEY,
+                        _BIRRT_LAST_CMD_KEY, _BIRRT_SETTLED_KEY,
+                        _BIRRT_TAIL_REPLANS_KEY, _FINGER_TARGET_KEY,
                         _DWELL_COUNT_KEY, _STROKE_BEST_KEY, _STROKE_NOPROG_KEY,
                         _IK_STALL_BEST_KEY, _IK_STALL_COUNT_KEY):
             memory.pop(key_fmt.format(pid), None)
@@ -1062,6 +1065,9 @@ class PhaseSkill:
     # re-commanded until every arm joint is within this (radians) of it,
     # a tighter settle than the mid-path tracking gate.
     _birrt_final_track_tol: ClassVar[float] = 0.005
+    # Fresh plans a phase may make, per entry, when its target moved
+    # after its path was planned (see _converge_or_replan).
+    _tail_replan_budget: ClassVar[int] = 1
     # Random in-limit IK restarts for the BiRRT goal solve, tried after
     # the current-joints and home seeds (see _solve_goal_ik_candidates).
     _goal_ik_num_restarts: ClassVar[int] = 8
@@ -1181,6 +1187,9 @@ class PhaseSkill:
         and return the corresponding joint-position action, applying a small
         finger nudge matching the phase's finger_status (same as incremental
         IK) to prevent drift and allow finger transitions during movement.
+        Once the trajectory is consumed, settle on its last waypoint, then
+        converge to the target by incremental IK; a convergence step that
+        would jump plans afresh instead (see ``_converge_or_replan``).
 
         Falls back to incremental IK if BiRRT planning fails.
         """
@@ -1318,16 +1327,24 @@ class PhaseSkill:
             # IK convergence below can refuse the last step (boil jug
             # pick, 2026-09-08). Then converge by incremental IK to the
             # exact target pose (the goal solve may be slightly off it).
-            last = traj[-1]
-            settle_err = max(
-                abs(float(cur) - float(cmd)) for idx, (
-                    cur, cmd) in enumerate(zip(pb_state.joint_positions, last))
-                if idx not in (finger_idx_l, finger_idx_r))
-            if settle_err > self._birrt_final_track_tol and memory.get(
-                    hold_key, 0) < CFG.pybullet_birrt_replay_max_hold_steps:
-                memory[hold_key] = memory.get(hold_key, 0) + 1
-                return self._waypoint_action(pb_state, memory[finger_key],
-                                             last)
+            # The settle happens once, before the first convergence
+            # step. Every convergence step moves the arm off the last
+            # waypoint, so settling again pulled it straight back, and
+            # the two took turns for as long as the hold budget lasted:
+            # a glue dab's dwell rocked 0.06 rad out and back every
+            # third step (bridge r14 seed 0, 2026-10-19).
+            settled_key = _BIRRT_SETTLED_KEY.format(pid)
+            if not memory.get(settled_key, False):
+                last = traj[-1]
+                settle_err, _ = self._arm_joint_gap(last,
+                                                    pb_state.joint_positions)
+                holds = memory.get(hold_key, 0)
+                if settle_err > self._birrt_final_track_tol and \
+                        holds < CFG.pybullet_birrt_replay_max_hold_steps:
+                    memory[hold_key] = holds + 1
+                    return self._waypoint_action(pb_state, memory[finger_key],
+                                                 last)
+                memory[settled_key] = True
             if phase.allow_approach_detour and not phase.expect_contact:
                 # Finishing a checked path is not permission to take an
                 # unchecked IK correction through the scene. Replan once
@@ -1352,7 +1369,10 @@ class PhaseSkill:
                 if blocked is not None:
                     return blocked
                 raise
-            return self._execute_move_ik(phase, state, memory, objects, params)
+            action = self._execute_move_ik(phase, state, memory, objects,
+                                           params)
+            return self._converge_or_replan(phase, state, memory, objects,
+                                            params, action)
 
         # Tracking gate: re-command the previous waypoint until the arm has
         # converged to it. Advancing one waypoint per control step regardless
@@ -1418,6 +1438,48 @@ class PhaseSkill:
             memory[last_cmd_key] = step
         return self._waypoint_action(pb_state, memory[finger_key],
                                      target_joints)
+
+    def _converge_or_replan(self, phase: Phase, state: State, memory: Dict,
+                            objects: Sequence[Object], params: Array,
+                            action: Action) -> Action:
+        """The tail's convergence step ``action``, or a replan if it jumps.
+
+        ``action`` is meant to correct the small residual the goal solve
+        left. One that moves an arm joint further than
+        ``_ik_joint_jump_max`` does something else: the phase target
+        moved after the path was planned, and incremental IK takes the
+        whole difference in one step, since it applies the full target
+        orientation at once. The joint-jump guard lets such a step
+        through when the orientation change accounts for it, which is
+        right for an incremental-IK phase but not after a checked path.
+        A pick planned its approach toward a standing leg read while it
+        was still falling, whose yaw feature then swung 2.1 rad as the
+        leg came upright; the step swung the wrist 1.84 rad and the
+        settle pulled it straight back (bridge r15 seed 1, 2026-10-19).
+        So plan a checked path from where the arm is to the live target,
+        once per entry into the phase, and fail if the target is still
+        out of one step's reach at the end of that path.
+        """
+        pb_state = cast(utils.PyBulletState, state)
+        move, joint_idx = self._arm_joint_move(pb_state, action)
+        if move <= self._ik_joint_jump_max:
+            return action
+        replan_key = _BIRRT_TAIL_REPLANS_KEY.format(id(phase))
+        replans = memory.get(replan_key, 0)
+        if replans >= self._tail_replan_budget:
+            raise utils.OptionExecutionFailure(
+                f"[{self._name}/{phase.name}] the target moved after the "
+                f"path to it was planned: reaching it from the end of the "
+                f"path needs {move:.2f} rad on joint {joint_idx} in one "
+                f"step, even after {replans} replan(s) (params "
+                f"{_fmt_option_params(params)}); refusing the jump.")
+        logging.debug(
+            "[%s/%s] converging needs %.2f rad on joint %d in one step: "
+            "the target moved after the path was planned; replanning.",
+            self._name, phase.name, move, joint_idx)
+        self._clear_phase_memory(phase, memory)
+        memory[replan_key] = replans + 1
+        return self._execute_move_birrt(phase, state, memory, objects, params)
 
     def _waypoint_action(self, pb_state: utils.PyBulletState,
                          finger_status: str,
@@ -2306,15 +2368,7 @@ class PhaseSkill:
         correction and pin it.
         """
         robot = self._config.robot
-        finger_idxs = (robot.left_finger_joint_idx,
-                       robot.right_finger_joint_idx)
-        deltas = [
-            (abs(float(a) - float(c)), i)
-            for i, (a,
-                    c) in enumerate(zip(action.arr, pb_state.joint_positions))
-            if i not in finger_idxs
-        ]
-        arm_delta, joint_idx = max(deltas)
+        arm_delta, joint_idx = self._arm_joint_move(pb_state, action)
         if arm_delta <= self._ik_joint_jump_max:
             return None
         actual = robot.forward_kinematics(list(
@@ -2325,6 +2379,23 @@ class PhaseSkill:
             return None
         return (f"{arm_delta:.2f} rad on joint {joint_idx} for a step whose "
                 f"orientation change is {orientation_delta:.2f} rad")
+
+    def _arm_joint_move(self, pb_state: utils.PyBulletState,
+                        action: Action) -> Tuple[float, int]:
+        """The largest move ``action`` asks of one arm joint (fingers aside)
+        from the current joints, and that joint's index."""
+        return self._arm_joint_gap(action.arr, pb_state.joint_positions)
+
+    def _arm_joint_gap(self, joints: Iterable[float],
+                       other: Iterable[float]) -> Tuple[float, int]:
+        """The largest difference between two joint vectors on one arm joint
+        (fingers aside), and that joint's index."""
+        robot = self._config.robot
+        finger_idxs = (robot.left_finger_joint_idx,
+                       robot.right_finger_joint_idx)
+        return max((abs(float(a) - float(b)), i)
+                   for i, (a, b) in enumerate(zip(joints, other))
+                   if i not in finger_idxs)
 
     def _guard_joint_jump(self, phase: Phase, pb_state: utils.PyBulletState,
                           target_pose: Pose, action: Action) -> Action:
