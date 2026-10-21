@@ -442,8 +442,8 @@ def min_explainable_fits(
 ) -> Tuple[List[float], List[Dict[str, float]]]:
     """:func:`min_explainable_rms` plus each trajectory's argmin params.
 
-    The second return is, per trajectory, the PHYSICAL portion of the
-    candidate that achieved its best RMS. This is each recording's own
+    The second return is, per trajectory, the candidate that achieved its
+    best RMS, physical and rule values alike. This is each recording's own
     preferred explanation, and disagreement between them is the honest
     uncertainty signal the consistency loop acts on: when a segment
     gets dropped, its argmin becomes a hull candidate that widens the
@@ -470,10 +470,10 @@ def min_explainable_fits(
     candidates.extend(dict(c) for c in extra_candidates)
     physical_names = [s.name for s in physical_specs]
     best = [float("inf")] * len(trajectories)
-    best_params: List[Dict[str, float]] = [{
-        n: float(base[n])
-        for n in physical_names
-    } for _ in trajectories]
+    best_params: List[Dict[str,
+                           float]] = [{n: float(v)
+                                       for n, v in base.items()}
+                                      for _ in trajectories]
     # Every candidate's trajectories in one batch; the same per-trajectory
     # terms per_trajectory_rms scores, each candidate's RMS computed alike.
     per_candidate = trajectory_terms_by_point(base_env, trajectories,
@@ -485,5 +485,5 @@ def min_explainable_fits(
             r = float(np.sqrt(np.mean(res**2))) if res.size else float("inf")
             if r < best[i]:
                 best[i] = r
-                best_params[i] = {n: float(params[n]) for n in physical_names}
+                best_params[i] = {n: float(v) for n, v in params.items()}
     return best, best_params
