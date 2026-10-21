@@ -30,9 +30,10 @@ import logging
 import os
 import threading
 from typing import Any, Callable, ClassVar, Dict, Iterable, Iterator, List, \
-    Optional, Set, Tuple
+    Optional, Sequence, Set, Tuple
 from typing import Type as TypingType
 
+import numpy as np
 import pybullet as p
 
 from predicators import utils
@@ -182,6 +183,9 @@ _SPHERE_RADIUS = "radius"
 # _SIZE_ATOL: a noisy reading of the size it has is no new size.
 _SIZE_SIGMAS = 4.0
 _SIZE_ATOL = 1e-4
+# A box whose axes each lie within about 15 degrees of the world's reads its
+# own lengths and its world extents alike.
+_ALIGNED_COSINE = float(np.cos(np.radians(15.0)))
 
 
 @dataclasses.dataclass(frozen=True)
@@ -427,13 +431,38 @@ class SceneBase(PyBulletEnv):
             built = self._primitive(obj.id)
             if built is None or built.geometry != geometry:
                 continue
-            off = [
-                feature
-                for feature, value, have in zip(features, values, built.size)
-                if abs(value - have / per_unit) > max(
-                    _SIZE_ATOL,
-                    _SIZE_SIGMAS * noise.feature_sigma(obj.type, feature))
-            ]
+
+            def off_from(sizes: Sequence[float],
+                         features: Tuple[str, ...] = features,
+                         values: Tuple[float, ...] = values,
+                         per_unit: float = per_unit,
+                         obj: Object = obj) -> List[str]:
+                return [
+                    feature
+                    for feature, value, have in zip(features, values, sizes)
+                    if abs(value - have / per_unit) > max(
+                        _SIZE_ATOL,
+                        _SIZE_SIGMAS * noise.feature_sigma(obj.type, feature))
+                ]
+
+            off = off_from(built.size)
+            if off and geometry == p.GEOM_BOX:
+                # A box turned off its axes reads the same whether its size
+                # features give its own lengths or its extents along the
+                # world's axes (an env may publish either), so it is resized
+                # only when neither reading matches it.
+                turn = np.abs(
+                    np.array(
+                        p.getMatrixFromQuaternion(
+                            p.multiplyTransforms(
+                                (0.0, 0.0, 0.0),
+                                self._orientation_in_state(obj, state),
+                                (0.0, 0.0, 0.0),
+                                built.frame_orientation)[1])).reshape(3, 3))
+                if np.min(np.diag(turn)) < _ALIGNED_COSINE:
+                    if off_from(tuple(turn @ np.array(built.size))):
+                        unfit.extend((obj, feature) for feature in off)
+                    continue
             if off and not self._rebuild_body(
                     obj, built, tuple(v * per_unit for v in values)):
                 unfit.extend((obj, feature) for feature in off)
@@ -463,9 +492,16 @@ class SceneBase(PyBulletEnv):
             want / have if have > 0.0 else 1.0
             for want, have in zip(size, built.size)
         ]
+        dynamics = p.getDynamicsInfo(old, -1, physicsClientId=client)
+        # PyBullet reports a shape's frame relative to the body's inertial
+        # frame and takes a new shape's relative to its link frame: compose
+        # the inertial offset with it.
+        place, turn = p.multiplyTransforms(dynamics[3], dynamics[4],
+                                           built.frame_position,
+                                           built.frame_orientation)
         frame = {
-            "collisionFramePosition": list(built.frame_position),
-            "collisionFrameOrientation": list(built.frame_orientation),
+            "collisionFramePosition": list(place),
+            "collisionFrameOrientation": list(turn),
         }
         if built.geometry == p.GEOM_BOX:
             collision = p.createCollisionShape(
@@ -497,7 +533,6 @@ class SceneBase(PyBulletEnv):
                 visual = p.createVisualShape(p.GEOM_SPHERE,
                                              radius=dims[0] * ratio[0],
                                              **look)
-        dynamics = p.getDynamicsInfo(old, -1, physicsClientId=client)
         position, orientation = p.getBasePositionAndOrientation(
             old, physicsClientId=client)
         linear, angular = p.getBaseVelocity(old, physicsClientId=client)

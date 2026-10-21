@@ -2145,31 +2145,13 @@ class PyBulletEnv(BaseEnv):
             return
 
         # 1) Position/orientation if those features exist
-        features = obj.type.feature_names
         cur_x, cur_y, cur_z = p.getBasePositionAndOrientation(
             obj.id, physicsClientId=self._physics_client_id)[0]
         px = state.get(obj, "x") if "x" in obj.type.feature_names else cur_x
         py = state.get(obj, "y") if "y" in obj.type.feature_names else cur_y
         pz = state.get(obj, "z") if "z" in obj.type.feature_names else cur_z
 
-        if "rot" in features:
-            angle = state.get(obj, "rot")
-            # Convert from 2D angle to a 3D quaternion (assuming rotation around
-            # z)
-            orn = p.getQuaternionFromEuler([0.0, 0.0, angle])
-        elif {"yaw", "roll", "pitch"} & set(features):
-            # Rebuild the full orientation from whichever Euler angles the type
-            # carries (PyBullet's convention is [roll, pitch, yaw]). Dropping
-            # roll/pitch here would make toppled objects - e.g. a fallen domino
-            # with roll≈π - unreconstructible: _get_state reads the angle back,
-            # the mismatch exceeds _reconstruction_raise_atol, and _set_state
-            # raises instead of round-tripping. Missing angles default to 0.
-            roll = state.get(obj, "roll") if "roll" in features else 0.0
-            pitch = state.get(obj, "pitch") if "pitch" in features else 0.0
-            yaw = state.get(obj, "yaw") if "yaw" in features else 0.0
-            orn = p.getQuaternionFromEuler([roll, pitch, yaw])
-        else:
-            orn = self._default_orn  # e.g. (0,0,0,1)
+        orn = self._orientation_in_state(obj, state)
 
         # 2) Update the object's position/orientation in PyBullet
         update_object(obj.id, (px, py, pz),
@@ -2187,6 +2169,26 @@ class PyBulletEnv(BaseEnv):
                             linear,
                             angular,
                             physicsClientId=self._physics_client_id)
+
+    def _orientation_in_state(self, obj: Object, state: State) -> Quaternion:
+        """The orientation ``state`` gives ``obj``'s body."""
+        features = obj.type.feature_names
+        if "rot" in features:
+            # A 2D angle: a rotation about z.
+            return p.getQuaternionFromEuler([0.0, 0.0, state.get(obj, "rot")])
+        if {"yaw", "roll", "pitch"} & set(features):
+            # Rebuild the full orientation from whichever Euler angles the type
+            # carries (PyBullet's convention is [roll, pitch, yaw]). Dropping
+            # roll/pitch here would make toppled objects - e.g. a fallen domino
+            # with roll≈π - unreconstructible: _get_state reads the angle back,
+            # the mismatch exceeds _reconstruction_raise_atol, and _set_state
+            # raises instead of round-tripping. Missing angles default to 0.
+            roll = state.get(obj, "roll") if "roll" in features else 0.0
+            pitch = state.get(obj, "pitch") if "pitch" in features else 0.0
+            yaw = state.get(obj, "yaw") if "yaw" in features else 0.0
+            return p.getQuaternionFromEuler([roll, pitch, yaw])
+        qx, qy, qz, qw = self._default_orn  # e.g. (0,0,0,1)
+        return (qx, qy, qz, qw)
 
     def _staged_velocity(
         self, obj: Object, state: State
