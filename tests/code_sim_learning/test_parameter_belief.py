@@ -390,21 +390,72 @@ def test_a_deadline_cuts_the_lines_short_and_they_keep_their_priors(
     assert "time ran out before it finished the lines of a, b" in \
         "\n".join(late.describe())
     # Four rounds fit before the deadline, the fifth would not. The
-    # declared line has probed both sides of its estimate by then (three
-    # probes on the left, one on the right) and keeps them; the free one
-    # keeps its prior.
+    # declared line has not finished probing its right side by then (one
+    # probe, short of the cutoff), so what it traced would lose most of
+    # that side's mass: it keeps its prior, as the free one does.
     clock["now"] = 0.0
-    cut = build(45.0, free_names=("b", ))
+    early = build(45.0, free_names=("b", ))
     assert clock["now"] == pytest.approx(40.0)
+    assert early.cut_short == ("a", "b")
+    assert np.sqrt(early.lines["a"].variance()) == pytest.approx(2.0, rel=0.02)
+    # Six rounds finish the declared line's outward probes on both sides,
+    # so only its refinement is cut: it keeps what it traced, as wide as
+    # the full line; the free one still keeps its prior.
+    clock["now"] = 0.0
+    cut = build(65.0, free_names=("b", ))
     assert cut.cut_short == ("a", "b")
     grid = cut.lines["a"].grid
     assert grid[0] < 0.3 < grid[-1]
-    assert np.sqrt(cut.lines["a"].variance()) < 2.0
+    assert np.sqrt(cut.lines["a"].variance()) == pytest.approx(np.sqrt(
+        full.lines["a"].variance()),
+                                                               rel=0.05)
     assert np.sqrt(cut.lines["b"].variance()) == pytest.approx(np.sqrt(
         _prior_line_variance(0.7, 0.5, 0.0, 2.0)),
                                                                rel=0.02)
     restored = ParameterBelief.from_dict(cut.to_dict())
     assert restored.cut_short == ("a", "b")
+
+
+def test_a_cut_line_at_its_bound_keeps_its_trace(monkeypatch):
+    """A point estimate on its parameter's bound has one side to trace: once
+    that side's outward probes are done, a cut line keeps what it traced
+    instead of reverting to the prior over the whole range."""
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.code_sim_learning import parameter_belief as module
+    specs = [ParamSpec("mu", 0.0, lo=0.0, hi=2.0)]
+    residuals = _gaussian_residuals(["mu"], [0.0], np.diag([20.0]))
+    clock = {"now": 0.0}
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock["now"])
+
+    def batch(points):
+        clock["now"] += 10.0
+        return [residuals(params) for params in points]
+
+    def build(deadline):
+        clock["now"] = 0.0
+        return build_parameter_belief(specs, {"mu": 0.0},
+                                      residuals,
+                                      noise_sigma=_SIGMA_N,
+                                      prior_centers={"mu": 0.5},
+                                      prior_sigmas={"mu": 1.0},
+                                      config=BeliefConfig(num_draws=16,
+                                                          line_max_evals=40),
+                                      seed=0,
+                                      batch_residuals=batch,
+                                      deadline=deadline)
+
+    full = build(None)
+    widths = {}
+    for rounds in range(1, 8):
+        belief = build(10.0 * rounds + 5.0)
+        if belief.cut_short:
+            widths[rounds] = np.sqrt(belief.lines["mu"].variance())
+    kept = [w for w in widths.values() if w < 0.5]
+    assert kept, widths
+    for width in kept:
+        assert width == pytest.approx(np.sqrt(full.lines["mu"].variance()),
+                                      rel=0.1)
+    assert full.lines["mu"].grid[0] == pytest.approx(0.0)
 
 
 def _prior_line_variance(center, sigma, lo, hi):

@@ -281,6 +281,9 @@ def test_a_basin_the_deadline_leaves_untraced_is_left_out(monkeypatch):
     the whole count, and the report says how many were left out."""
     # pylint: disable-next=import-outside-toplevel
     from predicators.code_sim_learning import orchestrator
+
+    # The belief's seed reads the configured run seed.
+    utils.reset_config({})
     spec = ParamSpec("k", 0.5, lo=0.0, hi=1.0)
     clock = {"now": 0.0}
     monkeypatch.setattr(orchestrator.time, "monotonic", lambda: clock["now"])
