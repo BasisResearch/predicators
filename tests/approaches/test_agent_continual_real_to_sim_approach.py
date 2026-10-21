@@ -256,6 +256,10 @@ def test_agent_builds_the_scene_and_rehearses_in_it(tmp_path: Any,
     assert ("onset lies beyond them" in prompt) == from_assets
     assert ("how the task seems to have been designed"
             in prompt) == from_assets
+    # Two forms of a mechanism the recordings cannot tell apart stay in the
+    # model through a blending parameter.
+    assert ("declare a parameter that blends the forms"
+            in prompt) == from_assets
     assert ("make your first step on a new level" in prompt) == from_assets
     # The test-level gate also waits for a fit in EMPIRIC from assets.
     assert ("Test levels require a fitted model" in prompt) == from_assets
