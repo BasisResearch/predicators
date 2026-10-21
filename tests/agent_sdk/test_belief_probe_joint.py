@@ -544,6 +544,20 @@ def test_a_draw_whose_skill_fails_partway_is_scored_on_what_it_did(
     utils.reset_config({})
 
 
+def test_the_collector_says_where_the_scene_was_still_moving():
+    """A body other than the robot that moved more than a millimetre a step
+    over the last few states had not come to rest; one that stayed put had."""
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.agent_sdk.tools.verdicts import _EvalStateCollector
+    track = [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.12, 0.14, 0.16, 0.18, 0.2, 0.22]
+    states = [State({_block: np.array([x], dtype=float)}) for x in track]
+    collector = _EvalStateCollector(None, states[0])
+    collector.states = list(states)
+    assert not collector.moving_at(6)
+    assert collector.moving_at(12)
+    assert not collector.moving_at(1)
+
+
 def test_a_draw_that_wins_before_a_later_loss_counts_as_won():
     """A real episode stops at its first terminal step, so a draw that reaches
     the goal and is overrun by a later line counts as solved, and no line of it
@@ -564,6 +578,10 @@ def test_a_draw_that_wins_before_a_later_loss_counts_as_won():
     assert [d["lost"] for d in res.draws] == [False, False, False, False]
     assert [d["lost_line"] for d in res.draws] == [None] * 4
     assert ctx.live_rehearsals[-1].scored == [True] * 4
+    # Both lines ran in every draw; a draw whose block jumped in a line was
+    # still moving at its end.
+    assert ctx.live_rehearsals[-1].lines_run == [[0, 1]] * 4
+    assert ctx.live_rehearsals[-1].moving_lines[0] == [0, 1]
     utils.reset_config({})
 
 

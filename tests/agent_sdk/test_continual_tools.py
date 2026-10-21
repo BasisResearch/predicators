@@ -960,6 +960,18 @@ def test_the_game_over_gate_refuses_a_request_its_draws_lose(
         # Draws the evaluator did not score do not count: one of the one
         # scored draw is lost.
         assert refused([0, None, None, None], [True, False, False, False])
+        # Draws whose scene still moved when the rehearsed Wait after the
+        # request ended count as risk too: two of four, beside no loss.
+        ctx.live_rehearsals.append(
+            LiveRehearsal(ctx.current_observation,
+                          plan,
+                          0.5,
+                          lost_lines=[None] * 4,
+                          scored=[True] * 4,
+                          moving_lines=[[0, 1], [1], [], [0]]))
+        out = _call(tools, "skills_invoke", skill=lines[0])
+        assert "the scene was still moving when the Wait lines" in out
+        assert "Nothing was charged" in out
         # A request that waits longer than its rehearsal did is refused:
         # the draws say nothing about the steps beyond.
         ctx.live_rehearsals.append(

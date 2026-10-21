@@ -38,6 +38,10 @@ class LiveRehearsal:
     # Per draw, whether the task's evaluator scored it: an unscored draw's
     # lost line is None too, and it says nothing about a GAME_OVER.
     scored: List[bool] = field(default_factory=list)
+    # Per draw, the plan lines that ran, and those at whose end a body
+    # other than the robot was still moving.
+    lines_run: List[List[int]] = field(default_factory=list)
+    moving_lines: List[List[int]] = field(default_factory=list)
 
 
 @dataclass

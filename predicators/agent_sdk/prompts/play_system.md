@@ -202,7 +202,7 @@ Each real step changes the observation, so rehearse the rest of the plan again b
 A request of `Wait` lines alone needs no rehearsal, and the `Wait` lines that end a request need not match the rehearsed plan's; runs at the point estimate (`draws=0`) and runs from staged states do not count.
 
 <!-- section: rehearsal_game_over_gate -->
-A rehearsed request is refused too, charging nothing, when more than __SHARE__ of its rehearsal's scored draws end the episode in GAME_OVER during the request or the `Wait` lines that directly follow it in the rehearsed plan: a GAME_OVER ends a test level.
+A rehearsed request is refused too, charging nothing, when more than __SHARE__ of its rehearsal's scored draws end the episode in GAME_OVER during the request or the `Wait` lines that directly follow it in the rehearsed plan, or, counting the draws whose scene is still moving when those lines end, could: a GAME_OVER ends a test level, and what happens until the scene rests follows from the request.
 Those `Wait` lines must cover the request's own, so rehearse a request with at least as many `Wait` steps after its last motion line as it asks for; a request of `Wait` lines alone passes.
 Rehearse another step whose draws avoid it, or, if your model is wrong there, repair it and rehearse again.
 

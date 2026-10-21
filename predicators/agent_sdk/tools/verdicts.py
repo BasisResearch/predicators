@@ -11,6 +11,11 @@ from predicators.agent_sdk.proposal_exec import build_exec_context, \
 from predicators.agent_sdk.tools.context import ToolContext
 from predicators.structs import Predicate, State, Task
 
+# A body moving more than this (metres a step, averaged over up to
+# _MOVING_SPAN transitions) has not come to rest.
+_MOVING_PER_STEP = 1e-3
+_MOVING_SPAN = 5
+
 
 class _EvalStateCollector:
     """Per-step states + option labels of one rollout, for evaluator verdicts.
@@ -88,6 +93,29 @@ class _EvalStateCollector:
             else:
                 low = middle + 1
         return low
+
+    def moving_at(self, count: int) -> bool:
+        """Whether a body other than the robot was still moving at the
+        rollout's ``count``-th state: over the last few transitions before it,
+        some body's position changed by more than ``_MOVING_PER_STEP`` a step
+        on average."""
+        if count < 2:
+            return False
+        steps = min(_MOVING_SPAN, count - 1)
+        last, first = self.states[count - 1], self.states[count - 1 - steps]
+        names = {obj.name: obj for obj in first}
+        for obj in last:
+            if obj.type.name == "robot" or obj.name not in names:
+                continue
+            for feature in ("x", "y", "z"):
+                if feature not in obj.type.feature_names:
+                    continue
+                change = abs(
+                    float(last.get(obj, feature)) -
+                    float(first.get(names[obj.name], feature)))
+                if change > _MOVING_PER_STEP * steps:
+                    return True
+        return False
 
     def line_of(self, count: int) -> Optional[int]:
         """The plan line during which the rollout reached its ``count``-th

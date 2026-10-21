@@ -1869,6 +1869,8 @@ class BeliefProbe:
             solved: Optional[bool] = None
             lost: Optional[bool] = None
             lost_line: Optional[int] = None
+            lines_run: List[int] = []
+            moving_lines: List[int] = []
             unreconstructed: List[str] = []
             with (draw_scope(rule) if (rule and draw_scope is not None)
                   else contextlib.nullcontext()), \
@@ -1925,6 +1927,13 @@ class BeliefProbe:
                             # only the losses a request's own lines risk; a
                             # draw lost at its start charges no line.
                             lost_line = collector.line_of(end)
+                        # Where the scene was still moving: the gate asks
+                        # that a request's rehearsal run until it rests.
+                        lines_run = [line for line, _ in collector.line_ends]
+                        moving_lines = [
+                            line for line, count in collector.line_ends
+                            if collector.moving_at(count)
+                        ]
                     except Exception as e:  # pylint: disable=broad-except
                         # The report says the draw went unscored; the log
                         # keeps why.
@@ -1958,6 +1967,8 @@ class BeliefProbe:
                 "solved": solved,
                 "lost": lost,
                 "lost_line": lost_line,
+                "lines_run": lines_run,
+                "moving_lines": moving_lines,
                 "success": success,
                 "num_actions": sum(st.num_actions for st in r.steps),
                 "failure": failure,
@@ -2150,7 +2161,13 @@ class BeliefProbe:
                     [list(d.get("line_states") or []) for d in result.draws],
                     basis,
                     mean_states, [d.get("lost_line") for d in result.draws],
-                    scored=[d.get("lost") is not None for d in result.draws]))
+                    scored=[d.get("lost") is not None for d in result.draws],
+                    lines_run=[
+                        list(d.get("lines_run") or []) for d in result.draws
+                    ],
+                    moving_lines=[
+                        list(d.get("moving_lines") or []) for d in result.draws
+                    ]))
             del ctx.live_rehearsals[:-_LIVE_REHEARSALS_KEPT]
         return result
 

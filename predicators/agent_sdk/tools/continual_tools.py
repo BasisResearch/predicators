@@ -521,7 +521,8 @@ def build_continual_tools(
         gate applies: a refusal that charges nothing when more than that share
         of the matching rehearsal's scored draws end the episode in GAME_OVER
         during the request's lines or the Wait lines that directly follow them
-        in the rehearsed plan, where the scene moves on its own.
+        in the rehearsed plan, where the scene moves on its own, or, with the
+        draws whose scene was still moving when those lines ended, could.
 
         Those Wait lines must cover the request's own: a request that
         waits longer than its rehearsal did is refused, since the draws
@@ -556,25 +557,41 @@ def build_continual_tools(
                 "beyond, where a GAME_OVER can still come. Rehearse the plan "
                 "with at least that much Wait after that line. Nothing was "
                 "charged." + _footer())
-        scored = [
-            line for line, done in zip(
-                rehearsal.lost_lines, rehearsal.scored or [True] *
-                len(rehearsal.lost_lines)) if done
-        ]
-        draws = len(scored)
+        count = len(rehearsal.lost_lines)
+        flags = rehearsal.scored or [True] * count
+        moving = rehearsal.moving_lines or [[]] * count
+        draws = lost = unsettled = 0
+        for line, done, moved in zip(rehearsal.lost_lines, flags, moving):
+            if not done:
+                continue
+            draws += 1
+            if line is not None and line < horizon:
+                lost += 1
+            elif horizon - 1 in moved:
+                unsettled += 1
         if not draws:
             return None
-        lost = sum(1 for line in scored if line is not None and line < horizon)
-        if lost <= limit * draws:
-            return None
-        return _error_result(
-            f"Test level: {lost} of the {draws} scored draws of the "
-            "rehearsal that let this request through end the episode in "
-            "GAME_OVER during it or the Wait lines that follow it, more than "
-            f"the {limit:.0%} of draws a test-level step may risk; a "
-            "GAME_OVER ends a test level. Rehearse a step whose draws avoid "
-            "it, or, if your model is wrong there, repair it and rehearse "
-            "again. Nothing was charged." + _footer())
+        if lost > limit * draws:
+            return _error_result(
+                f"Test level: {lost} of the {draws} scored draws of the "
+                "rehearsal that let this request through end the episode in "
+                "GAME_OVER during it or the Wait lines that follow it, more "
+                f"than the {limit:.0%} of draws a test-level step may risk; a "
+                "GAME_OVER ends a test level. Rehearse a step whose draws "
+                "avoid it, or, if your model is wrong there, repair it and "
+                "rehearse again. Nothing was charged." + _footer())
+        if lost + unsettled > limit * draws:
+            return _error_result(
+                f"Test level: in {unsettled} of the {draws} scored draws of "
+                "the rehearsal that let this request through, the scene was "
+                "still moving when the Wait lines after it ended, so they do "
+                "not show how it ends; with the "
+                f"{lost} lost in it, more than the {limit:.0%} of draws a "
+                "test-level step may risk could still end in GAME_OVER, and "
+                "what happens until the scene rests follows from this request. "
+                "Rehearse it with more Wait after it, until the scene rests. "
+                "Nothing was charged." + _footer())
+        return None
 
     def _prediction_note(match: Optional[_RehearsalMatch],
                          progress: ExecutionProgress) -> str:
