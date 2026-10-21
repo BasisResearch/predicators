@@ -43,6 +43,11 @@ APPROACHES:
       # A rehearsal names the scored features its most likely rollout takes
       # past the range the recordings show.
       continual_rehearsal_support_note: true
+      # A resting body's position averages every frame since it last
+      # moved, up to 64, so a rehearsal draws it about as tightly as the
+      # frames allow; under the 8-frame default its spread stays at a third
+      # of the noise however long it rests.
+      continual_belief_window: 64
   # Model-free: the same agent with the model-side machinery switched
   # off, so the two differ only in the model.
   mf_opus:

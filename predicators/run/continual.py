@@ -768,9 +768,8 @@ class ContinualRun:
             belief = smooth_frames(frames, self._noise, window,
                                    float(CFG.continual_belief_sigmas))
         if CFG.continual_belief_velocities:
-            # A velocity needs a longer run of noisy readings than a
-            # position does.
-            states = episode["states"][-2 * window:]
+            states = episode["states"][
+                -max(int(CFG.continual_belief_velocity_frames), 1):]
             offset = len(episode["states"]) - len(states)
             motion = [
                 self._observed(s, lv.index, episode["episode"], offset + k)

@@ -20,7 +20,7 @@ from predicators.code_sim_learning.inference_recording import \
     RecordingProjection, load_recorded_level
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
-from predicators.run import paths
+from predicators.run import continual, paths
 from predicators.run.continual import ContinualRun, LevelAlreadyWon, \
     LevelLost, ProtocolSession, ResetUnavailable, RunEnded, build_levels, \
     level_summary
@@ -1009,6 +1009,70 @@ def test_belief_frame_smooths_resting_objects(tmp_path: Any,
             assert invokes
             assert all("atom_fractions" in e for e in invokes)
             assert all(e["belief_spread"] is not None for e in invokes)
+            seen["ok"] = True
+
+    run = ContinualRun(env, approach, _Probe())
+    card = run.run()
+    assert card.end_reason == "all_levels_won"
+    assert seen["ok"]
+
+
+def test_a_resting_body_averages_every_frame_its_window_allows(
+        tmp_path: Any, monkeypatch: Any) -> None:
+    """Under the change-point belief, a body at rest averages every frame of
+    the episode up to continual_belief_window, so a window past the default
+    eight frames keeps its spread falling as sigma / sqrt(frames); a moving
+    body's velocity line reads its own continual_belief_velocity_frames,
+    whatever the window."""
+    monkeypatch.setattr(observation_noise, "POSITION_FEATURES",
+                        frozenset({"pose"}))
+    sigma = 0.002
+    _config(tmp_path,
+            "oracle",
+            num_test_tasks=1,
+            continual_obs_noise_position=sigma,
+            continual_belief_frame=True,
+            belief_joint_draws=4,
+            continual_belief_window=64,
+            continual_belief_velocities=True,
+            continual_belief_velocity_frames=6)
+    env, approach = _make("oracle")
+    motion_frames: List[int] = []
+
+    def _with_motion(belief: Any, frames: Any, seconds_per_step: float) -> Any:
+        del seconds_per_step
+        motion_frames.append(len(frames))
+        return belief
+
+    monkeypatch.setattr(continual, "with_motion", _with_motion)
+    seen: Dict[str, Any] = {}
+
+    class _Probe:
+
+        def play_level(self, session: ProtocolSession) -> None:
+            """Level 0: rest 20 steps, read the belief, then win."""
+            if session.level_index > 0:
+                OracleLevelPlayer(approach).play_level(session)
+                return
+            truth0 = session.observe_truth().frame
+            zero = Action(np.zeros(env.action_space.shape, dtype=np.float32))
+            for _ in range(20):
+                session.step(zero)
+            truth = session.observe_truth().frame
+            still = [
+                b for b in truth0 if b.type.name == "block"
+                and truth.get(b, "pose") == truth0.get(b, "pose")
+            ]
+            assert still, "a zero action leaves some block where it was"
+            belief = session.observe().belief
+            assert belief is not None
+            frames = 21  # the episode's first frame and one per step
+            assert belief.frames_used[still[0].name] == frames
+            spread = belief.spread[(still[0].name, "pose")]
+            assert sigma / np.sqrt(frames) <= spread < 1.1 * sigma / np.sqrt(
+                frames)
+            assert motion_frames and set(motion_frames) == {6}
+            OracleLevelPlayer(approach).play_level(session)
             seen["ok"] = True
 
     run = ContinualRun(env, approach, _Probe())
