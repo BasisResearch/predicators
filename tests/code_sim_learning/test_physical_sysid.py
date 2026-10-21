@@ -14,6 +14,7 @@ import pybullet as p
 import pytest
 
 import predicators.approaches  # noqa: F401  # pylint: disable=unused-import
+from predicators import utils
 from predicators.code_sim_learning import grid_seed, physical_sysid, \
     rollout_env, rollout_objective, trajectory_prep
 from predicators.code_sim_learning.fit_space import FitResult, ParamSpec
@@ -2393,3 +2394,31 @@ def test_fit_params_rollout_folds_bracket_flat_into_sensitivity(monkeypatch):
     # 3 MAP evals (noise floor) + 2 perturbations of mu only.
     assert len(calls) == 5
     assert all(p["gate"] == 2.0 for p in calls)
+
+
+def test_a_segments_own_best_keeps_the_rule_values_it_was_found_at(
+        monkeypatch):
+    """A segment's own best point is the whole candidate that scored it best,
+    rule values included, so a note replayed there replays that point; the hull
+    keeps its physical values only."""
+    utils.reset_config({})
+    specs = [ParamSpec("friction", 0.5, lo=0.01, hi=2)]
+    rule_specs = [ParamSpec("gain", 1.0, lo=0.0, hi=4.0)]
+
+    def fake_terms(_env, _trajectories, candidates, *_args, **_kwargs):
+        # The one segment fits only where the rule value moved.
+        return [[np.array([0.0 if c["gain"] == 3.0 else 1.0])]
+                for c in candidates]
+
+    monkeypatch.setattr(grid_seed, "trajectory_terms_by_point", fake_terms)
+    best, argmins = grid_seed.min_explainable_fits(None, ["segment"],
+                                                   specs, {"domino": ["x"]},
+                                                   rule_specs=rule_specs,
+                                                   extra_candidates=[{
+                                                       "friction":
+                                                       0.7,
+                                                       "gain":
+                                                       3.0
+                                                   }])
+    assert best == [0.0]
+    assert argmins == [{"friction": 0.7, "gain": 3.0}]
