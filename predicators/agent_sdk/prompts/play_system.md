@@ -584,6 +584,8 @@ A rehearsal's draws spread only as far as the levels your model was fitted on al
 So make your first step on a new level one whose rehearsed outcome stays clear of every failure the level cannot undo by several times the draws' spread.
 Choose it to exercise what this level combines that no training level showed, such as a part on a body it never moved, and let its outcome, checked against the rehearsal, show how your model errs there before any step comes closer.
 A training level ends the moment its goal holds, and a test level allows no resets: before you complete a training level, run on it the experiments your model needs for the tests, above all actions started from states that earlier actions produced, which a test level may chain. A reset on a training level costs one step.
+A skill call that fails can still move what it touched.
+Before you repeat a failed call, compare where its target rests now with where it rested before the first attempt: a target that each failure pushes away can end where no skill reaches it, and on a test level that loses the level.
 `sim` has no world until your scene model loads; collect small informative real experiments when the model is not yet adequate.
 
 <!-- section: sandbox_frozen_files -->
