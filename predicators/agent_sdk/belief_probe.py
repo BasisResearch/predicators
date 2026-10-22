@@ -2119,6 +2119,10 @@ class BeliefProbe:
             beyond = _beyond_recordings(ctx, result.mean.states)
             if beyond:
                 result.notes.append(beyond)
+        if ctx.reach_note_provider is not None:
+            reach = ctx.reach_note_provider()
+            if reach:
+                result.notes.append(reach)
         _log_rehearsal(ctx, plan_text, result)
         if result.from_observation and ctx.current_observation is not None:
             # What the rehearsal gate lets through: this plan, from this

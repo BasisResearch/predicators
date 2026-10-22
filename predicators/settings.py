@@ -136,6 +136,16 @@ class GlobalSettings:
     # draws' spread (a lift law used above any recorded height). Needs
     # continual_predictive_check, which installs the scored features.
     continual_rehearsal_support_note = False
+    # Whether a fit report compares how far each scored body goes in the
+    # segments the fit kept with the replays at the fitted values, and
+    # names the features whose replays stop short of a recorded highest or
+    # lowest value by more than the noise allows; a rehearsal of the fitted
+    # model repeats it. A fit trades reach for a closer match elsewhere
+    # (round fixes_r18's Balloons seed 0 raised a drag that quieted its
+    # balloons' sideways swing and stopped its box 0.04 to 0.07 m short of
+    # four recorded peaks), and a failure that turns on how far a body goes
+    # can then happen while a rehearsal clears it.
+    continual_fit_reach_check = False
     # Whether a model arm checks each skill request that ran in full
     # against the joint-draw rehearsal from the live observation that
     # began with it: when the outcome lies outside the draws (beyond what

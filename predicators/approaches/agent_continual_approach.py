@@ -359,6 +359,8 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
                                         if check else None)
         ctx.prediction_basis_provider = (self._prediction_basis
                                          if check else None)
+        ctx.reach_note_provider = (self._reach_note
+                                   if CFG.continual_fit_reach_check else None)
         probe_ns = build_probe_namespace(ctx)
         exec_ns["sim"] = probe_ns["sim"]
         exec_ns["BeliefProbe"] = probe_ns["BeliefProbe"]
@@ -506,6 +508,7 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         ctx.feature_width_provider = None
         ctx.recorded_ranges_provider = None
         ctx.prediction_basis_provider = None
+        ctx.reach_note_provider = None
         ctx.skill_preflight = None
         ctx.execution_audit = None
         ctx.probe_param_status = None
@@ -586,6 +589,16 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
                                                             max(hi, value))
         setattr(self, "_recorded_range_cache", (key, ranges))
         return ranges
+
+    def _reach_note(self) -> Optional[str]:
+        """The reach check of the canonical fit, when that fit ran on
+        ``simulator.py`` as it is now; None otherwise."""
+        state = self._probe_fit_state()
+        note = state.get("reach")
+        digest = self._current_simulator_digest()
+        if not note or digest is None or state.get("digest") != digest:
+            return None
+        return str(note)
 
     def parameter_belief(self) -> Optional[ParameterBelief]:
         """The parameter belief, at no less than the temperature the
