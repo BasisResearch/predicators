@@ -375,10 +375,14 @@ def change_point_belief(
 
 
 # A body moves at the frame when a line through its recent readings has a
-# slope at least this many standard errors from zero along some axis, and
-# its readings stray from that line no more than the declared noise allows
-# at this significance (see with_motion).
-_MOTION_Z = 2.5
+# slope that a body at rest would show by chance in at most _MOTION_P of
+# its frames, over the _SPANS spans with_motion tries, and its readings
+# stray from that line no more than the declared noise allows at
+# _LINE_FIT_P (see with_motion). Bodies rest far more often than they move,
+# and a velocity staged on a resting body moves it through every rollout,
+# so the level is strict.
+_MOTION_P = 1e-4
+_SPANS = 2
 _LINE_FIT_P = 0.01
 _POSITION = ("x", "y", "z")
 
@@ -386,11 +390,12 @@ _POSITION = ("x", "y", "z")
 def _line_velocity(
         values: np.ndarray,
         sigmas: np.ndarray) -> Optional[Tuple[np.ndarray, np.ndarray]]:
-    """Per column of ``values`` (one reading per step, oldest first), the
-    slope of the least-squares line and its standard error under the
-    declared ``sigmas``, in units per step; None when no slope is
-    ``_MOTION_Z`` standard errors from zero or the readings stray from the
-    line by more than the noise explains (a chi-square test at
+    """Per column of ``values`` (one reading per step, oldest first), the slope
+    of the least-squares line and its standard error under the declared
+    ``sigmas``, in units per step; None when the slopes, taken together, are as
+    far from zero as a body at rest puts them more often than ``_MOTION_P /
+    _SPANS`` (a chi-square test over the columns), or the readings stray from
+    the line by more than the noise explains (a chi-square test at
     ``_LINE_FIT_P``): the body is at rest, or moves in a way no constant
     velocity describes, such as bobbing or stopping."""
     count = len(values)
@@ -400,7 +405,8 @@ def _line_velocity(
     spread = float(np.sum(centred**2))
     slope = centred @ (values - values.mean(axis=0)) / spread
     error = sigmas / np.sqrt(spread)
-    if np.max(np.abs(slope) / error) < _MOTION_Z:
+    distance = float(np.sum((slope / error)**2))
+    if chi2.sf(distance, values.shape[1]) > _MOTION_P / _SPANS:
         return None
     residuals = values - values.mean(axis=0) - np.outer(centred, slope)
     misfit = float(np.sum((residuals / sigmas)**2))
@@ -417,11 +423,12 @@ def with_motion(belief: BeliefFrame, frames: Sequence[State],
     starts every body at rest, and a body rolling or sliding at the
     frame stops dead in the rehearsal. A body moves when a line through
     its readings of x, y and z explains them within the declared noise
-    and has a slope away from zero (:func:`_line_velocity`): first over
-    all of ``frames`` (oldest first, one per step), else over their
-    latest half, for a body whose motion changed earlier. Its velocity
-    is that slope, with the slope's standard error. The frame carries
-    the estimate in ``simulator_state["body_velocities"]`` (no angular
+    and has a slope that a body at rest would show in fewer than
+    ``_MOTION_P`` of its frames (:func:`_line_velocity`): first over all
+    of ``frames`` (oldest first, one per step), else over their latest
+    half, for a body whose motion changed earlier. Its velocity is that
+    slope, with the slope's standard error. The frame carries the
+    estimate in ``simulator_state["body_velocities"]`` (no angular
     velocity, since no reading shows it, so a rolling body starts
     sliding), and :func:`belief_draw` draws around it. Every other body
     stays at rest, including one that bobs or has just stopped, whose
@@ -445,6 +452,7 @@ def with_motion(belief: BeliefFrame, frames: Sequence[State],
             continue
         values = np.asarray(series)
         sigmas = np.array([belief.sigmas[k] for k in keys])
+        # The _SPANS spans: every frame, then the latest half.
         for span in (len(values), len(values) // 2):
             fit = _line_velocity(values[-span:], sigmas)
             if fit is not None:
