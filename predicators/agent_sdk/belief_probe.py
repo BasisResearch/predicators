@@ -1139,15 +1139,16 @@ def _failed_skills(failures: Sequence[Optional[str]]) -> List[str]:
     return names
 
 
-def _motion_failure_note(
-        lead: str,
-        skills: Sequence[str] = (),
-        record: Optional[Dict[str, Tuple[int, int]]] = None) -> Optional[str]:
+def _motion_failure_note(lead: str,
+                         skills: Sequence[str] = (),
+                         record: Optional[Dict[str, Tuple[int, int]]] = None,
+                         frames: Optional[str] = None) -> Optional[str]:
     """``lead`` plus a caveat on a skill controller's failure in a rollout
     under observation noise: the real controller plans on the true scene, this
     one on observed or drawn positions, and a few millimetres can change its
     plan. With this run's real ``record`` (per skill, calls that succeeded and
-    failed), the note gives each of ``skills``'s.
+    failed), the note gives each of ``skills``'s; ``frames`` (see
+    :func:`_belief_frames_note`) says how a Wait would sharpen the start.
 
     None when the observations are exact.
     """
@@ -1162,13 +1163,57 @@ def _motion_failure_note(
     ]
     history = ("This run's real calls of it succeeded in: " + ", ".join(real) +
                ". " if real else "")
+    sharpen = f"{frames} " if frames else ""
     return (f"{lead} The real controller plans on the true scene; these "
             "rollouts planned on positions with the observation noise "
             f"({noise.position:g} m, {noise.orientation:g} rad), and a few "
-            f"millimetres can change the arm's plan. {history}Weigh such a "
-            "failure against the skill's real record and against starts a few "
-            "millimetres away (reset(current=True, mods=...)) before you "
-            "conclude the real skill would fail.")
+            f"millimetres can change the arm's plan. {history}{sharpen}Weigh "
+            "such a failure against the skill's real record and against "
+            "starts a few millimetres away (reset(current=True, mods=...)) "
+            "before you conclude the real skill would fail.")
+
+
+def _belief_frames_note(ctx: Any, grounded: Sequence[Any]) -> Optional[str]:
+    """How few frames the state belief has of the bodies a plan acts on (its
+    steps' objects, else every noisy body), when fewer than its window.
+
+    Each frame is a fresh noise draw, so a body that stays at rest
+    narrows as sigma / sqrt(frames), up to ``continual_belief_window``
+    frames: at the start of an episode the belief has one frame, its
+    draws spread a whole sigma, and a short Wait sharpens them (four
+    times the frames halve the spread). None
+    without the belief the last observation showed, or when every such
+    body rests on a full window.
+    """
+    # pylint: disable=import-outside-toplevel
+    from predicators.observation_noise import ObservationNoise
+    from predicators.settings import CFG
+
+    # pylint: enable=import-outside-toplevel
+    used = getattr(getattr(ctx, "current_belief", None), "frames_used", None)
+    if not used:
+        return None
+    names = [
+        obj.name for option in grounded
+        for obj in getattr(option, "objects", ()) if obj.name in used
+    ] or list(used)
+    window = max(int(CFG.continual_belief_window), 1)
+    fewest = min(used[name] for name in names)
+    sigma = ObservationNoise.from_cfg().position
+    if fewest >= window or sigma <= 0.0:
+        return None
+    bodies = sorted({n for n in names if used[n] == fewest})
+    count = f"{fewest} frame{'s' if fewest != 1 else ''}"
+    their = "its" if len(bodies) == 1 else "their"
+    # Four times the frames halve the spread.
+    halve = (f" (a Wait of {3 * fewest} steps halves the spread)"
+             if 4 * fewest <= window else "")
+    return (f"The state belief has {count} of {', '.join(bodies)}, so "
+            f"{their} position spread is {sigma / fewest**0.5:.2g} m. While a "
+            "body stays at rest, each new frame narrows that spread as 1 / "
+            f"sqrt(frames), to {sigma / window**0.5:.2g} m at {window} "
+            "frames, so a Wait before this request makes these rollouts plan "
+            f"on positions nearer the true ones{halve}.")
 
 
 def _skill_record(ctx: Any) -> Optional[Dict[str, Tuple[int, int]]]:
@@ -2099,7 +2144,9 @@ class BeliefProbe:
             motion = _motion_failure_note(
                 f"In {stalled} of the {n} draws a skill's controller failed.",
                 _failed_skills([d["failure"] for d in results]),
-                _skill_record(ctx))
+                _skill_record(ctx),
+                _belief_frames_note(ctx, grounded)
+                if from_observation else None)
             if motion is not None:
                 notices.append(motion)
         undeclared_provider = ctx.undeclared_param_names_provider
@@ -2464,6 +2511,7 @@ class BeliefProbe:
         ctx.test_call_id += 1
         probe_task, sketch_steps, all_predicates, notices = \
             self._parse_sketch(plan_text)
+        mean_start: Optional[State] = None
         if joint and not (fresh or physics_sweep):
             # A single run under the joint belief starts where the
             # rehearsal's rollout does; the probe's state moves only when
@@ -2952,7 +3000,9 @@ class BeliefProbe:
             motion = _motion_failure_note(
                 "A skill's controller failed in this rollout.",
                 _failed_skills([s["failure"] for s in step_dicts]),
-                _skill_record(ctx))
+                _skill_record(ctx),
+                _belief_frames_note(ctx, grounded)
+                if mean_start is not None else None)
             if motion is not None:
                 notices.append(motion)
         return ProbeResult(step_dicts,
