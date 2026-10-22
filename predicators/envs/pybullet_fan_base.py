@@ -878,11 +878,16 @@ class PyBulletFanBaseEnv(PyBulletEnv):
             boundary_obj.y_len = y_len
             boundary_obj.z_len = z_len
             if is_platform:
+                # No collision margin, as on the ramp: a box's margin rounds
+                # its edges, and where a platform meets the ramp or another
+                # platform that rounded edge is a curb a ball resting on the
+                # seam cannot climb under a fan's push.
                 p.changeDynamics(
                     wall_id,
                     -1,
                     rollingFriction=(0.0001
                                      if CFG.fan_inertial_transfer else 0.001),
+                    collisionMargin=0.0,
                     physicsClientId=self._physics_client_id)
             wall_ids.append(wall_id)
 
