@@ -88,6 +88,32 @@ def held_bodies(client: int,
     return held | (candidates & fixed)
 
 
+def carried_bodies(client: int, holders: Collection[int]) -> Set[int]:
+    """The bodies tied to ``holders`` by engine constraints, directly or
+    through one another: what a gripper holds, and what is welded to that.
+
+    A constraint to the world ties nothing here.
+    """
+    ties: Dict[int, Set[int]] = {}
+    for i in range(p.getNumConstraints(physicsClientId=client)):
+        uid = p.getConstraintUniqueId(i, physicsClientId=client)
+        info = p.getConstraintInfo(uid, physicsClientId=client)
+        parent, child = info[0], info[2]
+        if parent < 0 or child < 0:
+            continue
+        ties.setdefault(parent, set()).add(child)
+        ties.setdefault(child, set()).add(parent)
+    roots = set(holders)
+    carried: Set[int] = set()
+    frontier = list(roots)
+    while frontier:
+        for other in ties.get(frontier.pop(), set()):
+            if other not in roots and other not in carried:
+                carried.add(other)
+                frontier.append(other)
+    return carried
+
+
 def _joint_positions(client: int, body: int) -> List[float]:
     return [
         p.getJointState(body, j, physicsClientId=client)[0]

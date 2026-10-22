@@ -62,7 +62,7 @@ from predicators.pybullet_helpers.real_robot_bridge import \
     GripperJointLayout, gripper_joint_layout_from_robot
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot, \
     create_single_arm_pybullet_robot, get_robot_home_ee_position
-from predicators.pybullet_helpers.settle import settle_bodies
+from predicators.pybullet_helpers.settle import carried_bodies, settle_bodies
 from predicators.settings import CFG
 from predicators.structs import Action, Array, EnvironmentTask, Mask, Object, \
     Observation, State, Video
@@ -1597,9 +1597,10 @@ class PyBulletEnv(BaseEnv):
         attachment, and the first engine step would resolve that with an
         impulse. Bodies the static world holds up settle onto their
         supports and attachments; the others keep their drawn poses (see
-        :mod:`predicators.pybullet_helpers.settle`). The objects take the
-        engine's features after the settle; the robot, virtual objects
-        and the latent block keep the draw's.
+        :mod:`predicators.pybullet_helpers.settle`), and so do the robot
+        and what it carries (a grasped body and what is welded to it). The
+        objects take the engine's features after the settle; the robot,
+        virtual objects and the latent block keep the draw's.
         """
         self._set_state(state)
         # _set_state binds the state's objects to this engine's bodies.
@@ -1610,9 +1611,17 @@ class PyBulletEnv(BaseEnv):
                 continue
             if getattr(obj, "id", None) is not None:
                 physical[obj.name] = obj
-        settle_bodies(self._physics_client_id,
-                      [obj.id for obj in physical.values()],
-                      [self._pybullet_robot.robot_id])
+        # The settle holds the robot still, and with it what the robot
+        # carries: a body it grasps, and what is welded to that, keep the
+        # draw's pose to the gripper. Settled against its grasp while the
+        # robot is reset every substep, a held jug walked out of the
+        # gripper.
+        robot_id = self._pybullet_robot.robot_id
+        carried = carried_bodies(self._physics_client_id, [robot_id])
+        settle_bodies(
+            self._physics_client_id,
+            [obj.id for obj in physical.values() if obj.id not in carried],
+            [robot_id, *sorted(carried)])
         placed = self._get_state()
         settled = state.copy()
         for obj in state:

@@ -3,7 +3,8 @@ import numpy as np
 import pybullet as p
 import pytest
 
-from predicators.pybullet_helpers.settle import held_bodies, settle_bodies
+from predicators.pybullet_helpers.settle import carried_bodies, held_bodies, \
+    settle_bodies
 
 _HALF = 0.05  # half the side of each test cube
 _TABLE_TOP = 0.05
@@ -103,3 +104,36 @@ def test_settle_rests_held_bodies_and_keeps_the_others(physics_client_id):
     assert _position(client, sunk)[2] == pytest.approx(rest, abs=2e-3)
     assert _position(client, stacked)[2] == pytest.approx(rest + 2 * _HALF,
                                                           abs=3e-3)
+
+
+def test_carried_bodies_follow_constraints_from_the_holder(physics_client_id):
+    """A body tied to the holder, and one welded to that body, are carried; a
+    body tied to the world, and a free one, are not."""
+    client = physics_client_id
+    holder = _box(client, [0.0, 0.0, 1.0], mass=0.0)
+    grasped = _box(client, [0.0, 0.0, 0.8])
+    welded = _box(client, [0.2, 0.0, 0.8])
+    hung = _box(client, [0.6, 0.0, 0.8])
+    free = _box(client, [-0.6, 0.0, 0.8])
+    p.createConstraint(holder,
+                       -1,
+                       grasped,
+                       -1,
+                       p.JOINT_FIXED, [0, 0, 0], [0, 0, -0.2], [0, 0, 0],
+                       physicsClientId=client)
+    p.createConstraint(grasped,
+                       -1,
+                       welded,
+                       -1,
+                       p.JOINT_FIXED, [0, 0, 0], [0.2, 0, 0], [0, 0, 0],
+                       physicsClientId=client)
+    p.createConstraint(hung,
+                       -1,
+                       -1,
+                       -1,
+                       p.JOINT_POINT2POINT, [0, 0, 0], [0, 0, 0],
+                       [0.6, 0.0, 0.8],
+                       physicsClientId=client)
+    assert carried_bodies(client, [holder]) == {grasped, welded}
+    assert carried_bodies(client, [free]) == set()
+    assert carried_bodies(client, [hung]) == set()
