@@ -21,7 +21,8 @@ import pybullet as p
 from predicators import utils
 from predicators.envs.pybullet_env import BuiltMesh, PyBulletEnv
 from predicators.pybullet_helpers import studio_visuals
-from predicators.pybullet_helpers.objects import loaded_asset
+from predicators.pybullet_helpers.objects import engine_joint_limits, \
+    loaded_asset
 from predicators.settings import CFG
 from predicators.structs import State
 
@@ -57,6 +58,12 @@ LEGEND = {
                     "touched, and list their visual shapes instead"),
     "not_listed": ("the ground plane, the backdrop walls and the robot, "
                    "which SceneBase's initialize_pybullet loads itself"),
+    "joints": ("lower_limit and upper_limit are the limits the engine "
+               "enforces; where the deployment set other limits than its "
+               "URDF file's, the joint also lists the file's as "
+               "urdf_limits, and loading the file keeps those, so set the "
+               "enforced ones in your scene with p.changeDynamics(body, "
+               "joint, jointLowerLimit=..., jointUpperLimit=...)"),
     "generated": ("a mesh the deployment builds from vertices in memory "
                   "comes as an OBJ file under assets/generated/, in its "
                   "shape frame; concave: true means it is loaded as a "
@@ -218,23 +225,31 @@ def _body_entry(body_id: int, client: int, object_name: Optional[str],
         _link_entry(body_id, -1, _decode(base_link), visuals, client, files,
                     built)
     ]
+    asset = loaded_asset(client, body_id)
     joints: List[Dict[str, Any]] = []
     for joint in range(n_joints):
         info = p.getJointInfo(body_id, joint, physicsClientId=client)
         links.append(
             _link_entry(body_id, joint, _decode(info[12]), visuals, client,
                         files, built))
-        joints.append({
+        file_limits = (float(info[8]), float(info[9]))
+        # getJointInfo keeps reporting the limits the body was loaded with;
+        # a deployment that set others in the engine recorded them.
+        limits = engine_joint_limits(client, body_id, joint) or file_limits
+        joint_entry: Dict[str, Any] = {
             "name": _decode(info[1]),
             "type": _JOINT_NAMES.get(info[2], str(info[2])),
             "child_link": _decode(info[12]),
             "parent_link_index": int(info[16]),
             "axis": [float(v) for v in info[13]],
-            "lower_limit": float(info[8]),
-            "upper_limit": float(info[9]),
+            "lower_limit": limits[0],
+            "upper_limit": limits[1],
             "parent_frame_position": [float(v) for v in info[14]],
             "parent_frame_orientation": [float(v) for v in info[15]],
-        })
+        }
+        if limits != file_limits and asset is not None:
+            joint_entry["urdf_limits"] = list(file_limits)
+        joints.append(joint_entry)
     entry: Dict[str, Any] = {
         "object": object_name,
         "body_name": _decode(body_name),
@@ -243,7 +258,6 @@ def _body_entry(body_id: int, client: int, object_name: Optional[str],
         "links": links,
         "joints": joints,
     }
-    asset = loaded_asset(client, body_id)
     if asset is not None:
         asset_path, scale = asset
         source = utils.get_env_asset_path(asset_path)

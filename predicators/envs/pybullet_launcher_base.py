@@ -43,7 +43,8 @@ import pybullet as p
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
 from predicators.pybullet_helpers.objects import create_object, \
-    create_pybullet_block, create_pybullet_sphere, update_object
+    create_pybullet_block, create_pybullet_sphere, set_engine_joint_limits, \
+    update_object
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
 from predicators.structs import Action, Object, State, Type
@@ -280,10 +281,10 @@ class PyBulletLauncherBaseEnv(PyBulletEnv):
             linkJointTypes=[p.JOINT_PRISMATIC],
             linkJointAxis=[[1.0, 0.0, 0.0]],
             physicsClientId=physics_client_id)
+        set_engine_joint_limits(plunger_id, 0, -cls.max_compression, 0.0,
+                                physics_client_id)
         p.changeDynamics(plunger_id,
                          0,
-                         jointLowerLimit=-cls.max_compression,
-                         jointUpperLimit=0.0,
                          lateralFriction=0.4,
                          physicsClientId=physics_client_id)
         # A holding motor: the handle stays where the push leaves it

@@ -22,6 +22,12 @@ LOADED_ASSETS: Dict[Tuple[int, int], Tuple[str, float]] = {}
 # world that owns its client made it (see begin_asset_build).
 _ASSET_BUILD: Dict[Tuple[int, int], int] = {}
 _CURRENT_BUILD = 0
+# The joint limits a world set in the engine with ``changeDynamics``, keyed
+# by (physics client, body id, joint index), with the build each was set
+# in. getJointInfo keeps reporting the URDF's limits, so the scene manifest
+# reads these to give an agent's scene the travel the deployment enforces.
+ENGINE_JOINT_LIMITS: Dict[Tuple[int, int, int], Tuple[float, float]] = {}
+_JOINT_LIMITS_BUILD: Dict[Tuple[int, int, int], int] = {}
 
 
 def begin_asset_build() -> int:
@@ -38,6 +44,12 @@ def drop_stale_assets(physics_client_id: int, build: int) -> None:
         if _ASSET_BUILD.get(key, 0) < build:
             LOADED_ASSETS.pop(key, None)
             _ASSET_BUILD.pop(key, None)
+    for joint_key in [
+            k for k in ENGINE_JOINT_LIMITS if k[0] == physics_client_id
+    ]:
+        if _JOINT_LIMITS_BUILD.get(joint_key, 0) < build:
+            ENGINE_JOINT_LIMITS.pop(joint_key, None)
+            _JOINT_LIMITS_BUILD.pop(joint_key, None)
 
 
 def forget_client_assets(physics_client_id: int) -> None:
@@ -45,12 +57,23 @@ def forget_client_assets(physics_client_id: int) -> None:
     for key in [k for k in LOADED_ASSETS if k[0] == physics_client_id]:
         LOADED_ASSETS.pop(key, None)
         _ASSET_BUILD.pop(key, None)
+    for joint_key in [
+            k for k in ENGINE_JOINT_LIMITS if k[0] == physics_client_id
+    ]:
+        ENGINE_JOINT_LIMITS.pop(joint_key, None)
+        _JOINT_LIMITS_BUILD.pop(joint_key, None)
 
 
 def forget_body_asset(physics_client_id: int, obj_id: int) -> None:
     """Forget the record of a body id that now holds a primitive body."""
     LOADED_ASSETS.pop((physics_client_id, obj_id), None)
     _ASSET_BUILD.pop((physics_client_id, obj_id), None)
+    for joint_key in [
+            k for k in ENGINE_JOINT_LIMITS
+            if k[:2] == (physics_client_id, obj_id)
+    ]:
+        ENGINE_JOINT_LIMITS.pop(joint_key, None)
+        _JOINT_LIMITS_BUILD.pop(joint_key, None)
 
 
 def loaded_asset(physics_client_id: int,
@@ -58,6 +81,28 @@ def loaded_asset(physics_client_id: int,
     """The ``(asset path, scale)`` a body was created from by
     :func:`create_object`, or None for bodies built from primitive shapes."""
     return LOADED_ASSETS.get((physics_client_id, obj_id))
+
+
+def set_engine_joint_limits(body_id: int, joint_id: int, lower: float,
+                            upper: float, physics_client_id: int) -> None:
+    """Set a joint's limits in the engine and record them, since
+    ``getJointInfo`` keeps reporting the URDF's own limits."""
+    p.changeDynamics(body_id,
+                     joint_id,
+                     jointLowerLimit=lower,
+                     jointUpperLimit=upper,
+                     physicsClientId=physics_client_id)
+    key = (physics_client_id, body_id, joint_id)
+    ENGINE_JOINT_LIMITS[key] = (float(lower), float(upper))
+    _JOINT_LIMITS_BUILD[key] = _CURRENT_BUILD
+
+
+def engine_joint_limits(physics_client_id: int, body_id: int,
+                        joint_id: int) -> Optional[Tuple[float, float]]:
+    """The ``(lower, upper)`` limits a world set on a joint with
+    :func:`set_engine_joint_limits`, or None when the joint keeps the limits
+    its URDF gave it."""
+    return ENGINE_JOINT_LIMITS.get((physics_client_id, body_id, joint_id))
 
 
 def create_object(asset_path: str,
@@ -135,11 +180,8 @@ def cap_switch_joint_travel(body_id: int, joint_id: int, joint_scale: float,
                                joint_id,
                                physicsClientId=physics_client_id)
     j_min, j_max = info[8], info[9]
-    p.changeDynamics(body_id,
-                     joint_id,
-                     jointLowerLimit=j_min,
-                     jointUpperLimit=joint_scale * j_max,
-                     physicsClientId=physics_client_id)
+    set_engine_joint_limits(body_id, joint_id, j_min, joint_scale * j_max,
+                            physics_client_id)
 
 
 def update_object(obj_id: int,
