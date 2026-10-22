@@ -235,6 +235,46 @@ def test_settled_draw_keeps_the_velocity_it_records(env):
         utils.update_config({"continual_belief_velocities": False})
 
 
+def test_a_static_body_takes_no_staged_velocity(env):
+    """A static body cannot move, so a velocity a state records for it, such as
+    one the state belief estimates from noisy readings, stages nothing; given
+    one, the engine would carry the platform, and the ball on it, along that
+    velocity forever.
+
+    The ball keeps the velocity recorded for it.
+    """
+    state = env.reset("train", 0).copy()
+    platform = env._boundary_named(
+        next(o for o in state if o.type.name == "platform"))
+    client = env._physics_client_id
+    assert p.getDynamicsInfo(platform.id, -1, physicsClientId=client)[0] == 0
+    start = p.getBasePositionAndOrientation(platform.id,
+                                            physicsClientId=client)[0]
+    staged = state.copy()
+    staged.simulator_state["body_velocities"] = {
+        platform.name: ((0.0, 0.0, 0.0066), (0.0, 0.0, 0.0)),
+        env._ball.name: ((0.05, 0.0, 0.0), (0.0, 0.0, 0.0)),
+    }
+    try:
+        utils.update_config({"continual_belief_velocities": True})
+        for stage in (env.settle_state, env._set_state):
+            stage(staged)
+            assert np.allclose(
+                p.getBaseVelocity(platform.id, physicsClientId=client)[0], 0.0)
+            assert np.allclose(p.getBaseVelocity(env._ball.id,
+                                                 physicsClientId=client)[0],
+                               (0.05, 0.0, 0.0),
+                               atol=1e-9)
+        later = staged
+        for _ in range(30):
+            later = env.simulate(later, _noop(later))
+        end = p.getBasePositionAndOrientation(platform.id,
+                                              physicsClientId=client)[0]
+        assert np.allclose(end, start, atol=1e-9)
+    finally:
+        utils.update_config({"continual_belief_velocities": False})
+
+
 def test_transfer_wind_model_and_moving_restart(env):
     """A learned force model matches coasting and can restart mid-flight."""
     model_cls = base_simulator_class("pybullet_fan")

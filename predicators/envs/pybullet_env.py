@@ -2195,8 +2195,16 @@ class PyBulletEnv(BaseEnv):
         ``_body_velocity_in_state``), except that under
         ``continual_belief_velocities`` a linear velocity recorded without
         spin, the form the state belief estimates one in, gets the spin of
-        rolling when ``obj`` is a sphere on a support (see
-        ``_rolling_spin``)."""
+        rolling when ``obj`` is a sphere on a support (see ``_rolling_spin``).
+
+        A body the engine holds static (no mass) stages none: it cannot
+        move, and the engine would carry it along any velocity it is
+        given forever, and whatever rests on it.
+        """
+        still = ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0))
+        if p.getDynamicsInfo(
+                obj.id, -1, physicsClientId=self._physics_client_id)[0] == 0.0:
+            return still
         linear, angular = self._body_velocity_in_state(obj, state)
         if CFG.continual_belief_velocities and any(linear) and \
                 not any(angular):
