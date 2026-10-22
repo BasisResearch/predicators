@@ -519,8 +519,13 @@ class PyBulletBoilEnv(PyBulletBoilBaseEnv):
     def _increment_spillage(self, old_spill: float, state: State) -> None:
         """Increment the spilled water level and recreate the PyBullet
         block."""
+        # The counter starts 20 fill steps below zero and moves in whole fill
+        # steps, so 20 overflow steps spill nothing and the 21st spills.
+        # Rounding keeps the float sum of those steps on that grid, so 20
+        # steps leave exactly zero and WaterSpilled (spilled_level > 0) holds
+        # only from the 21st.
         _new_spill = min(self.max_water_spill_width,
-                         old_spill + self.water_fill_speed)
+                         round(old_spill + self.water_fill_speed, 9))
         self._faucet._spilled_level = _new_spill  # pylint: disable=protected-access
         new_spill = max(0.0, _new_spill)
         state.set(self._faucet, "spilled_level", new_spill)
