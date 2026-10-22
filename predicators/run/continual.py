@@ -30,8 +30,8 @@ from predicators.approaches import ApproachFailure, ApproachTimeout, \
     BaseApproach
 from predicators.envs import BaseEnv
 from predicators.observation_belief import BeliefFrame, atom_fractions, \
-    belief_draw, change_point_belief, likely_atoms, smooth_frames, \
-    with_motion
+    belief_draw, change_point_belief, initial_frame_belief, likely_atoms, \
+    smooth_frames, with_motion
 from predicators.observation_noise import ObservationNoise, noise_or_none, \
     step_rng
 from predicators.run import paths
@@ -447,7 +447,8 @@ class ProtocolSession:
                         self.previous_level_episodes(k))
             if not episodes or not episodes[0]["states"]:
                 raise RuntimeError(f"No initial observation for level {k}")
-            initial = episodes[0]["states"][0].copy()
+            initial = self._run.level_initial_frame(
+                k, [ep["states"] for ep in episodes if ep["states"]])
             tasks.append(replace(spec.task, init=initial))
         return tasks
 
@@ -574,6 +575,9 @@ class ContinualRun:
         # The state factor's mean per (level, episode) and step, for the
         # smoothed episode prefix a rehearsal is scored on.
         self._prefix_cache: Dict[Tuple[int, int], Dict[int, State]] = {}
+        # A level's pooled initial frame, keyed by the level and the
+        # opening frames each of its episodes had (level_initial_frame).
+        self._initial_cache: Dict[Tuple[int, Tuple[int, ...]], State] = {}
         # The execution-time belief (observation_belief.py) rides on a
         # declared channel only: with exact observations the frame is
         # the belief, and an undeclared channel is the agent's problem.
@@ -777,6 +781,26 @@ class ContinualRun:
             ]
             belief = with_motion(belief, motion, self._seconds_per_step())
         return replace(belief, frame=self._execution_frame(belief.frame))
+
+    def level_initial_frame(self, level: int,
+                            episodes: Sequence[Sequence[State]]) -> State:
+        """Level ``level``'s initial state as the agent sees it, from its
+        episodes' observed views (``episodes``, each oldest first): episode
+        zero's first frame, or under ``continual_pooled_level_init`` with the
+        belief on, the pooled belief over every episode's opening frames
+        (:func:`observation_belief.initial_frame_belief`)."""
+        if not (CFG.continual_pooled_level_init and self._belief_on):
+            return episodes[0][0].copy()
+        assert self._noise is not None
+        window = max(int(CFG.continual_belief_window), 1)
+        key = (level, tuple(min(len(frames), window) for frames in episodes))
+        cached = self._initial_cache.get(key)
+        if cached is None:
+            cached = initial_frame_belief(
+                episodes, self._noise, window,
+                float(CFG.continual_belief_motion_hazard)).frame
+            self._initial_cache[key] = cached
+        return cached.copy()
 
     def _raw_step_problem(self, runner: EpisodeRunner,
                           action: Action) -> Optional[str]:

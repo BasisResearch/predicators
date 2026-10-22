@@ -118,6 +118,7 @@ def test_from_assets_arm_runs_only_by_name() -> None:
         "continual_rehearsal_game_over": True,
         "continual_rehearsal_support_note": True,
         "continual_belief_window": 64,
+        "continual_pooled_level_init": True,
     }
 
 

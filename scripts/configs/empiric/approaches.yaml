@@ -48,6 +48,10 @@ APPROACHES:
       # frames allow; under the 8-frame default its spread stays at a third
       # of the noise however long it rests.
       continual_belief_window: 64
+      # A reached level's initial state, as its list of levels gives it, is
+      # the pooled belief over every episode's opening frames, not episode
+      # zero's first noisy frame.
+      continual_pooled_level_init: true
   # Model-free: the same agent with the model-side machinery switched
   # off, so the two differ only in the model.
   mf_opus:
