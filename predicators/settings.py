@@ -252,6 +252,8 @@ class GlobalSettings:
     # Keep point-state smoothing when explicit uncertainty decisions are off.
     continual_uncertainty_decisions = True
     continual_belief_frame = False
+    # A resting object's estimate averages at most this many frames, so
+    # its spread never falls below sigma / sqrt(window).
     continual_belief_window = 8
     continual_belief_sigmas = 3.0
     continual_belief_draws = 16
@@ -296,6 +298,12 @@ class GlobalSettings:
     # draw around it), and a draw's settle keeps the velocity the draw
     # records. Off keeps the legacy handling. EMPIRIC from assets only.
     continual_belief_velocities = False
+    # The frames a moving body's velocity line is fitted over (all of
+    # them, else their latest half; observation_belief.with_motion). A
+    # count of its own, so the longer continual_belief_window a resting
+    # body's position needs does not stretch the line over a motion that
+    # started a few frames ago.
+    continual_belief_velocity_frames = 16
     # Slack (in reward units) below a task's ``early_stop_min_reward`` bar
     # that still counts as solved for early stopping. Only tasks that set
     # ``EnvironmentTask.early_stop_min_reward`` are affected (e.g. domino
