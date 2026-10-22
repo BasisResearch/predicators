@@ -846,6 +846,7 @@ class AgentSimLearningApproach(AgentBaseApproach):
         pinned: bool = False,
         coverage: Optional[Tuple[int, int]] = None,
         belief: Optional[ParameterBelief] = None,
+        reach: Optional[str] = None,
     ) -> None:
         """Deploy a canonical ``sim.fit`` result to the candidate probe.
 
@@ -873,7 +874,9 @@ class AgentSimLearningApproach(AgentBaseApproach):
         ``belief`` is the fit's parameter factor of the joint belief
         (``belief_joint_draws`` > 0), stored with the fit so that
         :meth:`parameter_belief` serves it while the file is unchanged
-        and checkpoints carry it.
+        and checkpoints carry it. ``reach`` is the fit's reach-check
+        reminder for rehearsals of this file (see
+        :func:`~predicators.code_sim_learning.reach.reach_reminder`).
         """
         digest = None
         if os.path.isfile(simulator_file):
@@ -906,6 +909,7 @@ class AgentSimLearningApproach(AgentBaseApproach):
         state["applied_physical"] = dict(applied_physical or {})
         state["sigma_points"] = list(sigma_points or [])
         state["belief"] = belief.to_dict() if belief is not None else None
+        state["reach"] = reach
         self._probe_model_cache().clear()
         self._tool_context.probe_param_status = format_fit_status(state)
         logger.info("Synthesis probe: deployed %d params; %s.", len(params),

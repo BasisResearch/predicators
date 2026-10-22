@@ -43,6 +43,10 @@ APPROACHES:
       # A rehearsal names the scored features its most likely rollout takes
       # past the range the recordings show.
       continual_rehearsal_support_note: true
+      # A fit report names the scored features whose replays at the fitted
+      # values stop short of how far they went in the recordings, and a
+      # rehearsal of that model repeats it.
+      continual_fit_reach_check: true
   # Model-free: the same agent with the model-side machinery switched
   # off, so the two differ only in the model.
   mf_opus:

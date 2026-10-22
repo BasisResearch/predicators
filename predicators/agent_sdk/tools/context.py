@@ -119,6 +119,11 @@ class ToolContext:
     # recordings.
     recorded_ranges_provider: Optional[Callable[[], Optional[Dict[Tuple[
         str, str], Tuple[float, float]]]]] = None
+    # The canonical fit's reach-check reminder (continual_fit_reach_check):
+    # the scored features whose replays at the fitted values stop short of
+    # how far they went in the recordings, or None when the fit found none
+    # or ran on another version of the model.
+    reach_note_provider: Optional[Callable[[], Optional[str]]] = None
     # Installed with it: the fitted program the joint draws come from
     # (the digest of its simulator.py) and the temperature they are drawn
     # at, or None while they come from the prior.
