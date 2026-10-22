@@ -366,6 +366,45 @@ def test_tools_on_a_level_without_resets(tmp_path: Any) -> None:
     assert card.levels[1].steps == 2 and card.levels[1].resets == 0
 
 
+def test_give_up_is_refused_on_a_training_level_under_its_flag(
+        tmp_path: Any) -> None:
+    """Under continual_refuse_training_give_up, give_up on a training level is
+    refused with no charge and says to reset; on the test level it is recorded
+    and ends the run."""
+    env, approach, ctx = _setup(tmp_path,
+                                continual_refuse_training_give_up=True)
+    seen: Dict[str, Any] = {}
+    driver = _Driver()
+
+    def body(session: ProtocolSession) -> None:
+        state = PlayState()
+        tools = build_continual_tools(ctx,
+                                      session,
+                                      state,
+                                      save_render=lambda tag: None)
+        give_up = next(t for t in tools if t.name == "give_up")
+        assert "Refused on a training level" in give_up.description
+        if session.level_index == 0:
+            refused = _call(tools, "give_up", note="stuck")
+            assert refused.startswith("ERROR")
+            assert "training level" in refused and "env_reset" in refused
+            assert state.pending_give_up is None
+            assert session.level_card().steps == 0
+            plan = _oracle_plan_text(approach, session.observe().level.task)
+            out = _call(tools, "skills_execute_plan", plan=plan, note="oracle")
+            assert "episode: WIN" in out
+            return
+        assert "Give-up recorded" in _call(tools, "give_up", note="stop")
+        assert state.pending_give_up is not None
+        seen["ok"] = True
+        session.executor.finish(state.pending_give_up)
+
+    driver.body = body
+    card = ContinualRun(env, approach, driver).run()
+    assert seen["ok"] and card.end_reason == "agent_ended"
+    assert card.levels[0].won and not card.levels[1].won
+
+
 def test_parse_plan_lines_and_formatting(tmp_path: Any) -> None:
     """Plan parsing grounds skills with expected outcomes; the prompt builders
     render."""

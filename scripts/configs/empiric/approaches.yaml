@@ -43,6 +43,8 @@ APPROACHES:
       # A rehearsal names the scored features its most likely rollout takes
       # past the range the recordings show.
       continual_rehearsal_support_note: true
+      # give_up is refused on a training level, which can always be reset.
+      continual_refuse_training_give_up: true
   # Model-free: the same agent with the model-side machinery switched
   # off, so the two differ only in the model.
   mf_opus:

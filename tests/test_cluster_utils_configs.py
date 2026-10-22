@@ -117,6 +117,7 @@ def test_from_assets_arm_runs_only_by_name() -> None:
         "continual_raw_step_limit": True,
         "continual_rehearsal_game_over": True,
         "continual_rehearsal_support_note": True,
+        "continual_refuse_training_give_up": True,
     }
 
 

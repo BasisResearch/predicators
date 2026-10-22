@@ -71,6 +71,13 @@ class GlobalSettings:
     # and, under the no-skipping rule, the run. Train levels always
     # allow resets.
     continual_allow_test_resets = False
+    # Whether give_up is refused on a training level. A training level can
+    # always be reset (one step), and a reset keeps every file and
+    # recording, so giving up there forfeits the test levels over a level
+    # the agent can still retry: round fixes_r17's Fan seed 0 gave up level
+    # 1, sure that its switches could only turn fans on, with 8,575 steps
+    # and 45 hours left, while seed 1 turned the same switches off.
+    continual_refuse_training_give_up = False
     # Pooled step cap per run: this many low-level steps per level,
     # summed over the run's levels (4.8). A guard, not a scoring term.
     continual_steps_per_level = 5000

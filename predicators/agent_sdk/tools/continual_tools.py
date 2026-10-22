@@ -895,10 +895,15 @@ def build_continual_tools(
         except Exception as e:  # pylint: disable=broad-except
             return _protocol_error(e)
 
+    give_up_refused = (" Refused on a training level, which can always be "
+                       "reset."
+                       if CFG.continual_refuse_training_give_up else "")
+
     @tool(
         "give_up",
         "Give up: end the run for this environment and forfeit every "
-        "remaining level. Takes effect when you stop. A last resort.", {
+        "remaining level. Takes effect when you stop. A last resort." +
+        give_up_refused, {
             "type": "object",
             "properties": {
                 "note": {
@@ -912,6 +917,15 @@ def build_continual_tools(
         ended = _ended()
         if ended is not None:
             return ended
+        if CFG.continual_refuse_training_give_up and \
+                session.observe().level.split == "train":
+            return _error_result(
+                "Refused: this is a training level. It can always be reset "
+                "(env_reset, one step), and a reset keeps every file and "
+                "recording, while giving up forfeits every remaining level, "
+                "the test levels included. Reset and try another approach; "
+                "the run ends by itself when its steps or time run out." +
+                _footer())
         state.pending_give_up = GiveUp(
             str(args.get("note", "")) or "agent gave up")
         return _text_result("Give-up recorded. It takes effect when you "
