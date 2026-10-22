@@ -260,7 +260,16 @@ def test_agent_builds_the_scene_and_rehearses_in_it(tmp_path: Any,
     # model through a blending parameter.
     assert ("declare a parameter that blends the forms"
             in prompt) == from_assets
+    # Each parameter belongs to the part that owns it, so a test level
+    # that puts a part on another body composes what training measured;
+    # the first test step exercises that new combination.
+    assert ("Give each parameter to the part that owns it"
+            in prompt) == from_assets
+    assert ("declare each body's mass with the range" in prompt) == \
+        from_assets
     assert ("make your first step on a new level" in prompt) == from_assets
+    assert ("exercise what this level combines that no training level"
+            in prompt) == from_assets
     # The test-level gate also waits for a fit in EMPIRIC from assets.
     assert ("Test levels require a fitted model" in prompt) == from_assets
     assert ("Test levels require a loaded model" in prompt) != from_assets
