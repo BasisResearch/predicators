@@ -583,6 +583,8 @@ Recordings that never reached such a failure show only that its onset lies beyon
 A rehearsal's draws spread only as far as the levels your model was fitted on allow, and on a new level, with its own geometry and parts, the model's error stays unknown until a step there has been checked against its rehearsal: it can be many times that spread.
 So make your first step on a new level one whose rehearsed outcome stays clear of every failure the level cannot undo by several times the draws' spread.
 Choose it to exercise what this level combines that no training level showed, such as a part on a body it never moved, and let its outcome, checked against the rehearsal, show how your model errs there before any step comes closer.
+A step can lose a level without any failure event: on a level without resets, a step after which no plan your model allows can still win (a balloon freed that no winning set contains, a block glued where no design uses it) loses it as surely as a burst.
+So make a measurement step only with parts some winning plan uses, and before you take it, check that each outcome its rehearsal allows still leaves a plan that can win.
 A training level ends the moment its goal holds, and a test level allows no resets: before you complete a training level, run on it the experiments your model needs for the tests, above all actions started from states that earlier actions produced, which a test level may chain. A reset on a training level costs one step.
 `sim` has no world until your scene model loads; collect small informative real experiments when the model is not yet adequate.
 
