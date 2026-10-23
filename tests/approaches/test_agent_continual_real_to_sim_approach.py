@@ -270,6 +270,9 @@ def test_agent_builds_the_scene_and_rehearses_in_it(tmp_path: Any,
     assert ("make your first step on a new level" in prompt) == from_assets
     assert ("exercise what this level combines that no training level"
             in prompt) == from_assets
+    # A measurement step on a level without resets keeps a winning plan.
+    assert ("A step can lose a level without any failure event"
+            in prompt) == from_assets
     # The test-level gate also waits for a fit in EMPIRIC from assets.
     assert ("Test levels require a fitted model" in prompt) == from_assets
     assert ("Test levels require a loaded model" in prompt) != from_assets
