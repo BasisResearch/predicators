@@ -271,6 +271,9 @@ def test_agent_builds_the_scene_and_rehearses_in_it(tmp_path: Any,
     assert ("make your first step on a new level" in prompt) == from_assets
     assert ("exercise what this level combines that no training level"
             in prompt) == from_assets
+    # A measurement step on a level without resets keeps a winning plan.
+    assert ("A step can lose a level without any failure event"
+            in prompt) == from_assets
     # A failed skill call that moves its target away is checked before it
     # is repeated.
     assert ("A skill call that fails can still move what it touched"
