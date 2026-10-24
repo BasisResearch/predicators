@@ -128,6 +128,36 @@ def test_from_assets_arm_runs_only_by_name() -> None:
     }
 
 
+def test_agent_belief_arm_runs_only_by_name() -> None:
+    """EMPIRIC from assets with the agent's own parameter belief is parked, and
+    naming it runs EMPIRIC's flags with no harness fitting plus EMPIRIC from
+    assets' menu less the switches that act on a fit."""
+    assert not any("agent_belief" in r.experiment_id
+                   for r in _benchmark_runs(round_name="r1"))
+    runs = _benchmark_runs(
+        round_name="r1",
+        envs=["domino_high_friction_turn"],
+        approaches=["mb_opus", "from_assets_agent_belief_opus"],
+        seeds=(0, 1))
+    by_arm = {r.experiment_id.split("-", 1)[1]: r for r in runs}
+    arm = by_arm["from_assets_agent_belief_opus_r1"]
+    assert arm.approach == "agent_continual_from_assets_agent_belief"
+    assert arm.flags == {
+        **by_arm["mb_opus_r1"].flags,
+        "agent_sim_learn_declared_params_only": True,
+        "continual_rehearsal_gate": True,
+        "continual_predictive_check": True,
+        "continual_belief_velocities": True,
+        "continual_raw_step_limit": True,
+        "continual_rehearsal_game_over": True,
+        "continual_rehearsal_support_note": True,
+        "continual_refuse_training_give_up": True,
+        "scene_observed_sizes": True,
+        "continual_belief_window": 64,
+        "continual_pooled_level_init": True,
+    }
+
+
 def test_benchmark_subsets_and_rounds() -> None:
     """--envs, --approaches and --seeds pick a subset; --round names every
     experiment id."""
