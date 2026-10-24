@@ -620,6 +620,40 @@ def test_one_directory_per_run(tmp_path: Any) -> None:
     CFG.run_subdir = ""
 
 
+def test_a_requeued_job_whose_run_finished_starts_no_new_run(
+        tmp_path: Any, monkeypatch: Any) -> None:
+    """A Slurm job requeued after its run finished has nothing to resume:
+
+    under --auto_resume it is told the finished run, so it starts none,
+    while a first launch still starts a new run after a finished one.
+    """
+    _config(tmp_path, "oracle", num_test_tasks=1)
+    env, approach = _make("oracle")
+    run = ContinualRun(env, approach, create_level_player(env, approach))
+    card = run.run()
+    assert card.is_finished
+    _config(tmp_path, "oracle", num_test_tasks=1, auto_resume=True)
+    monkeypatch.delenv("SLURM_RESTART_COUNT", raising=False)
+    assert paths.finished_run_requeued() is None
+    assert paths.resumable_run_subdir() is None
+    monkeypatch.setenv("SLURM_RESTART_COUNT", "1")
+    assert paths.finished_run_requeued() == run.run_dir
+    # An unfinished newest run is resumed, requeued or not.
+    parent = os.path.dirname(run.run_dir)
+    unfinished = os.path.join(parent, "run_20990101_000000")
+    os.makedirs(unfinished)
+    card.end_reason = None
+    card.finished_at = None
+    card.save(os.path.join(unfinished, "scorecard.json"))
+    assert paths.finished_run_requeued() is None
+    assert paths.resumable_run_subdir() == \
+        "oracle/test/seed123/run_20990101_000000/"
+    # Without --auto_resume a requeue starts over, as a launch does.
+    _config(tmp_path, "oracle", num_test_tasks=1)
+    assert paths.finished_run_requeued() is None
+    CFG.run_subdir = ""
+
+
 def test_run_ended_carries_reason() -> None:
     """RunEnded exposes its reason and note."""
     err = RunEnded("step_cap", "note")

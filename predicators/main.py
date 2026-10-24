@@ -47,7 +47,7 @@ from predicators.execution_monitoring import create_execution_monitor
 from predicators.perception import create_perceiver
 from predicators.run.checkpoints import maybe_auto_resume
 from predicators.run.online_learning import run_pipeline
-from predicators.run.paths import resumable_run_subdir
+from predicators.run.paths import finished_run_requeued, resumable_run_subdir
 from predicators.run.setup import create_offline_dataset, setup_approach, \
     setup_environment
 from predicators.settings import CFG
@@ -64,6 +64,15 @@ def main() -> None:
     args = utils.parse_args()
     utils.update_config(args)
     str_args = " ".join(sys.argv)
+
+    # A requeued job whose continual run already finished has nothing to
+    # resume; a new run would repeat the experiment.
+    finished = finished_run_requeued()
+    if finished is not None:
+        logging.warning(
+            "--auto_resume: this requeued job's run %s has already "
+            "finished; nothing to resume, and no new run starts.", finished)
+        return
 
     # Setup logging and directories. A continual run that resumes
     # (--auto_resume) logs into the run directory it continues.
