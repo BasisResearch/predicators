@@ -15,7 +15,6 @@ from predicators.code_sim_learning.rollout_objective import \
     compute_rollout_residuals
 from predicators.code_sim_learning.trajectory_prep import \
     compute_residual_scaling
-from predicators.settings import CFG
 
 
 def replay_report(
@@ -50,11 +49,7 @@ def replay_report(
                 fingerprint.update(np.asarray(state[obj]).tobytes())
         for action in actions:
             fingerprint.update(np.asarray(action.arr).tobytes())
-    # The arm whose text names no harness fit says what the replay is.
-    declared_text = bool(CFG.agent_sim_learn_fit_invisible)
     lines = [
-        "RECORDED-ACTION VALIDATION (every selected recording, whole)"
-        if declared_text else
         "RECORDED-ACTION VALIDATION (no fitting, no segment rejection)",
         f"Model: {status}.",
         f"Recording pool: {fingerprint.hexdigest()[:16]}.",
@@ -102,9 +97,7 @@ def replay_report(
                      f"SSE={total_sse:.6g}, residuals={total_count}.")
     lines.append(f"Simulator work: {num_rollouts_run() - rollouts_before} "
                  f"rollouts, {time.monotonic() - started:.3f} seconds.")
-    design = ("parameter estimation and model design"
-              if declared_text else "fitting and model design")
     lines.append("A selected recording is held out only if you excluded it "
-                 f"from {design}. Check per-trajectory "
+                 "from fitting and model design. Check per-trajectory "
                  "errors before trusting an aggregate.")
     return "\n".join(lines)

@@ -80,40 +80,6 @@ Set and revise those declarations yourself from recorded experience.
 You may estimate values in your own sandbox code by any method, from qualitative checks against recordings and model rollouts to fits you write against `trajectories`; the result only takes effect once you write it into the declaration.
 Plans are rehearsed at the declared values; there are no belief draws or parameter sweeps.
 
-<!-- section: declared_values -->
-### Declared values and ranges
-
-The deployed model runs each declaration's `init_value` exactly as written.
-Each rehearsal draw takes every declared parameter from a bell curve centred on its `init_value` and cut to its `[lo, hi]`.
-The curve's standard deviation is 0.75 times the `init_value` (for `scale="log"`, 0.75 in log units; for an `init_value` of zero, half the range), so a wide range alone does not spread the draws.
-`sim.run(plan, physics_sweep=True)` tests each parameter at the ends of the 95% interval of those draws.
-Set and revise the declarations from recorded experience.
-Estimate values in your own sandbox code by any method, from qualitative checks against recordings and model rollouts to estimators you write against `trajectories` or with `sim.validate(params=...)`; a result takes effect once you write it into the declaration.
-Put your best value in `init_value`, and narrow `[lo, hi]` where the recordings pin the parameter down more tightly than that curve: no draw, and so no P-hat, reaches past a declared range.
-
-<!-- section: agent_belief_draws -->
-### Your parameter belief: `PARAM_DRAWS`
-
-The harness estimates nothing in this run: `sim.fit`, fitted residuals and automatic parameter sweeps are disabled, and the deployed model runs each declaration's `init_value`, your point estimate.
-Your uncertainty is the list `PARAM_DRAWS` that `simulator.py` exports, one dict per draw from parameter name to value, for example `PARAM_DRAWS = [{"mass": 0.25, "lift": 1.4}, {"mass": 0.22, "lift": 1.5}]`.
-It may also be a function with no arguments that returns such a list; the module-level name `trajectories` holds the recordings when the file loads.
-Each key names a declared parameter and each value lies inside its declared `[lo, hi]`; a parameter a draw leaves out takes its `init_value`; at most 1000 draws.
-Each rehearsal runs __NUM_DRAWS__ joint draws, each one of your draws paired with a draw of the state belief and the memory it implies: fewer draws repeat in turn, and of more, a fixed random __NUM_DRAWS__ are used; `sim.refine` scores its proposals again on fresh draws from your whole list.
-Estimate the values and the draws from recorded experience by any method: fits you write against `trajectories` or with `sim.validate(params=...)`, closed-form relations between measured quantities, or judgment you can defend.
-Make the draws as wide as the recordings leave each parameter, and keep together values that only work together.
-A refused `PARAM_DRAWS` (the model status says why), or none, leaves every rehearsal draw at your declared values.
-Values and draws take effect when the file reloads.
-
-<!-- section: intro_scene_only -->
-## Model API reference
-
-Load the scene in `./simulator.py`, and write optional monitoring predicates in `./predicates.py`.
-
-<!-- section: intro_scene_only_loaded -->
-## Model API reference
-
-Write `./simulator.py` for the scene the base loads, and write optional monitoring predicates in `./predicates.py`.
-
 <!-- section: intro_supplied -->
 ## Predicate API reference
 
