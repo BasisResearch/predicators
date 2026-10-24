@@ -227,8 +227,7 @@ class DominoTaskGenerator(TaskGenerator):
             # Same reasoning for the legitimacy rule (see
             # goal_text.CASCADE_VERIFICATION_NL): an arm-assisted layout
             # otherwise fails with verdicts the agent cannot explain.
-            goal_nl = goal_text.configured(goal_nl +
-                                           goal_text.CASCADE_VERIFICATION_NL)
+            goal_nl += goal_text.CASCADE_VERIFICATION_NL
 
         return EnvironmentTask(init_state,
                                goal_atoms,
@@ -318,8 +317,7 @@ class DominoTaskGenerator(TaskGenerator):
                 goal_atoms.add(GroundAtom(self.domino.Toppled, [domino_obj]))
         return EnvironmentTask(init_state,
                                goal_atoms,
-                               goal_nl=goal_text.configured(
-                                   goal_text.MIN_BLOCK_GOAL_NL))
+                               goal_nl=goal_text.MIN_BLOCK_GOAL_NL)
 
     def _generate_domino_sequence(self,
                                   rng: np.random.Generator,

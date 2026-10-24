@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
-import json
 import logging
 import os
 import threading
@@ -39,14 +38,9 @@ import pybullet as p
 
 from predicators import utils
 from predicators.code_sim_learning.fit_space import ParamSpec
-from predicators.code_sim_learning.scene_loader import LoadedScene, \
-    SceneLayout, feature_gap, load_scene, read_layouts, resolve_layout, \
-    stage_scene
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.observation_noise import ObservationNoise
 from predicators.pybullet_helpers.geometry import Quaternion
-from predicators.pybullet_helpers.objects import forget_body_asset, \
-    set_hard_stop_joint_limits
 from predicators.pybullet_helpers.robots.single_arm import \
     SingleArmPyBulletRobot
 from predicators.settings import CFG
@@ -63,17 +57,6 @@ _ROBOT_ATTRIBUTES = ("robot_base_pos", "robot_base_orn", "robot_init_roll",
                      "grasp_partner_tol", "_finger_action_tol")
 _CAMERA_ATTRIBUTES = ("_camera_distance", "_camera_yaw", "_camera_pitch",
                       "_camera_target", "_camera_fov")
-# A body's base position, base orientation and joint positions.
-_BodyPose = Tuple[Tuple[float, ...], Tuple[float, ...], Tuple[float, ...]]
-# The key initialize_pybullet returns the loaded scene under, beside the
-# bodies (scene_manifest_loader).
-_LOADED_SCENE = "__loaded_scene__"
-# The key for the scenes of the other levels, loaded beside it and not set
-# up: label -> scene.
-_IDLE_SCENES = "__idle_scenes__"
-# scene directory -> (its files and their modification times, the layouts
-# read from them).
-_LAYOUTS: Dict[str, Tuple[Tuple[Tuple[str, int], ...], List[SceneLayout]]] = {}
 
 # The engine's material properties of a body, offered for fitting as
 # ``<group>_<property>``: property -> (fit box lo, hi, scale, meaning).
@@ -189,96 +172,6 @@ def _recording_damping() -> Iterator[_DampingRecord]:
                 setattr(p, "changeDynamics", _UNRECORDED_CHANGE_DYNAMICS[0])
 
 
-# The file and scale each body is loaded from while a scene is built
-# (_recording_loads), so the scene's bodies take the hard stops the scene
-# manifest lists for that file: the records of each build in progress, each
-# keyed by (client, body).
-_LoadRecord = Dict[Tuple[int, int], Tuple[str, float]]
-_LOAD_RECORDS: Dict[int, _LoadRecord] = {}
-_LOAD_LOCK = threading.Lock()
-_UNRECORDED_LOAD_URDF: List[Callable[..., Any]] = []
-# p.loadURDF's positional parameters up to globalScaling.
-_LOAD_URDF_SCALE_INDEX = 6
-
-
-def _recording_load_urdf(*args: Any, **kwargs: Any) -> Any:
-    """``p.loadURDF`` that also notes the file and scale of the body."""
-    body = _UNRECORDED_LOAD_URDF[0](*args, **kwargs)
-    file_name = kwargs.get("fileName", args[0] if args else None)
-    scale = kwargs.get(
-        "globalScaling", args[_LOAD_URDF_SCALE_INDEX]
-        if len(args) > _LOAD_URDF_SCALE_INDEX else 1.0)
-    client = int(kwargs.get("physicsClientId", 0))
-    if isinstance(file_name, str) and isinstance(body, int) and body >= 0:
-        for record in list(_LOAD_RECORDS.values()):
-            record[(client, body)] = (os.path.abspath(file_name), float(scale))
-    return body
-
-
-@contextlib.contextmanager
-def _recording_loads() -> Iterator[_LoadRecord]:
-    """The file and scale of each body ``p.loadURDF`` loads while the block
-    runs, by (client, body); builds in other threads land in the record too,
-    under their own clients."""
-    record: _LoadRecord = {}
-    token = id(record)
-    with _LOAD_LOCK:
-        if not _LOAD_RECORDS:
-            _UNRECORDED_LOAD_URDF[:] = [p.loadURDF]
-            setattr(p, "loadURDF", _recording_load_urdf)
-        _LOAD_RECORDS[token] = record
-    try:
-        yield record
-    finally:
-        with _LOAD_LOCK:
-            del _LOAD_RECORDS[token]
-            if not _LOAD_RECORDS:
-                setattr(p, "loadURDF", _UNRECORDED_LOAD_URDF[0])
-
-
-# (manifest path, modification time) -> the hard stops it lists, as
-# (asset path, joint name) -> (joint type, lower, upper, urdf scale).
-_HardStops = Dict[Tuple[str, str], Tuple[str, float, float, float]]
-_MANIFEST_HARD_STOPS: Dict[Tuple[str, int], _HardStops] = {}
-
-
-def manifest_hard_stops(manifest_path: str) -> _HardStops:
-    """The joints a scene manifest marks ``hard_stop``, by the asset file their
-    body was loaded from and the joint's name.
-
-    Joints of one file and name that list different limits are left out:
-    no single stop fits them.
-    """
-    try:
-        stamp = os.stat(manifest_path).st_mtime_ns
-    except OSError:
-        return {}
-    key = (manifest_path, stamp)
-    if key not in _MANIFEST_HARD_STOPS:
-        with open(manifest_path, encoding="utf-8") as f:
-            manifest = json.load(f)
-        stops: _HardStops = {}
-        clashing: Set[Tuple[str, str]] = set()
-        for body in manifest.get("bodies", []):
-            urdf = body.get("urdf")
-            if not isinstance(urdf, str):
-                continue
-            for joint in body.get("joints", []):
-                if not joint.get("hard_stop"):
-                    continue
-                name = (urdf, str(joint["name"]))
-                stop = (str(joint["type"]), float(joint["lower_limit"]),
-                        float(joint["upper_limit"]),
-                        float(body.get("urdf_scale", 1.0)))
-                if stops.setdefault(name, stop) != stop:
-                    clashing.add(name)
-        for name in clashing:
-            del stops[name]
-        _MANIFEST_HARD_STOPS.clear()
-        _MANIFEST_HARD_STOPS[key] = stops
-    return _MANIFEST_HARD_STOPS[key]
-
-
 # The observed features a body's primitive collision shape takes
 # (SceneBase._fit_body_sizes): a box's lengths along its own axes, or their
 # halves, and a sphere's radius.
@@ -290,11 +183,6 @@ _SPHERE_RADIUS = "radius"
 # _SIZE_ATOL: a noisy reading of the size it has is no new size.
 _SIZE_SIGMAS = 4.0
 _SIZE_ATOL = 1e-4
-# The features that give a body's pose. A state shows a static object as
-# moved when one of them is off the level's own value by more than
-# _SIZE_SIGMAS of its declared observation noise and by more than
-# _SIZE_ATOL (scene_loader_static_poses).
-_POSE_FEATURES = ("x", "y", "z", "rot", "roll", "pitch", "yaw")
 # A box whose axes each lie within about 15 degrees of the world's reads its
 # own lengths and its world extents alike.
 _ALIGNED_COSINE = float(np.cos(np.radians(15.0)))
@@ -314,31 +202,17 @@ class _Primitive:
 class SceneBase(PyBulletEnv):
     """The concrete base an agent-built scene model subclasses.
 
-    Under ``scene_manifest_loader`` the base loads the scene: every body
-    of the level's scene manifest, each observed object's under its
-    name, and the scene of the level a state belongs to whenever a state
-    of another level is set (``_on_scene_loaded`` runs after each load).
-    Otherwise a subclass overrides ``initialize_pybullet`` to load the
-    scene's bodies (call ``super()`` first: it connects the engine and
-    loads the ground plane and the robot) and returns them in the bodies
-    dict under the observed object names. Objects the observation lists
+    A subclass overrides ``initialize_pybullet`` to load the scene's
+    bodies (call ``super()`` first: it connects the engine and loads the
+    ground plane and the robot) and returns them in the bodies dict
+    under the observed object names. Objects the observation lists
     without a body of their own (a virtual reading) are returned as
     ``None`` under their name, and their features round-trip through
-    the feature store. A scene may load bodies for more objects than a
-    level names (a body for every balloon any level shows): each reset
-    puts a body the state does not name back where
-    ``initialize_pybullet`` left it, at rest. Features a body does not
-    carry in its pose (a joint-backed switch reading, a level, a flag)
-    are the subclass's: override ``_set_domain_specific_state`` and
+    the feature store. Features a body does not carry in its pose
+    (a joint-backed switch reading, a level, a flag) are the
+    subclass's: override ``_set_domain_specific_state`` and
     ``_get_domain_specific_feature`` and call ``super()`` for the rest.
-    Mechanisms go in ``_domain_specific_step``. Commands the step queues
-    act on the next action from the state the step left. A rollout that
-    starts from a state (a fresh scene, a reset or a jump) runs the step
-    once on that state before its first action, so that action runs
-    with the commands that state implies, as every later action does,
-    and none that a step queued for another state. So the step must
-    leave a state that a step already left as it is, apart from the
-    commands it queues.
+    Mechanisms go in ``_domain_specific_step``.
 
     The engine's material properties are fittable parameters named
     ``<group>_<property>`` (``MATERIALS``): a group is an observed type
@@ -360,12 +234,6 @@ class SceneBase(PyBulletEnv):
     # same pose (as the real Bridge env declares it).
     _ORIENTATION_EULER_TRIPLES: ClassVar[Tuple[Tuple[str, str, str], ...]] = \
         PyBulletEnv._ORIENTATION_EULER_TRIPLES + (("roll", "pitch", "yaw"), )
-    # A rollout from another state must not run the commands this scene's
-    # step queued for the state it left (see PyBulletEnv.simulate), and
-    # its first action runs with the commands the step queues for its own
-    # start (see PyBulletEnv._step_once).
-    _drop_step_commands_at_jumps: ClassVar[bool] = True
-    _step_restored_states: ClassVar[bool] = True
     _scene_types: ClassVar[Tuple[Type, ...]] = ()
     _robot_home_orn: ClassVar[Optional[Quaternion]] = None
     _asset_dir: ClassVar[str] = ""
@@ -377,13 +245,6 @@ class SceneBase(PyBulletEnv):
                  use_gui: bool = False,
                  skip_residual_dynamics: bool = False) -> None:
         self._scene_bodies: Dict[str, Any] = {}
-        # The layout the loader built this world's bodies from
-        # (scene_manifest_loader); None for a scene the model builds.
-        self._loaded_scene: Optional[LoadedScene] = None
-        # The scenes of the other levels, loaded with it and waiting out
-        # of the scene until the first state says which level this world
-        # is for; the rest are removed then.
-        self._idle_scenes: Dict[str, LoadedScene] = {}
         self._feature_store: Dict[Tuple[str, str], float] = {}
         # (group, property) -> the value the scene itself gave the group's
         # first body, before any declared value was set.
@@ -397,20 +258,15 @@ class SceneBase(PyBulletEnv):
         self._body_baseline: Dict[Tuple[int, str], float] = {}
         # Values set on undeclared materials (a rehearsal draw's).
         self._sampled_materials: Dict[str, float] = {}
-        # Each loaded body as initialize_pybullet left it (see
-        # _park_unnamed_bodies).
-        self._build_poses: Dict[str, _BodyPose] = {}
         # The damping the scene's own code sets while it is built, which
         # PyBullet cannot report back.
-        with _recording_damping() as damping, _recording_loads() as loads:
+        with _recording_damping() as damping:
             self._scene_damping = damping
             super().__init__(use_gui=use_gui,
                              skip_residual_dynamics=skip_residual_dynamics)
-        self._hold_manifest_hard_stops(loads)
         self._robot = Object("robot", self._type_named("robot"))
         self._robot.id = self._pybullet_robot.robot_id
         self._body_objects["robot"] = self._robot
-        self._announce_scene()
 
     # -- What the deployment supplies ------------------------------------
 
@@ -459,277 +315,10 @@ class SceneBase(PyBulletEnv):
                 return scene_type
         raise KeyError(f"The observation has no type named {name!r}.")
 
-    def _hold_manifest_hard_stops(self, loads: _LoadRecord) -> None:
-        """Hold the joints the scene manifest marks ``hard_stop`` inside their
-        limits after every physics substep, as the deployment does, on every
-        body this scene loaded from the same asset file.
-
-        A prismatic joint's limits scale with the body: a body loaded at
-        another ``globalScaling`` than the manifest's ``urdf_scale``
-        takes the limits scaled by their ratio.
-        """
-        client = self._physics_client_id
-        stops = manifest_hard_stops(
-            os.path.join(os.path.dirname(self._asset_dir), "scene",
-                         "scene_manifest.json"))
-        if not stops:
-            return
-        for (load_client, body), (path, scale) in loads.items():
-            urdf = self._asset_reference(path)
-            if load_client != client or urdf is None:
-                continue
-            for joint in range(p.getNumJoints(body, physicsClientId=client)):
-                info = p.getJointInfo(body, joint, physicsClientId=client)
-                stop = stops.get((urdf, info[1].decode("utf-8")))
-                if stop is None:
-                    continue
-                joint_type, lower, upper, manifest_scale = stop
-                if joint_type == "prismatic" and manifest_scale > 0:
-                    ratio = scale / manifest_scale
-                    lower, upper = lower * ratio, upper * ratio
-                set_hard_stop_joint_limits(body, joint, lower, upper, client)
-
-    @classmethod
-    def _asset_reference(cls, path: str) -> Optional[str]:
-        """``assets/...``, as the scene manifest names it, for a file under
-        this scene's asset directory; None for any other file."""
-        norms: Tuple[Callable[[str], str],
-                     ...] = (os.path.abspath, os.path.realpath)
-        for norm in norms:
-            root, absolute = norm(cls._asset_dir), norm(path)
-            if absolute.startswith(root + os.sep):
-                return "assets/" + os.path.relpath(absolute, root).replace(
-                    os.sep, "/")
-        return None
-
-    # -- The loaded scene --------------------------------------------------
-
-    @classmethod
-    def _scene_layouts(cls) -> List[SceneLayout]:
-        """The scene of each level played so far, from ``reference/scene/``;
-        none for a base bound to no sandbox."""
-        if not cls._asset_dir:
-            return []
-        scene_dir = os.path.join(os.path.dirname(cls._asset_dir), "scene")
-        levels_dir = os.path.join(scene_dir, "levels")
-        paths = [os.path.join(scene_dir, "scene_manifest.json")]
-        if os.path.isdir(levels_dir):
-            paths += sorted(
-                os.path.join(levels_dir, name)
-                for name in os.listdir(levels_dir))
-        stamp = tuple((path, os.stat(path).st_mtime_ns) for path in paths
-                      if os.path.isfile(path))
-        cached = _LAYOUTS.get(scene_dir)
-        if cached is None or cached[0] != stamp:
-            cached = (stamp, read_layouts(scene_dir))
-            _LAYOUTS[scene_dir] = cached
-        return cached[1]
-
-    @classmethod
-    def initialize_pybullet(
-            cls, using_gui: bool
-    ) -> Tuple[int, SingleArmPyBulletRobot, Dict[str, Any]]:
-        """Connect the engine and load the ground plane and the robot; under
-        ``scene_manifest_loader`` also every body of the scene of the level
-        being played, each observed object's under its name.
-
-        The scenes of the levels before it are loaded too, out of the
-        scene, until the first state names this world's level. A world
-        the fit forks for a replay then holds its level's scene already,
-        whichever level the recording is from, and only removes the
-        others; loading a scene in every forked replay would cost more
-        than the replay of a short recording.
-        """
-        client, robot, bodies = super().initialize_pybullet(using_gui)
-        layouts = cls._scene_layouts() if CFG.scene_manifest_loader else []
-        if layouts:
-            loaded = load_scene(client, layouts[-1], cls.asset)
-            bodies.update(loaded.bodies)
-            bodies[_LOADED_SCENE] = loaded
-            bodies[_IDLE_SCENES] = {
-                layout.label: load_scene(client,
-                                         layout,
-                                         cls.asset,
-                                         row=row + 1,
-                                         staged=False)
-                for row, layout in enumerate(layouts[:-1])
-            }
-        return client, robot, bodies
-
-    def _announce_scene(self) -> None:
-        """Tell the model its world's bodies are loaded, when the loader built
-        them."""
-        if self._loaded_scene is not None:
-            self._on_scene_loaded()
-
-    def _on_scene_loaded(self) -> None:
-        """Called after the loader builds this world's bodies: once when the
-        world is made, and again whenever the scene of another level is swapped
-        in.
-
-        Set up here what your model keeps per body (a joint index, a
-        constraint, a motor setting); the bodies are in ``self.bodies``.
-        """
-
-    def _use_layout_of(self, state: State) -> None:
-        """Hold the scene of the level ``state`` belongs to, and no other
-        level's."""
-        loaded = self._loaded_scene
-        if loaded is None:
-            return
-        layout = resolve_layout(
-            type(self)._scene_layouts(), state, loaded.label)
-        if layout is not None and layout.label != loaded.label:
-            self._swap_scene(loaded, layout)
-        for idle in self._idle_scenes.values():
-            self._remove_scene(idle)
-        self._idle_scenes = {}
-
-    def _remove_scene(self, scene: LoadedScene) -> Set[int]:
-        """Remove a scene's bodies and what is kept per body id; the ids."""
-        client = self._physics_client_id
-        gone = set(scene.body_ids())
-        for index in reversed(
-                range(p.getNumConstraints(physicsClientId=client))):
-            constraint = p.getConstraintUniqueId(index, physicsClientId=client)
-            info = p.getConstraintInfo(constraint, physicsClientId=client)
-            if info[0] in gone or info[2] in gone:
-                p.removeConstraint(constraint, physicsClientId=client)
-        for body in gone:
-            forget_body_asset(client, body)
-            self._scene_damping.pop((client, body), None)
-            p.removeBody(body, physicsClientId=client)
-        # A body id may now be another body: nothing kept per id holds.
-        self._body_baseline = {
-            key: value
-            for key, value in self._body_baseline.items() if key[0] not in gone
-        }
-        self._material_layout = None
-        return gone
-
-    def _swap_scene(self, loaded: LoadedScene, layout: SceneLayout) -> None:
-        """Replace this world's scene ``loaded`` by the scene of ``layout``:
-
-        the one waiting out of the scene, else a new one.
-        """
-        client = self._physics_client_id
-        # Nothing of the old scene survives: grasp, welds, bodies.
-        if self._held_constraint_id is not None:
-            p.removeConstraint(self._held_constraint_id,
-                               physicsClientId=client)
-            self._held_constraint_id = None
-        self._held_obj_id = None
-        self._clear_commanded_attachments()
-        self._remove_scene(loaded)
-        for name in loaded.bodies:
-            self._scene_bodies.pop(name, None)
-        fresh = self._idle_scenes.pop(layout.label, None)
-        if fresh is None:
-            fresh = load_scene(client, layout, type(self).asset)
-        else:
-            stage_scene(client, fresh)
-        self._scene_bodies.update(fresh.bodies)
-        self._loaded_scene = fresh
-        self._build_poses = {
-            name: self._body_pose(body)
-            for name, body in self._scene_bodies.items()
-            if isinstance(body, int)
-        }
-        for name, obj in self._body_objects.items():
-            if name in loaded.bodies or name in fresh.bodies:
-                obj.id = fresh.bodies.get(name)
-        # The next reset writes every body: none is where a state left it.
-        self._current_observation = None
-        self._announce_scene()
-
-    def _stand_static_objects(self, state: State) -> None:
-        """Give each static object of ``state`` the pose its level's scene has
-        it at, in place, unless the state shows it moved.
-
-        A static body stands where the scene has it for the whole level,
-        while each observation reads its pose with noise. Taken as read,
-        the noise would tilt neighbouring supports against each other
-        and build a curb at every junction, another one in every state.
-        The level's scene record gives that pose (``signature``), as it
-        gives the sizes.
-        """
-        loaded = self._loaded_scene
-        if loaded is None or not CFG.scene_loader_static_poses:
-            return
-        layout = next((layout for layout in type(self)._scene_layouts()
-                       if layout.label == loaded.label), None)
-        if layout is None:
-            return
-        noise = ObservationNoise.from_cfg()
-        for obj in state:
-            stands = layout.signature.get(obj.name)
-            if stands is None:
-                continue
-            features = [
-                feature for feature in _POSE_FEATURES
-                if feature in obj.type.feature_names and feature in stands
-            ]
-            if all(
-                    feature_gap(float(state.get(obj, feature)),
-                                stands[feature]) <=
-                    max(_SIZE_ATOL,
-                        _SIZE_SIGMAS * noise.feature_sigma(obj.type, feature))
-                    for feature in features):
-                for feature in features:
-                    state.set(obj, feature, stands[feature])
-
     # -- Bodies and observed objects -------------------------------------
 
     def _store_pybullet_bodies(self, pybullet_bodies: Dict[str, Any]) -> None:
-        pybullet_bodies = dict(pybullet_bodies)
-        self._loaded_scene = pybullet_bodies.pop(_LOADED_SCENE, None)
-        self._idle_scenes = pybullet_bodies.pop(_IDLE_SCENES, {})
         self._scene_bodies = dict(pybullet_bodies)
-        self._build_poses = {
-            name: self._body_pose(body)
-            for name, body in self._scene_bodies.items()
-            if isinstance(body, int)
-        }
-
-    def _body_pose(self, body: int) -> _BodyPose:
-        """A body's base position and orientation and its joints' positions."""
-        client = self._physics_client_id
-        position, orientation = p.getBasePositionAndOrientation(
-            body, physicsClientId=client)
-        joints = tuple(
-            float(p.getJointState(body, joint, physicsClientId=client)[0])
-            for joint in range(p.getNumJoints(body, physicsClientId=client)))
-        return tuple(position), tuple(orientation), joints
-
-    def _park_unnamed_bodies(self, state: State) -> None:
-        """Put each loaded body ``state`` does not name back where
-        ``initialize_pybullet`` left it, at rest.
-
-        Only the bodies a state names are placed by it. After a state
-        with more objects (a level with four balloons, then a level with
-        two), the bodies only the first state named would otherwise stay
-        where its rollout left them, inside the scene: a reset must
-        build the world a fresh scene builds for the same state.
-        """
-        client = self._physics_client_id
-        named = {obj.name for obj in state}
-        for name, (position, orientation, joints) in self._build_poses.items():
-            body = self._scene_bodies.get(name)
-            if name in named or not isinstance(body, int):
-                continue
-            p.resetBasePositionAndOrientation(body,
-                                              position,
-                                              orientation,
-                                              physicsClientId=client)
-            p.resetBaseVelocity(body, [0.0, 0.0, 0.0], [0.0, 0.0, 0.0],
-                                physicsClientId=client)
-            num_joints = p.getNumJoints(body, physicsClientId=client)
-            for joint, value in enumerate(joints[:num_joints]):
-                p.resetJointState(body,
-                                  joint,
-                                  value,
-                                  0.0,
-                                  physicsClientId=client)
 
     @property
     def bodies(self) -> Dict[str, Any]:
@@ -755,7 +344,6 @@ class SceneBase(PyBulletEnv):
         return bound
 
     def _set_state(self, state: State) -> None:
-        self._use_layout_of(state)
         rebound = state.copy()
         rebound.data = {
             self._bind(obj): values
@@ -771,8 +359,6 @@ class SceneBase(PyBulletEnv):
                 f"The scene loads no body for {missing}. Return each one's "
                 "body id from initialize_pybullet under its observed name, "
                 "or None under that name for an object with no body.")
-        self._stand_static_objects(rebound)
-        self._park_unnamed_bodies(rebound)
         unfit = (self._fit_body_sizes(rebound)
                  if CFG.scene_observed_sizes else [])
         super()._set_state(rebound)

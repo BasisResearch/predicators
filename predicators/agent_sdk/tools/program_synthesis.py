@@ -126,16 +126,6 @@ STANDALONE_RUN_PYTHON_DESCRIPTION = (
     "the recorded `trajectories`. This tool does NOT define the model: "
     "write `world_model.py` for that.")
 
-# Appended under continual_provide_reward_model.
-STANDALONE_REWARD_MODEL_DESCRIPTION = (
-    " The namespace also binds the level's reward model: "
-    "evaluate_trajectory(states, actions=None, task_idx=None) -> "
-    "{reward, solved, note} scores a state sequence, such as "
-    "`sim.run(plan_text).states`, and with_features(state, {object_name: "
-    "{feature: value}}) returns a copy of a state with those features "
-    "changed. No simulator backs it: a rule that replays physics is not "
-    "checked, and the note says so.")
-
 
 def create_program_synthesis_tools(
     exec_ns: Dict[str, Any],

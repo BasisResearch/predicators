@@ -71,6 +71,7 @@ _HIDDEN_IDENTIFIERS = (
     "_Bridged_holds",
     "_Attached_holds",
     "_Loose_holds",
+    "_GOAL_SETTLE_SUBSTEPS",
     "check_episode_trajectory",
     "_certificate_snapshot",
     "episode_terminated",

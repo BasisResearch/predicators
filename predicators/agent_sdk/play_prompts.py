@@ -43,16 +43,9 @@ TOOL_BLURBS = {
     "skills_execute_plan":
     "a plan, one line per skill, executed in order; stops at a failed "
     "skill, a divergence (unless told not to), a WIN or a GAME_OVER.",
-    "claims_record":
-    "the belief a step leans on, when a claim check asks for it. Free.",
-    "claims_resolve":
-    "closes a claim record with what its experiment showed. Free.",
     "run_python":
     "code in the sandbox with the `sim` probe over your model files "
     "(`sim.fit`, `sim.residuals`, `sim.run`, `sim.refine`, ...). Free.",
-    "evaluate_trajectory":
-    "a level's reward model on a state sequence you predict: `reward`, "
-    "`solved` and a `note`. No simulator backs it. Free.",
 }
 # The run_python blurb of the arms whose probe never fits (frozen
 # dynamics, no harness fitting).
@@ -99,12 +92,6 @@ _PREFLIGHT_BLURB = (" Rehearsed in `sim` from the last observation first; "
                     "rehearsal.")
 
 
-def _loaded(built: str, loaded: str) -> str:
-    """The prompt section for a scene the harness loads
-    (``scene_manifest_loader``), else the one for a scene the agent builds."""
-    return loaded if CFG.scene_manifest_loader else built
-
-
 def render_tool_list(tool_names: Iterable[str],
                      fit_available: bool = True) -> str:
     """One bullet per tool the session exposes.
@@ -135,9 +122,7 @@ def build_play_system_prompt(tool_names: Sequence[str],
                              oracle_dynamics: bool = False,
                              scene_built: bool = False,
                              scene_package: bool = False,
-                             fit_gate: bool = False,
-                             agent_belief: bool = False,
-                             frozen_scene: bool = False) -> str:
+                             fit_gate: bool = False) -> str:
     """The system prompt of the run's conversation.
 
     The tool surface selects the variant: an arm with ``run_python``
@@ -167,22 +152,9 @@ def build_play_system_prompt(tool_names: Sequence[str],
     that. ``scene_package`` (a twin-backed arm that also receives the
     engine, the manifest and the assets) describes that reference
     listing instead; for the model-free arm it adds that listing as
-    plain files to use however the agent likes, with no simulator. A
-    model-free arm whose tools include ``evaluate_trajectory``
-    (``continual_provide_reward_model``) gets the section on scoring
-    predicted states with the level's reward model.
+    plain files to use however the agent likes, with no simulator.
     ``fit_gate`` (EMPIRIC from assets) says the test-level gate also
-    waits for a fit of the current ``simulator.py``. A scene-built arm with
-    a harness fit and no uncertainty decisions (EMPIRIC from assets without
-    explicit uncertainty) gets the from-assets arm statement for point
-    estimates, which names no belief, draw or harness rehearsal.
-    ``agent_belief`` (EMPIRIC from assets with the agent's own parameter
-    belief) gives a scene-built arm with no harness fit the from-assets
-    arm statement for an agent that estimates its parameters and supplies
-    their draws, and the predictive check's statement for draws the
-    harness never tempers. ``frozen_scene`` (the no-learning arm) says a
-    frozen arm's written model stays open to edits of its scene, with no
-    seal at the first real action.
+    waits for a fit of the current ``simulator.py``.
     """
     names = set(tool_names)
     model = "run_python" in names
@@ -213,18 +185,10 @@ def build_play_system_prompt(tool_names: Sequence[str],
                    noise_line=noise.describe() + "."))
     if frozen:
         sections.append(frozen_section)
-    if scene_built and not frozen_scene:
+    if scene_built:
         sections.append(
             render("play_system",
-                   "arm_from_assets_point_estimate"
-                   if point_estimate else "arm_from_assets",
-                   scene_ownership=render(
-                       "play_system",
-                       _loaded("scene_ownership_built",
-                               "scene_ownership_loaded"))
-                   ) if fit_available else render(
-                       "play_system", "arm_from_assets_agent_belief"
-                       if agent_belief else "arm_real_to_sim"))
+                   "arm_from_assets" if fit_available else "arm_real_to_sim"))
     # The joint belief replaces trials / solved / belief_draws with one
     # rehearsal over its K joint draws (paper Section 3.3).
     joint = (int(CFG.belief_joint_draws) > 0 and not point_estimate
@@ -259,14 +223,8 @@ def build_play_system_prompt(tool_names: Sequence[str],
                 model_ready=render(
                     "play_system", "model_ready_declared"
                     if declared else "model_ready_fitted"),
-                # A from-assets `sim` has no world before the model loads;
-                # the real-to-sim arm keeps the wording it has run with.
-                rehearsal_clause="once your scene model is loaded"
-                if scene_built and fit_available else "model or not",
                 sim_first_round=render(
-                    "play_system",
-                    _loaded("sim_first_round_scene",
-                            "sim_first_round_scene_loaded")
+                    "play_system", "sim_first_round_scene"
                     if scene_built else "sim_first_round_twin"),
                 rehearse_line=render(
                     "play_system",
@@ -283,9 +241,7 @@ def build_play_system_prompt(tool_names: Sequence[str],
                    rehearsal_clause="once your scene model is loaded"
                    if scene_built else "model or not",
                    sim_first_round=render(
-                       "play_system",
-                       _loaded("sim_first_round_scene",
-                               "sim_first_round_scene_loaded")
+                       "play_system", "sim_first_round_scene"
                        if scene_built else "sim_first_round_twin"),
                    model_ready=render("play_system", ready)))
     if model:
@@ -300,40 +256,18 @@ def build_play_system_prompt(tool_names: Sequence[str],
             sections.append(render("play_system", "oracle_discrepancies"))
         if CFG.continual_require_model_on_test:
             sections.append(
-                render(
-                    "play_system", "model_gate_fit" if fit_gate else
-                    "model_gate_scene" if frozen_scene else "model_gate"))
+                render("play_system",
+                       "model_gate_fit" if fit_gate else "model_gate"))
         if CFG.continual_rehearsal_gate and joint:
             sections.append(render("play_system", "rehearsal_gate"))
-            if CFG.continual_rehearsal_win_first:
-                sections.append(render("play_system", "rehearsal_win_first"))
             if CFG.continual_rehearsal_game_over_gate > 0.0:
                 sections.append(
                     render(
                         "play_system",
                         "rehearsal_game_over_gate",
                         share=f"{CFG.continual_rehearsal_game_over_gate:.0%}"))
-            if CFG.continual_rehearsal_safe_plan:
-                sections.append(render("play_system", "rehearsal_safe_plan"))
-            if CFG.continual_rehearsal_still_start:
-                sections.append(
-                    render("play_system",
-                           "rehearsal_still_start",
-                           wait=str(CFG.continual_rehearsal_still_wait)))
-        if CFG.continual_practise_after_reset and joint:
-            sections.append(render("play_system", "practise_after_reset"))
-        if CFG.continual_claim_check:
-            sections.append(
-                render("play_system",
-                       "claim_check",
-                       resets=str(CFG.continual_claim_check_resets),
-                       win=f"{CFG.continual_claim_check_win_p_hat:.2f}",
-                       low=f"{CFG.continual_claim_check_low_p_hat:.2f}"))
         if CFG.continual_predictive_check and joint:
-            sections.append(
-                render(
-                    "play_system", "predictive_check_agent_belief"
-                    if agent_belief else "predictive_check"))
+            sections.append(render("play_system", "predictive_check"))
         if CFG.continual_skill_preflight:
             sections.append(render("play_system", "skill_preflight"))
         if CFG.agent_model_repair and not frozen:
@@ -366,11 +300,6 @@ def build_play_system_prompt(tool_names: Sequence[str],
         render("play_system",
                "sandbox",
                model_files=render("play_system", files)),
-    ]
-    if not model and "evaluate_trajectory" in names:
-        # The direct agent under continual_provide_reward_model.
-        sections.append(render("play_system", "reward_model_model_free"))
-    sections += [
         render("play_system", "journal" + variant),
         render("play_system", "context"),
     ]
@@ -382,7 +311,7 @@ def build_play_system_prompt(tool_names: Sequence[str],
     if model:
         refs = ("" if not base_sim_refs else render(
             "play_system",
-            _loaded("scene_refs", "scene_refs_loaded") if scene_built else
+            "scene_refs" if scene_built else
             "twin_scene_refs" if scene_package else "base_sim_refs",
             ref_listing="\n".join(f"- `{r}`" for r in base_sim_refs)))
         robustness = render(
@@ -402,8 +331,7 @@ def build_play_system_prompt(tool_names: Sequence[str],
                     if joint else "robustness_oracle")
                 sweep_verdict = ""
             fixed = render(
-                "play_system",
-                "frozen_line_scene" if frozen_scene else "frozen_line_supplied"
+                "play_system", "frozen_line_supplied"
                 if frozen_model_supplied else "frozen_line_written")
             sections.append(
                 render("play_system",
@@ -473,9 +401,6 @@ def build_model_contract(
     supplied_model: bool = False,
     scene_built: bool = False,
     sampled_materials: bool = False,
-    fitted_materials: bool = False,
-    agent_belief: bool = False,
-    scene_only: bool = False,
 ) -> str:
     """The contract of the model files, for the model arm's system prompt
     (``play_model_contract.md``).
@@ -494,33 +419,10 @@ def build_model_contract(
     one: the agent loads the scene itself. ``sampled_materials`` (EMPIRIC
     from assets) says rehearsal samples the materials the scene leaves
     undeclared (as far as the recordings allow, under
-    ``belief_material_lines``; not at all, under
-    ``belief_keep_undeclared_materials``) and a declared material keeps
-    at least its plausible range; otherwise undeclared materials keep the
-    scene's values. ``fitted_materials`` (EMPIRIC from assets without
-    explicit uncertainty) describes a fit that no draw follows: the fit
-    and every rollout keep the scene's value of an undeclared material,
-    and a declared material keeps at least its plausible range.
-    ``agent_belief`` (with ``declared_params_only``) replaces the
-    no-harness-fitting section with the contract of ``PARAM_DRAWS``, the
-    agent's own parameter draws. ``scene_only`` (the no-learning arm)
-    keeps the contract of a scene that loads its bodies, and the
-    predicates.
+    ``belief_material_lines``) and a declared material keeps at least its
+    plausible range; otherwise undeclared materials keep the scene's
+    values.
     """
-    noise = ObservationNoise.from_cfg()
-    if scene_only:
-        return _join_contract([
-            render("play_model_contract",
-                   _loaded("intro_scene_only", "intro_scene_only_loaded")),
-            render(
-                "subclass_model",
-                _loaded("simulator_scene_only", "simulator_scene_only_loaded"),
-                level_scenes=render(
-                    "subclass_model", "level_scenes_loaded_no_fit" if
-                    CFG.scene_manifest_loader else "level_scenes_sized_no_fit"
-                    if CFG.scene_observed_sizes else "level_scenes_fixed")),
-            render("play_model_contract", "predicates"),
-        ])
     if supplied_model:
         parts = [
             render("play_model_contract", "intro_supplied"),
@@ -531,44 +433,23 @@ def build_model_contract(
         return _join_contract(parts)
     if scene_built:
         # Under belief_material_lines the draws of an undeclared material
-        # follow the recordings instead of its plausible range alone;
-        # under belief_keep_undeclared_materials no draw moves it.
-        # With a fit that no draw follows, the fit and every rollout keep
-        # the scene's value of it.
-        if fitted_materials:
-            section = "undeclared_materials_fitted"
-        elif CFG.belief_keep_undeclared_materials:
-            section = "undeclared_materials_declared_only"
-        elif CFG.belief_material_lines:
-            section = "undeclared_materials_lined"
-        else:
-            section = "undeclared_materials_sampled"
+        # follow the recordings instead of its plausible range alone.
+        section = ("undeclared_materials_lined" if CFG.belief_material_lines
+                   else "undeclared_materials_sampled")
         undeclared = (render("subclass_model",
                              section,
                              plausible_ranges=plausible_materials_text())
-                      if sampled_materials or fitted_materials else render(
+                      if sampled_materials else render(
                           "subclass_model", "undeclared_materials_kept"))
-        # Under belief_undeclared_material_screen the harness tests a
-        # rehearsed plan against the materials no draw varies.
-        if sampled_materials and CFG.belief_keep_undeclared_materials and \
-                CFG.belief_undeclared_material_screen:
-            undeclared += "\n" + render("subclass_model",
-                                        "undeclared_materials_screen")
         # Under scene_observed_sizes the base gives box and sphere bodies
         # each level's observed sizes.
         levels = render(
-            "subclass_model", "level_scenes_loaded"
-            if CFG.scene_manifest_loader else "level_scenes_sized"
+            "subclass_model", "level_scenes_sized"
             if CFG.scene_observed_sizes else "level_scenes_fixed")
-        scene = {"undeclared_materials": undeclared, "level_scenes": levels}
-        if CFG.scene_manifest_loader:
-            # With undeclared noise the prompt never mentions noise.
-            scene["static_poses"] = render(
-                "subclass_model", "static_poses_plain"
-                if noise.enabled and not noise.declared else "static_poses")
-        simulator = render(
-            "subclass_model",
-            _loaded("simulator_scene", "simulator_scene_loaded"), **scene)
+        simulator = render("subclass_model",
+                           "simulator_scene",
+                           undeclared_materials=undeclared,
+                           level_scenes=levels)
     else:
         simulator = render("subclass_model", "simulator")
     parts = [
@@ -576,6 +457,7 @@ def build_model_contract(
         simulator,
         render("subclass_model", "dynamics"),
     ]
+    noise = ObservationNoise.from_cfg()
     if partially_observable:
         # With undeclared noise the prompt never mentions noise at all.
         parts.append(
@@ -592,12 +474,7 @@ def build_model_contract(
                 if declared_params_only else "observation_noise"))
     if physical_params_section:
         parts.append(physical_params_section)
-    if declared_params_only and agent_belief:
-        parts.append(
-            render("play_model_contract",
-                   "agent_belief_draws",
-                   num_draws=str(int(CFG.belief_joint_draws))))
-    elif declared_params_only:
+    if declared_params_only:
         # Without uncertainty decisions the declared ranges drive nothing.
         parts.append(
             render(

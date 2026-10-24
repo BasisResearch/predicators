@@ -72,8 +72,6 @@ APPROACH_DIR = {
     "no_fitting": "agent_continual_no_fitting",
     "no_uncertainty": "agent_continual_no_uncertainty",
     "real_to_sim": "agent_continual_real_to_sim",
-    "no_learning": "agent_continual_no_learning",
-    "from_assets_no_uncertainty": "agent_continual_from_assets_no_uncertainty",
 }
 # Arms relaunched with a revised surface read their newer round
 # (continual_standalone_no_uncertainty_r2.yaml).

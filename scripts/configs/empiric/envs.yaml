@@ -43,7 +43,6 @@ ENVS:
       pybullet_grasp_max_force: 10000.0
       bridge_lift_before_transit: true
       bridge_goal_robot_clearance: 0.01
-      bridge_goal_settle_substeps: 240
   # Boil: one jug in training, two jugs on the test level, with the 5 cm
   # faucet tolerance.
   boil:
@@ -117,10 +116,6 @@ ENVS:
       pybullet_birrt_extend_num_interp: 20
       pybullet_birrt_path_subsample_ratio: 2
       domino_min_block_tasks: true
-      # The real cascade verdict reads the engine's contacts, for every
-      # arm: a push that only a fingertip on the green makes stands
-      # without the counterfactual replay.
-      domino_contact_verdict: true
       domino_true_friction: 0.5
       domino_planning_friction: 0.1
       domino_min_block_span_lo: 0.29
