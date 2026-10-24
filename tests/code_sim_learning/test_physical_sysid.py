@@ -865,7 +865,7 @@ def test_pin_all_physical_params_env_without_registry():
     assert env.applied == {"k": 1.0}
 
 
-def test_apply_identified_reverts_params_dropped_from_declaration():
+def test_apply_identified_reverts_params_dropped_from_declaration(monkeypatch):
     """Regression for run_20260707_112310: an intermediate artifact applied
     lateral_friction 1.9993, the final artifact declared only rolling_friction,
     and the planner silently kept 1.9993.
@@ -880,8 +880,12 @@ def test_apply_identified_reverts_params_dropped_from_declaration():
     approach._base_env = env
     approach._identified_physical_params = {}
     approach._baseline_param_cache = None
-    approach._make_planning_base_env = \
-        lambda use_gui=False: _LiveStickyEnv(_REGISTRY)
+    # Patched through monkeypatch: pylint reads a plain assignment as the
+    # approach's own attribute and then types the method's fresh envs in
+    # the approach module as this stub.
+    monkeypatch.setattr(approach,
+                        "_make_planning_base_env",
+                        lambda use_gui=False: _LiveStickyEnv(_REGISTRY))
     apply = approach._apply_identified_physical_params
 
     apply({"lateral_friction": 1.9993, "rolling_friction": 0.007})
