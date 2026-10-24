@@ -143,6 +143,44 @@ def test_rollout_budget_uses_live_protocol_allowance(mode):
     assert "execution step budget (0" in result.text
 
 
+@pytest.mark.parametrize("flag,value", [("trials", 2), ("physics_sweep", True),
+                                        ("belief_draws", 2)])
+def test_rollout_modes_refuse_a_missing_model_before_forking(
+        flag, value, monkeypatch):
+    """Each mode that forks rollout children resolves the probe's model first.
+
+    A model that cannot load, such as an arm's before its simulator.py
+    exists, refuses once, with no child forked and no world built.
+    """
+    utils.reset_config({
+        "continual_obs_noise_position": 0.01,
+        "continual_obs_noise_declared": True,
+    })
+    ctx, _, scope_overrides = _make_ctx([{"friction": .48}])
+    loads = []
+
+    def no_world():
+        loads.append("model")
+        raise RuntimeError("`sim` has no world yet")
+
+    forked = []
+
+    def prefetch(jobs, label):
+        forked.append(label)
+        return [None] * len(jobs)
+
+    ctx.probe_option_model_provider = no_world
+    ctx.probe_validation_env_scope = ctx.validation_env_scope
+    monkeypatch.setattr("predicators.agent_sdk.belief_probe.prefetch_parallel",
+                        prefetch)
+    sim = BeliefProbe(ctx).reset()
+    with pytest.raises(RuntimeError, match="has no world yet"):
+        sim.run("Move(block0:block)[0.95]", render=False, **{flag: value})
+    assert loads == ["model"]
+    assert not forked and not scope_overrides
+    utils.reset_config({})
+
+
 def test_physics_sweep_straddle_arms_the_probe_trigger():
     """Under the interval belief a mixed sweep is reported as the interval
     straddling the plan's success boundary, with the passing and failing

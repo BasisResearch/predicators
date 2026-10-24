@@ -102,6 +102,56 @@ def test_rehearsal_modes_and_replaced_flags():
     utils.reset_config({})
 
 
+def test_rehearsal_resolves_the_model_before_drawing_or_forking(monkeypatch):
+    """The rehearsal resolves the probe's model before it takes the draws and
+    before it forks children.
+
+    The draws come from the model's belief, and each child builds its
+    world from the model. A model that cannot load, such as an arm's
+    before its simulator.py exists, refuses once, with no draw taken and
+    no child forked.
+    """
+    ctx, model, scope_overrides, _ = _joint_ctx()
+    order = []
+    take_draws = ctx.joint_draws_provider
+
+    def draws(num, fresh=False):
+        order.append("draws")
+        return take_draws(num, fresh=fresh)
+
+    def candidate():
+        order.append("model")
+        return model
+
+    def prefetch(jobs, label):
+        del label
+        order.append("prefetch")
+        return [None] * len(jobs)
+
+    ctx.joint_draws_provider = draws
+    ctx.probe_option_model_provider = candidate
+    ctx.probe_validation_env_scope = ctx.validation_env_scope
+    monkeypatch.setattr("predicators.agent_sdk.belief_probe.prefetch_parallel",
+                        prefetch)
+    sim = BeliefProbe(ctx)
+    _on_observation(sim, ctx)
+    sim.run(_PLAN, render=False)
+    assert order[:3] == ["model", "draws", "prefetch"]
+
+    def no_world():
+        order.append("model")
+        raise RuntimeError("`sim` has no world yet")
+
+    ctx.probe_option_model_provider = no_world
+    order.clear()
+    scope_overrides.clear()
+    with pytest.raises(RuntimeError, match="has no world yet"):
+        sim.run(_PLAN, render=False)
+    assert order == ["model"]
+    assert not scope_overrides
+    utils.reset_config({})
+
+
 def test_hypothetical_state_varies_only_the_parameters():
     """Off the current observation, the draws keep the probe's own state."""
     ctx, _, _, _ = _joint_ctx()
