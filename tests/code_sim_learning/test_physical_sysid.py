@@ -24,6 +24,7 @@ from predicators.code_sim_learning.identifiability import Verdict, \
 from predicators.code_sim_learning.physical_sysid import \
     fit_params_rollout_trimmed
 from predicators.code_sim_learning.trajectory_prep import truncate_settled_tail
+from predicators.code_sim_learning.utils import stamp_physical_spec_scales
 from predicators.structs import Action, Object, State, Type
 
 _DOMINO_TYPE = Type("domino", ["x"])
@@ -2500,3 +2501,39 @@ def test_basins_are_measured_from_the_point_the_recordings_favour():
     alone = physical_sysid._select_basins(points, zs, finals, costs, gaps, 0,
                                           False, np.array([1.0]))
     assert [(b[0]["k"], b[2]) for b in alone] == [(0.1, 1.0)]
+
+
+def test_plausible_widening_keeps_a_log_scale_box_positive():
+    """A registry's plausible range widens a declared box, but a log-scale box
+    keeps its positive low end when that range starts at zero; a linear box,
+    and a log box whose plausible range starts above zero, widen."""
+
+    class _Registry:
+
+        @staticmethod
+        def get_physical_param_info():
+            """Two engine materials with plausible ranges."""
+            return {
+                "ball_rolling_friction": {
+                    "plausible": (0.0, 0.1)
+                },
+                "ball_mass": {
+                    "plausible": (0.01, 2.0)
+                },
+            }
+
+    specs = [
+        ParamSpec("ball_rolling_friction", 3e-5, lo=1e-7, hi=3e-3,
+                  scale="log"),
+        ParamSpec("ball_mass", 0.05, lo=0.04, hi=0.6, scale="log"),
+    ]
+    stamped = stamp_physical_spec_scales(specs, _Registry())
+    assert [(s.name, s.lo, s.hi, s.scale) for s in stamped] == [
+        ("ball_rolling_friction", 1e-7, 0.1, "log"),
+        ("ball_mass", 0.01, 2.0, "log"),
+    ]
+    linear = stamp_physical_spec_scales(
+        [ParamSpec("ball_rolling_friction", 3e-5, lo=1e-7, hi=3e-3)],
+        _Registry())
+    assert (linear[0].lo, linear[0].hi, linear[0].scale) == (0.0, 0.1,
+                                                             "linear")
