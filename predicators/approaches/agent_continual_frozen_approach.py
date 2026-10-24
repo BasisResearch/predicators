@@ -54,13 +54,6 @@ class AgentContinualZeroShotApproach(AgentContinualApproach):
     def _fit_available(self) -> bool:
         return False
 
-    def _model_file_import_refusal(self, code: str) -> Optional[str]:
-        # A supplied model is the harness's own file. It never enters the
-        # sandbox, and it may build on modules the sandbox hides.
-        if self._frozen_model_supplied:
-            return None
-        return super()._model_file_import_refusal(code)
-
     def _no_model_section(self) -> str:
         return "no_model_zero_shot"
 

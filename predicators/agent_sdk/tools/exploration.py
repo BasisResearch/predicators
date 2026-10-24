@@ -22,21 +22,12 @@ class ProbeSurface:
     alternative parameter values (``validate(params=...)``,
     ``residuals(phys_params=...)``). ``uncertainty``: belief draws,
     ``sim.belief``, ``sim.suggest_probes`` and physics sweeps.
-    ``fit_invisible`` (with ``fit`` False): the description names no
-    harness fit and nothing withheld; it says only that the model runs at
-    its declared values (the arm whose agent must not learn that a harness
-    fit exists). ``point_values`` (with ``uncertainty`` False): the probe
-    is the one without the calls built on a belief, under its own class
-    name, and the description names no belief and nothing withheld (the
-    arm at one value per parameter, ``continual_point_values_only``).
     """
     fit: bool = True
     edit_model: bool = True
     sealed: bool = False
     alt_params: bool = True
     uncertainty: bool = True
-    fit_invisible: bool = False
-    point_values: bool = False
 
 
 def belief_probe_blurb(synthesis_probe: bool,
@@ -53,12 +44,6 @@ def belief_probe_blurb(synthesis_probe: bool,
     (:class:`ProbeSurface`).
     """
     surface = surface or ProbeSurface()
-    # The name the agent knows its probe class by.
-    name = "BeliefProbe"
-    if surface.point_values:
-        # pylint: disable-next=import-outside-toplevel
-        from predicators.agent_sdk.point_probe import PROBE_NAME
-        name = PROBE_NAME
     if synthesis_probe:
         if not surface.edit_model:
             sim_desc = (
@@ -72,12 +57,6 @@ def belief_probe_blurb(synthesis_probe: bool,
                 "action seals it; afterwards it runs the sealed code at its "
                 "declared values, and no call fits or changes them; errors "
                 "until a loadable simulator.py exists)")
-        elif not surface.fit and surface.fit_invisible:
-            sim_desc = (
-                "`sim` (a BeliefProbe over the CANDIDATE simulator: your "
-                "current simulator.py, rebuilt automatically when the file "
-                "changes, at the values written in its declarations; errors "
-                "until a loadable simulator.py exists)")
         elif not surface.fit:
             sim_desc = (
                 "`sim` (a BeliefProbe over the CANDIDATE simulator: your "
@@ -87,7 +66,7 @@ def belief_probe_blurb(synthesis_probe: bool,
                 "exists)")
         else:
             sim_desc = (
-                f"`sim` (a {name} over the CANDIDATE simulator: your "
+                "`sim` (a BeliefProbe over the CANDIDATE simulator: your "
                 "current simulator.py, rebuilt automatically when the file "
                 "changes, at the params of your last `sim.fit()` (a "
                 "declared value you edit afterwards takes effect) - it never "
@@ -183,9 +162,7 @@ def belief_probe_blurb(synthesis_probe: bool,
                 "declare PHYSICAL_PARAM_SPECS, in either direction")
         task_desc += "; "
     else:
-        sim_desc = (f"`sim` (a {name} over your simulator)"
-                    if surface.point_values else
-                    "`sim` (a BeliefProbe over the belief simulator)")
+        sim_desc = "`sim` (a BeliefProbe over the belief simulator)"
         reset_desc = (
             "`sim.reset(task_idx=None, mods=None)` sets the current state "
             "to a task's init (current task by default), optionally with "
@@ -196,9 +173,6 @@ def belief_probe_blurb(synthesis_probe: bool,
     # pylint: disable-next=import-outside-toplevel
     from predicators.settings import CFG
     joint = bool(surface.uncertainty) and int(CFG.belief_joint_draws) > 0
-    # Where the rehearsal's own rollout runs.
-    point = ("the declared values"
-             if surface.fit_invisible else "the fit's point estimate")
     if joint:
         belief_desc = ("`sim.belief()` lists the state belief with the atoms "
                        "it is unsure about; ")
@@ -221,7 +195,7 @@ def belief_probe_blurb(synthesis_probe: bool,
             "by each draw's rollout (reaching the goal atoms is NOT the "
             "same as being scored a solve), each draw's outcome and the "
             "parameter ranges on which draws fail, then a step-by-step "
-            f"rollout from the belief mean at {point} "
+            "rollout from the belief mean at the fit's point estimate "
             "with contacts and saved per-step scene-image paths (view them "
             "with the Read tool), which advances the state; `-> "
             "{subgoals}` annotations are CHECKED in that rollout; draws=0 "
@@ -288,7 +262,7 @@ def belief_probe_blurb(synthesis_probe: bool,
             "require_solved=False)` runs "
             "backtracking parameter search FROM THE CURRENT STATE (same "
             "grammar as skills_execute_plan"
-            f"{_region_syntax_blurb(plain=surface.point_values)}; "
+            f"{_region_syntax_blurb()}; "
             "success = each step establishes its `-> {subgoals}` "
             "annotation, and the result's Verdict line states what it "
             "certifies) - refine a plan SUFFIX from a snapshot so the "
@@ -299,8 +273,8 @@ def belief_probe_blurb(synthesis_probe: bool,
             "evaluator to score the final rollout solved=True, rejecting "
             "goal-reaching-but-unscored candidates during the search.")
     keep_working = "edit/fit/think" if surface.fit else "think/plan"
-    return (f"{sim_desc}, `{name}()` "
-            f"(extra independent instances). {name} API: "
+    return (f"{sim_desc}, `BeliefProbe()` "
+            "(extra independent instances). BeliefProbe API: "
             f"{reset_desc}{task_desc}"
             f"{run_desc}"
             "step, which robot links touched which objects and which "
@@ -355,15 +329,7 @@ def _build_exploration_tools(ctx: ToolContext, _text_result: Callable,
     surface_cfg = ToolSurfaceConfig.from_cfg()
     # pylint: disable-next=import-outside-toplevel
     from predicators.agent_sdk.belief_probe import build_probe_namespace
-    # pylint: disable-next=import-outside-toplevel
-    from predicators.settings import CFG
 
-    # The arm whose text names no harness fit keeps to that here too, and
-    # so does the arm whose text names no belief.
-    surface = ProbeSurface(fit_invisible=bool(
-        CFG.agent_sim_learn_fit_invisible),
-                           uncertainty=not CFG.continual_point_values_only,
-                           point_values=bool(CFG.continual_point_values_only))
     exploratory_desc = (
         "EXPLORATORY ONLY: nothing run here acts in the environment; "
         "preview the evaluator's verdict with sim.run(solved=True).")
@@ -375,12 +341,10 @@ def _build_exploration_tools(ctx: ToolContext, _text_result: Callable,
             "wrote in the sandbox) for cheap physics/geometry exploration "
             "in a persistent namespace (variables survive across calls - "
             "define helpers and sweep loops once, reuse them). Available: " +
-            belief_probe_blurb(synthesis_probe=False, surface=surface) +
+            belief_probe_blurb(synthesis_probe=False) +
             " Also bound: `np`; `trajectories` (the recorded REAL "
             "offline+online trajectories, read-only evidence - use them to "
-            "check the " +
-            ("model" if surface.point_values else "belief model") +
-            " against what actually happened; each "
+            "check the belief model against what actually happened; each "
             "has `is_demo`, `train_task_idx`, `states`, `actions`) and "
             "`describe_trajectory(traj_idx, include_states=True, "
             "include_atoms=False, max_timesteps=10)` for a per-timestep "

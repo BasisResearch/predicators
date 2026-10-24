@@ -4,36 +4,19 @@
 ## Modeling and acting
 
 Learn a standalone executable world model from your recorded interaction and use it to rehearse candidate skill sequences.
-__SUPPLIED_LINE__
+No prepared physical scene or base simulator is supplied underneath this model; there is no phased learning or execution gate.
 You may use PyBullet or other available simulation libraries to build your own predictive model from observations and recorded interactions.
 Within this conversation you can collect evidence, edit the model, score it on recordings, rehearse plans, and act.
 Use `run_python` to access `trajectories`, `describe_trajectory`, and the `sim` probe.
 `sim.score()` scores world_model.py against recorded skill transitions, and `sim.run` predicts a plan once through that program.
-Write any search, sampling or diagnostics you need in your own code.
+The harness offers no plan search, repeated-trial rollouts, predicate scoring or renders of predicted states; write any search, sampling or diagnostics you need in your own code.
+The supplied residual-fitting API, physical contact diagnostics, and engine-based evaluator replays are unavailable.
 You may implement fitting and diagnostics for your own model.
 An environment win is authoritative; a predicted goal alone cannot certify it.
 Retain programs and your journal across levels and revise them as new evidence arrives.
 `sim.reset(current=True)` reconstructs memory by replaying this episode's recorded skill invocations under your latest program, starting each prediction from its observed pre-state.
 Model edits and resets therefore discard stale inferred memory.
 The skill-level model cannot replay raw `env_step` actions; after such actions, current-state memory reconstruction reports this limitation instead of assuming fresh memory.
-
-<!-- section: supplied_nothing -->
-You write the whole model, from the scene's bodies to how they move.
-
-<!-- section: supplied_scene_assets -->
-The scene files listed below describe the scene's bodies, and you write the model that predicts how they move.
-
-<!-- section: reward_model -->
-## Interpreting task verdicts
-
-`is_goal_state(state, task_idx=None)` and `evaluate_trajectory(states, actions=None, task_idx=None)` expose a level's reward model, the current level's by default.
-`evaluate_trajectory` returns only `reward`, `solved`, and `note`.
-`sim.run(...).states` supplies your model's predicted trajectory to score.
-`with_features(state, {"object": {"feature": value}})` returns a copy of a state with those feature values changed, for a sequence you assemble yourself.
-The reward model reads only the states you give it, so a verdict is only as good as the states you predict.
-A rule that depends on how the physics plays out from a state is not checked: the verdict then reports `solved` False with no success bonus, and its `note` says so.
-Pass action labels for tasks whose evaluator reads the actions: one `("Skill", ("obj", ...), (param, ...))` per transition, or `None` for an unlabeled transition.
-Only the live environment's `WIN` certifies completion.
 
 <!-- section: contract -->
 ## Model files
@@ -57,11 +40,9 @@ This skeleton is a no-op, not a solution.
 Use `option.name`, `option.objects`, `option.params`, and `option.memory` to identify the skill and its arguments.
 Wait can stop on its subgoal, requested step count, or maximum steps; model the duration and its effects.
 Return the same observed objects and features; keep hidden quantities in memory.
-Do not import the task environment or ground-truth mechanisms, or invoke a real skill inside a prediction.
+Do not import the task environment, ground-truth mechanisms, or the supplied base simulator, or invoke a real skill inside a prediction.
 If you use a physics engine, create and manage your own simulation world, explicitly address its client on every call, and release its resources.
 Predictions must not inspect or change the live environment; preserve all model memory needed for reproducible replay in the returned latent state.
-
-<!-- section: contract_predicates -->
 Write `predicates.py` exporting `LEARNED_PREDICATES`, a list of your invented `Predicate` objects.
 The loader provides `State`, `Predicate`, `np`, and types named `<name>_type`.
 Predicates may read `state.latent` when it is present and must tolerate its absence in observations.

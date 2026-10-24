@@ -20,9 +20,6 @@ holds everything an agent must LEARN or must not see:
 Task selection checks executable release sequences against the evaluator.
 A test level has an order-robust winning reference subset and a witnessed
 losing release sequence whose subset has an in-band analytic equilibrium.
-Its reference rests the box at least ``balloons_test_rest_margin`` inside
-each edge of the band: a candidate band that misses this is shifted once,
-by the least that clears it, and checked again.
 Other subsets or release orders may also win; uniqueness is not claimed.
 The underdamped ascent and irreversible bursts can make release order
 matter even when equilibrium heights are similar.
@@ -639,35 +636,6 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                    if subset not in robust and any(o.won for o in outcomes)]
         return min(ranked)[2] if ranked else None
 
-    @staticmethod
-    def reference_rests_clear(outcomes: Sequence[BalloonsProbeOutcome],
-                              band: Tuple[float,
-                                          float], margin: float) -> bool:
-        """Whether every winning outcome among ``outcomes`` rests the box at
-        least ``margin`` inside each edge of ``band``."""
-        return all(band[0] + margin <= outcome.height <= band[1] - margin
-                   for outcome in outcomes if outcome.won)
-
-    @staticmethod
-    def clear_band_centre(outcomes: Sequence[BalloonsProbeOutcome],
-                          band: Tuple[float, float],
-                          margin: float) -> Optional[float]:
-        """The band centre nearest ``band``'s, at ``band``'s width, at which
-        every winning outcome among ``outcomes`` rests the box at least
-        ``margin`` inside each edge; None when no centre clears them all."""
-        heights = [outcome.height for outcome in outcomes if outcome.won]
-        if not heights:
-            return None
-        half = (band[1] - band[0]) / 2
-        # Aim a millimetre past the margin: on the shifted band the probe
-        # declares the win at another step, while the box still creeps.
-        clearance = margin + 0.001
-        low = max(heights) - half + clearance
-        high = min(heights) + half - clearance
-        if low > high:
-            return None
-        return float(min(max((band[0] + band[1]) / 2, low), high))
-
     def reference_order(self, state: State, subset: Tuple[int,
                                                           ...]) -> List[int]:
         """A release order of ``subset`` the probes witnessed winning: the
@@ -1245,13 +1213,7 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                     # rest away from the goal for its central candidate.
                     centers += [z for _, z in reachable]
                 rng.shuffle(centers)
-                # A test band whose reference rests too close to an edge
-                # is shifted once, by the least that clears it, and the
-                # shifted band goes through every check again.
-                queue = list(centers)
-                shifted: Set[float] = set()
-                while queue:
-                    center_z = queue.pop(0)
+                for center_z in centers:
                     band = (center_z - half, center_z + half)
                     in_band = [
                         subset for subset, z in reachable
@@ -1293,25 +1255,6 @@ class PyBulletBalloonsEnv(PyBulletBalloonsBaseEnv):
                             box_color, colors, clip_of, band[0], band[1],
                             in_band, reference)
                     if reference is None:
-                        continue
-                    # A test level's reference rests the box clearly
-                    # inside the band, so that winning turns on knowing
-                    # the lifts, not on the sign of a millimetre's error.
-                    margin = float(CFG.balloons_test_rest_margin)
-                    if not train and not self.reference_rests_clear(
-                            candidates[reference], band, margin):
-                        centre = self.clear_band_centre(
-                            candidates[reference], band, margin)
-                        if centre is not None and center_z not in shifted:
-                            shifted.add(centre)
-                            queue.insert(0, centre)
-                        logging.info(
-                            "Balloons candidate rejected: reference %s "
-                            "rests within %.3f m of a band edge (wins at "
-                            "%s); shifted band centre %s", reference, margin, [
-                                round(o.height, 4)
-                                for o in candidates[reference] if o.won
-                            ], centre)
                         continue
                     decoys = [(subset, outcome)
                               for subset, results in candidates.items()

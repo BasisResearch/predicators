@@ -1,4 +1,4 @@
-"""The direct agent with the scene assets, and no engine wrapper."""
+"""The direct agent with the agentic real-to-sim arm's scene files."""
 import json
 from pathlib import Path
 from typing import Any, Dict, List
@@ -58,7 +58,6 @@ def test_config_is_the_direct_agent_with_the_scene_files() -> None:
     for run in runs:
         assert run.approach == "agent_continual_model_free"
         assert run.flags["continual_provide_scene_package"] is True
-        assert run.flags["continual_provide_reward_model"] is True
         assert run.flags["agent_planner_use_simulator"] is False
         assert "continual_require_model_on_test" not in run.flags
         assert "agent_sim_provide_base_sim_source" not in run.flags
@@ -68,8 +67,7 @@ def test_boil_gets_the_files_and_only_a_task_prompt(tmp_path: Any,
                                                     monkeypatch: Any) -> None:
     """The files reach the sandbox and the prompt lists them, while the prompt
     asks for no simulator, model, fit or gate and the tools have no probe."""
-    # The scripted session ends with give_up on its training level.
-    env, approach = _make(tmp_path, continual_refuse_training_give_up=False)
+    env, approach = _make(tmp_path)
     seen: List[str] = []
 
     def query(message: str, *_args: Any, **_kwargs: Any) -> Any:
@@ -79,9 +77,11 @@ def test_boil_gets_the_files_and_only_a_task_prompt(tmp_path: Any,
             str(q.relative_to(sandbox / "reference"))
             for q in (sandbox / "reference").rglob("*") if q.is_file())
         assert "skills.md" in refs
+        assert "base_sim/pybullet_env.py" in refs
+        assert "base_sim/base_env.py" in refs
         assert "scene/scene_manifest.json" in refs
         assert "assets/urdf/jug-pixel.urdf" in refs
-        assert not any(r.startswith("base_sim/") for r in refs)
+        assert "base_sim/scene_base.py" not in refs
         assert not any("pybullet_boil" in r for r in refs)
         manifest = json.loads(
             (sandbox / "reference/scene/scene_manifest.json").read_text())
@@ -89,26 +89,12 @@ def test_boil_gets_the_files_and_only_a_task_prompt(tmp_path: Any,
         prompt = approach._play_system_prompt()
         assert "## Scene files" in prompt
         assert "scene_manifest.json (" in prompt
-        assert "No simulator" not in prompt
-        assert "pybullet_env.py" not in prompt
-        assert "environment wrapper" not in prompt
+        assert "No simulator is supplied." in prompt
         for absent in ("simulator.py", "RESIDUAL_FEATURES", "sim.fit",
                        "sim.validate", "SceneBase", "require a fitted model",
                        "run_python"):
             assert absent not in prompt, absent
         assert "run_python" not in approach._continual_tool_names()
-        # The level's reward model, with no engine behind it: the tool and
-        # its section, and a verdict of the three public keys.
-        assert approach._continual_tool_names()[-1] == "evaluate_trajectory"
-        assert "## Interpreting task verdicts" in prompt
-        assert "The tool reads only the states you give it" in prompt
-        assert "from a state is not checked" in prompt
-        scored = _call(approach, "evaluate_trajectory", states=[{}])
-        assert json.loads(scored.split("\n\n", 1)[0]) == {
-            "reward": 0.0,
-            "solved": False,
-            "note": ""
-        }
         assert "Give-up recorded" in _call(approach, "give_up", note="done")
         return _result()
 
@@ -126,42 +112,3 @@ def test_flag_off_keeps_the_direct_agent_unchanged(tmp_path: Any) -> None:
     _, approach = _make(tmp_path, continual_provide_scene_package=False)
     assert set(approach._get_sandbox_reference_files()) == {"skills.md"}
     assert "## Scene files" not in approach._play_system_prompt()
-
-
-def test_direct_scene_arm_has_level_scenes_and_no_skills_file(
-        tmp_path: Any) -> None:
-    """Direct + scene of the rebuttal cohort (``direct_scene_opus``) has the
-    scene of each level played so far, with the scene manifest's legend, and no
-    skill reference file; the prompt lists the level files."""
-    _, approach = _make(tmp_path,
-                        continual_provide_skills_reference=False,
-                        continual_provide_level_scenes=True)
-    files = approach._get_sandbox_reference_files()
-    assert "skills.md" not in files
-    assert not any(path.startswith("base_sim/") for path in files)
-    level = json.loads(files["scene/levels/level_01.json"].text)
-    manifest = json.loads(files["scene/scene_manifest.json"].text)
-    assert set(level) == {"manifest", "signature"}
-    assert level["manifest"] == manifest
-    # The signature holds the observed objects whose body has a static
-    # base, at the level's initial features.
-    static = {
-        body["object"]
-        for body in manifest["bodies"]
-        if body["object"] is not None and body["static"]
-    }
-    assert set(level["signature"]) <= static
-    prompt = approach._play_system_prompt()
-    assert prompt.count("./reference/scene/levels/level_NN.json") == 1
-    assert "SceneBase" not in prompt and "base_sim" not in prompt
-
-
-def test_reward_model_flag_off_keeps_the_arm_unchanged(tmp_path: Any) -> None:
-    """Without the reward-model flag the arm has no ``evaluate_trajectory``
-    tool and its prompt does not mention one."""
-    _, approach = _make(tmp_path, continual_provide_reward_model=False)
-    assert "evaluate_trajectory" not in approach._continual_tool_names()
-    prompt = approach._play_system_prompt()
-    assert "evaluate_trajectory" not in prompt
-    assert "## Interpreting task verdicts" not in prompt
-    assert "## Scene files" in prompt

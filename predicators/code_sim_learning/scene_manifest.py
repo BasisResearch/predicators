@@ -10,13 +10,11 @@ to model or estimate.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple, \
-    Union
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 
 import pybullet as p
 
@@ -24,7 +22,7 @@ from predicators import utils
 from predicators.envs.pybullet_env import BuiltMesh, PyBulletEnv
 from predicators.pybullet_helpers import studio_visuals
 from predicators.pybullet_helpers.objects import engine_joint_limits, \
-    is_hard_stop_joint, loaded_asset
+    loaded_asset
 from predicators.settings import CFG
 from predicators.structs import State
 
@@ -66,21 +64,11 @@ LEGEND = {
                "urdf_limits, and loading the file keeps those, so set the "
                "enforced ones in your scene with p.changeDynamics(body, "
                "joint, jointLowerLimit=..., jointUpperLimit=...)"),
-    "hard_stop": ("a joint marked hard_stop: true never leaves its limits: "
-                  "an engine limit alone is soft, and an arm that keeps "
-                  "pushing drives the joint past it, so the deployment puts "
-                  "the joint back at its limit, at rest, after every physics "
-                  "step. SceneBase does the same for that joint of every "
-                  "body your scene loads from the same file with "
-                  "p.loadURDF(cls.asset(...)), at the listed limits scaled "
-                  "by your globalScaling over urdf_scale"),
     "generated": ("a mesh the deployment builds from vertices in memory "
                   "comes as an OBJ file under assets/generated/, in its "
                   "shape frame; concave: true means it is loaded as a "
                   "triangle mesh (p.GEOM_FORCE_CONCAVE_TRIMESH), else as "
                   "the convex hull of its vertices"),
-    "position": ("a joint of a body no observation names lists the "
-                 "position it rests at when the level begins"),
     "collision_margin": ("the contact margin the deployment builds a "
                          "shape's link with; the engine rounds a convex "
                          "shape's edges by it, so where two flat surfaces "
@@ -89,49 +77,6 @@ LEGEND = {
                          "with p.changeDynamics(body, link, "
                          "collisionMargin=...)"),
 }
-
-# The entries of LEGEND that tell a reader how to build the scene on the
-# base simulator, as a reader who has the files and no base simulator
-# gets them: what the entry's field records, and nothing about a scene
-# of the reader's own.
-_FILES_ONLY_WORDING = {
-    "omitted": ("masses, frictions, restitution and damping are not "
-                "recorded"),
-    "not_listed":
-    "the ground plane, the backdrop walls and the robot",
-    "joints": ("lower_limit and upper_limit are the limits the deployment "
-               "enforces; where the deployment set other limits than its "
-               "URDF file's, the joint also lists the file's as "
-               "urdf_limits"),
-    "hard_stop": ("a joint marked hard_stop: true never leaves its limits: "
-                  "the deployment puts the joint back at its limit, at "
-                  "rest, whenever a push drives it past"),
-    "collision_margin": ("the contact margin the deployment builds a "
-                         "shape's link with; a convex shape's edges are "
-                         "rounded by it, so where two flat surfaces meet "
-                         "edge to edge it can make a curb a slow body "
-                         "cannot climb"),
-}
-
-
-def reworded_legend(legend: Mapping[str, str],
-                    wording: Mapping[str, str]) -> Dict[str, str]:
-    """``legend`` with the entries of ``wording`` in its text.
-
-    An entry of ``wording`` that ``legend`` no longer has is an error:
-    the wording then needs the legend's current entries.
-    """
-    gone = sorted(set(wording) - set(legend))
-    if gone:
-        raise ValueError(f"the scene manifest's legend has no entry {gone}; "
-                         "update the arm's wording to its current entries")
-    return {key: wording.get(key, text) for key, text in legend.items()}
-
-
-def files_only_legend(legend: Mapping[str, str]) -> Dict[str, str]:
-    """The manifest's legend for a reader who has the scene files and no base
-    simulator to build the scene on."""
-    return reworded_legend(legend, _FILES_ONLY_WORDING)
 
 
 @dataclass(frozen=True)
@@ -220,16 +165,10 @@ def _shape_entries(body_id: int, link: int, client: int, files: Set[str],
                 and filename in ("", "unknown_file")):
             # PyBullet reads back neither the vertices nor the triangles of
             # a mesh built in memory; the env that built it kept them.
-            text = _obj_text(mesh)
-            # Levels build the same body in other shapes. With the scene
-            # loader every level's scene is kept, so a file is named by
-            # its content and one level's mesh never replaces another's.
-            tag = ("_" + hashlib.sha256(text.encode("utf-8")).hexdigest()[:8]
-                   if CFG.scene_manifest_loader else "")
             path = (f"assets/generated/{built.label}_link{link + 1}"
-                    f"_shape{index}{tag}.obj")
+                    f"_shape{index}.obj")
             built.files[path] = GeneratedAsset(
-                text, f"the mesh the deployment builds in memory "
+                _obj_text(mesh), f"the mesh the deployment builds in memory "
                 f"for {built.label}")
             entry["file"] = path
             entry["concave"] = mesh.concave
@@ -317,11 +256,6 @@ def _body_entry(body_id: int, client: int, object_name: Optional[str],
         }
         if limits != file_limits and asset is not None:
             joint_entry["urdf_limits"] = list(file_limits)
-        if is_hard_stop_joint(client, body_id, joint):
-            joint_entry["hard_stop"] = True
-        if object_name is None and info[2] != p.JOINT_FIXED:
-            joint_entry["position"] = float(
-                p.getJointState(body_id, joint, physicsClientId=client)[0])
         joints.append(joint_entry)
     entry: Dict[str, Any] = {
         "object": object_name,
@@ -443,43 +377,12 @@ def build_scene_manifest(
     return manifest, assets
 
 
-def manifest_asset_files(manifest: Dict[str, Any]) -> Dict[str, str]:
-    """``assets/...`` path -> source file for every URDF and mesh file a
-    manifest names (the files a URDF names too), the generated meshes
-    aside: what a stored manifest needs beside it to be loaded again."""
-    root = _asset_root()
-    names: Set[str] = set()
-    if manifest["robot"].get("urdf"):
-        names.add(manifest["robot"]["urdf"])
-    for body in manifest["bodies"]:
-        if body.get("urdf"):
-            names.add(body["urdf"])
-        for link in body["links"]:
-            for shape in link["shapes"] + link.get("visual_shapes", []):
-                if shape.get("file"):
-                    names.add(shape["file"])
-    assets: Dict[str, str] = {}
-    pending = sorted(
-        os.path.join(root, name[len("assets/"):]) for name in names
-        if name.startswith("assets/")
-        and not name.startswith("assets/generated/"))
-    while pending:
-        source = pending.pop()
-        relative = _relative_asset(source)
-        if relative is None or relative in assets:
-            continue
-        assets[relative] = os.path.abspath(source)
-        if source.lower().endswith(".urdf"):
-            pending.extend(referenced_files(source))
-    return assets
-
-
 def scene_manifest_text(manifest: Dict[str, Any]) -> str:
     """The manifest as the indented JSON the agent reads."""
     return json.dumps(manifest, indent=1, sort_keys=False) + "\n"
 
 
 __all__ = [
-    "GeneratedAsset", "build_scene_manifest", "manifest_asset_files",
-    "referenced_files", "scene_manifest_text"
+    "GeneratedAsset", "build_scene_manifest", "referenced_files",
+    "scene_manifest_text"
 ]

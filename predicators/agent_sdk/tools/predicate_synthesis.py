@@ -5,7 +5,7 @@ from predicators.agent_sdk.proposal_exec import build_exec_context, \
     exec_code_safely, validate_predicate
 from predicators.agent_sdk.synthesis_backend import PredicateSynthesisBackend
 from predicators.agent_sdk.tools.params_view import _ParamsView
-from predicators.agent_sdk.tools.sandbox_guard import agent_traceback
+from predicators.agent_sdk.tools.sandbox_guard import _scrub_host_paths
 from predicators.agent_sdk.tools.snapshots import _ArtifactSnapshotter
 from predicators.structs import LowLevelTrajectory, Predicate, State, Type
 
@@ -198,7 +198,7 @@ def make_predicate_quality_loader(
                 _snapshot_and_load_predicates(predicates_file))
         except Exception:  # pylint: disable=broad-except
             return (f"Error loading predicates.py:\n"
-                    f"{agent_traceback()}")
+                    f"{_scrub_host_paths(traceback.format_exc())}")
 
         if err is not None:
             return err

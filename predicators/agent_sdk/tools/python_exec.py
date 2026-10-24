@@ -8,7 +8,7 @@ from predicators.agent_sdk.tools.budget import _arm_budget_watchdog, \
     _budget_footer
 from predicators.agent_sdk.tools.context import ToolContext
 from predicators.agent_sdk.tools.sandbox_guard import \
-    _screen_text_for_sandbox_escape, agent_traceback
+    _screen_text_for_sandbox_escape, _scrub_host_paths
 
 
 def _resolve_sandbox_file(
@@ -43,8 +43,6 @@ def _make_python_exec_tool(
     text_result: Callable[[str], Dict[str, Any]],
     budget_ctx: Optional[ToolContext] = None,
     call_timeout_s: Optional[float] = None,
-    output_observer: Optional[Callable[[str], None]] = None,
-    hide_harness_frames: bool = False,
 ) -> Any:
     """Build a code-execution MCP tool over a persistent namespace.
 
@@ -73,24 +71,13 @@ def _make_python_exec_tool(
     simulator rollouts are slow and a legitimate single call can take
     minutes (run_20260826_151728: one uncapped synthesis grid sweep ran
     2+ hours of a learn session before the fix).
-
-    ``output_observer``, when given, sees the text of each result a call
-    of the code returns, as the agent is given it (for a spilled output,
-    the preview).
-
-    ``hide_harness_frames`` leaves the harness's own frames out of the
-    traceback of an error in the code (see ``agent_traceback``).
     """
     # pylint: disable=import-outside-toplevel
     import io
     import sys
+    import traceback  # pylint: disable=redefined-outer-name,reimported
 
     # pylint: enable=import-outside-toplevel
-
-    def _given(text: str) -> Dict[str, Any]:
-        if output_observer is not None:
-            output_observer(text)
-        return text_result(text)
 
     inline_char_limit = 30000
     preview_head_lines = 30
@@ -225,12 +212,12 @@ def _make_python_exec_tool(
                 "mid-execution; output printed so far is returned above. "
                 "Split the work into smaller calls, and print intermediate "
                 "results so partial progress survives a stop.")
-            return _given(f"{prefix}TIME BUDGET: {msg}{_footer()}")
+            return text_result(f"{prefix}TIME BUDGET: {msg}{_footer()}")
         except Exception:  # pylint: disable=broad-except
-            tb = agent_traceback(hide_harness_frames)
+            tb = _scrub_host_paths(traceback.format_exc())
             partial = captured.getvalue()
             prefix = f"{partial}\n" if partial else ""
-            return _given(f"{prefix}Error:\n{tb}{_footer()}")
+            return text_result(f"{prefix}Error:\n{tb}{_footer()}")
         finally:
             os.chdir(prev_cwd)
             if watchdog_disarm is not None:
@@ -245,7 +232,7 @@ def _make_python_exec_tool(
 
         output += _footer()
         if len(output) <= inline_char_limit or outputs_dir_host is None:
-            return _given(output)
+            return text_result(output)
 
         count[0] += 1
         os.makedirs(outputs_dir_host, exist_ok=True)
@@ -280,6 +267,6 @@ def _make_python_exec_tool(
                 f"--- tail ({len(tail)} lines) ---",
                 *tail,
             ])
-        return _given("\n".join(preview_parts))
+        return text_result("\n".join(preview_parts))
 
     return python_exec

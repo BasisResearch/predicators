@@ -1,7 +1,6 @@
 """The experiment config loader and the EMPIRIC benchmark config: includes,
 parked entries, rounds and launch subsets."""
 import os
-import re
 from typing import Any, Dict, List
 
 import pytest
@@ -55,28 +54,11 @@ def test_benchmark_is_seven_arms_on_five_settings() -> None:
         assert not flags["code_sim_learning_carry_posterior"]
         assert flags["belief_joint_draws"] == (
             0 if run.approach == "agent_continual_no_uncertainty" else 16)
-        if run.approach != "agent_continual_program_world_model":
-            # The settings of the rebuttal baselines are off the default
-            # arms (absent from their flags, so at their defaults).
-            for name in ("continual_provide_skills_reference",
-                         "continual_provide_level_scenes",
-                         "continual_provide_simulator_source",
-                         "program_world_model_invent_predicates"):
-                assert name not in flags, name
         if run.approach == "agent_continual_model_free":
             assert not flags["agent_planner_use_simulator"]
             assert not flags["continual_uncertainty_decisions"]
             assert bool(flags.get("continual_provide_scene_package")) == (
                 "mf_scene_package" in run.experiment_id)
-        elif run.approach == "agent_continual_program_world_model":
-            # Standalone: no belief shown, no invented predicate, no
-            # skill reference file, and the scene of each level.
-            assert not flags["continual_uncertainty_decisions"]
-            assert not flags["continual_belief_frame"]
-            assert not flags["program_world_model_invent_predicates"]
-            assert not flags["continual_provide_skills_reference"]
-            assert flags["continual_provide_level_scenes"]
-            assert flags["continual_provide_scene_package"]
         elif run.approach == "agent_continual_no_fitting":
             assert flags["agent_sim_learn_declared_params_only"]
             assert flags["continual_uncertainty_decisions"]
@@ -130,259 +112,20 @@ def test_from_assets_arm_runs_only_by_name() -> None:
         **by_arm["mb_opus_r9"].flags,
         "code_sim_learning_prior_spans_bounds": True,
         "continual_rehearsal_gate": True,
-        "continual_rehearsal_notes_gate": True,
-        "continual_rehearsal_safe_plan": True,
-        "continual_rehearsal_still_start": True,
-        "continual_restage_velocities": True,
-        "continual_rehearsal_mean_verdict": True,
-        "continual_rehearsal_win_first": True,
-        "continual_practise_after_reset": True,
-        "continual_claim_check": True,
         "continual_predictive_check": True,
         "continual_belief_velocities": True,
-        "belief_material_lines": True,
+        "continual_raw_step_limit": True,
         "continual_rehearsal_game_over": True,
         "continual_rehearsal_support_note": True,
-        "continual_rehearsal_speed_note": True,
         "continual_fit_reach_check": True,
         "continual_fit_bound_note": True,
+        "continual_refuse_training_give_up": True,
+        "continual_belief_window": 64,
+        "continual_pooled_level_init": True,
+        "belief_material_lines": True,
         "scene_observed_sizes": True,
         "belief_segment_temperature": True,
-        "continual_belief_window": 64,
-        "continual_pooled_level_init": True,
-        "belief_keep_undeclared_materials": True,
-        "scene_manifest_loader": True,
     }
-    # The rules of the world and the harness are shared: every arm runs
-    # under the same ones.
-    for run in runs:
-        assert run.flags["continual_raw_step_limit"] is True
-        assert run.flags["continual_refuse_training_give_up"] is True
-        assert run.flags["continual_record_until_rest"] is True
-        assert run.flags["domino_contact_verdict"] is True
-        assert run.flags["pybullet_solver_residual_threshold"] == 0.0
-
-
-def test_agent_belief_arm_runs_only_by_name() -> None:
-    """EMPIRIC from assets with the agent's own parameter belief is parked, and
-    naming it runs EMPIRIC's flags with no harness fitting plus EMPIRIC from
-    assets' menu less the switches that act on a fit."""
-    assert not any("agent_belief" in r.experiment_id
-                   for r in _benchmark_runs(round_name="r1"))
-    runs = _benchmark_runs(
-        round_name="r1",
-        envs=["domino_high_friction_turn"],
-        approaches=["mb_opus", "from_assets_agent_belief_opus"],
-        seeds=(0, 1))
-    by_arm = {r.experiment_id.split("-", 1)[1]: r for r in runs}
-    arm = by_arm["from_assets_agent_belief_opus_r1"]
-    assert arm.approach == "agent_continual_from_assets_agent_belief"
-    assert arm.flags == {
-        **by_arm["mb_opus_r1"].flags,
-        "agent_sim_learn_declared_params_only": True,
-        "continual_rehearsal_gate": True,
-        "continual_predictive_check": True,
-        "continual_belief_velocities": True,
-        "continual_rehearsal_game_over": True,
-        "continual_rehearsal_support_note": True,
-        "scene_observed_sizes": True,
-        "continual_belief_window": 64,
-        "continual_pooled_level_init": True,
-    }
-
-
-def test_from_assets_no_uncertainty_arm_runs_only_by_name() -> None:
-    """EMPIRIC from assets without explicit uncertainty is parked, and naming
-    it runs No uncertainty's flags plus the switches of EMPIRIC from assets
-    that act on the fit and the scene, and none that reads a belief or a
-    rehearsal.
-
-    Nothing its agent reads names what the arm leaves out: its key and
-    its approach's name, which the run folder's path holds, name none.
-    """
-    assert not any("from_assets_point" in r.experiment_id
-                   for r in _benchmark_runs(round_name="r1"))
-    runs = _benchmark_runs(round_name="r1",
-                           envs=["domino_high_friction_turn"],
-                           approaches=[
-                               "no_uncertainty_opus", "from_assets_opus",
-                               "from_assets_point_opus"
-                           ],
-                           seeds=(0, 1))
-    by_arm = {r.experiment_id.split("-", 1)[1]: r for r in runs}
-    arm = by_arm["from_assets_point_opus_r1"]
-    assert arm.approach == "agent_continual_from_assets_point"
-    for word in ("uncertain", "nois", "belief"):
-        assert word not in arm.approach + arm.experiment_id, word
-    assert arm.flags == {
-        **by_arm["no_uncertainty_opus_r1"].flags,
-        "continual_point_values_only": True,
-        "code_sim_learning_prior_spans_bounds": True,
-        "scene_observed_sizes": True,
-        "scene_manifest_loader": True,
-        "continual_restage_velocities": True,
-        "continual_belief_velocities": True,
-    }
-    from_assets = by_arm["from_assets_opus_r1"].flags
-    assert set(from_assets) - set(arm.flags) == {
-        "continual_rehearsal_gate",
-        "continual_rehearsal_notes_gate",
-        "continual_rehearsal_safe_plan",
-        "continual_rehearsal_still_start",
-        "continual_rehearsal_mean_verdict",
-        "continual_rehearsal_win_first",
-        "continual_practise_after_reset",
-        "continual_claim_check",
-        "continual_predictive_check",
-        "belief_material_lines",
-        "continual_rehearsal_game_over",
-        "continual_rehearsal_support_note",
-        "continual_rehearsal_speed_note",
-        "continual_fit_reach_check",
-        "continual_fit_bound_note",
-        "belief_segment_temperature",
-        "continual_belief_window",
-        "continual_pooled_level_init",
-        "belief_keep_undeclared_materials",
-    }
-
-
-def test_from_assets_no_fitting_arm_runs_only_by_name() -> None:
-    """EMPIRIC from assets without harness fitting is parked, and naming it
-    runs EMPIRIC from assets' menu less the switches that act on a harness fit,
-    with declared parameters only and no fit named to the agent: its key and
-    its approach's name, which the run folder's path holds, name none."""
-    assert not any("from_assets_declared" in r.experiment_id
-                   for r in _benchmark_runs(round_name="r1"))
-    runs = _benchmark_runs(
-        round_name="r1",
-        envs=["domino_high_friction_turn"],
-        approaches=["from_assets_opus", "from_assets_declared_opus"],
-        seeds=(0, 1))
-    by_arm = {r.experiment_id.split("-", 1)[1]: r for r in runs}
-    arm = by_arm["from_assets_declared_opus_r1"]
-    assert arm.approach == "agent_continual_from_assets_declared"
-    assert "fit" not in arm.approach + arm.experiment_id
-    dropped = ("code_sim_learning_prior_spans_bounds", "belief_material_lines",
-               "continual_fit_reach_check", "continual_fit_bound_note",
-               "belief_segment_temperature")
-    kept = {
-        name: value
-        for name, value in by_arm["from_assets_opus_r1"].flags.items()
-        if name not in dropped
-    }
-    assert arm.flags == {
-        **kept,
-        "agent_sim_learn_declared_params_only": True,
-        "agent_sim_learn_fit_invisible": True,
-    }
-
-
-def test_no_learning_arm_runs_only_by_name() -> None:
-    """No learning is parked, and naming it runs EMPIRIC from assets' menu less
-    the switches that act on a model file, a fit or a parameter, with no
-    harness estimate and none named to the agent.
-
-    Its key and its approach's name, which the run folder's path holds,
-    say only that the scene comes from assets.
-    """
-    assert not any("from_assets_scene" in r.experiment_id
-                   for r in _benchmark_runs(round_name="r1"))
-    runs = _benchmark_runs(
-        round_name="r1",
-        envs=["domino_high_friction_turn"],
-        approaches=["from_assets_opus", "from_assets_scene_opus"],
-        seeds=(0, 1))
-    by_arm = {r.experiment_id.split("-", 1)[1]: r for r in runs}
-    arm = by_arm["from_assets_scene_opus_r1"]
-    assert arm.approach == "agent_continual_from_assets_scene"
-    for word in ("learn", "fit", "param", "mechan", "ablat"):
-        assert word not in arm.approach + arm.experiment_id, word
-    dropped = ("continual_require_model_on_test",
-               "code_sim_learning_prior_spans_bounds", "belief_material_lines",
-               "continual_rehearsal_support_note",
-               "continual_rehearsal_speed_note", "continual_fit_reach_check",
-               "continual_fit_bound_note", "belief_segment_temperature",
-               "belief_keep_undeclared_materials")
-    kept = {
-        name: value
-        for name, value in by_arm["from_assets_opus_r1"].flags.items()
-        if name not in dropped
-    }
-    assert arm.flags == {
-        **kept,
-        "agent_sim_learn_declared_params_only": True,
-        "agent_sim_learn_fit_invisible": True,
-        # The simulator's source, listed for reference only.
-        "continual_provide_simulator_source": True,
-    }
-
-
-def test_direct_base_sim_arm_runs_only_by_name() -> None:
-    """Direct + base simulator is parked, and naming it runs the flags of
-    Direct + scene plus the scene loader that builds its simulator, under its
-    own approach class and the shared rules of the world."""
-    assert not any("direct_base_sim" in r.experiment_id
-                   for r in _benchmark_runs(round_name="r1"))
-    runs = _benchmark_runs(
-        round_name="r1",
-        envs=["domino_high_friction_turn"],
-        approaches=["mf_scene_package_opus", "direct_base_sim_opus"],
-        seeds=(0, 1))
-    by_arm = {r.experiment_id.split("-", 1)[1]: r for r in runs}
-    assert set(by_arm) == {
-        "mf_scene_package_opus_r1", "direct_base_sim_opus_r1"
-    }
-    arm = by_arm["direct_base_sim_opus_r1"]
-    assert arm.approach == "agent_continual_direct_base_sim"
-    assert arm.flags == {
-        **by_arm["mf_scene_package_opus_r1"].flags,
-        "scene_manifest_loader": True,
-        "scene_observed_sizes": True,
-        # What EMPIRIC from assets reads, less the skill reference file.
-        "continual_provide_skills_reference": False,
-        "continual_provide_level_scenes": True,
-        "continual_provide_simulator_source": True,
-    }
-    assert arm.flags["continual_raw_step_limit"] is True
-    assert arm.flags["continual_refuse_training_give_up"] is True
-    assert arm.flags["continual_record_until_rest"] is True
-    assert arm.flags["continual_wall_clock_hours"] == 48.0
-
-
-def test_direct_arms_run_under_a_neutral_name() -> None:
-    """The cohort's Direct agent and Direct + scene are parked, and naming them
-    runs the flags of ``mf_opus`` and ``mf_scene_package_opus`` under an
-    approach name and menu keys that say nothing of what the arms leave out."""
-    assert not any("direct_opus" in r.experiment_id
-                   or "direct_scene_opus" in r.experiment_id
-                   for r in _benchmark_runs(round_name="r1"))
-    runs = _benchmark_runs(round_name="r1",
-                           envs=["domino_high_friction_turn"],
-                           approaches=[
-                               "mf_opus", "mf_scene_package_opus",
-                               "direct_opus", "direct_scene_opus"
-                           ],
-                           seeds=(0, 1))
-    by_arm = {r.experiment_id.split("-", 1)[1]: r for r in runs}
-    # Neither has the skill reference file, as EMPIRIC from assets has
-    # none; Direct + scene also reads the scene of each level.
-    extra = {
-        "direct_opus_r1": {
-            "continual_provide_skills_reference": False
-        },
-        "direct_scene_opus_r1": {
-            "continual_provide_skills_reference": False,
-            "continual_provide_level_scenes": True,
-        },
-    }
-    for new, old in (("direct_opus_r1", "mf_opus_r1"),
-                     ("direct_scene_opus_r1", "mf_scene_package_opus_r1")):
-        assert by_arm[new].approach == "agent_continual_direct"
-        assert by_arm[old].approach == "agent_continual_model_free"
-        assert by_arm[new].flags == {**by_arm[old].flags, **extra[new]}
-        assert not re.search(r"model|free|\bmf\b|baseline|ablat",
-                             by_arm[new].approach + " " + new)
 
 
 def test_benchmark_subsets_and_rounds() -> None:
