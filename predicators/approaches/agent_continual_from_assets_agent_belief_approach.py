@@ -47,6 +47,8 @@ class AgentContinualFromAssetsAgentBeliefApproach(
         # called there, with the recordings in scope).
         self._exported_draws: Dict[str, Any] = {}
         super().__init__(*args, **kwargs)
+        # The harness never fits here, so the agent's probe has no fit.
+        self._tool_context.probe_absent = frozenset({"fit"})
 
     @classmethod
     def get_name(cls) -> str:
