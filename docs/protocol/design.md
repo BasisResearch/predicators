@@ -429,7 +429,9 @@ python scripts/engaging/launch.py -c empiric/benchmark.yaml --round r2 --envs ba
 The launcher passes `--auto_resume`, so a requeue resumes from the scorecard and the level recording in the run directory it adopts (section 4.7).
 Agent runs draw on a Claude account's usage limit, which is per account.
 To spread a launch over several accounts, store each account's long-lived token (from `claude setup-token`) as `~/.claude-tokens/<name>` with mode 600 and pass `--accounts a,b` (or export `PREDICATORS_CLAUDE_ACCOUNTS=a,b`).
-Every seed of every experiment then picks its account round-robin by experiment index plus seed, the job reads the token from its file at start so no secret enters the batch script, a requeue keeps its account, and the scorecard records it as `claude_account` (see `scripts/engaging/claude_accounts.py`).
+Every seed of every experiment then picks its account when its job starts, by the policy in `scripts/engaging/claude_accounts.py` (by default the account with the most usage left, else round-robin by experiment index plus seed), and the job reads the token from its file at start so no secret enters the batch script.
+A requeue picks again, so a resumed run can move to another account (a run whose account hit its weekly limit requeues for exactly that).
+The scorecard records the account the run is charged to now as `claude_account`, and every account it used, in order and with the LLM spend charged to each, as `claude_accounts`.
 Outputs land in `logs/<approach>/<experiment id>/seed<k>/run_<stamp>/`: `scorecard.json`, `L<k>/`, `agent/`, `run.mp4` and the logs.
 
 Viewing:
