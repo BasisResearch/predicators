@@ -9,7 +9,6 @@ import pybullet as p
 import pytest
 
 from predicators import utils
-from predicators.agent_sdk.belief_probe import BeliefProbe
 from predicators.approaches import create_approach
 from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.code_sim_learning.parameter_belief import ParameterBelief
@@ -152,16 +151,10 @@ def _benchmark_flags(env_name: str) -> Dict[str, Any]:
     cfg = next(c for c in generate_run_configs(
         "empiric/benchmark.yaml", False, approaches=["mb_opus"])
                if c.env == env_name)
-    flags = {
+    return {
         k: v
         for k, v in cfg.flags.items() if k not in ("log", "continual_runs_dir")
     }
-    # The scripted sessions step raw actions further than the robot moves
-    # in one step and end with give_up on a training level, so the two
-    # shared rules that refuse those are off unless a test turns them on.
-    flags.update(continual_raw_step_limit=False,
-                 continual_refuse_training_give_up=False)
-    return flags
 
 
 def _arm_flags() -> Dict[str, Any]:
@@ -489,58 +482,6 @@ def test_agent_builds_the_scene_and_rehearses_in_it(tmp_path: Any,
             assert "loaded" in loaded, loaded
             assert {s.name
                     for s in approach._sampled_material_specs()} == sampled
-            # Under belief_keep_undeclared_materials every draw keeps the
-            # scene's own value of each undeclared material: none is
-            # sampled, none gets a line, and a new fit's belief covers the
-            # declared parameters only.
-            utils.update_config({"belief_keep_undeclared_materials": True})
-            assert not approach._sampled_material_specs()
-            assert not approach.belief_free_specs()
-            assert not approach._tool_context.undeclared_param_names_provider()
-            assert not sampled & approach._physical_param_names()
-            refit = _call(approach, "run_python", code="print(sim.fit())")
-            assert not refit.startswith("ERROR"), refit
-            kept = approach.parameter_belief()
-            assert kept is not None and kept.names
-            assert not sampled & set(kept.names)
-            # The material screen runs a plan at the ends of each one's
-            # plausible range. A plan whose outcome no material changes
-            # leaves no note, the runs are not the agent's, and a row
-            # records them.
-            specs = approach._material_screen_specs()
-            assert {s.name for s in specs} == sampled
-            assert all(s.lo <= s.init_value <= s.hi for s in specs)
-            ctx = approach._tool_context
-            plan = "Wait(robot:robot)[2]"
-            rollouts = ctx.attempt_rollout_count
-            with monkeypatch.context() as m:
-                m.setattr(approach, "_material_screen_specs",
-                          lambda: specs[:2])
-                screen = approach._make_material_screen(
-                    lambda: BeliefProbe(ctx))
-                assert screen(plan) is None
-            assert ctx.attempt_rollout_count == rollouts
-            assert ctx.log_dir is not None
-            row = json.loads(
-                (Path(ctx.log_dir) /
-                 "material_screens.jsonl").read_text().splitlines()[-1])
-            assert row["plan"] == plan and row["note"] is None
-            assert len(row["runs"]) == row["points"] >= 2
-            assert row["runs"][0]["params"] == {}
-            assert {name
-                    for run in row["runs"]
-                    for name in run["params"]} == {s.name
-                                                   for s in specs[:2]}
-            assert len({run["outcome"] for run in row["runs"]}) == 1
-
-            # A screen that cannot run finds nothing and blocks nothing.
-            def no_probe() -> Any:
-                raise RuntimeError("no probe")
-
-            assert approach._make_material_screen(no_probe)(plan) is None
-            utils.update_config({"belief_keep_undeclared_materials": False})
-            assert not approach._material_screen_specs()
-            assert sampled <= approach._physical_param_names()
         assert "Give-up recorded" in _call(approach, "give_up", note="done")
         return _result()
 

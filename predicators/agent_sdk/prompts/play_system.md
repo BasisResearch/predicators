@@ -138,9 +138,6 @@ Rehearsal cannot replace model validation, and an imperfect model must not preve
 <!-- section: sim_first_round_scene -->
 `sim` has no world until your `simulator.py` loads; build the scene first, then rehearse in it: whether a grasp pose is reachable, a path is collision-free or a lift holds is only as reliable as the geometry and contacts you constructed.
 
-<!-- section: sim_first_round_scene_loaded -->
-`sim` has no world until your `simulator.py` loads; write it first, then rehearse in it: the harness loads the scene's geometry, and whether a contact holds or a body moves as predicted is only as reliable as the masses, materials and mechanisms you gave the model.
-
 <!-- section: rehearse_fitted -->
 Rehearse at the current state estimate and the fitted parameter values.
 
@@ -187,14 +184,6 @@ The refusal says which condition is unmet.
 Train levels are not gated: collect evidence there first.
 Loading a model does not itself enable automatic rehearsal; use `sim` to check plans before execution.
 
-<!-- section: model_gate_scene -->
-### Test levels require a loaded model
-
-On a test level, `skills_invoke` and `skills_execute_plan` refuse, charging nothing, until `./simulator.py` loads and declares `RESIDUAL_FEATURES`.
-The refusal says which condition is unmet.
-Train levels are not gated: collect evidence there first.
-Loading a model does not itself enable automatic rehearsal; use `sim` to check plans before execution.
-
 <!-- section: model_gate_fit -->
 ### Test levels require a fitted model
 
@@ -212,42 +201,10 @@ Rehearse the whole remaining plan from `sim.reset(current=True)`: its first line
 Each real step changes the observation, so rehearse the rest of the plan again before the next step.
 A request of `Wait` lines alone needs no rehearsal, and the `Wait` lines that end a request need not match the rehearsed plan's; runs at the point estimate (`draws=0`) and runs from staged states do not count.
 
-<!-- section: rehearsal_win_first -->
-On a test level, act on the plan whose rehearsal from the current observation has the highest P-hat, and use cost only to break ties.
-
 <!-- section: rehearsal_game_over_gate -->
 A rehearsed request is refused too, charging nothing, when more than __SHARE__ of its rehearsal's scored draws end the episode in GAME_OVER during the request or the `Wait` lines that directly follow it in the rehearsed plan, or, counting the draws whose scene is still moving when those lines end, could: a GAME_OVER ends a test level, and what happens until the scene rests follows from the request.
 Those `Wait` lines must cover the request's own, so rehearse a request with at least as many `Wait` steps after its last motion line as it asks for; a request of `Wait` lines alone passes.
 Rehearse another step whose draws avoid it, or, if your model is wrong there, repair it and rehearse again.
-
-<!-- section: rehearsal_safe_plan -->
-A rehearsed request is refused too, charging nothing, when any draw of its rehearsal ends the episode in GAME_OVER at any line of the plan: a lost draw is a world the data still allow, and a GAME_OVER ends a test level.
-Find a plan no draw loses, or settle what separates the lost draws: repair the model if it is wrong there, or collect data that rules their parameters out.
-While the scene moves, a plan that loses fewer draws than a rehearsal of `Wait` lines alone from the same observation passes, since doing nothing is then the larger risk.
-
-<!-- section: rehearsal_still_start -->
-Start a new plan only from rest: while the belief sees a body moving, a request that starts a new plan is refused, charging nothing, because a rehearsal from there starts from a speed estimated from noisy frames.
-Send `Wait` lines until the scene rests, and rehearse the whole plan from rest.
-Then send its lines in order with nothing in between: they run on that rehearsal, so they need no new one while the scene moves.
-If waiting itself is the danger, rehearse `Wait` lines alone from the current observation; a plan that loses fewer draws than they do passes.
-After __WAIT__ steps from the first refusal any plan passes, for a scene that never rests.
-
-<!-- section: practise_after_reset -->
-### A reset training level asks for a rehearsal
-
-Your first attempt at a training level is free: it gives a model its first recording.
-After a reset of a level you have not won, `skills_invoke` and `skills_execute_plan` wait as they do on a test level: for a loaded, fitted `./simulator.py`, and for a rehearsal on the joint draws from the current observation of a plan that begins with the request.
-Raw control waits for the model too.
-No P-hat is asked for, so an experiment runs once you have rehearsed it.
-A level that resists a repeated design is a sign that the model or the design is wrong, and a rehearsal is the cheap place to find out which.
-
-<!-- section: claim_check -->
-### Claim checks
-
-At set points a skill request is refused, charging nothing, until you call `claims_record` with the belief the step leans on most: at each reset of a training level from reset __RESETS__ on, once a training level when a rehearsal reaches P-hat __WIN__ (a win ends the level and the experiments it allows), and once a test level when you act below P-hat __LOW__.
-List the recordings that tested the belief directly and what varied between them: one probe at one setting tests that setting only, and a model's agreement is no direct test.
-Give a rival explanation of the same evidence and the cheapest run that separates the two, with what each predicts.
-Then run it, real or rehearsed, and close the record with `claims_resolve`; a step on a test level waits for open records to close.
 
 <!-- section: predictive_check -->
 ### Each rehearsed step is checked against its rehearsal
@@ -256,14 +213,6 @@ When a request that a joint rehearsal from the current observation began with ru
 An outcome farther from the draws than chance allows over those features is reported with the feature, its value and the draws' spread.
 Such a miss shows the fit understating the model's error on steps its recordings did not show: a mechanism the model lacks or gets wrong, or a regime the recordings never reached.
 From then on the joint draws of that `simulator.py` come from its belief at the temperature that would have put the outcome within the draws, so P-hat counts the miss; a refit keeps that temperature as a floor, and an edit of the file starts over.
-
-<!-- section: predictive_check_agent_belief -->
-### Each rehearsed step is checked against its rehearsal
-
-When a request that a joint rehearsal from the current observation began with runs in full, its result compares the real outcome with that rehearsal's draws on the features `RESIDUAL_FEATURES` scores.
-An outcome farther from the draws than chance allows over those features is reported with the feature, its value and the draws' spread.
-Such a miss shows your draws understating the model's error on steps its recordings did not show: a mechanism the model lacks or gets wrong, a regime the recordings never reached, or draws narrower than the recordings allow.
-The harness leaves your draws as you wrote them: widen them or fix the model before you rely on the next rehearsal.
 
 <!-- section: skill_preflight -->
 ### Every skill request is rehearsed first
@@ -394,18 +343,6 @@ __MODEL_FILES__
 Use sandbox `python3` with `pickle` and `numpy` to analyze the recorded data and your own files.
 No simulator is supplied.
 
-<!-- section: reward_model_model_free -->
-## Interpreting task verdicts
-
-The `evaluate_trajectory` tool exposes a level's reward model, the current level's by default.
-It scores a state sequence that you predict and returns only `reward`, `solved`, and `note`.
-The sequence is a start state followed by your predicted states; give each predicted state as the feature values that change from the state before it, `{"object": {"feature": value}}`.
-`start` selects the latest observation, the current episode's recording up to it, or the level's initial state.
-No simulator backs this tool, so a verdict is only as good as the states you predict.
-Where evaluation includes a physical replay, that rule is not checked: the verdict then reports `solved` false with no success bonus, and its `note` says so.
-Pass action labels for tasks whose evaluator reads the actions: one `["Skill", ["obj", ...], [param, ...]]` per predicted state, or `null` for an unlabeled transition.
-Only the live environment's `WIN` certifies completion.
-
 <!-- section: model -->
 ## Model workbench
 
@@ -478,9 +415,6 @@ The supplied model is fixed for the run and not exposed as source: rollouts run 
 <!-- section: frozen_line_written -->
 Your model is sealed at the first real action: until then, edits load on the next probe call; afterwards rollouts run the real skill controllers on the sealed code and values, and no call fits or changes its parameters.
 
-<!-- section: frozen_line_scene -->
-Your model holds the scene and no mechanisms: edits that fix the scene load on the next probe call, rollouts run the real skill controllers on it, and no call fits its values.
-
 <!-- section: model_frozen -->
 ## Model workbench
 
@@ -537,21 +471,12 @@ These read-only files are the engine wrapper and the scene base your simulator s
 `SceneBase` is injected when `./simulator.py` loads; do not import the reference copy there.
 Load assets through `cls.asset("urdf/...")`, which resolves under `reference/assets/`.
 
-<!-- section: scene_refs_loaded -->
-### Engine, scene manifest and assets
-
-__REF_LISTING__
-
-These read-only files are the engine wrapper and the scene base your simulator subclasses, the manifest of the scene's bodies, and the files the base loads them from.
-`SceneBase` is injected when `./simulator.py` loads; do not import the reference copy there.
-The base loads every body of the manifest itself; read the manifest to learn the bodies' names, shapes, joints and limits.
-
 <!-- section: scene_refs_model_free -->
 ## Scene files
 
 __REF_LISTING__
 
-These read-only files are a manifest of the scene's bodies (shapes, meshes, joints, colours, and which observed object each body is) and the URDF and mesh files those bodies were loaded from.
+These read-only files are the PyBullet environment wrapper the robot runs in, a manifest of the scene's bodies (shapes, meshes, joints, colours, and which observed object each body is) and the URDF and mesh files those bodies were loaded from.
 The manifest records no masses, frictions or damping, and the files omit hidden dynamics, task generation and goal semantics.
 `pybullet` is importable in sandbox `python3`; use these files however you find useful.
 
@@ -630,7 +555,9 @@ Object poses in the observation remain noisy, and hidden execution state is not 
 ## EMPIRIC from assets
 
 No domain simulator, domain-specific observation mapping, or mechanism implementation is supplied.
-__SCENE_OWNERSHIP__
+Build `./simulator.py` as a `SceneBase` subclass using the scene manifest and assets.
+The generic base supplies the robot, its controller and grasp conventions, observable body poses, and a passive scalar feature store.
+You own scene construction, joint/readout mappings, mechanisms, parameters and inferred memory.
 A scalar surviving a reset does not mean its dynamics or joint mapping are implemented.
 The manifest is supplied reconstructed geometry, not a calibrated dynamics model.
 Asset files can contain nominal physical constants; treat them as assumptions to validate, not identified values.
@@ -659,61 +586,6 @@ An argument from how the task seems to have been designed (that a centred or tid
 A prediction that a step stays clear of a failure a test level cannot undo (a spill, a burst, a fall) is a hypothesis as well: the recordings support it only as far as they went, so before a test plan relies on it, run that step on a training level at least as far as the plan will take it, or keep the plan short of it.
 Recordings that never reached such a failure show only that its onset lies beyond them: write it in the model as a declared threshold (a duration, a load, a height) whose range starts where the recordings stopped, never as absent, so the fit keeps every onset they allow and a rehearsal that goes further draws the risk.
 A rehearsal's draws spread only as far as the levels your model was fitted on allow, and on a new level, with its own geometry and parts, the model's error stays unknown until a step there has been checked against its rehearsal: it can be many times that spread.
-So make your first step on a new level one whose rehearsed outcome stays clear of every failure the level cannot undo by several times the draws' spread.
-Choose it to exercise what this level combines that no training level showed, such as a part on a body it never moved, and let its outcome, checked against the rehearsal, show how your model errs there before any step comes closer.
-A step can lose a level without any failure event: on a level without resets, a step after which no plan your model allows can still win (a balloon freed that no winning set contains, a block glued where no design uses it) loses it as surely as a burst.
-So make a measurement step only with parts some winning plan uses, and before you take it, check that each outcome its rehearsal allows still leaves a plan that can win.
-A training level ends the moment its goal holds, and a test level allows no resets: before you complete a training level, run on it the experiments your model needs for the tests, above all actions started from states that earlier actions produced, which a test level may chain. A reset on a training level costs one step.
-A skill call that fails can still move what it touched.
-Before you repeat a failed call, compare where its target rests now with where it rested before the first attempt: a target that each failure pushes away can end where no skill reaches it, and on a test level that loses the level.
-`sim` has no world until your scene model loads; collect small informative real experiments when the model is not yet adequate.
-
-<!-- section: scene_ownership_built -->
-Build `./simulator.py` as a `SceneBase` subclass using the scene manifest and assets.
-The generic base supplies the robot, its controller and grasp conventions, observable body poses, and a passive scalar feature store.
-You own scene construction, joint/readout mappings, mechanisms, parameters and inferred memory.
-
-<!-- section: scene_ownership_loaded -->
-Write `./simulator.py` as a `SceneBase` subclass.
-The generic base supplies the robot, its controller and grasp conventions, the scene's bodies loaded from the scene manifest and assets, observable body poses, and a passive scalar feature store.
-You own the masses and materials, joint/readout mappings, mechanisms, parameters and inferred memory.
-
-<!-- section: arm_from_assets_agent_belief -->
-## EMPIRIC from assets, with your own parameter belief
-
-No domain simulator, domain-specific observation mapping, or mechanism implementation is supplied.
-Build `./simulator.py` as a `SceneBase` subclass using the scene manifest and assets.
-The generic base supplies the robot, its controller and grasp conventions, observable body poses, and a passive scalar feature store.
-You own scene construction, joint/readout mappings, mechanisms, parameters and inferred memory.
-A scalar surviving a reset does not mean its dynamics or joint mapping are implemented.
-The manifest is supplied reconstructed geometry, not a calibrated dynamics model.
-Asset files can contain nominal physical constants; treat them as assumptions to validate, not identified values.
-The harness fits nothing and estimates no uncertainty: you estimate your parameters, and how uncertain the recordings leave them, by any method you choose, and you supply that uncertainty as parameter draws (`PARAM_DRAWS`, in the model contract).
-Rehearsals, P-hat, the predictive check and execution monitoring run on your draws, each paired with a draw of the state belief and the memory it implies; the harness never widens or narrows them.
-An engine material you do not declare keeps your scene's value in every draw: declare the materials your tasks' contacts depend on, and let your draws of them spread as far as the recordings leave them open.
-
-Declare uncertain constants with `AGENT_PARAM_SPECS`: each `init_value` is your point estimate, and each `[lo, hi]` the physical range every draw stays inside.
-Use `sim.validate()` on recorded experience, and compare held-out action outcomes where available.
-Estimated parameter values cannot repair missing geometry, incorrect observation mappings or missing mechanisms.
-Store learned memory in `MODEL_STATE_INIT`/`model_state`, infer it from observation history, and restore its engine effects with `restore_model_state`.
-Never initialize model memory from hidden real-world simulator state.
-Check observation round trips, parameter effects, independent replay, and `sim.reset(current=True).check_restore()` before trusting predictions.
-Build a task-relevant predictive model, not a source-code replica: it must predict both successful and failed action outcomes.
-Write each mechanism as the force, torque or constraint it applies as a function of the current state, and let the engine produce the motion: rest positions, displacements and timings then follow from the model.
-A model that sets a rest position, a rise or a delay it measured reproduces the recordings it was fitted on, but it predicts nothing for a combination they did not show, and test levels can combine what the training levels showed in new ways.
-Give each parameter to the part that owns it: a balloon's pull, a fan's push and a spring's stiffness belong to that balloon, fan or spring and stay the same whatever it acts on, and each body has its own mass.
-Then what one level measured carries over to a level that combines the parts in a new way.
-A pull written as the acceleration it gives the body it moves fits the recordings just as well, but it gives every body that same acceleration, so it fails when a test level puts the part on a lighter or heavier body.
-When training showed each part on one body only, the recordings may fix only the ratio of the part's force to that body's mass: declare each body's mass with the range its material and size allow, and let your draws keep every ratio they leave open.
-When two forms of a mechanism fit the recordings about equally well and predict differently for a plan you need (a force that stays constant with height, or one that fades with it), keep both: declare a parameter that blends the forms, and let your draws cover each.
-A small difference in how well the forms fit is no evidence for either; a recorded effect that only one form predicts is, such as how an oscillation's frequency changes when a load is added.
-Before you give each part a shape of its own or add a parameter to fit a misfit, test the structure the misfit may come from: whose state a force depends on (the body it acts on, or a body it holds or pulls) and where it acts are choices the recordings can decide, so fit each choice and compare how well each explains them.
-Recordings that differ only in the order or the place of the same parts test that structure directly: when they end alike within their noise and your model makes them end differently by more, its structure is wrong, however well it fits the rest.
-A prediction of your model that would block a plan is a hypothesis: test it on the real system or keep the plan robust to it, and remove it from the model only on evidence against it.
-An argument from how the task seems to have been designed (that a centred or tidy answer must be the intended one, say) is no evidence about the world, and it never outweighs a failure your model predicts.
-A prediction that a step stays clear of a failure a test level cannot undo (a spill, a burst, a fall) is a hypothesis as well: the recordings support it only as far as they went, so before a test plan relies on it, run that step on a training level at least as far as the plan will take it, or keep the plan short of it.
-Recordings that never reached such a failure show only that its onset lies beyond them: write it in the model as a declared threshold (a duration, a load, a height) whose draws start where the recordings stopped, never as absent, so a rehearsal that goes further draws the risk.
-A rehearsal's draws spread only as far as you let them, and on a new level, with its own geometry and parts, the model's error stays unknown until a step there has been checked against its rehearsal: it can be many times that spread.
 So make your first step on a new level one whose rehearsed outcome stays clear of every failure the level cannot undo by several times the draws' spread.
 Choose it to exercise what this level combines that no training level showed, such as a part on a body it never moved, and let its outcome, checked against the rehearsal, show how your model errs there before any step comes closer.
 A step can lose a level without any failure event: on a level without resets, a step after which no plan your model allows can still win (a balloon freed that no winning set contains, a block glued where no design uses it) loses it as surely as a burst.

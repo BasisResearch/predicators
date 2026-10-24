@@ -6,8 +6,6 @@ from typing import Any, Callable, Dict, FrozenSet, Iterator, List, Optional, \
     Set, Tuple
 
 from predicators import utils
-from predicators.agent_sdk.speed_support import RecordedSpeeds, SwitchFeatures
-from predicators.agent_sdk.tools.claim_check import ClaimCheck
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
 from predicators.structs import CausalProcess, LowLevelTrajectory, \
@@ -44,19 +42,6 @@ class LiveRehearsal:
     # other than the robot was still moving.
     lines_run: List[List[int]] = field(default_factory=list)
     moving_lines: List[List[int]] = field(default_factory=list)
-    # The notes its report ended with, without their "NOTE: " lead.
-    notes: List[str] = field(default_factory=list)
-    # Whether the screen of the undeclared materials has run on its plan
-    # (see ``ToolContext.material_screen``): it runs once per rehearsal.
-    screened: bool = False
-
-
-def mark_notes_shown(rehearsals: List[LiveRehearsal], shown: Set[str],
-                     text: str) -> None:
-    """Add to ``shown`` each note of ``rehearsals`` that ``text``, an output
-    the agent was given, shows in full."""
-    for rehearsal in rehearsals:
-        shown.update(note for note in rehearsal.notes if note in text)
 
 
 @dataclass
@@ -97,10 +82,6 @@ class ToolContext:
     # need the real engine). A comparison arm lists what its surface
     # withholds; the probe raises on a listed call instead of serving it.
     probe_disabled: FrozenSet[str] = frozenset()
-    # ``sim`` methods this session's arm does not offer at all: the probe
-    # has no such attribute and ``dir(sim)`` leaves it out (the arm with
-    # the agent's own parameter belief has no ``fit``).
-    probe_absent: FrozenSet[str] = frozenset()
     # Synthesis-session loader behind ``sim.predicates()``: it reloads
     # the agent-authored predicates.py fresh, installs the result into
     # the approach so refinement sees the draft, and returns the report
@@ -126,31 +107,14 @@ class ToolContext:
     # skill fails there, or None when the request may run. Nothing is
     # charged for a refusal; force=true on the request skips it.
     skill_preflight: Optional[Callable[[str], Optional[str]]] = None
-    # Installed by the from-assets arm under
-    # belief_undeclared_material_screen: given the plan of a rehearsal
-    # from the last real observation, reruns it at the ends of each
-    # undeclared material's plausible range and returns the note that
-    # names the materials its outcome changes with, or None.
-    material_screen: Optional[Callable[[str], Optional[str]]] = None
     # Installed by the model arm under continual_rehearsal_gate: whether
     # skill requests must first be rehearsed on the joint belief from the
     # current observation (a test level), or None when they never must.
     rehearsal_gate: Optional[Callable[[], bool]] = None
-    # Installed by the model arm under continual_practise_after_reset:
-    # whether the level in progress is a training level with a reset and
-    # no win, where skill requests wait as they do on a test level.
-    practise_gate: Optional[Callable[[], bool]] = None
-    # Installed by the model arm under continual_claim_check, with how
-    # many recordings a record may cite.
-    claim_check: Optional[ClaimCheck] = None
-    recording_count: Optional[Callable[[], int]] = None
     # The joint-belief rehearsals run from the live observation this
     # session, newest last: what the rehearsal gate checks a request
     # against, and what the predictive check scores its outcome on.
     live_rehearsals: List["LiveRehearsal"] = field(default_factory=list)
-    # The rehearsal notes an output given to the agent has shown in full
-    # this session (see continual_rehearsal_notes_gate).
-    shown_notes: Set[str] = field(default_factory=set)
     # Installed by the model arm under continual_predictive_check: the
     # features the current model scores (type name -> feature names), or
     # None when no model is loaded; the predictive check compares those.
@@ -167,11 +131,6 @@ class ToolContext:
     # recordings.
     recorded_ranges_provider: Optional[Callable[[], Optional[Dict[Tuple[
         str, str], Tuple[float, float]]]]] = None
-    # Installed with it under continual_rehearsal_speed_note: the switch
-    # features the recordings show and each body type's top speed under each
-    # switch pattern, or None without recordings.
-    recorded_speeds_provider: Optional[Callable[[], Optional[Tuple[
-        SwitchFeatures, RecordedSpeeds]]]] = None
     # The canonical fit's reach-check reminder (continual_fit_reach_check):
     # the scored features whose replays at the fitted values stop short of
     # how far they went in the recordings, or None when the fit found none

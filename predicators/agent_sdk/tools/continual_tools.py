@@ -29,10 +29,7 @@ from predicators.agent_sdk.primitive_policy import open_primitive_policy, \
 from predicators.agent_sdk.sketch_parsing import parse_sketch_from_text
 from predicators.agent_sdk.tools.context import LiveRehearsal, ToolContext
 from predicators.agent_sdk.tools.digests import render_options_digest
-from predicators.agent_sdk.tools.python_exec import _resolve_sandbox_file
 from predicators.agent_sdk.tools.results import _error_result, _text_result
-from predicators.agent_sdk.tools.reward_model import PREDICTION_STARTS, \
-    level_task, load_prediction_file, score_prediction
 from predicators.observation_belief import atom_fractions, \
     describe_fractions, uncertain_atoms
 from predicators.observation_noise import ObservationNoise
@@ -43,7 +40,7 @@ from predicators.run.interaction import ActionSelector, ExecutePlan, \
 from predicators.run.recording import states_close
 from predicators.settings import CFG
 from predicators.structs import Action, GroundAtom, Predicate, State, Task, \
-    _Option, excluded_object_type_names, step_option_labels
+    _Option, excluded_object_type_names
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle through approaches
     from predicators.run.continual import InvocationResult, \
@@ -61,13 +58,8 @@ CONTINUAL_TOOL_NAMES = [
 PRIMITIVE_TOOL_NAMES = [
     "env_observe", "env_step", "env_reset", "give_up", "env_run_policy"
 ]
-# The tools of continual_claim_check.
-CLAIM_TOOL_NAMES = ["claims_record", "claims_resolve"]
-# The tool of continual_provide_reward_model on an arm with no run_python.
-REWARD_MODEL_TOOL_NAMES = ["evaluate_trajectory"]
 ALL_CONTINUAL_TOOL_NAMES = list(
-    dict.fromkeys(CONTINUAL_TOOL_NAMES + PRIMITIVE_TOOL_NAMES +
-                  CLAIM_TOOL_NAMES + REWARD_MODEL_TOOL_NAMES))
+    dict.fromkeys(CONTINUAL_TOOL_NAMES + PRIMITIVE_TOOL_NAMES))
 # The tools that drive the robot below the skill library.
 RAW_CONTROL_TOOL_NAMES = ("env_step", "env_run_policy")
 
@@ -79,9 +71,6 @@ def play_tool_names(names: Sequence[str]) -> List[str]:
         return list(names)
     return [n for n in names if n not in RAW_CONTROL_TOOL_NAMES]
 
-
-# How a refusal opens on a reset training level.
-PRACTISE_HEAD = "This training level has been reset without a win:"
 
 GRAMMAR = (
     "One skill per line: `Skill(obj:type, ...)[p1, p2] -> {Atom(obj:type), "
@@ -398,26 +387,9 @@ def _wait_steps(
 
 class _RehearsalMatch(NamedTuple):
     """A rehearsal that let a request through, and how many of the request's
-    leading lines its plan repeated, from its line ``start`` on (0 for a
-    request that begins the plan; more for one that continues it)."""
+    leading lines its plan repeated."""
     rehearsal: LiveRehearsal
     lines: int
-    start: int = 0
-
-
-class _PlanCursor:
-    """Where the last scored request left its rehearsal's plan: the match, and
-    the run's position (level, steps, resets) when the request ended; both None
-    after any other request or action."""
-
-    def __init__(self) -> None:
-        self.match: Optional[_RehearsalMatch] = None
-        self.position: Optional[Tuple[int, int, int]] = None
-
-    def clear(self) -> None:
-        """Forget the place."""
-        self.match = None
-        self.position = None
 
 
 # ── Tools ──────────────────────────────────────────────────────────
@@ -500,16 +472,6 @@ def build_continual_tools(
             return None
         return _error_result(reason + " Nothing was charged." + _footer())
 
-    def _practising() -> bool:
-        """Whether the level is a reset training level under
-        ``continual_practise_after_reset``."""
-        return ctx.practise_gate is not None and ctx.practise_gate()
-
-    def _raw_gated() -> Optional[Dict[str, Any]]:
-        """Raw control on a reset training level waits for the model too, so it
-        is no way around the skill gate."""
-        return _gated() if _practising() else None
-
     def _matching_rehearsal(
         parsed: List[Tuple[_Option, Set[GroundAtom], Set[GroundAtom]]]
     ) -> Optional[_RehearsalMatch]:
@@ -538,55 +500,6 @@ def build_continual_tools(
                 return _RehearsalMatch(rehearsal, shared)
         return None
 
-    plan_cursor = _PlanCursor()
-
-    def _position() -> Tuple[int, int, int]:
-        ledger = session.observe().ledger
-        return (ledger.level_index, ledger.run_steps, ledger.run_resets)
-
-    def _continuing_rehearsal(
-        parsed: List[Tuple[_Option, Set[GroundAtom], Set[GroundAtom]]]
-    ) -> Optional[_RehearsalMatch]:
-        """The rehearsal whose plan the request continues: the last scored
-        request ran its lines up to here, nothing has run since, and the
-        request repeats its next lines (a Wait that lets a released body
-        settle, say).
-
-        The request is then scored against that rehearsal's draws at the
-        line it reaches, as if the plan had run as one request.
-        """
-        previous = plan_cursor.match
-        if previous is None or plan_cursor.position is None:
-            return None
-        try:
-            if _position() != plan_cursor.position:
-                return None
-            rehearsed = parse_plan_lines(previous.rehearsal.plan_text, ctx,
-                                         _level_task())
-        except (EpisodeOver, ValueError):
-            return None
-        start = previous.start + previous.lines
-        shared = _shared_lines(rehearsed[start:], parsed)
-        if shared < max(_motion_lines(parsed), 1):
-            return None
-        return _RehearsalMatch(previous.rehearsal, shared, start)
-
-    def _advance_cursor(match: Optional[_RehearsalMatch], num_lines: int,
-                        progress: ExecutionProgress) -> None:
-        """Keep the request's place in its rehearsal's plan when the rehearsal
-        repeated all of it and all of it ran; else forget it."""
-        plan_cursor.clear()
-        if match is None or match.lines != num_lines or \
-                len(progress.skills) != num_lines or \
-                any(skill.result.status != "succeeded"
-                    for skill in progress.skills):
-            return
-        try:
-            plan_cursor.position = _position()
-        except EpisodeOver:
-            return
-        plan_cursor.match = match
-
     def _unrehearsed(
             parsed: List[Tuple[_Option, Set[GroundAtom], Set[GroundAtom]]],
             match: Optional[_RehearsalMatch]) -> Optional[Dict[str, Any]]:
@@ -597,15 +510,12 @@ def build_continual_tools(
 
         A request of Wait lines alone commands no motion and passes.
         """
-        practising = _practising()
-        if not practising and (ctx.rehearsal_gate is None
-                               or not ctx.rehearsal_gate()):
+        if ctx.rehearsal_gate is None or not ctx.rehearsal_gate():
             return None
         if _motion_lines(parsed) == 0 or match is not None:
             return None
         return _error_result(
-            f"{PRACTISE_HEAD if practising else 'Test level:'} rehearse "
-            "this on the joint belief first. In "
+            "Test level: rehearse this on the joint belief first. In "
             "run_python, print(sim.reset(current=True).run(plan)) with a "
             "plan whose first lines are this request, best followed by the "
             "rest of your plan: a rehearsal on the joint draws from the "
@@ -637,7 +547,7 @@ def build_continual_tools(
         motion = _motion_lines(parsed)
         if motion == 0:
             return None
-        rehearsal = match.rehearsal
+        rehearsal, _ = match
         try:
             rehearsed = parse_plan_lines(rehearsal.plan_text, ctx,
                                          _level_task())
@@ -693,199 +603,6 @@ def build_continual_tools(
                 "Nothing was charged." + _footer())
         return None
 
-    def _scene_moving() -> bool:
-        """Whether the belief sees a body moving (the velocities
-        ``observation_belief.with_motion`` records)."""
-        sim_state = getattr(session.observe().frame, "simulator_state", None)
-        if not isinstance(sim_state, dict):
-            return False
-        velocities = sim_state.get("body_velocities")
-        return isinstance(velocities, dict) and any(
-            any(linear) for linear, _ in velocities.values())
-
-    def _lost_draws(match: _RehearsalMatch) -> int:
-        """The draws of the match's rehearsal lost at its next line or
-        later."""
-        return sum(line is not None and line >= match.start
-                   for line in match.rehearsal.lost_lines)
-
-    def _lost_waiting() -> Optional[int]:
-        """The lost draws of the newest rehearsal of Wait lines alone from the
-        current observation, or None without one."""
-        current = session.observe().frame
-        for rehearsal in reversed(ctx.live_rehearsals):
-            if not states_close(rehearsal.observation, current):
-                continue
-            try:
-                rehearsed = parse_plan_lines(rehearsal.plan_text, ctx,
-                                             _level_task())
-            except ValueError:
-                continue
-            if rehearsed and _motion_lines(rehearsed) == 0:
-                return sum(line is not None for line in rehearsal.lost_lines)
-        return None
-
-    def _safer_than_waiting(match: Optional[_RehearsalMatch]) -> bool:
-        """Whether the scene moves and the request loses fewer draws than doing
-        nothing: then acting is the safer choice."""
-        waiting = _lost_waiting()
-        return (match is not None and waiting is not None and _scene_moving()
-                and _lost_draws(match) < waiting)
-
-    def _unsafe_plan(
-            parsed: List[Tuple[_Option, Set[GroundAtom], Set[GroundAtom]]],
-            match: Optional[_RehearsalMatch]) -> Optional[Dict[str, Any]]:
-        """Under ``continual_rehearsal_safe_plan``, while the rehearsal gate
-        applies: a refusal that charges nothing when a draw of the request's
-        rehearsal ends the episode in GAME_OVER at any later line of its plan.
-
-        A request of Wait lines alone commands no motion and passes.
-        """
-        if (not CFG.continual_rehearsal_safe_plan or match is None
-                or ctx.rehearsal_gate is None or not ctx.rehearsal_gate()
-                or _motion_lines(parsed) == 0):
-            return None
-        lost = _lost_draws(match)
-        if lost == 0 or _safer_than_waiting(match):
-            return None
-        return _error_result(
-            f"Test level: {lost} of the {len(match.rehearsal.lost_lines)} "
-            "draws of this plan's rehearsal end the episode in GAME_OVER, "
-            "and a GAME_OVER ends a test level. A lost draw is a world the "
-            "data still allow. Find a plan no draw loses, or settle what "
-            "separates the lost draws: repair the model if it is wrong "
-            "there, or collect data that rules their parameters out. While "
-            "the scene moves, a plan that loses fewer draws than a rehearsal "
-            "of Wait lines alone passes. Nothing was charged." + _footer())
-
-    still_refused: Dict[str, int] = {}
-
-    def _moving_start(
-        parsed: List[Tuple[_Option, Set[GroundAtom], Set[GroundAtom]]],
-        match: Optional[_RehearsalMatch],
-        continuing: Optional[_RehearsalMatch],
-    ) -> Optional[Dict[str, Any]]:
-        """Under ``continual_rehearsal_still_start``, while the rehearsal gate
-        applies: a refusal that charges nothing when a request starts a new
-        plan while the belief sees a body moving.
-
-        A request of Wait lines alone commands no motion and passes.
-        """
-        if (not CFG.continual_rehearsal_still_start
-                or ctx.rehearsal_gate is None or not ctx.rehearsal_gate()
-                or _motion_lines(parsed) == 0):
-            return None
-        if not _scene_moving():
-            still_refused.clear()
-            return None
-        if continuing is not None or _safer_than_waiting(match):
-            return None
-        steps = session.observe().ledger.run_steps
-        first = still_refused.setdefault("first", steps)
-        waited = steps - first
-        if waited >= CFG.continual_rehearsal_still_wait:
-            return None
-        return _error_result(
-            "Test level: a body is moving, so this new plan would start from "
-            "a speed estimated from noisy frames. Send Wait lines until the "
-            "scene rests, and rehearse the whole plan from rest. If waiting "
-            "itself is the danger, rehearse Wait lines alone from here: a "
-            "plan that loses fewer draws than they do passes. After "
-            f"{CFG.continual_rehearsal_still_wait} steps from this first "
-            f"refusal ({waited} so far), any plan passes, for a scene that "
-            "never rests. Nothing was charged." + _footer())
-
-    def _unseen_notes(
-            match: Optional[_RehearsalMatch]) -> Optional[Dict[str, Any]]:
-        """Under ``continual_rehearsal_notes_gate``, while the rehearsal gate
-        applies: a refusal that charges nothing when the rehearsal that let
-        the request through ended with notes no output given to the agent
-        has shown in full.
-
-        The refusal shows them, so the request sent again runs.
-        """
-        practising = _practising()
-        if (not CFG.continual_rehearsal_notes_gate or match is None
-                or (not practising and
-                    (ctx.rehearsal_gate is None or not ctx.rehearsal_gate()))):
-            return None
-        rehearsal = match.rehearsal
-        unseen = [n for n in rehearsal.notes if n not in ctx.shown_notes]
-        if not unseen:
-            return None
-        ctx.shown_notes.update(unseen)
-        notes = "\n".join(f"NOTE: {note}" for note in unseen)
-        return _error_result(
-            f"{PRACTISE_HEAD if practising else 'Test level:'} the "
-            "rehearsal that let this request through "
-            f"(P-hat {rehearsal.p_hat:.2f}) ended with notes no output of "
-            f"yours has shown:\n{notes}\nWeigh them before this step; send "
-            "the request again to run it. Nothing was charged." + _footer())
-
-    def _undeclared_materials(
-            parsed: List[Tuple[_Option, Set[GroundAtom], Set[GroundAtom]]],
-            match: Optional[_RehearsalMatch]) -> Optional[Dict[str, Any]]:
-        """Under ``belief_undeclared_material_screen``, while the rehearsal
-        gate applies: a refusal that charges nothing when the outcome of the
-        rehearsed plan changes with a material the model does not declare,
-        which no draw of the rehearsal varied.
-
-        The screen (``ctx.material_screen``) runs once per rehearsal, on
-        a request that begins the rehearsal's plan from its observation.
-        Its note joins the rehearsal's notes as one the agent has seen,
-        so the request sent again runs.
-        """
-        practising = _practising()
-        if (ctx.material_screen is None or match is None or match.start
-                or not _motion_lines(parsed)
-                or (not practising and
-                    (ctx.rehearsal_gate is None or not ctx.rehearsal_gate()))):
-            return None
-        rehearsal = match.rehearsal
-        if rehearsal.screened:
-            return None
-        rehearsal.screened = True
-        note = ctx.material_screen(rehearsal.plan_text)
-        if note is None:
-            return None
-        rehearsal.notes.append(note)
-        ctx.shown_notes.add(note)
-        return _error_result(
-            f"{PRACTISE_HEAD if practising else 'Test level:'} the "
-            "rehearsal that let this request through "
-            f"(P-hat {rehearsal.p_hat:.2f}) does not cover every value the "
-            f"plan depends on.\nNOTE: {note}\nWeigh this before the step; "
-            "send the request again to run it as it is. Nothing was "
-            "charged." + _footer())
-
-    def _unclaimed(
-            parsed: List[Tuple[_Option, Set[GroundAtom], Set[GroundAtom]]],
-            match: Optional[_RehearsalMatch]) -> Optional[Dict[str, Any]]:
-        """Under ``continual_claim_check``: a refusal that charges nothing when
-        a record of the belief behind this request is due.
-
-        A request of Wait lines alone commands no motion and passes.
-        """
-        check = ctx.claim_check
-        if check is None or _motion_lines(parsed) == 0:
-            return None
-        obs = session.observe()
-        p_hat = None if match is None else match.rehearsal.p_hat
-        trigger = check.due(obs.level.split, obs.ledger.level_index,
-                            obs.ledger.level_resets, p_hat)
-        if trigger is not None:
-            return _error_result(
-                check.refusal(trigger, obs.ledger.level_resets, p_hat) +
-                " Nothing was charged." + _footer())
-        # A test level has no resets, so a step there comes after the
-        # experiment; a training level's experiment is itself a step.
-        if obs.level.split == "test" and check.open_ids():
-            return _error_result(
-                "Claim check: call claims_resolve for the open records "
-                f"before a step on a test level: {check.open_ids()}. Nothing "
-                "was charged." + _footer())
-        return None
-
     def _prediction_note(match: Optional[_RehearsalMatch],
                          progress: ExecutionProgress) -> str:
         """The predictive check of a request, under the arm's
@@ -910,7 +627,7 @@ def build_continual_tools(
         provider = ctx.scored_features_provider
         if provider is None or match is None:
             return ""
-        rehearsal, num_lines, start = match
+        rehearsal, num_lines = match
         ran = progress.skills[:num_lines]
         # A plan that stopped at or before the last shared line, by a
         # divergence or the end of the episode, is not scored.
@@ -925,9 +642,8 @@ def build_continual_tools(
         if outcome.episode_state is not EpisodeState.NOT_FINISHED:
             return ""
         predicted: List[State] = []
-        line = start + num_lines
         for states in rehearsal.line_states:
-            last = states[line - 1] if len(states) >= line else None
+            last = states[num_lines - 1] if len(states) >= num_lines else None
             if last is not None:
                 predicted.append(last)
         features = provider()
@@ -953,14 +669,9 @@ def build_continual_tools(
         # Wait lines past the rehearsed ones leave the draws no prediction
         # of the request's end, so the check scores the last line they
         # predicted.
-        if start:
-            which = (f"this outcome, which continues the rehearsed plan from "
-                     f"its line {start + 1} to its line {line},")
-        elif len(progress.skills) == num_lines:
-            which = "this outcome"
-        else:
-            which = (f"the outcome of line {num_lines}, the last the "
-                     "rehearsal repeated,")
+        which = ("this outcome" if len(progress.skills) == num_lines else
+                 f"the outcome of line {num_lines}, the last the rehearsal "
+                 "repeated,")
         text = (
             f"\nPrediction check: {which} lies outside the rehearsal's "
             f"draws: {name}.{feat} is {check.observed:.4g} where the "
@@ -968,8 +679,8 @@ def build_continual_tools(
             f"{check.spread:.2g}, {check.z_max:.1f} predictive spreads away "
             f"(a calibrated prediction stays within {check.critical:.1f} "
             f"over these {check.num_features} features).")
-        point = (rehearsal.mean_states[line - 1]
-                 if len(rehearsal.mean_states) >= line else None)
+        point = (rehearsal.mean_states[num_lines - 1]
+                 if len(rehearsal.mean_states) >= num_lines else None)
         if point is not None and point_predicts(
                 frame, point, check.missed, noise, check.num_features, widths):
             sampled = ("" if CFG.belief_material_lines else
@@ -1182,9 +893,6 @@ def build_continual_tools(
         ended = _ended()
         if ended is not None:
             return ended
-        gated = _raw_gated()
-        if gated is not None:
-            return gated
         try:
             action = primitive_action(args.get("action", []),
                                       session.action_space)
@@ -1224,9 +932,6 @@ def build_continual_tools(
         ended = _ended()
         if ended is not None:
             return ended
-        gated = _raw_gated()
-        if gated is not None:
-            return gated
         progress = ExecutionProgress()
 
         @asynccontextmanager
@@ -1381,31 +1086,12 @@ def build_continual_tools(
                                  "skills_execute_plan for several." +
                                  _footer())
         match = _matching_rehearsal(parsed)
-        # Under the still start, the lines of a running plan go on the
-        # rehearsal that started it, from rest.
-        continuing = (_continuing_rehearsal(parsed)
-                      if CFG.continual_rehearsal_still_start else None)
-        unrehearsed = _unrehearsed(parsed, match or continuing)
+        unrehearsed = _unrehearsed(parsed, match)
         if unrehearsed is not None:
             return unrehearsed
-        moving = _moving_start(parsed, match, continuing)
-        if moving is not None:
-            return moving
-        unsafe = _unsafe_plan(parsed, match or continuing)
-        if unsafe is not None:
-            return unsafe
         risky = _risky(parsed, match)
         if risky is not None:
             return risky
-        materials = _undeclared_materials(parsed, match)
-        if materials is not None:
-            return materials
-        unseen = _unseen_notes(match)
-        if unseen is not None:
-            return unseen
-        unclaimed = _unclaimed(parsed, match)
-        if unclaimed is not None:
-            return unclaimed
         refused = _preflight(str(args.get("skill", "")), args)
         if refused is not None:
             return refused
@@ -1413,13 +1099,10 @@ def build_continual_tools(
         try:
             progress = ExecutionProgress()
             lines: List[str] = []
-            scored = match or _continuing_rehearsal(parsed)
-            plan_cursor.clear()
             await _execute(
                 ExecuteSkill(option, expected, str(args.get("note", "")),
                              absent), progress, _skill_reporter(lines))
-            text = lines[0] + _prediction_note(scored, progress)
-            _advance_cursor(scored, len(parsed), progress)
+            text = lines[0] + _prediction_note(match, progress)
             render = save_render(f"invoke_{state.charged_calls:04d}")
             if render:
                 text += f"\n[render] {render}"
@@ -1464,31 +1147,12 @@ def build_continual_tools(
         except ValueError as e:
             return _error_result(f"Could not parse the plan: {e}" + _footer())
         match = _matching_rehearsal(parsed)
-        # Under the still start, the lines of a running plan go on the
-        # rehearsal that started it, from rest.
-        continuing = (_continuing_rehearsal(parsed)
-                      if CFG.continual_rehearsal_still_start else None)
-        unrehearsed = _unrehearsed(parsed, match or continuing)
+        unrehearsed = _unrehearsed(parsed, match)
         if unrehearsed is not None:
             return unrehearsed
-        moving = _moving_start(parsed, match, continuing)
-        if moving is not None:
-            return moving
-        unsafe = _unsafe_plan(parsed, match or continuing)
-        if unsafe is not None:
-            return unsafe
         risky = _risky(parsed, match)
         if risky is not None:
             return risky
-        materials = _undeclared_materials(parsed, match)
-        if materials is not None:
-            return materials
-        unseen = _unseen_notes(match)
-        if unseen is not None:
-            return unseen
-        unclaimed = _unclaimed(parsed, match)
-        if unclaimed is not None:
-            return unclaimed
         refused = _preflight(str(args.get("plan", "")), args)
         if refused is not None:
             return refused
@@ -1502,8 +1166,6 @@ def build_continual_tools(
                 tuple(
                     ExecuteSkill(option, expected, note, absent)
                     for option, expected, absent in parsed), stop)
-            scored = match or _continuing_rehearsal(parsed)
-            plan_cursor.clear()
             await _execute(request, progress,
                            _skill_reporter(lines, len(parsed)))
             count = len(progress.skills)
@@ -1512,8 +1174,7 @@ def build_continual_tools(
             elif progress.stop_reason not in ("", "terminal"):
                 lines.append(f"plan stopped: skill {count} "
                              f"{progress.stop_reason}")
-            checked = _prediction_note(scored, progress)
-            _advance_cursor(scored, len(parsed), progress)
+            checked = _prediction_note(match, progress)
             if checked:
                 lines.append(checked.lstrip("\n"))
             render = save_render(f"plan_{state.charged_calls:04d}")
@@ -1528,233 +1189,7 @@ def build_continual_tools(
                 return err
             return _protocol_error(e)
 
-    def _claim_position() -> Dict[str, int]:
-        ledger = session.observe().ledger
-        return {
-            "run_steps": ledger.run_steps,
-            "rehearsals": len(ctx.live_rehearsals),
-        }
-
-    @tool(
-        "claims_record",
-        "Record the belief your next step leans on most, when a claim check "
-        "asks for it. direct_tests lists the recordings that tested it "
-        "directly. Free.", {
-            "type":
-            "object",
-            "properties": {
-                "claim": {
-                    "type": "string",
-                    "description": "the belief"
-                },
-                "rules_out": {
-                    "type": "string",
-                    "description": "the option or warning it sets aside"
-                },
-                "direct_tests": {
-                    "type": "array",
-                    "description": "each {recording: index as in "
-                    "sim.fit(traj_idxs=...), what: what it showed}",
-                    "items": {
-                        "type": "object"
-                    },
-                },
-                "what_varied": {
-                    "type":
-                    "string",
-                    "description":
-                    "what differed between those tests; say nothing "
-                    "varied if so"
-                },
-                "rival": {
-                    "type": "string",
-                    "description": "another explanation of the same evidence"
-                },
-                "next_experiment": {
-                    "type":
-                    "string",
-                    "description":
-                    "the cheapest run that separates the claim from the "
-                    "rival, real or rehearsed"
-                },
-                "predictions": {
-                    "type":
-                    "object",
-                    "description":
-                    "{claim: what it shows if the claim "
-                    "holds, rival: what it shows if the rival does}",
-                },
-            },
-            "required": [
-                "claim", "rules_out", "direct_tests", "what_varied", "rival",
-                "next_experiment", "predictions"
-            ],
-        })
-    async def claims_record(args: Dict[str, Any]) -> Dict[str, Any]:
-        ended = _ended()
-        if ended is not None:
-            return ended
-        if ctx.claim_check is None or ctx.recording_count is None:
-            return _error_result("No claim check runs here." + _footer())
-        ledger = session.observe().ledger
-        accepted, reply = ctx.claim_check.record(
-            args,
-            recordings=ctx.recording_count(),
-            level=ledger.level_index,
-            resets=ledger.level_resets,
-            **_claim_position())
-        return (_text_result if accepted else _error_result)(reply + _footer())
-
-    @tool(
-        "claims_resolve",
-        "Close a claim record with what its experiment showed. Free.", {
-            "type": "object",
-            "properties": {
-                "id": {
-                    "type": "integer",
-                    "description": "the record"
-                },
-                "verdict": {
-                    "type": "string",
-                    "description": "supported, refuted, unresolved or not_run"
-                },
-                "result": {
-                    "type":
-                    "string",
-                    "description":
-                    "what the experiment showed, or why it "
-                    "did not run"
-                },
-            },
-            "required": ["id", "verdict", "result"],
-        })
-    async def claims_resolve(args: Dict[str, Any]) -> Dict[str, Any]:
-        ended = _ended()
-        if ended is not None:
-            return ended
-        if ctx.claim_check is None:
-            return _error_result("No claim check runs here." + _footer())
-        closed, reply = ctx.claim_check.resolve(args, **_claim_position())
-        return (_text_result if closed else _error_result)(reply + _footer())
-
-    def _prediction_start(start: str) -> Tuple[List[State], List[Any]]:
-        """The recorded states a prediction continues, with their labels; none
-        for the level's initial state."""
-        if start == "initial":
-            return [], []
-        if start == "episode":
-            episodes = session.level_episodes()
-            if episodes:
-                episode = episodes[-1]
-                return (list(episode["states"]),
-                        list(step_option_labels(episode["actions"])))
-        return [session.observe().frame], []
-
-    @tool(
-        "evaluate_trajectory",
-        "Score a state sequence that you predict with a level's reward "
-        "model. Free. The sequence is a start state followed by your "
-        "predicted states. `states` holds one entry per predicted state: "
-        "{object_name: {feature: value}} for the features that change from "
-        "the state before it, {} for no change. `start` picks the start "
-        "state: `observation` (the default) is the latest observation, "
-        "`episode` is the current episode's recorded states and skill "
-        "labels up to that observation, `initial` is the level's initial "
-        "state. `actions` is optional: one label per predicted state, "
-        "[\"Skill\", [\"object\", ...], [param, ...]], or null for a "
-        "transition you do not attribute to a skill. `path` names a JSON "
-        "file in the sandbox holding {\"states\": [...], \"actions\": "
-        "[...]} in place of the two arguments. `task_idx` indexes the "
-        "levels reached so far and scores from that level's initial state; "
-        "omit it for the current level. Returns {\"reward\", \"solved\", "
-        "\"note\"}. No simulator backs this tool. A rule that replays "
-        "physics is not checked: the verdict then has solved false and no "
-        "success bonus, and `note` says so.", {
-            "type": "object",
-            "properties": {
-                "states": {
-                    "type":
-                    "array",
-                    "description":
-                    "one {object_name: {feature: value}} entry per "
-                    "predicted state",
-                    "items": {
-                        "type": "object"
-                    },
-                },
-                "actions": {
-                    "type": "array",
-                    "description": "one label or null per predicted state",
-                },
-                "path": {
-                    "type":
-                    "string",
-                    "description":
-                    "a JSON file in the sandbox with `states` and, "
-                    "optionally, `actions`",
-                },
-                "start": {
-                    "type": "string",
-                    "description": "observation (default), episode or initial"
-                },
-                "task_idx": {
-                    "type":
-                    "integer",
-                    "description":
-                    "a level reached so far; omit for the "
-                    "current level"
-                },
-            },
-        })
-    async def evaluate_trajectory(args: Dict[str, Any]) -> Dict[str, Any]:
-        ended = _ended()
-        if ended is not None:
-            return ended
-        try:
-            changes, labels = args.get("states"), args.get("actions")
-            path = args.get("path") or ""
-            if path:
-                if changes is not None or labels is not None:
-                    raise ValueError("Pass `path`, or `states` with optional "
-                                     "`actions`.")
-                if not ctx.sandbox_dir:
-                    raise ValueError("`path` requires a sandbox.")
-                resolved, err = _resolve_sandbox_file(path, ctx.sandbox_dir)
-                if err is not None:
-                    raise ValueError(err)
-                changes, labels = load_prediction_file(resolved)
-            task_idx = args.get("task_idx")
-            if task_idx is not None:
-                task_idx = int(task_idx)
-            start = args.get("start") or ("observation"
-                                          if task_idx is None else "initial")
-            if start not in PREDICTION_STARTS:
-                raise ValueError("`start` must be one of " +
-                                 ", ".join(PREDICTION_STARTS) + ".")
-            task = level_task(ctx.train_tasks, ctx.current_task, task_idx)
-            if (start != "initial" and ctx.current_task is not None
-                    and task is not ctx.current_task):
-                raise ValueError("Another level is scored from its initial "
-                                 "state: omit `start` or pass `initial`.")
-            states, recorded = _prediction_start(start)
-            verdict = score_prediction(
-                task,
-                states or [task.init],
-                recorded,
-                changes if changes is not None else [],
-                labels,
-                which="(current level)" if task_idx is None else task_idx)
-        except ValueError as e:
-            # The request was malformed: the message is about its input.
-            return _error_result(f"{e}" + _footer())
-        except Exception as e:  # pylint: disable=broad-except
-            return _protocol_error(e)
-        return _text_result(json.dumps(verdict) + _footer())
-
     all_tools = {
-        "evaluate_trajectory": evaluate_trajectory,
-        "claims_record": claims_record,
-        "claims_resolve": claims_resolve,
         "env_run_policy": env_run_policy,
         "env_observe": env_observe,
         "env_step": env_step,

@@ -143,75 +143,6 @@ class GlobalSettings:
     # request whose share is larger is refused, charging nothing. 0 lets
     # every rehearsed request through (the default).
     continual_rehearsal_game_over_gate = 0.0
-    # Whether the rehearsal gate on a test level also refuses, charging
-    # nothing, a request whose rehearsal has a draw that ends the episode
-    # in GAME_OVER at any later line of its plan. Unlike
-    # continual_rehearsal_game_over_gate this reads the whole plan: round
-    # fixes_r34's Fan seed 2 ran a plan with a loss in 1 draw of 16, and
-    # the real ball went off the edge. While the scene moves, a plan with
-    # fewer lost draws than a rehearsal of Wait lines alone passes.
-    continual_rehearsal_safe_plan = False
-    # Whether the rehearsal gate on a test level also refuses, charging
-    # nothing, a new plan while the belief sees a body moving: a rehearsal
-    # from rest has an exact start, and one from a moving body starts from
-    # a speed estimated from noisy frames. The lines of a plan already
-    # running pass, as does a plan with fewer lost draws than a rehearsal
-    # of Wait lines alone, and any plan once
-    # continual_rehearsal_still_wait steps have run since the first
-    # refusal, for a scene that never rests.
-    continual_rehearsal_still_start = False
-    continual_rehearsal_still_wait = 120
-    # Whether a joint rehearsal's report also scores its rollout from the
-    # belief mean, at the fit's point estimate (the values the planning
-    # model runs at), with the task's evaluator as it scores a draw, and
-    # says so when that rollout ends the episode in GAME_OVER, or solves
-    # it, and no scored draw does. A point estimate at the edge of the
-    # belief (a value at its bound, a fit cut short) can then predict a
-    # loss that every draw misses.
-    continual_rehearsal_mean_verdict = False
-    # Whether the rehearsal gate on a test level also refuses, once and
-    # charging nothing, a request whose rehearsal's report ended with notes
-    # that no run_python output showed in full, and shows them in the
-    # refusal, so the request sent again runs. Agents often print only a
-    # report's first line or the fields they parse (round 27's Fan seed 0
-    # and Domino seed 0 both lost on a step whose rehearsal warned, in a
-    # note their code never printed).
-    continual_rehearsal_notes_gate = False
-    # Whether a rehearsal-gated arm's prompt tells the agent to act, on a
-    # test level, on the plan whose rehearsal from the current observation
-    # has the highest P-hat, with cost (pieces, steps, reward terms) only
-    # breaking ties. Round 29's Domino seed 1 pushed at P-hat 0.81 over a
-    # plan near 0.93 with one more blue, to save a blue.
-    continual_rehearsal_win_first = False
-    # Whether a skill request on a training level that has been reset and
-    # not won waits as one on a test level does: for a loaded (and, where
-    # the arm asks, fitted) model and for a rehearsal on the joint belief
-    # from the current observation. Raw control waits for the model. The
-    # first attempt stays free, since a model needs a recording; no P-hat
-    # is asked for, so an experiment passes once rehearsed. Round 32's
-    # Bridge seed 2 reset nine times, spent its 20,000 steps on one level
-    # and never wrote a model. Needs continual_require_model_on_test and
-    # continual_rehearsal_gate.
-    continual_practise_after_reset = False
-    # Whether skill requests wait, at set points, for a record of the
-    # belief the next step leans on (predicators/agent_sdk/tools/
-    # claim_check.py): at each reset of a training level from
-    # continual_claim_check_resets on, once a training level when a
-    # rehearsal reaches continual_claim_check_win_p_hat, and once a test
-    # level when the agent acts below continual_claim_check_low_p_hat.
-    continual_claim_check = False
-    continual_claim_check_resets = 2
-    continual_claim_check_win_p_hat = 0.5
-    continual_claim_check_low_p_hat = 0.75
-    # Whether an episode that ends (win or game over) while bodies are
-    # still moving keeps recording until they come to rest, up to
-    # ``continual_record_until_rest_max_steps`` actions, with the robot
-    # holding its last command. The frames are not level steps and do not
-    # change the verdict; they join the recording the fit reads. Round
-    # 30's Domino seed 3 recording ended at the win with its turning
-    # domino mid-fall, so no fit could see where it landed.
-    continual_record_until_rest = False
-    continual_record_until_rest_max_steps = 120
     # Whether a joint rehearsal's report names the scored features its
     # rollout from the belief mean drives past the range the recordings
     # show, by more than twice their declared observation noise: no
@@ -219,14 +150,6 @@ class GlobalSettings:
     # draws' spread (a lift law used above any recorded height). Needs
     # continual_predictive_check, which installs the scored features.
     continual_rehearsal_support_note = False
-    # Whether a joint rehearsal's report names the scored bodies its rollout
-    # from the belief mean moves faster than any recording shows them moving
-    # under the same switch pattern. Round fixes_r33's Fan seed 3 braked its
-    # ball at about 0.14 m/s with one fan on, where the recordings with that
-    # fan alone stayed near 0.06 m/s, and every position stayed inside the
-    # recorded range until the ball left the deck. Needs
-    # continual_predictive_check, which installs the scored features.
-    continual_rehearsal_speed_note = False
     # Whether a fit report compares how far each scored body goes in the
     # segments the fit kept with the replays at the fitted values, and
     # names the features whose replays stop short of a recorded highest or
@@ -251,27 +174,6 @@ class GlobalSettings:
     # contradict what the recordings show (a ball drawn with a rolling
     # friction that would have stopped it in every recording).
     belief_material_lines = False
-    # Whether a from-assets model's engine materials that the model does
-    # not declare keep the scene's own values in every joint draw: the
-    # belief covers the declared parameters only, and the agent declares
-    # each material a plan can turn on. Takes precedence over
-    # belief_material_lines. Off, each undeclared material is drawn from
-    # its plausible range, and a draw far from the scene's value can
-    # change what the model does altogether (round fixes_r37's Fan seed 2
-    # drew a rolling friction of the ball that froze it in all 16 draws
-    # of a rehearsal, so the rehearsal could not see the ball run off the
-    # table).
-    belief_keep_undeclared_materials = False
-    # Under belief_keep_undeclared_materials, whether the harness screens
-    # the undeclared materials before a real step: it reruns the plan a
-    # rehearsal let through at each end of each one's plausible range,
-    # every other value at the fit, and a request whose outcome changes
-    # with one is refused once, at no charge, with a note that names the
-    # material and asks the agent to declare it. No draw varies an
-    # undeclared material, so without the screen a wrong scene value in a
-    # material the plan turns on gives a rehearsal that is confident and
-    # wrong. P-hat is not changed.
-    belief_undeclared_material_screen = False
     # Whether a from-assets scene model gives each body it built as one box
     # or sphere the size its object's observation gives (x_len, y_len and
     # z_len, half_x, half_y and half_z, or radius), rebuilding the body when
@@ -279,21 +181,6 @@ class GlobalSettings:
     # with, so a model built for one level's sizes cannot replay another
     # level's recordings, and the fit drops them.
     scene_observed_sizes = False
-    # Whether the harness loads the scene of a from-assets model: every
-    # body of each level's scene manifest, built as the deployment builds
-    # it, with the scene of the level a state belongs to swapped in when
-    # the state is set. The model then adds only what a manifest leaves
-    # out: masses, contact materials, the features no body pose carries
-    # and the mechanisms. Off, the model's own initialize_pybullet builds
-    # every body.
-    scene_manifest_loader = False
-    # Under scene_manifest_loader, whether an object with a static base
-    # stands, in every state, at the pose its level's own scene has it at
-    # (the level's clean initial state, the source of the manifest's sizes
-    # and of the poses of the bodies no observation names), unless a state
-    # shows it moved by more than the declared observation noise explains.
-    # Off, each state's own noisy reading places it.
-    scene_loader_static_poses = True
     # Whether a fit's parameter belief sets its temperature per recorded
     # segment: each segment's error above its declared noise counts as one
     # error that persists through that segment, and separate segments'
@@ -462,10 +349,6 @@ class GlobalSettings:
     # draw around it), and a draw's settle keeps the velocity the draw
     # records. Off keeps the legacy handling. EMPIRIC from assets only.
     continual_belief_velocities = False
-    # Stage each body's recorded velocity again after a state restore's
-    # domain hook, which can clear it by repositioning the body. Off
-    # keeps the velocity the hook leaves. EMPIRIC from assets only.
-    continual_restage_velocities = False
     # The frames a moving body's velocity line is fitted over (all of
     # them, else their latest half; observation_belief.with_motion). A
     # count of its own, so the longer continual_belief_window a resting
@@ -800,18 +683,6 @@ class GlobalSettings:
     # enforced at 10000 and pinned partners follow the held root
     # rigidly, so the grasp was the one compliant link of the carry.
     pybullet_grasp_max_force: Optional[float] = None
-    # PyBullet ends a substep's solver loop early once its residual
-    # estimate falls below this threshold; None keeps PyBullet's default
-    # of 1e-7. The estimate can read near zero while the solve is
-    # unfinished. When free bodies came inside the padded bounding boxes
-    # of a carried assembly, the gripper-to-object constraint, the finger
-    # contacts and the arm motors got almost no force for runs of
-    # substeps: a welded span carried down toward two free-standing legs
-    # turned 4 to 14 deg in the grasp with a 4 cm gap and no contact
-    # (Bridge four-span test level, 2026-11-11). Thresholds of 1e-9 and
-    # 1e-12 left the fault in place. 0 makes every substep run all of its
-    # iterations, at no measured cost in step time.
-    pybullet_solver_residual_threshold: Optional[float] = None
 
     # IKFast parameters
     ikfast_max_time = 0.05
@@ -1312,15 +1183,6 @@ class GlobalSettings:
     # A sysID learner must recover the true value either way. None (default)
     # = planning sim uses domino_true_friction (no mismatch).
     domino_planning_friction: Optional[float] = None
-    # Whether the real env's cascade verdict reads the engine's contacts:
-    # when, from the first push on, the only robot contact with a domino
-    # is a fingertip on the pushed green, the real cascade stands with no
-    # counterfactual replay, since a replay has no arm contact to remove.
-    # Any other contact leaves the verdict to the replay. A knife-edge
-    # link flips on the solver noise the replay's collision masks add:
-    # round 31's seed 4 was rejected as "owed to the robot's body" though
-    # only a fingertip touched the green. Rehearsals always replay.
-    domino_contact_verdict = False
     # Start->target distance (metres) sampled per min-block task, uniformly
     # from [lo, hi]. Choose a range that lands K* in {1, 2} at the true
     # friction (calibrate with the reach probe). Two scalars (not a tuple) so
@@ -1744,13 +1606,6 @@ class GlobalSettings:
     balloons_hatch_panel_half_width = 0.16
     balloons_hatch_half_depth = 0.16
     balloons_band_half = 0.025
-    # The least distance (m) that a test level's reference release, run
-    # with the real skills, rests the box inside each edge of the band.
-    # Without it a level is accepted whose only winning release rests the
-    # box a fraction of a millimetre inside (seed 1's composition test
-    # level rested it 0.2 mm above the floor), so a model a few
-    # millimetres low rejects the one winning release.
-    balloons_test_rest_margin = 0.005
     # The box is at rest below this speed (m/s).
     balloons_goal_dwell_steps = 25
     balloons_settle_speed = 0.01
@@ -2230,15 +2085,6 @@ class GlobalSettings:
     # this far from every block (0 = certify at the release step), so
     # the settle check never runs against a gripper still on the row.
     bridge_goal_robot_clearance = 0.0
-    # Physics substeps a candidate bridge settles for before the
-    # certificate judges its geometry (60 is three actions' worth,
-    # 0.25 s). A welded row released with one end pressed onto a leg
-    # rebounds for longer than that: a bridge whose goal held from
-    # 0.33 s to the end of its 10 s recording was judged at 0.25 s, in
-    # the rebound, and scored as lost (2026-11-11). 240 gives it one
-    # second. A finished bridge keeps creeping in idle play, so the
-    # settle is a fixed time and never a wait for rest.
-    bridge_goal_settle_substeps = 60
 
     # bridge policy parameters
     bridge_policy = "learned_ldl"  # default bridge policy
@@ -2968,16 +2814,6 @@ class GlobalSettings:
     # agent (agent_continual_model_free) the files are plain references:
     # no simulator, no model files, no gate; the agent only solves levels.
     continual_provide_scene_package = False
-
-    # The baseline arms with no supplied simulator receive each level's
-    # reward model, the public helper the EMPIRIC arms have: the direct
-    # agent (agent_continual_model_free) as the evaluate_trajectory tool,
-    # the standalone arm (agent_continual_program_world_model) as
-    # evaluate_trajectory in run_python. It returns only reward, solved
-    # and a note. No engine backs it, so a rule that replays physics (the
-    # domino push) is not checked, and the note says so. The other arms
-    # ignore the flag.
-    continual_provide_reward_model = False
 
     # Realistic sim gap (predicators/pybullet_helpers/world_gap.py): the
     # live world differs from its nominal description in hidden ways

@@ -84,137 +84,11 @@ RESIDUAL_ENV = MyScene
 A URDF may place a body's origin away from the observed pose reference; check that `sim.reset(current=True)` reconstructs the initial observation before relying on the scene.
 __LEVEL_SCENES__
 
-<!-- section: simulator_scene_loaded -->
-## `simulator.py`: a scene simulator subclass
-
-Export `RESIDUAL_ENV`, a subclass of the supplied `SceneBase`, from `./simulator.py`.
-`SceneBase` is pre-injected when the file loads; its source is at `reference/base_sim/scene_base.py`, read-only.
-It supplies the robot, its home pose and gripper conventions, the observation types, the render camera, the scene's bodies and their engine materials as parameters; it holds no mechanism and no calibration.
-The base loads the scene: every body the scene manifest lists, as the deployment builds it, with its shapes, mesh files, joints, joint limits, hard stops and contact margins, and each observed object's body under its observed name.
-Do not build bodies and do not override `initialize_pybullet`.
-A body no observation names stands at the pose the manifest lists; an observed body takes its pose from each state.
-An observed body with a static base (a platform, a wall, a fixed switch housing) stands at the pose the level's scene has it at, whatever noise one observation of it carries; only a state that shows it moved by more than that noise moves it.
-The manifest records no masses, frictions, restitution or damping, so the loaded bodies do not have the deployment's: a body loaded from a URDF file has the file's masses, a moving body built from shapes has the mass of its volume at 1000 kg/m^3, and every material is PyBullet's default.
-Your model adds what the manifest leaves out: the masses and materials, as declared parameters; the features that no body pose carries; and the mechanisms.
-Get a body's id from `self.body(name)` or from its object's `id` each time you use it; do not keep a copy, because the base loads another level's scene when a state of that level is set.
-Override `_on_scene_loaded(self)` to set up what your model keeps per body (a joint index, a joint motor setting, a constraint): the base calls it after every load.
-Observed poses set body poses through the base; features no pose carries (a switch reading, a level, a flag) round-trip through the base's feature store unless you override `_set_domain_specific_state` and `_get_domain_specific_feature` to back them with joints or your own state, calling `super()` for the rest.
-Implement the mechanisms in `_domain_specific_step(self)`; ordinary Python functions and methods can keep simple mechanisms small.
-
-Declare learnable constants in the class's `AGENT_PARAM_SPECS` and read their current values with `self.agent_param(name)`.
-The base offers the engine materials of the bodies as parameters: for every observed type whose objects have bodies, `<type>_mass` (total mass, with inertia scaled to it), `<type>_lateral_friction`, `<type>_spinning_friction` (resistance to twisting about a contact), `<type>_rolling_friction`, `<type>_restitution`, `<type>_linear_damping` and `<type>_angular_damping`; and `support_lateral_friction`, `support_spinning_friction`, `support_rolling_friction` and `support_restitution` for the static bodies no observation names (a type whose bodies are all static has the four contact properties only).
-Declare any of these names in `AGENT_PARAM_SPECS` to make it a parameter of your model: the base sets it on every body of its group after each reset and whenever its value changes, so do not also set it in your own code.
-__UNDECLARED_MATERIALS__
-Declare `RESIDUAL_FEATURES` on the class or module as `{type_name: [feature_name, ...]}` to select the observed quantities the fit scores your scene on: the poses that forces and contacts move and the readings your mechanisms change.
-The deployment gate requires it; an empty one scores every feature of the scene's objects that the recorded data shows changing.
-Export only `RESIDUAL_ENV` as the dynamics implementation.
-
-```python
-# SceneBase, np and ParamSpec are supplied by the loader.
-import pybullet as p
-
-class MyScene(SceneBase):
-    AGENT_PARAM_SPECS = [ParamSpec("rate", 0.03, lo=0.0, hi=0.1),
-                         ParamSpec("widget_mass", 0.2, lo=0.05, hi=0.8)]
-    RESIDUAL_FEATURES = {"widget": ["progress"]}
-
-    def _domain_specific_step(self):
-        update_widgets(self, self.agent_param("rate"))
-
-RESIDUAL_ENV = MyScene
-```
-
-`widget` and `update_widgets` above illustrate the structure; use this environment's manifest, types and features.
-A body's origin can be away from the observed pose reference, and a joint reading needs your mapping; check that `sim.reset(current=True)` reconstructs the initial observation before relying on the scene.
-__LEVEL_SCENES__
-
-<!-- section: simulator_scene_only -->
-## `simulator.py`: a scene subclass
-
-Export `RESIDUAL_ENV`, a subclass of the supplied `SceneBase`, from `./simulator.py`.
-`SceneBase` is pre-injected when the file loads; its source is at `reference/base_sim/scene_base.py`, read-only.
-It supplies the robot, its home pose and gripper conventions, the observation types, the render camera and the binding of observed object names to the bodies you load; it holds no scene, no mechanism and no calibration.
-Override the classmethod `initialize_pybullet(cls, using_gui)`: call `super()` (it connects the engine and loads the ground plane and the robot), load every body the manifest lists with `p.loadURDF(cls.asset(path), globalScaling=scale, useFixedBase=..., physicsClientId=client)` or `p.createMultiBody` for primitive shapes, and return the bodies dict with each observed object's body id under its observed name (`None` under the name of an observed object that has no body).
-A body the manifest marks `visual_only` has no collision shape: nothing touches it, but it is part of the scene a camera sees, such as a ceiling or a target band, and its visual shapes give its place and size.
-Observed poses set body poses through the base; features no pose carries (a switch reading, a level, a flag) round-trip through the base's feature store unless you override `_set_domain_specific_state` and `_get_domain_specific_feature` to back them with joints or your own state, calling `super()` for the rest.
-Materials keep the value your scene gives them, or PyBullet's default: lateral friction 0.5, spinning and rolling friction 0, restitution 0 and damping 0.04.
-Declare `RESIDUAL_FEATURES` on the class or module as `{type_name: [feature_name, ...]}`, naming the observed quantities the scene reproduces; the deployment gate requires it, and it may be empty.
-Export only `RESIDUAL_ENV`.
-
-```python
-# SceneBase and np are supplied by the loader.
-import pybullet as p
-
-class MyScene(SceneBase):
-    RESIDUAL_FEATURES = {"widget": ["x", "y", "z"]}
-
-    @classmethod
-    def initialize_pybullet(cls, using_gui):
-        client, robot, bodies = super().initialize_pybullet(using_gui)
-        bodies["widget0"] = p.loadURDF(cls.asset("urdf/widget.urdf"),
-                                       globalScaling=0.2,
-                                       physicsClientId=client)
-        return client, robot, bodies
-
-RESIDUAL_ENV = MyScene
-```
-
-`widget` above illustrates the structure; use this environment's manifest, types and features.
-A URDF may place a body's origin away from the observed pose reference; check that `sim.reset(current=True)` reconstructs the initial observation before relying on the scene.
-__LEVEL_SCENES__
-
-<!-- section: simulator_scene_only_loaded -->
-## `simulator.py`: a scene subclass
-
-Export `RESIDUAL_ENV`, a subclass of the supplied `SceneBase`, from `./simulator.py`.
-`SceneBase` is pre-injected when the file loads; its source is at `reference/base_sim/scene_base.py`, read-only.
-It supplies the robot, its home pose and gripper conventions, the observation types, the render camera and the scene's bodies; it holds no mechanism and no calibration.
-The base loads the scene: every body the scene manifest lists, as the deployment builds it, with its shapes, mesh files, joints, joint limits, hard stops and contact margins, and each observed object's body under its observed name.
-Do not build bodies and do not override `initialize_pybullet`.
-A body no observation names stands at the pose the manifest lists; an observed body takes its pose from each state.
-An observed body with a static base (a platform, a wall, a fixed switch housing) stands at the pose the level's scene has it at, whatever noise one observation of it carries; only a state that shows it moved by more than that noise moves it.
-The manifest records no masses, frictions, restitution or damping, so the loaded bodies do not have the deployment's: a body loaded from a URDF file has the file's masses, a moving body built from shapes has the mass of its volume at 1000 kg/m^3, and every material is PyBullet's default (lateral friction 0.5, spinning and rolling friction 0, restitution 0 and damping 0.04).
-Your model declares no parameters and adds no mechanisms; it may set a body's physical values once, in `_on_scene_loaded` with `p.changeDynamics`.
-Get a body's id from `self.body(name)` or from its object's `id` each time you use it; do not keep a copy, because the base loads another level's scene when a state of that level is set.
-Override `_on_scene_loaded(self)` to set up what your model keeps per body (a joint index, a joint motor setting): the base calls it after every load.
-Observed poses set body poses through the base; features no pose carries (a switch reading, a level, a flag) round-trip through the base's feature store unless you override `_set_domain_specific_state` and `_get_domain_specific_feature` to back them with joints or your own state, calling `super()` for the rest.
-Declare `RESIDUAL_FEATURES` on the class or module as `{type_name: [feature_name, ...]}`, naming the observed quantities the scene reproduces; the deployment gate requires it, and it may be empty.
-Export only `RESIDUAL_ENV`.
-
-```python
-# SceneBase and np are supplied by the loader.
-import pybullet as p
-
-class MyScene(SceneBase):
-    RESIDUAL_FEATURES = {"widget": ["x", "y", "z"]}
-
-RESIDUAL_ENV = MyScene
-```
-
-`widget` above illustrates the structure; use this environment's manifest, types and features.
-A body's origin can be away from the observed pose reference, and a joint reading needs your mapping; check that `sim.reset(current=True)` reconstructs the initial observation before relying on the scene.
-__LEVEL_SCENES__
-
-<!-- section: level_scenes_loaded -->
-The fit replays the recordings of every level with your current model, each in the scene of its own level: `reference/scene/levels/` holds the manifest of every level played so far, and the base loads the scene a state belongs to.
-So write mechanisms that hold for every level's objects, counts and sizes: read positions and sizes from the state or the bodies, not from the numbers of one level.
-
-<!-- section: level_scenes_loaded_no_fit -->
-`reference/scene/levels/` holds the manifest of every level played so far, and the base loads the scene a state belongs to.
-So read positions and sizes from the state or the bodies, not from the numbers of one level.
-
 <!-- section: level_scenes_fixed -->
 When a level's scene changes, edit `initialize_pybullet` to load the new bodies; the harness rebuilds your world when the file changes.
 
 <!-- section: level_scenes_sized -->
 The fit replays the recordings of every level with your current model, so build a scene that fits every level the observation can show, not the numbers of one level.
-The base gives a body built as one box or one sphere on a base without links (`p.createCollisionShape` with `p.GEOM_BOX` or `p.GEOM_SPHERE`, then `p.createMultiBody`) the size that its object's observation gives (`x_len`, `y_len` and `z_len`, or `half_x`, `half_y` and `half_z`, or `radius`).
-When a state sets another size, the base rebuilds the body at that size, with the same shape frame, pose, mass, materials and look.
-So get a body's id from `self.body(name)` or from its object's `id` when you use it; do not keep a copy from the build.
-A body of another kind keeps the size you build it with, and a rehearsal names the size features that it cannot take.
-When a level adds objects that your scene does not load, edit `initialize_pybullet` to load them too; the harness rebuilds your world when the file changes.
-
-<!-- section: level_scenes_sized_no_fit -->
 The base gives a body built as one box or one sphere on a base without links (`p.createCollisionShape` with `p.GEOM_BOX` or `p.GEOM_SPHERE`, then `p.createMultiBody`) the size that its object's observation gives (`x_len`, `y_len` and `z_len`, or `half_x`, `half_y` and `half_z`, or `radius`).
 When a state sets another size, the base rebuilds the body at that size, with the same shape frame, pose, mass, materials and look.
 So get a body's id from `self.body(name)` or from its object's `id` when you use it; do not keep a copy from the build.
@@ -239,19 +113,6 @@ A material that the recordings do not test keeps its whole plausible range in th
 Declare a material to fit it together with the other parameters.
 A declared material's range covers at least its plausible range: a narrower declared range is widened to it, and the model status lists each one widened.
 The recordings narrow the range only where they test the material, so put your best value in `init_value`.
-
-<!-- section: undeclared_materials_declared_only -->
-Undeclared, a material keeps the value your scene gives it, or PyBullet's default (lateral friction 0.5, spinning and rolling friction 0, restitution 0 and damping 0.04), in the fit and in every joint draw of `sim.run`.
-No draw varies it, so a rehearsal says nothing about a material you did not declare, and neither does `physics_sweep`.
-Declare each material that a plan's outcome can turn on: the fit then measures it, and the draws carry what the recordings leave open.
-The plausible ranges are __PLAUSIBLE_RANGES__.
-A declared material's range covers at least its plausible range: a narrower declared range is widened to it, and the model status lists each one widened.
-The recordings narrow the range only where they test the material, so put your best value in `init_value`.
-
-<!-- section: undeclared_materials_screen -->
-Before a real step runs, the harness tests the plan of its rehearsal against each undeclared material: it runs the plan again at each end of the material's plausible range, with every other value at the fit.
-If the plan's outcome changes with a material, the request is refused once, at no charge, with a note that names the material.
-Declare each material the note names before you act on that plan.
 
 <!-- section: dynamics -->
 ## Step and restoration behavior

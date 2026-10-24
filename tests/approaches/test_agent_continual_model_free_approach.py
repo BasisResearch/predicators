@@ -2,10 +2,9 @@
 continual protocol, driven by a scripted agent over the real play tools on
 pybullet_boil (the agent approaches need a PyBullet env to construct)."""
 import asyncio
-import json
 import os
 import pickle
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
 import pytest
 
@@ -124,9 +123,6 @@ def test_model_free_arm_has_no_model_surface(tmp_path: Any) -> None:
     assert "No simulator is supplied" in prompt and "`give_up`" in prompt
     assert "model memory" not in prompt and "candidate models" not in prompt
     assert "`handoff`" not in prompt and "### Conversation rounds" in prompt
-    # The reward model is the rebuttal arms' flag: off, nothing of it shows.
-    assert "evaluate_trajectory" not in prompt
-    assert "## Interpreting task verdicts" not in prompt
     # The play loop is a mixin in front of each arm's phased base, not
     # an approach of its own, so the registry never sees it.
     assert not issubclass(ContinualPlayMixin, BaseApproach)
@@ -208,124 +204,6 @@ def test_play_loop_with_a_scripted_model_free_agent(tmp_path: Any) -> None:
         if f.endswith(".AgentContinualModelFree")
     ]
     assert saved, "the approach checkpointed under its own suffix"
-
-
-def test_reward_model_tool_of_the_direct_agent(tmp_path: Any) -> None:
-    """Under ``continual_provide_reward_model`` the arm has the
-    ``evaluate_trajectory`` tool and its prompt section, and nothing else new.
-
-    The tool scores the feature values the agent predicts from a start
-    state, returns only the public triple, and charges nothing.
-    """
-    # pylint: disable=protected-access
-    _config(tmp_path, continual_provide_reward_model=True)
-    env, approach = _make_approach()
-    tools = MODEL_FREE_TOOLS + ["evaluate_trajectory"]
-    assert approach._get_solve_tool_names() == tools
-    assert approach._option_model is None
-    prompt = approach._get_agent_system_prompt()
-    assert "## Interpreting task verdicts" in prompt
-    assert "- `evaluate_trajectory`: a level's reward model" in prompt
-    assert "returns only `reward`, `solved`, and `note`" in prompt
-    assert "that rule is not checked" in prompt
-    assert "No simulator is supplied" in prompt
-    for absent in ("`run_python`", "`sim`", "is_goal_state", "physics_sweep",
-                   "sim.run", "simulator.py"):
-        assert absent not in prompt, absent
-    scored: List[Dict[str, Any]] = []
-
-    def fake_query(message: str, **kwargs: Any) -> List[Dict[str, Any]]:
-        del message, kwargs
-        ctx = approach._tool_context
-        assert [t.name for t in ctx.extra_mcp_tools] == tools
-
-        def verdict(**args: Any) -> Dict[str, Any]:
-            text = _call(approach, "evaluate_trajectory", **args)
-            assert not text.startswith("ERROR"), text
-            # The ledger follows the verdict, as on every tool result.
-            body, footer = text.split("\n\n", 1)
-            assert "steps" in footer
-            out = json.loads(body)
-            assert set(out) == {"reward", "solved", "note"}
-            scored.append(out)
-            return out
-
-        # The goal of the simple Boil level, as feature values: a full,
-        # boiled jug, the burner off and nothing spilled.
-        boiled: Dict[str, Dict[str, float]] = {}
-        for obj in ctx.current_task.init:
-            feats = obj.type.feature_names
-            if obj.type.name == "jug":
-                boiled[obj.name] = {
-                    "water_volume": float(env.max_jug_water_capacity),
-                    "heat_level": 1.0
-                }
-                if "bubbling_level" in feats:
-                    boiled[obj.name]["bubbling_level"] = 1.0
-            elif obj.type.name == "burner":
-                boiled[obj.name] = {"is_on": 0.0}
-            elif obj.type.name == "faucet":
-                boiled[obj.name] = {"is_on": 0.0, "spilled_level": 0.0}
-        unsolved = {"reward": 0.0, "solved": False, "note": ""}
-        solved = {"reward": 1.0, "solved": True, "note": ""}
-        # The observation alone, then a predicted goal state after it.
-        assert verdict() == unsolved
-        assert verdict(states=[{}]) == unsolved
-        assert verdict(states=[boiled]) == solved
-        assert verdict(states=[{}, boiled],
-                       actions=[None, ["Wait", ["robot"], [1]]]) == solved
-        assert verdict(states=[boiled], start="initial") == solved
-        assert verdict(states=[boiled], task_idx=0) == solved
-        # After a real step the episode's recording can lead the sequence.
-        zero = [0.0] * env.action_space.shape[0]
-        assert "step applied" in _call(approach, "env_step", action=zero)
-        assert verdict(start="episode") == unsolved
-        assert verdict(states=[boiled], start="episode") == solved
-        # A JSON file the agent's own script wrote in the sandbox.
-        with open(os.path.join(ctx.sandbox_dir, "prediction.json"),
-                  "w",
-                  encoding="utf-8") as f:
-            json.dump({"states": [boiled]}, f)
-        assert verdict(path="prediction.json") == solved
-        refusals: List[Tuple[Dict[str, Any], str]] = [
-            ({
-                "states": [{
-                    "kettle": {
-                        "heat_level": 1.0
-                    }
-                }]
-            }, "Unknown object 'kettle'"),
-            ({
-                "states": [boiled],
-                "actions": []
-            }, "one label per predicted state"),
-            ({
-                "states": [boiled],
-                "path": "prediction.json"
-            }, "Pass `path`, or `states`"),
-            ({
-                "path": "../prediction.json"
-            }, "must stay inside the sandbox"),
-            ({
-                "start": "goal"
-            }, "`start` must be one of"),
-            ({
-                "task_idx": 3
-            }, "out of range"),
-        ]
-        for args, why in refusals:
-            refused = _call(approach, "evaluate_trajectory", **args)
-            assert refused.startswith("ERROR") and why in refused, refused
-        assert "Give-up recorded" in _call(approach, "give_up", note="scored")
-        return _result()
-
-    approach._query_agent_sync = fake_query  # type: ignore[method-assign]
-    approach.prepare_for_continual(Dataset([]))
-    card = ContinualRun(env, approach, create_level_player(env,
-                                                           approach)).run()
-    assert card.end_note == "scored" and len(scored) == 9
-    # Scoring is free: the one real step is all the level was charged.
-    assert card.levels[0].steps == 1 and not card.levels[0].won
 
 
 def test_both_arms_start_with_no_predicates(tmp_path: Any) -> None:

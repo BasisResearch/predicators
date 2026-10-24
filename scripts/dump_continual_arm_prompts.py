@@ -119,9 +119,6 @@ def dump_arm(cfg: RunConfig, seed: int, work_dir: str, out_dir: str) -> str:
     agent._query_agent_sync = query  # pylint: disable=protected-access
     agent.prepare_for_continual(Dataset([]))
     ContinualRun(env, agent, create_level_player(env, agent)).run()
-    # The run is over, so no level's recording can keep the manifest the
-    # reference files below rebuild.
-    agent._play_session = None  # pylint: disable=protected-access
 
     # pylint: disable=protected-access
     system_prompt = agent._get_agent_system_prompt(

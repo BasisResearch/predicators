@@ -132,28 +132,6 @@ No model yet: `sim` has no world until `./simulator.py` loads.
 Build the scene in `./simulator.py` from `reference/scene/scene_manifest.json` and `reference/assets/` (and `./predicates.py` if useful) in `run_python`, check that `sim.reset(current=True)` reconstructs the observation, and call `sim.fit()` before you act on a test level.
 Recorded episodes so far: __N_EPISODES__ (__N_STEPS__ steps).
 
-<!-- section: no_model_assets_loaded -->
-No model yet: `sim` has no world until `./simulator.py` loads.
-Write `./simulator.py` (and `./predicates.py` if useful) in `run_python`: the base loads the scene's bodies from `reference/scene/scene_manifest.json` and `reference/assets/`, and your model adds the masses, materials, readings and mechanisms.
-Check that `sim.reset(current=True)` reconstructs the observation, and call `sim.fit()` before you act on a test level.
-Recorded episodes so far: __N_EPISODES__ (__N_STEPS__ steps).
-
-<!-- section: no_model_no_learning -->
-No model yet: `sim` has no world until `./simulator.py` loads.
-Build the scene in `./simulator.py` from `reference/scene/scene_manifest.json` and `reference/assets/` (and `./predicates.py` if useful) in `run_python`, and check that `sim.reset(current=True)` reconstructs the observation; add no mechanisms or parameters.
-Recorded episodes so far: __N_EPISODES__ (__N_STEPS__ steps).
-
-<!-- section: no_model_no_learning_loaded -->
-No model yet: `sim` has no world until `./simulator.py` loads.
-Write `./simulator.py` (and `./predicates.py` if useful) in `run_python`: the base loads the scene's bodies from `reference/scene/scene_manifest.json` and `reference/assets/`, and your model adds only the readings that no body pose carries.
-Check that `sim.reset(current=True)` reconstructs the observation; add no mechanisms or parameters.
-Recorded episodes so far: __N_EPISODES__ (__N_STEPS__ steps).
-
-<!-- section: no_model_agent_belief -->
-No model yet: `sim` has no world until `./simulator.py` loads.
-Build the scene in `./simulator.py` from `reference/scene/scene_manifest.json` and `reference/assets/` (and `./predicates.py` if useful) in `run_python`, check that `sim.reset(current=True)` reconstructs the observation, and set its declared values and `PARAM_DRAWS` from the recordings before you act on a test level; the harness fits nothing.
-Recorded episodes so far: __N_EPISODES__ (__N_STEPS__ steps).
-
 <!-- section: no_model_zero_shot -->
 No model yet: `sim` runs the real skill controllers on the visible base physics with hidden mechanisms disabled, so reach, grasp and collision checks already work.
 Write `./simulator.py` (and `./predicates.py` if useful) in `run_python` before your first real action or reset; the dynamics are sealed at that point and no call fits them.
