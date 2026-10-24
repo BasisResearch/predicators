@@ -80,6 +80,19 @@ Set and revise those declarations yourself from recorded experience.
 You may estimate values in your own sandbox code by any method, from qualitative checks against recordings and model rollouts to fits you write against `trajectories`; the result only takes effect once you write it into the declaration.
 Plans are rehearsed at the declared values; there are no belief draws or parameter sweeps.
 
+<!-- section: agent_belief_draws -->
+### Your parameter belief: `PARAM_DRAWS`
+
+The harness estimates nothing in this run: `sim.fit`, fitted residuals and automatic parameter sweeps are disabled, and the deployed model runs each declaration's `init_value`, your point estimate.
+Your uncertainty is the list `PARAM_DRAWS` that `simulator.py` exports, one dict per draw from parameter name to value, for example `PARAM_DRAWS = [{"mass": 0.25, "lift": 1.4}, {"mass": 0.22, "lift": 1.5}]`.
+It may also be a function with no arguments that returns such a list; the module-level name `trajectories` holds the recordings when the file loads.
+Each key names a declared parameter and each value lies inside its declared `[lo, hi]`; a parameter a draw leaves out takes its `init_value`; at most 1000 draws.
+Each rehearsal runs __NUM_DRAWS__ joint draws, each one of your draws paired with a draw of the state belief and the memory it implies: fewer draws repeat in turn, and of more, a fixed random __NUM_DRAWS__ are used; `sim.refine` scores its proposals again on fresh draws from your whole list.
+Estimate the values and the draws from recorded experience by any method: fits you write against `trajectories` or with `sim.validate(params=...)`, closed-form relations between measured quantities, or judgment you can defend.
+Make the draws as wide as the recordings leave each parameter, and keep together values that only work together.
+A refused `PARAM_DRAWS` (the model status says why), or none, leaves every rehearsal draw at your declared values.
+Values and draws take effect when the file reloads.
+
 <!-- section: intro_supplied -->
 ## Predicate API reference
 
