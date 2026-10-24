@@ -2479,15 +2479,26 @@ class AgentSimLearningApproach(AgentBaseApproach):
             logger.warning("No simulator file at %s.", path)
             return None, None, None, None
 
+        # The file runs as a module would, with its __file__ and from its
+        # own folder. The agent's run_python loads it from the sandbox,
+        # where relative paths such as reference/scene/ resolve; the
+        # harness also loads it after a session, at the test-level gate
+        # and in its checks, and must see the same files there.
+        path = os.path.abspath(path)
         ns: Dict[str, Any] = dict(self._simulator_load_namespace())
         ns["trajectories"] = trajectories or []
+        ns["__file__"] = path
         with open(path, "r", encoding="utf-8") as f:
             code = f.read()
+        prev_cwd = os.getcwd()
         try:
-            exec(code, ns)  # pylint: disable=exec-used
+            os.chdir(os.path.dirname(path))
+            exec(compile(code, path, "exec"), ns)  # pylint: disable=exec-used
         except Exception:  # pylint: disable=broad-except
             logger.warning("Failed to exec %s.", path, exc_info=True)
             return None, None, None, None
+        finally:
+            os.chdir(prev_cwd)
 
         rules, specs, features = read_simulator_components(ns)
         residual_env_cls = read_residual_env(ns)
