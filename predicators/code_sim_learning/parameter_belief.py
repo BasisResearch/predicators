@@ -42,7 +42,8 @@ import numpy as np
 import numpy.typing as npt
 
 from predicators.code_sim_learning.fit_space import ParamSpec, \
-    fit_space_bounds, scalar_from_fit_space, scalar_to_fit_space
+    fit_space_bounds, param_bounds, scalar_from_fit_space, \
+    scalar_to_fit_space
 
 logger = logging.getLogger(__name__)
 
@@ -1030,6 +1031,95 @@ def prior_belief(
             grid, 0.5 * ((grid - center) / sigma)**2)
     return _with_draws(specs, centers, lines, held, 1.0, 0, config, seed,
                        discrete)
+
+
+# The most parameter draws a model file may supply (agent_param_draws).
+MAX_AGENT_DRAWS = 1000
+
+
+def agent_param_draws(
+        value: Any,
+        specs: Sequence[ParamSpec]) -> Tuple[List[Dict[str, float]], str]:
+    """The parameter draws a model file exports as ``PARAM_DRAWS``, each
+    completed with the declared ``init_value`` of every parameter it leaves
+    out, and why they were refused ("" when accepted, and no draws then).
+
+    ``value`` is a list of dicts, or a zero-argument callable returning
+    one. Every key must name a declared parameter and every value must
+    lie inside that parameter's declared range.
+    """
+    if callable(value):
+        try:
+            value = value()
+        except Exception as e:  # pylint: disable=broad-except
+            return [], f"PARAM_DRAWS() raised {type(e).__name__}: {e}"
+    if not isinstance(value, (list, tuple)) or not value:
+        return [], "PARAM_DRAWS must be a non-empty list of dicts"
+    if len(value) > MAX_AGENT_DRAWS:
+        return [], (f"PARAM_DRAWS holds {len(value)} draws; the most it "
+                    f"may hold is {MAX_AGENT_DRAWS}")
+    by_name = {spec.name: spec for spec in specs}
+    rows: List[Dict[str, float]] = []
+    for i, draw in enumerate(value):
+        if not isinstance(draw, dict):
+            return [], f"PARAM_DRAWS[{i}] is not a dict"
+        unknown = sorted(str(name) for name in draw if name not in by_name)
+        if unknown:
+            return [], (f"PARAM_DRAWS[{i}] names undeclared parameters "
+                        f"{unknown}")
+        row = {spec.name: float(spec.init_value) for spec in specs}
+        for name, raw in draw.items():
+            try:
+                number = float(raw)
+            except (TypeError, ValueError):
+                return [], f"PARAM_DRAWS[{i}][{name!r}] is not a number"
+            lo, hi = param_bounds([by_name[name]])
+            if not np.isfinite(number) or not lo[0] <= number <= hi[0]:
+                return [], (f"PARAM_DRAWS[{i}][{name!r}] = {number:.6g} lies "
+                            f"outside its declared range [{lo[0]:.6g}, "
+                            f"{hi[0]:.6g}]")
+            row[name] = number
+        rows.append(row)
+    return rows, ""
+
+
+def agent_draws_belief(specs: Sequence[ParamSpec], rows: Sequence[Dict[str,
+                                                                       float]],
+                       num_draws: int, seed: int) -> ParameterBelief:
+    """``q(theta)`` as the agent supplies it: an equal mixture of point masses,
+    one at each of ``rows`` (see :func:`agent_param_draws`).
+
+    The point estimate is each parameter's declared ``init_value``. The
+    stored joint draws are the rows, or ``num_draws`` of them picked at
+    random without replacement when there are more, so a decision point
+    builds no more memory trackers than the rehearsal uses; fresh draws
+    resample every row. With no lines to temper, the predictive check
+    leaves the draws as the agent wrote them.
+    """
+    names = [spec.name for spec in specs]
+    scales = [spec.scale for spec in specs]
+    components = [
+        ParameterBelief(
+            names=list(names),
+            scales=list(scales),
+            map_estimate={name: float(row[name])
+                          for name in names},
+            lines={},
+            noise_scale=1.0,
+            draws=np.array([[float(row[name]) for name in names]],
+                           dtype=float).reshape(1, len(names)),
+            held=list(names)) for row in rows
+    ]
+    belief = mix_beliefs(components, [1.0] * len(components))
+    draws = np.asarray(belief.draws, dtype=float)
+    if 0 < num_draws < draws.shape[0]:
+        rng = np.random.default_rng(seed)
+        draws = draws[rng.permutation(draws.shape[0])[:num_draws]]
+    return replace(
+        belief,
+        map_estimate={spec.name: float(spec.init_value)
+                      for spec in specs},
+        draws=draws)
 
 
 def _with_draws(
