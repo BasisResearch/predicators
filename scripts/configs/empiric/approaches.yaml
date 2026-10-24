@@ -28,17 +28,6 @@ APPROACHES:
       # Its model is the agent's own, so a test-level step waits for a
       # rehearsal of the plan on the joint belief from the observation.
       continual_rehearsal_gate: true
-      # That step also waits until the agent has been shown its rehearsal's
-      # notes: agents often print only a report's first line or the fields
-      # they parse, and both round 27 losses had a warning left unprinted.
-      continual_rehearsal_notes_gate: true
-      # A rehearsal scores its rollout at the fit's point estimate, where
-      # the planning model runs, as it scores a draw, and says when that
-      # rollout loses, or solves, where no draw does.
-      continual_rehearsal_mean_verdict: true
-      # On a test level it acts on the rehearsed plan with the highest
-      # P-hat; cost only breaks ties.
-      continual_rehearsal_win_first: true
       # A request whose outcome lies outside its rehearsal's draws widens
       # the fitted program's belief.
       continual_predictive_check: true
@@ -81,47 +70,6 @@ APPROACHES:
       # The belief's temperature is set per recorded segment, so more
       # recordings narrow it.
       belief_segment_temperature: true
-      # An episode that ends while bodies still move keeps recording until
-      # they rest, so the fit sees where a falling body lands.
-      continual_record_until_rest: true
-      # A push whose engine contacts show only fingertips on the green
-      # stands without the counterfactual replay, which only re-rolls a
-      # knife-edge link when there is no arm contact to remove.
-      domino_contact_verdict: true
-      # After a reset of a training level it has not won, a skill request
-      # waits for the model and a rehearsal, as on a test level.
-      continual_practise_after_reset: true
-      # At set points a skill request waits for a record of the belief the
-      # step leans on, its direct tests, a rival and a separating experiment.
-      continual_claim_check: true
-  # EMPIRIC from assets with the agent's own parameter belief: the agent
-  # builds its scene as in EMPIRIC from assets, the harness fits nothing,
-  # and the agent estimates its parameters by any method and supplies their
-  # uncertainty as parameter draws (PARAM_DRAWS) that rehearsals, execution
-  # monitoring and the predictive check run on. Parked like EMPIRIC from
-  # assets.
-  from_assets_agent_belief_opus:
-    NAME: agent_continual_from_assets_agent_belief
-    SKIP: true
-    FLAGS:
-      agent_sdk_model_name: claude-opus-5
-      continual_require_model_on_test: true
-      # No harness estimation: sim.fit refuses, and each declaration's
-      # init_value is the point estimate the deployed model runs.
-      agent_sim_learn_declared_params_only: true
-      # The rest is EMPIRIC from assets' menu, less the switches that act
-      # on a fit (its reach check, bound note, material lines and segment
-      # temperatures).
-      continual_rehearsal_gate: true
-      continual_predictive_check: true
-      continual_belief_velocities: true
-      continual_raw_step_limit: true
-      continual_rehearsal_game_over: true
-      continual_rehearsal_support_note: true
-      continual_refuse_training_give_up: true
-      scene_observed_sizes: true
-      continual_belief_window: 64
-      continual_pooled_level_init: true
   # Model-free: the same agent with the model-side machinery switched
   # off, so the two differ only in the model.
   mf_opus:

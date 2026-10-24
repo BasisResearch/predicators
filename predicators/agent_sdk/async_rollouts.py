@@ -35,7 +35,7 @@ import time
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from predicators.agent_sdk.parallel_rollouts import _child_main, \
-    _merge_child_records, parallel_rollouts_available
+    parallel_rollouts_available
 
 
 class CompletedRollout:
@@ -262,8 +262,7 @@ class AsyncRolloutRegistry:
                 self._fail_overdue()
                 time.sleep(0.05)
                 continue
-            index, ok, payload, records = self._queue.get()
-            _merge_child_records(records)
+            index, ok, payload = self._queue.get()
             with self._lock:
                 # A result can arrive for a child the pump already
                 # marked timed out (put raced the terminate): keep the
