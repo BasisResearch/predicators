@@ -1,11 +1,7 @@
 """Regression checks for the four-span Bridge repairs: the lift-first transit,
-the recorded post-certificate scene, the robot-clearance gate on the
-certificate, the solver's residual threshold and the certificate's settle
-time."""
+the recorded post-certificate scene and the robot-clearance gate on the
+certificate."""
 # pylint: disable=protected-access
-import json
-import logging
-
 import numpy as np
 import pybullet as p
 
@@ -16,7 +12,6 @@ from predicators.ground_truth_models import get_gt_options
 from predicators.ground_truth_models.bridge.processes import \
     _PALM_LEG_OVERLAP, _stage_spot_sampler
 from predicators.run.episode import EpisodeRunner, EpisodeState
-from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask
 
 
@@ -175,135 +170,3 @@ def test_certificate_handles_the_pooled_fourth_span():
         assert ok, reason
     finally:
         env.dispose()
-
-
-def test_solver_residual_threshold_reaches_the_engine(monkeypatch):
-    """``pybullet_solver_residual_threshold`` is set on the world the env
-    creates, after that world's reset; None leaves the engine alone.
-
-    At PyBullet's default the solver ended substeps early with the grasp
-    unsolved, and a welded row carried down toward two free-standing
-    legs turned in the gripper with no contact (four-span test level,
-    2026-11-11).
-    """
-    calls = []
-    real_set, real_reset = p.setPhysicsEngineParameter, p.resetSimulation
-
-    def spy_set(*args, **kwargs):
-        calls.append(("set", dict(kwargs)))
-        return real_set(*args, **kwargs)
-
-    def spy_reset(*args, **kwargs):
-        calls.append(("reset", dict(kwargs)))
-        return real_reset(*args, **kwargs)
-
-    monkeypatch.setattr(p, "setPhysicsEngineParameter", spy_set)
-    monkeypatch.setattr(p, "resetSimulation", spy_reset)
-    try:
-        for value in (None, 0.0):
-            calls.clear()
-            utils.reset_config({
-                "env": "pybullet_bridge",
-                "num_train_tasks": 1,
-                "num_test_tasks": 0,
-                "pybullet_solver_residual_threshold": value,
-            })
-            env = PyBulletBridgeEnv(use_gui=False)
-            try:
-                client = env._physics_client_id
-                mine = [(kind, kw) for kind, kw in calls
-                        if kw.get("physicsClientId") == client]
-                sets = [
-                    i for i, (kind, kw) in enumerate(mine)
-                    if kind == "set" and "solverResidualThreshold" in kw
-                ]
-                resets = [
-                    i for i, (kind, _) in enumerate(mine) if kind == "reset"
-                ]
-                assert resets
-                if value is None:
-                    assert not sets
-                else:
-                    assert sets and sets[-1] > resets[-1]
-                    assert mine[sets[-1]][1]["solverResidualThreshold"] == 0.0
-            finally:
-                env.dispose()
-    finally:
-        utils.reset_config({
-            "env": "pybullet_bridge",
-            "num_train_tasks": 1,
-            "num_test_tasks": 0,
-        })
-
-
-def _counting_step(client, counter, real_step):
-    """A ``stepSimulation`` stand-in that counts the steps of one client."""
-
-    def spy(*args, **kwargs):
-        if kwargs.get("physicsClientId") == client:
-            counter.append(1)
-        return real_step(*args, **kwargs)
-
-    return spy
-
-
-def _counting_call(counter):
-    """A stand-in that counts its calls."""
-
-    def spy():
-        counter.append(1)
-
-    return spy
-
-
-def test_certificate_settles_for_the_configured_substeps(monkeypatch, caplog):
-    """The certificate steps the scene ``bridge_goal_settle_substeps`` times
-    before it judges, re-anchoring the resting welds once per action's worth.
-
-    A row released with one end pressed onto a leg rebounded past the
-    60-substep sample: its goal held at the release and from 0.33 s on,
-    and the run was scored as lost at 0.25 s (2026-11-11).
-    """
-    try:
-        for substeps in (60, 240):
-            utils.reset_config({
-                "env": "pybullet_bridge",
-                "num_train_tasks": 1,
-                "num_test_tasks": 0,
-                "bridge_goal_settle_substeps": substeps,
-            })
-            env = PyBulletBridgeEnv(use_gui=False)
-            try:
-                obs = env.reset("train", 0)
-                # A vacuous goal isolates the settle from the geometry.
-                env._current_task = EnvironmentTask(obs, set())
-                client = env._physics_client_id
-                stepped, relaxed = [], []
-                real_step = p.stepSimulation
-
-                monkeypatch.setattr(p, "stepSimulation",
-                                    _counting_step(client, stepped, real_step))
-                monkeypatch.setattr(env, "_relax_resting_welds",
-                                    _counting_call(relaxed))
-                caplog.clear()
-                with caplog.at_level(logging.INFO):
-                    ok, reason = env.check_episode_trajectory([obs], [])
-                monkeypatch.setattr(p, "stepSimulation", real_step)
-                assert ok, reason
-                assert len(stepped) == substeps
-                assert len(relaxed) == \
-                    substeps // CFG.pybullet_sim_steps_per_action
-                record = next(r.getMessage() for r in caplog.records
-                              if "[bridge certificate]" in r.getMessage())
-                logged = json.loads(
-                    record.split("[bridge certificate] ", 1)[1])
-                assert logged["substeps"] == substeps
-                assert logged["accepted"]
-            finally:
-                env.dispose()
-    finally:
-        utils.reset_config({
-            "env": "pybullet_bridge",
-            "num_train_tasks": 1,
-            "num_test_tasks": 0,
-        })

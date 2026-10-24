@@ -14,12 +14,11 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 from predicators.agent_sdk.tools.sandbox_guard import \
     SANDBOX_HIDDEN_MODULES_PATTERN, SANDBOX_INTROSPECTION, \
-    SANDBOX_PYTHON_BYPASS_PATTERN, SANDBOX_SYSTEM_ROOTS, \
-    SANDBOX_UNAVAILABLE_SUFFIX, allowed_modules_pattern
+    SANDBOX_PYTHON_BYPASS_PATTERN, SANDBOX_SYSTEM_ROOTS
 
 logger = logging.getLogger(__name__)
 
@@ -215,10 +214,9 @@ VALIDATE_SANDBOX_SCRIPT = (_VALIDATE_SANDBOX_TEMPLATE.replace(
 # agent starts from the sandbox loads through PYTHONPATH (the session's
 # env, see ``pyguard_env``). Where the Bash hook screens command strings,
 # this vetoes the interpreter's own import and open events, so a script
-# cannot reach the hidden predicators modules, any predicators module
-# off the allowlist (sandbox_guard.allowed_modules_pattern), their
-# source, or the harness's run artifacts through computed paths or
-# ``importlib``. Still best effort: it is not OS-level isolation.
+# cannot reach the hidden predicators modules, their source, or the
+# harness's run artifacts through computed paths or ``importlib``. Still
+# best effort: it is not OS-level isolation.
 # ---------------------------------------------------------------------------
 
 PYGUARD_DIRNAME = os.path.join(".claude", "pyguard")
@@ -239,11 +237,10 @@ HIDDEN_REPO_DIRS = (
 _PYGUARD_TEMPLATE = r'''
 """Sandbox python guard, loaded as ``sitecustomize`` via PYTHONPATH.
 
-Vetoes imports of the hidden predicators modules and of every predicators
-module off the allowlist, reads of their source and of the harness's run
-artifacts, reads of any predicators source outside the import system, and
-child interpreters started without this guard. Raises ImportError /
-PermissionError at the offending call.
+Vetoes imports of the hidden predicators modules, reads of their source
+and of the harness's run artifacts, reads of any predicators source
+outside the import system, and child interpreters started without this
+guard. Raises ImportError / PermissionError at the offending call.
 """
 import importlib.util
 import os
@@ -251,10 +248,6 @@ import re
 import sys
 
 HIDDEN_MODULE_RE = re.compile(__HIDDEN_MODULES_PATTERN__)
-# The predicators modules a sandboxed python may import; no other module
-# of the package loads here, whoever imports it.
-ALLOWED_MODULE_RE = re.compile(__ALLOWED_MODULES_PATTERN__)
-UNAVAILABLE_SUFFIX = __UNAVAILABLE_SUFFIX__
 REPO_ROOT = __REPO_ROOT__
 HIDDEN_DIRS = __HIDDEN_DIRS__
 SANDBOX_DIR = __SANDBOX_DIR__
@@ -395,62 +388,9 @@ def _classify(path):
     return _classify_by_inode(path)
 
 
-def _check_module(name):
-    # Veto a predicators module that is hidden or off the allowlist.
-    if HIDDEN_MODULE_RE.match(name):
-        raise ImportError(
-            "sandbox guard: importing " + name + " would expose the "
-            "hidden environment implementation; use ./reference/ and "
-            "the tools")
-    if (name == "predicators" or name.startswith("predicators.")) and \
-            not ALLOWED_MODULE_RE.fullmatch(name):
-        raise ImportError("sandbox guard: " + name + UNAVAILABLE_SUFFIX)
-
-
-def _source_module(path):
-    # The module a file of the predicators package holds (its source or
-    # its cached bytecode), or None when the file is neither.
-    rel = None
-    for prefix in SOURCE_PREFIXES:
-        if _under(path, prefix):
-            rel = path[len(prefix):].strip(os.sep)
-            break
-    if rel is None:
-        # A spelling the prefixes miss: walk up to the package directory.
-        source = _ident(os.path.join(REPO_ROOT, "predicators"))
-        names = []
-        cur = path
-        while source is not None:
-            parent = os.path.dirname(cur)
-            if parent == cur:
-                return None
-            names.append(os.path.basename(cur))
-            if _ident(parent) == source:
-                break
-            cur = parent
-        rel = os.sep.join(reversed(names))
-    parts = rel.split(os.sep) if rel else []
-    if not parts:
-        return None
-    leaf = parts.pop()
-    if parts and parts[-1] == "__pycache__":
-        parts.pop()
-        leaf = leaf.split(".")[0]
-    elif leaf.endswith(".py"):
-        leaf = leaf[:-3]
-    else:
-        return None
-    if leaf != "__init__":
-        parts.append(leaf)
-    return ".".join(["predicators"] + parts)
-
-
 def _check_read(raw_path, importing=False):
     # Veto reads of the hidden directories, and of any predicators source
-    # unless ``importing`` (the import machinery loading an allowed
-    # module). ``importlib.import_module`` raises no import event, and a
-    # spec built from a file path names the module as it likes, so the
-    # file being loaded is checked against the allowlist here too.
+    # unless ``importing`` (the import machinery loading a public module).
     try:
         path = _resolve(raw_path)
     except (TypeError, ValueError):
@@ -459,13 +399,10 @@ def _check_read(raw_path, importing=False):
     if kind == "deny":
         raise PermissionError("sandbox guard: " + path + " is outside the "
                               "sandbox and hidden from the agent")
-    if kind == "source":
-        module = _source_module(path) if importing else None
-        if module is None:
-            raise PermissionError(
-                "sandbox guard: reading predicators source (" + path +
-                ") is not allowed; use ./reference/ and the tools")
-        _check_module(module)
+    if kind == "source" and not importing:
+        raise PermissionError(
+            "sandbox guard: reading predicators source (" + path +
+            ") is not allowed; use ./reference/ and the tools")
 
 
 def _importing():
@@ -490,8 +427,11 @@ def _importing():
 def _guard(event, args):
     if event == "import":
         name = args[0]
-        if isinstance(name, str):
-            _check_module(name)
+        if isinstance(name, str) and HIDDEN_MODULE_RE.match(name):
+            raise ImportError(
+                "sandbox guard: importing " + name + " would expose the "
+                "hidden environment implementation; use ./reference/ and "
+                "the tools")
     elif event == "open":
         _check_read(args[0], _importing())
     elif event == "subprocess.Popen":
@@ -530,28 +470,20 @@ def pyguard_env(sandbox_dir: str) -> Dict[str, str]:
     return {"PYTHONPATH": os.pathsep.join(parts)}
 
 
-def write_pyguard(
-    sandbox_dir: str,
-    repo_root: str,
-    mounts_file: str = "/proc/self/mounts",
-    extra_modules: Sequence[str] = ()
-) -> str:
+def write_pyguard(sandbox_dir: str,
+                  repo_root: str,
+                  mounts_file: str = "/proc/self/mounts") -> str:
     """Write the ``sitecustomize`` guard for ``sandbox_dir``; returns its
     directory (the value ``pyguard_env`` puts on PYTHONPATH).
 
     ``mounts_file`` is the mount table the guard reads for other
-    spellings of the repo (tests pass a fake one). ``extra_modules`` are
-    predicators modules this sandbox's python may import beside the
-    shared allowlist: the ones an arm's agent is told to import (see
-    ``GeneratedReference.imports``).
+    spellings of the repo (tests pass a fake one).
     """
     root = os.path.realpath(repo_root)
     guard = pyguard_dir(sandbox_dir)
     os.makedirs(guard, exist_ok=True)
     substitutions = {
         "__HIDDEN_MODULES_PATTERN__": SANDBOX_HIDDEN_MODULES_PATTERN,
-        "__ALLOWED_MODULES_PATTERN__": allowed_modules_pattern(extra_modules),
-        "__UNAVAILABLE_SUFFIX__": SANDBOX_UNAVAILABLE_SUFFIX,
         "__REPO_ROOT__": root,
         "__HIDDEN_DIRS__": list(HIDDEN_REPO_DIRS),
         "__SANDBOX_DIR__": os.path.realpath(sandbox_dir),
@@ -642,15 +574,9 @@ class GeneratedReference:
     module rewritten to import its copies under ``reference/``, or a
     document built from the level being played (the scene manifest).
     ``origin`` says what it was made from, for listings.
-
-    ``imports`` is for a file the arm's agent is told to import in its
-    own python: the predicators modules that import loads beside the
-    shared allowlist. The sandbox's python guard admits them in this
-    sandbox, and in no other arm's.
     """
     text: str
     origin: str
-    imports: Tuple[str, ...] = ()
 
 
 # Sandbox reference path -> a source file (relative to the repo root, or
@@ -747,14 +673,7 @@ def setup_sandbox_directory(
     #    (loaded through the session env, see pyguard_env).
     (claude_dir / "validate_sandbox.py").write_text(VALIDATE_SANDBOX_SCRIPT,
                                                     encoding="utf-8")
-    write_pyguard(str(sandbox),
-                  repo_root,
-                  extra_modules=sorted({
-                      module
-                      for source in registry.values()
-                      if isinstance(source, GeneratedReference)
-                      for module in source.imports
-                  }))
+    write_pyguard(str(sandbox), repo_root)
 
     # 5. CLAUDE.md
     (sandbox / "CLAUDE.md").write_text(claude_md_content, encoding="utf-8")

@@ -134,14 +134,6 @@ def render_trajectory_digest(trajectories: List[Any],
     else:
         header += "]"
         lines = [header]
-    after_end = int(getattr(traj, "after_end", 0) or 0)
-    ended_at = len(traj.actions) - after_end
-    if after_end:
-        lines.append(
-            f"The episode ended after action {ended_at - 1}. Actions "
-            f"{ended_at} to {len(traj.actions) - 1} were recorded after it "
-            "ended, with the robot holding its last command while the "
-            "bodies came to rest; they were not level steps.")
 
     for t_step, state in enumerate(traj.states[:max_timesteps]):
         lines.append(f"\n--- Timestep {t_step} ---")
@@ -154,13 +146,8 @@ def render_trajectory_digest(trajectories: List[Any],
             lines.append(f"Atoms: {{{atoms_str}}}")
         if t_step < len(traj.actions):
             act = traj.actions[t_step]
-            if after_end and t_step >= ended_at:
-                lines.append("Action: hold (after the episode ended)")
-            elif act.has_option():
-                opt = act.get_option()
-                lines.append(f"Action: {opt.name}({opt.objects})")
-            else:
-                lines.append("Action: primitive (no skill)")
+            opt = act.get_option()
+            lines.append(f"Action: {opt.name}({opt.objects})")
 
     if len(traj.states) > max_timesteps:
         lines.append(

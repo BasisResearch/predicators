@@ -59,26 +59,3 @@ Seed 0 of the cohort ran on Sept 16, 2026 from this worktree at eb0095c7d, accou
 Both test bridges passed the settle certificate.
 The MB agent wrote a 230-line executable glue, cure and weld model using the simulator's Attach commands and rehearsed the whole four-span build in it before its first test-level action; the r1 MB models were no-ops.
 On the r1 runtime Opus MB and MF each won 1 of 3 seeds; this is one seed on a changed runtime and completion protocol, so it is not a like-for-like comparison, and seeds 1 and 2 remain to be run.
-
-## Solver passes and settle time (Nov 11, 2026)
-
-Round fixes_r39 of EMPIRIC from assets lost one Bridge test level (seed 4) at its last step, the seating of the welded four-span row on the two legs.
-The agent's plan and arm commands were correct.
-
-`pybullet_solver_residual_threshold` sets PyBullet's solverResidualThreshold (None keeps the engine's default of 1e-7).
-At the default the solver ended some substeps early once the two free-standing legs came within about 4 cm of the carried row, with no contact.
-In those substeps the gripper-to-object constraint, the finger contacts and the arm motors got almost no force, and the row turned in the gripper (4 degrees in the descent, 14 degrees in the lift between the two descents).
-Place then released the row with one end about 2 cm below its rest height on a leg, and the release threw the row into a rebound.
-With the legs static or moved away the grasp stayed rigid; finger contact, weld pinning, 200 solver iterations, the finger squeeze and body sleeping were ruled out one by one.
-Thresholds of 1e-9 and 1e-12 left 57 and 43 slack substeps of 1060 (107 at the default); 1e-20 and 0 left none.
-Step time did not change (9.1 ms against 8.9 ms per env step on the Bridge level).
-The EMPIRIC configuration sets 0 for every domain, so every substep runs all of its solver iterations.
-
-`bridge_goal_settle_substeps` is the number of physics substeps the certificate lets a candidate bridge settle before it judges the geometry (default 60, 0.25 s).
-In the lost run the goal held at the release step and on every one of the 120 frames recorded after the certificate (0.33 s to 10 s), and failed only at the 0.25 s sample, which fell in the rebound.
-The EMPIRIC Bridge configuration sets 240 (1 s).
-The settle is a fixed time: a finished bridge keeps creeping at about 1 mm/s in idle play, so a wait for rest would never end.
-
-Validation on the lost level, by replay of its recorded actions up to the final Place and a live run of that Place with the legs shifted by a draw from N(0, 0.05 mm): with the default threshold 137 of 166 trials won and 29 ended in a Place failure; with threshold 0 all 16 trials won in one pass, with the row level at release (0.013 rad against 0.05 to 0.07 rad).
-The longer settle changed no verdict in 150 paired trials.
-Runs with these two settings are not comparable with earlier Bridge cohorts, and the threshold changes the physics of every domain slightly.

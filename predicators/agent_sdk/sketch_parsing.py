@@ -338,17 +338,10 @@ def _resolve_ground_sampler(
         return None
 
     if not enabled:
-        # pylint: disable-next=import-outside-toplevel
-        from predicators.settings import CFG
         note = (f"step {step_idx} ({option.name}): the '~' region "
                 "annotation was IGNORED - ground samplers are disabled in "
                 "this configuration, so the step's params seed the search "
                 "and sampling uses the default uniform samplers.")
-        if CFG.continual_point_values_only:
-            # This arm's text names nothing as switched off.
-            note = (f"step {step_idx} ({option.name}): the '~' region "
-                    "annotation was IGNORED: the step's params seed the "
-                    "search and sampling uses the default uniform samplers.")
         logging.info("Ignoring ground-sampler annotation: %s", note)
         if notices is not None and note not in notices:
             notices.append(note)

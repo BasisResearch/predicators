@@ -30,25 +30,16 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
-import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Dict, FrozenSet, List, \
     Optional, Set, Tuple
 
 from predicators.agent_sdk import journal as journal_mod
-from predicators.agent_sdk import material_screen
-from predicators.agent_sdk.belief_probe import ProbeBudgetExceeded
 from predicators.agent_sdk.fit_status import format_fit_status
 from predicators.agent_sdk.predictive_check import MAX_INFLATION
 from predicators.agent_sdk.preflight_audit import PreflightAudit
-from predicators.agent_sdk.sandbox_prompts import build_claude_md
 from predicators.agent_sdk.sandbox_setup import ReferenceFiles
-from predicators.agent_sdk.speed_support import RecordedSpeeds, \
-    SwitchFeatures, recorded_speeds, scored_bodies, switch_features
-from predicators.agent_sdk.tools.claim_check import ClaimCheck
-from predicators.agent_sdk.tools.context import mark_notes_shown
-from predicators.agent_sdk.tools.continual_tools import CLAIM_TOOL_NAMES, \
-    CONTINUAL_TOOL_NAMES, PRACTISE_HEAD, REWARD_MODEL_TOOL_NAMES, \
+from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES, \
     play_tool_names
 from predicators.agent_sdk.tools.exploration import ProbeSurface
 from predicators.agent_sdk.tools.sandbox_guard import \
@@ -64,7 +55,6 @@ from predicators.approaches.continual_play_mixin import ContinualPlayMixin
 from predicators.approaches.scene_package_mixin import ScenePackageMixin
 from predicators.code_sim_learning.config import DEFAULT_NOISE_SIGMA, \
     SysIdConfig
-from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.code_sim_learning.parameter_belief import ParameterBelief
 from predicators.code_sim_learning.rollout_env import dispose_env
 from predicators.code_sim_learning.trajectory_prep import \
@@ -163,8 +153,7 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
     # -- The arm's declarations -------------------------------------------
 
     def _continual_tool_names(self) -> List[str]:
-        claims = CLAIM_TOOL_NAMES if CFG.continual_claim_check else []
-        return ["run_python"] + play_tool_names(CONTINUAL_TOOL_NAMES) + claims
+        return ["run_python"] + play_tool_names(CONTINUAL_TOOL_NAMES)
 
     def _resolve_kept_names(self) -> Optional[FrozenSet[str]]:
         """No env predicate by default under the protocol; the CFG allowlist
@@ -237,28 +226,21 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
                             n_episodes=str(n_eps),
                             n_steps=str(n_steps))
         else:
-            status = self._loaded_model_status(n_eps, n_steps)
+            new = max(0, n_eps - self._episodes_at_last_fit)
+            refit_note = (" Refit with `sim.fit()` before you rely on the "
+                          "model." if new and self._fit_available() else "")
+            status = render("play_query",
+                            "model_status",
+                            simulator_version=self._current_simulator_version,
+                            predicates_version=self._current_predicates_version
+                            or "none",
+                            fit_status=self._fit_status_text(),
+                            n_episodes=str(n_eps),
+                            n_steps=str(n_steps),
+                            new_episodes=str(new),
+                            refit_note=refit_note)
         return status + (f" {self._probe_ext_status}"
                          if self._probe_ext_status else "")
-
-    def _loaded_model_status(self, n_eps: int, n_steps: int) -> str:
-        """The play_query section shown once a model file exists."""
-        # pylint: disable-next=import-outside-toplevel
-        from predicators.agent_sdk.prompt_templates import render
-        new = max(0, n_eps - self._episodes_at_last_fit)
-        refit_note = (" Refit with `sim.fit()` before you rely on the "
-                      "model." if new and self._fit_available() else "")
-        return render("play_query",
-                      "model_status",
-                      simulator_version=self._current_simulator_version
-                      or "none",
-                      predicates_version=self._current_predicates_version
-                      or "none",
-                      fit_status=self._fit_status_text(),
-                      n_episodes=str(n_eps),
-                      n_steps=str(n_steps),
-                      new_episodes=str(new),
-                      refit_note=refit_note)
 
     def _round_was_productive(self, session: ProtocolSession, state: Any,
                               steps_before: int, steps_after: int) -> bool:
@@ -288,7 +270,7 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         """
         # pylint: disable-next=import-outside-toplevel
         from predicators.agent_sdk.belief_probe import _check_time_budget, \
-            build_probe_namespace, probe_class_name
+            build_probe_namespace
         bench = self._workbench
         self._refresh_workbench()
         trajectories = bench.trajectories
@@ -302,7 +284,6 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         exec_ns = self._build_synthesis_exec_ns(trajectories)
         ctx = self._tool_context
         ctx.learn_cycle_index = self._learning_cycle_index()
-        ctx.shown_notes.clear()
         toolkit = create_synthesis_tools(
             exec_ns,
             base_pred_triples,
@@ -315,11 +296,6 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
             cycle_index_provider=self._learning_cycle_index,
             budget_check=lambda: _check_time_budget(self._tool_context),
             probe_surface=self._probe_surface(),
-            # The notes gate lets a request through once the notes of its
-            # rehearsal have been in an output the agent was given.
-            output_observer=((lambda text: mark_notes_shown(
-                ctx.live_rehearsals, ctx.shown_notes, text))
-                             if CFG.continual_rehearsal_notes_gate else None),
         )
         self._install_extra_synthesis_surfaces(exec_ns, base_pred_triples,
                                                inferred_hint, extra_paths)
@@ -369,12 +345,6 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
                                                 trajectories)
                           if CFG.continual_require_model_on_test else None)
         ctx.live_rehearsals.clear()
-        ctx.practise_gate = (self._make_practise_gate(session)
-                             if CFG.continual_practise_after_reset else None)
-        ctx.claim_check = (ClaimCheck(
-            os.path.join(self._get_log_dir(), "claims.jsonl"))
-                           if CFG.continual_claim_check else None)
-        ctx.recording_count = lambda: len(self._get_all_trajectories())
         # The gate asks for a joint rehearsal, so it needs joint draws.
         ctx.rehearsal_gate = (
             self._make_rehearsal_gate(session)
@@ -388,9 +358,6 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         ctx.feature_width_provider = self._feature_widths if check else None
         ctx.recorded_ranges_provider = (self._recorded_ranges
                                         if check else None)
-        ctx.recorded_speeds_provider = (self._recorded_speeds if check
-                                        and CFG.continual_rehearsal_speed_note
-                                        else None)
         ctx.prediction_basis_provider = (self._prediction_basis
                                          if check else None)
         ctx.reach_note_provider = (self._reach_note
@@ -398,16 +365,11 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         ctx.bound_note_provider = (self._bound_note
                                    if CFG.continual_fit_bound_note else None)
         probe_ns = build_probe_namespace(ctx)
-        # The name the arm's agent knows its probe class by.
-        probe_name = probe_class_name()
         exec_ns["sim"] = probe_ns["sim"]
-        exec_ns[probe_name] = probe_ns[probe_name]
+        exec_ns["BeliefProbe"] = probe_ns["BeliefProbe"]
         ctx.skill_preflight = (self._make_skill_preflight(
-            session, probe_ns[probe_name], paths.simulator_file)
+            session, probe_ns["BeliefProbe"], paths.simulator_file)
                                if CFG.continual_skill_preflight else None)
-        ctx.material_screen = (self._make_material_screen(probe_ns[probe_name])
-                               if CFG.belief_undeclared_material_screen else
-                               None)
         ctx.execution_audit = (PreflightAudit(
             ctx, session, paths.simulator_file,
             os.path.join(self._get_log_dir(), "validation_audit.jsonl"))
@@ -549,12 +511,10 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         ctx.scored_features_provider = None
         ctx.feature_width_provider = None
         ctx.recorded_ranges_provider = None
-        ctx.recorded_speeds_provider = None
         ctx.prediction_basis_provider = None
         ctx.reach_note_provider = None
         ctx.bound_note_provider = None
         ctx.skill_preflight = None
-        ctx.material_screen = None
         ctx.execution_audit = None
         ctx.probe_param_status = None
         ctx.probe_artifact_loaders.clear()
@@ -566,47 +526,21 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
     def _make_skill_gate(self, session: ProtocolSession, simulator_file: str,
                          trajectories: List[LowLevelTrajectory]) -> Any:
         """The ``ToolContext.skill_gate`` of this round under
-        ``continual_require_model_on_test``: on a test level, and under
-        ``continual_practise_after_reset`` on a reset train level, the
-        skill tools refuse until :meth:`_model_readiness` is satisfied;
-        on another train level (evidence collection) and once the level
-        is over they never refuse."""
-        practising = self._make_practise_gate(session)
+        ``continual_require_model_on_test``: on a test level the skill
+        tools refuse until :meth:`_model_readiness` is satisfied; on a
+        train level (evidence collection) and once the level is over
+        they never refuse."""
 
         def gate() -> Optional[str]:
             try:
                 split = session.observe().level.split
             except EpisodeOver:
                 return None
-            if split == "test":
-                return self._model_readiness(simulator_file, trajectories)
-            if practising():
-                return self._model_readiness(simulator_file, trajectories,
-                                             PRACTISE_HEAD)
-            return None
+            if split != "test":
+                return None
+            return self._model_readiness(simulator_file, trajectories)
 
         return gate
-
-    @staticmethod
-    def _make_practise_gate(session: ProtocolSession) -> Any:
-        """The ``ToolContext.practise_gate`` of this round: under
-        ``continual_practise_after_reset``, whether the level in progress is a
-        train level the agent has reset.
-
-        A won level is over, so a reset level in progress has no win;
-        the first attempt stays free, since a model needs a recording.
-        """
-
-        def applies() -> bool:
-            if not CFG.continual_practise_after_reset:
-                return False
-            try:
-                obs = session.observe()
-            except EpisodeOver:
-                return False
-            return obs.level.split == "train" and obs.ledger.level_resets >= 1
-
-        return applies
 
     @staticmethod
     def _make_rehearsal_gate(session: ProtocolSession) -> Any:
@@ -660,27 +594,6 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
                                                             max(hi, value))
         setattr(self, "_recorded_range_cache", (key, ranges))
         return ranges
-
-    def _recorded_speeds(
-            self) -> Optional[Tuple[SwitchFeatures, RecordedSpeeds]]:
-        """The switch features the recordings show and each scored body type's
-        top speed under each switch pattern.
-
-        Cached per scored set and recording count.
-        """
-        features = self._scored_features()
-        if not features or not self._fit_trajectories:
-            return None
-        key = (tuple(sorted((t, tuple(f)) for t, f in features.items())),
-               sum(len(traj.states) for traj in self._fit_trajectories))
-        cached = getattr(self, "_recorded_speed_cache", None)
-        if cached is not None and cached[0] == key:
-            return cached[1]
-        recordings = [traj.states for traj in self._fit_trajectories]
-        switches = switch_features(recordings)
-        speeds = recorded_speeds(recordings, scored_bodies(features), switches)
-        setattr(self, "_recorded_speed_cache", (key, (switches, speeds)))
-        return switches, speeds
 
     def _reach_note(self) -> Optional[str]:
         """The reach check of the canonical fit, when that fit ran on
@@ -768,10 +681,9 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         return fitted, belief.noise_scale * self._predictive_factor(
             belief, fitted)
 
-    def _model_readiness(self,
-                         simulator_file: str,
-                         trajectories: List[LowLevelTrajectory],
-                         level_head: str = "Test level:") -> Optional[str]:
+    def _model_readiness(
+            self, simulator_file: str,
+            trajectories: List[LowLevelTrajectory]) -> Optional[str]:
         """Why the sandbox's ``simulator.py`` could not be deployed right now,
         or None when it could.
 
@@ -786,10 +698,7 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         are cached by content digest so a sweep of ``skills_invoke``
         calls execs the file once.
         """
-        # The arm whose text names no arm says what the request waits for.
-        head = (f"{level_head} a skill request waits for your model. "
-                if CFG.continual_point_values_only else
-                f"{level_head} this arm acts through its model. ")
+        head = "Test level: this arm acts through its model. "
         if not os.path.isfile(simulator_file):
             return (head + "Write `./simulator.py` (RESIDUAL_ENV with "
                     "AGENT_PARAM_SPECS and RESIDUAL_FEATURES) in run_python "
@@ -817,11 +726,9 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
                     "`sim.reset(current=True)` in run_python to see the "
                     "error); fix it first.")
         if not cache["features"]:
-            scorer = ("the harness"
-                      if CFG.agent_sim_learn_fit_invisible else "the fit")
             return (head + "`./simulator.py` declares no RESIDUAL_FEATURES, "
                     "so it cannot be deployed. Declare RESIDUAL_FEATURES on "
-                    f"the subclass first: the observed features {scorer} "
+                    "the subclass first: the observed features the fit "
                     "scores your model on, such as the poses forces move "
                     "and the readings your mechanisms change.")
         if cache["params"]:
@@ -933,63 +840,6 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
             return None
 
         return preflight
-
-    def _material_screen_specs(self) -> List[ParamSpec]:
-        """The engine materials the model does not declare and no joint draw
-        varies, each with the scene's own value and its plausible range: what
-        ``belief_undeclared_material_screen`` tests.
-
-        None here.
-        """
-        return []
-
-    def _make_material_screen(
-            self,
-            probe_factory: Callable[[],
-                                    Any]) -> Callable[[str], Optional[str]]:
-        """The ``ToolContext.material_screen`` of this round under
-        ``belief_undeclared_material_screen`` (see
-        :mod:`predicators.agent_sdk.material_screen`).
-
-        The runs are the harness's: they do not count in the agent's
-        rollout meter. A screen that cannot run (no observation, a broken
-        model, a spent budget) never blocks a request: the failure is
-        logged and the screen finds nothing.
-        """
-        ctx = self._tool_context
-
-        def screen(plan_text: str) -> Optional[str]:
-            specs = self._material_screen_specs()
-            if not specs:
-                return None
-            points = material_screen.screen_points(specs)
-            rollouts = ctx.attempt_rollout_count
-            start = time.monotonic()
-            try:
-                probe = probe_factory()
-                probe.reset(current=True)
-                runs = probe.run_points(plan_text, points)
-            # pylint: disable-next=broad-except
-            except (Exception, ProbeBudgetExceeded) as e:
-                logging.warning(
-                    "[Continual agent] material screen skipped: %s: %s",
-                    type(e).__name__, e)
-                return None
-            finally:
-                ctx.attempt_rollout_count = rollouts
-            seconds = time.monotonic() - start
-            note = material_screen.screen_note(specs, points, runs)
-            changed = material_screen.changed_materials(specs, points, runs)
-            logging.info(
-                "[Continual agent] material screen: %d materials, %d of %d "
-                "points run in %.0f s, outcome changes with %s", len(specs),
-                len(runs), len(points), seconds,
-                [spec.name for spec, _ in changed] or "none")
-            material_screen.log_screen(ctx.log_dir, plan_text, points, runs,
-                                       seconds, note)
-            return note
-
-        return screen
 
     def _append_model_journal(self, paths: Any, outcome: str) -> None:
         journal_mod.append_entry(
@@ -1139,9 +989,6 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         except (AttributeError, TypeError, ValueError, IndexError):
             return str(result)[:300]
         params = ", ".join(f"{k}={v:.4g}" for k, v in estimate.items())
-        if CFG.continual_point_values_only:
-            # This arm's line gives the fitted values alone.
-            return f"fitted {len(estimate)} parameter(s): {params}"[:600]
         return (f"fitted {len(estimate)} parameter(s) from {n_samples} "
                 f"posterior sample(s): {params}")[:600]
 
@@ -1173,14 +1020,7 @@ class AgentContinualModelFreeApproach(ContinualPlayMixin, ScenePackageMixin,
     No belief model, no ``sim``, no ``run_python`` and no learning
     session; the agent's own code in the sandbox reads the recorded
     data. No simulator is built at all (see
-    :meth:`_create_planner_option_model`). Under
-    ``continual_provide_reward_model`` it also has the
-    ``evaluate_trajectory`` tool: the level's reward model on states the
-    agent predicts, with no engine behind it.
-
-    Nothing the agent reads names what the arm leaves out: its prompt,
-    its tools, its queries and its sandbox ``CLAUDE.md`` describe what it
-    has (``tests/approaches/test_baseline_arm_wording.py``).
+    :meth:`_create_planner_option_model`).
     """
 
     _save_suffix = "AgentContinualModelFree"
@@ -1192,11 +1032,7 @@ class AgentContinualModelFreeApproach(ContinualPlayMixin, ScenePackageMixin,
     # -- The arm's declarations -------------------------------------------
 
     def _continual_tool_names(self) -> List[str]:
-        names = play_tool_names(CONTINUAL_TOOL_NAMES)
-        if CFG.continual_provide_reward_model:
-            # The level's reward model, with no engine behind it.
-            names += REWARD_MODEL_TOOL_NAMES
-        return names
+        return play_tool_names(CONTINUAL_TOOL_NAMES)
 
     def _get_all_predicates(self) -> Set[Predicate]:
         """The arm's fixed vocabulary: the env predicates the allowlist keeps,
@@ -1216,7 +1052,7 @@ class AgentContinualModelFreeApproach(ContinualPlayMixin, ScenePackageMixin,
     def _get_sandbox_reference_files(self) -> ReferenceFiles:
         files = super()._get_sandbox_reference_files()
         if CFG.continual_provide_scene_package:
-            files.update(self._scene_asset_files())
+            files.update(self._scene_package_files())
         return files
 
     def _play_system_prompt(self) -> str:
@@ -1226,19 +1062,8 @@ class AgentContinualModelFreeApproach(ContinualPlayMixin, ScenePackageMixin,
         from predicators.agent_sdk.play_prompts import build_play_system_prompt
         return build_play_system_prompt(
             self._continual_tool_names(),
-            base_sim_refs=self._scene_asset_paths(),
+            base_sim_refs=self._scene_package_paths(),
             scene_package=True)
-
-    # -- What the agent reads about its data and its sandbox ---------------
-
-    def _model_status_heading(self) -> str:
-        # The status block holds the recorded data and nothing else.
-        return "Recorded data"
-
-    def _get_sandbox_claude_md(self) -> Optional[str]:
-        # The sandbox rules name the tools this session has.
-        return build_claude_md(
-            run_python="run_python" in self._continual_tool_names())
 
     # -- Parent-specific overrides ---------------------------------------
 

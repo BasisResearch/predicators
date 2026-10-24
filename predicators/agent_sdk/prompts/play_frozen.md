@@ -26,30 +26,6 @@ Current object poses and sensor readings remain noisy, and hidden execution stat
 Use the supplied simulator for planning and rehearsal; do not change it, add missing mechanisms, fit parameters, or route predictions through an alternative dynamics model.
 You may collect experience, adjust plans, and update predicates and journal.
 
-<!-- section: no_learning -->
-## No-learning comparison
-
-Write `./simulator.py` as a `SceneBase` subclass that loads the scene's bodies from the scene manifest and assets and maps the observed features to them.
-Write no mechanisms: the file may not override `_domain_specific_step` or the step methods, declare parameters, or queue forces, torques, velocities or attachments, and `sim` refuses a file that does.
-Set each body's physical values once, from the manifest, the asset files and general knowledge, and do not change them to match recordings.
-Edit the file only to fix the scene, such as a wrong body, joint or feature mapping, or to load a new level's bodies.
-`sim` has no world until `./simulator.py` loads; afterwards it runs the real skill controllers inside your scene.
-Nothing fits parameters, and the model has no hidden dynamics.
-Current object poses and sensor readings remain noisy, and hidden execution state is not provided.
-Use the model for planning and rehearsal. You may collect experience, adjust plans, and update predicates and journal.
-
-<!-- section: no_learning_loaded -->
-## No-learning comparison
-
-Write `./simulator.py` as a `SceneBase` subclass: the base loads the scene's bodies from the scene manifest and assets, and your file maps the observed features that no body pose carries.
-Write no mechanisms: the file may not override `_domain_specific_step` or the step methods, declare parameters, or queue forces, torques, velocities or attachments, and `sim` refuses a file that does.
-You may set each body's physical values once, in `_on_scene_loaded` with `p.changeDynamics`, from the asset files and general knowledge; do not change them to match recordings.
-Edit the file only to fix the scene, such as a wrong joint or feature mapping.
-`sim` has no world until `./simulator.py` loads; afterwards it runs the real skill controllers inside your scene.
-Nothing fits parameters, and the model has no hidden dynamics.
-Current object poses and sensor readings remain noisy, and hidden execution state is not provided.
-Use the model for planning and rehearsal. You may collect experience, adjust plans, and update predicates and journal.
-
 <!-- section: oracle_dynamics -->
 ## Oracle dynamics comparison
 

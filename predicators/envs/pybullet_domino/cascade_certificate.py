@@ -89,18 +89,6 @@ CascadeProbe = Callable[
     [State, Sequence[Object], Set[GroundAtom], Optional[Tuple[float, ...]]],
     Tuple[bool, str]]
 
-# Signature of the injected contact check: (the first push's action index,
-# the pushed greens) -> whether the engine's contacts show a clean push.
-CleanPush = Callable[[int, Sequence[Object]], bool]
-
-# The reason of a goal-reaching episode that passed every rule needing no
-# physics and had no probe to replay its push. The evaluator compares
-# against it to tell this case from a broken rule.
-NO_PROBE_REASON = (
-    "the goal atoms hold, but no counterfactual push probe is "
-    "available to verify the cascade - an unverifiable success "
-    "cannot be certified (bind sim_env at the evaluator call site)")
-
 
 def count_movable_blocks_used(states: Sequence[State]) -> int:
     """Count movable (blue) dominoes the episode consumed.
@@ -326,8 +314,7 @@ def check_cascade_legitimacy(
         states: Sequence[State],
         goal: Set[GroundAtom],
         step_options: Optional[Sequence[StepOption]] = None,
-        probe: Optional[CascadeProbe] = None,
-        clean_push: Optional[CleanPush] = None) -> Tuple[bool, str]:
+        probe: Optional[CascadeProbe] = None) -> Tuple[bool, str]:
     """Certify that the episode's topples are a genuine push-seeded cascade.
 
     Rules (any violation fails the whole episode):
@@ -352,11 +339,7 @@ def check_cascade_legitimacy(
            alone decides how the goal fell (see the module docstring);
            it runs only on goal-reaching episodes because only those
            have a success bonus at stake, and a goal-reaching episode
-           with no probe available fails closed. When ``clean_push``
-           reports that the engine's contacts already show a clean push
-           (only fingertips on the pushed green from the push on), the
-           replay has no arm contact to remove and does not run: on a
-           knife-edge link it would only re-roll solver noise.
+           with no probe available fails closed.
 
     ``step_options`` labels each transition ``states[t] -> states[t+1]``
     (action index ``t``) with the producing option; when it is None or
@@ -477,10 +460,11 @@ def check_cascade_legitimacy(
     # Rule (d): the counterfactual push probe, on goal-reaching episodes.
     if not all(atom.holds(states[-1]) for atom in goal):
         return True, ""
-    if clean_push is not None and clean_push(pre_push_idx, pushed_greens):
-        return True, ""
     if probe is None:
-        return False, NO_PROBE_REASON
+        return False, (
+            "the goal atoms hold, but no counterfactual push probe is "
+            "available to verify the cascade - an unverifiable success "
+            "cannot be certified (bind sim_env at the evaluator call site)")
     ok, detail = probe(states[pre_push_idx], pushed_greens, goal, push_params)
     if not ok:
         return False, (

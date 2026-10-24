@@ -34,19 +34,15 @@ def _error_result(text: str) -> Dict[str, Any]:
     return {"content": [{"type": "text", "text": text}], "is_error": True}
 
 
-def _region_syntax_blurb(plain: bool = False) -> str:
+def _region_syntax_blurb() -> str:
     """The `~ [w]` region mention for tool descriptions, flag-aware.
 
     Advertising the syntax while ``agent_bilevel_ground_samplers`` is
     off sent every audited run through 1-3 turns of syntax guessing
-    against a feature that could not work. ``plain`` says only what
-    happens to a region that is given (the arm whose text names nothing
-    as switched off).
+    against a feature that could not work.
     """
     if RefinementConfig.from_cfg().ground_samplers:
         return ", incl. `~ [w]` half-width regions after a step's params"
-    if plain:
-        return " - a `~ [w]` region after a step's params is ignored"
     return (" - note `~ [w]` regions are DISABLED in this configuration "
             "and are ignored if given")
 
