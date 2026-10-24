@@ -12,6 +12,8 @@ rule-form path. The subclass physics itself is checked in
 # pylint: disable=protected-access
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from predicators import utils
@@ -74,6 +76,39 @@ def test_balloons_artifact_cannot_call_hidden_base_helpers(tmp_path):
         assert model.get_physical_param_info()["air_drag"]["default"] == .04
     finally:
         model.dispose()
+
+
+def test_artifact_loads_as_a_module_from_its_own_folder(
+        tmp_path, monkeypatch, caplog):
+    """The artifact sees its ``__file__`` and reads paths relative to its
+    folder, as in the agent's run_python, whatever folder the harness runs in;
+    the harness's folder is the same afterwards, and a load that raises names
+    the file in its traceback."""
+    utils.reset_config({"env": "pybullet_balloons", "seed": 0})
+    sandbox = tmp_path / "sandbox"
+    (sandbox / "reference").mkdir(parents=True)
+    (sandbox / "reference" / "scene.json").write_text('{"bodies": 3}')
+    path = sandbox / "simulator.py"
+    path.write_text("import json, os\n"
+                    "HERE = os.path.dirname(__file__)\n"
+                    "with open('reference/scene.json') as f:\n"
+                    "    SCENE = json.load(f)\n"
+                    "class Model(BaseSimulator):\n"
+                    "    AGENT_PARAM_SPECS = []\n"
+                    "    RESIDUAL_FEATURES = {}\n"
+                    "RESIDUAL_ENV = Model\n")
+    harness = tmp_path / "harness"
+    harness.mkdir()
+    monkeypatch.chdir(harness)
+    _, _, _, ns = _load_simulator(str(path))
+    assert ns is not None and read_residual_env(ns) is not None
+    assert ns["HERE"] == str(sandbox)
+    assert ns["SCENE"] == {"bodies": 3}
+    assert os.path.samefile(os.getcwd(), harness)
+    path.write_text("x = 1\nraise RuntimeError('broken model')\n")
+    assert _load_simulator(str(path)) == (None, None, None, None)
+    assert os.path.samefile(os.getcwd(), harness)
+    assert f'File "{path}", line 2' in caplog.text
 
 
 @pytest.fixture(name="reset_balloons")
