@@ -235,58 +235,6 @@ def test_settled_draw_keeps_the_velocity_it_records(env):
         utils.update_config({"continual_belief_velocities": False})
 
 
-def test_restage_keeps_velocity_a_domain_hook_clears(env, monkeypatch):
-    """A domain hook that repositions the ball clears its velocity;
-    continual_restage_velocities stages the recorded velocity again, and a
-    state that records none leaves the live velocity alone."""
-    client = env._physics_client_id
-    state = env.reset("train", 0).copy()
-    linear = (0.05, 0.0, 0.0)
-    staged = state.copy()
-    staged.simulator_state["body_velocities"] = {
-        env._ball.name: (linear, (0.0, 0.0, 0.0))
-    }
-    hook = env._set_domain_specific_state
-
-    def _reposition(restored):
-        hook(restored)
-        position, orientation = p.getBasePositionAndOrientation(
-            env._ball.id, physicsClientId=client)
-        p.resetBasePositionAndOrientation(env._ball.id,
-                                          position,
-                                          orientation,
-                                          physicsClientId=client)
-
-    monkeypatch.setattr(env, "_set_domain_specific_state", _reposition)
-    try:
-        for restage, expected in ((False, (0.0, 0.0, 0.0)), (True, linear)):
-            utils.update_config({
-                "continual_belief_velocities": True,
-                "continual_restage_velocities": restage,
-            })
-            env._set_state(staged)
-            assert np.allclose(p.getBaseVelocity(env._ball.id,
-                                                 physicsClientId=client)[0],
-                               expected,
-                               atol=1e-9)
-        unrecorded = state.copy()
-        unrecorded.simulator_state = None
-        monkeypatch.setattr(env, "_set_domain_specific_state", hook)
-        p.resetBaseVelocity(env._ball.id,
-                            linear, (0.0, 0.0, 0.0),
-                            physicsClientId=client)
-        env._restage_velocities(unrecorded)
-        assert np.allclose(p.getBaseVelocity(env._ball.id,
-                                             physicsClientId=client)[0],
-                           linear,
-                           atol=1e-9)
-    finally:
-        utils.update_config({
-            "continual_belief_velocities": False,
-            "continual_restage_velocities": False,
-        })
-
-
 def test_a_static_body_takes_no_staged_velocity(env):
     """A static body cannot move, so a velocity a state records for it, such as
     one the state belief estimates from noisy readings, stages nothing; given

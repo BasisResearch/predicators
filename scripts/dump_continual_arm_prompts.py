@@ -11,13 +11,6 @@ is sent to a model.
     python -m scripts.dump_continual_arm_prompts \
         --config empiric/benchmark.yaml \
         --domain balloons --out docs/prompt-review/2026-09-18-balloons
-
-``--approaches`` names config entries, as the launcher's flag does, so a
-parked arm (one the config SKIPs) can be rendered too:
-
-    python -m scripts.dump_continual_arm_prompts \
-        --config empiric/benchmark.yaml --domain boil \
-        --approaches from_assets_no_uncertainty_opus --out /tmp/review
 """
 import argparse
 import asyncio
@@ -126,9 +119,6 @@ def dump_arm(cfg: RunConfig, seed: int, work_dir: str, out_dir: str) -> str:
     agent._query_agent_sync = query  # pylint: disable=protected-access
     agent.prepare_for_continual(Dataset([]))
     ContinualRun(env, agent, create_level_player(env, agent)).run()
-    # The run is over, so no level's recording can keep the manifest the
-    # reference files below rebuild.
-    agent._play_session = None  # pylint: disable=protected-access
 
     # pylint: disable=protected-access
     system_prompt = agent._get_agent_system_prompt(
@@ -196,17 +186,10 @@ def main() -> None:
     parser.add_argument("--domain", required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument(
-        "--approaches",
-        default=None,
-        help="Comma-separated approach keys of the config; a named key is "
-        "rendered even when the config parks it. Defaults to every "
-        "approach the config does not SKIP.")
     args = parser.parse_args()
     env_name = f"pybullet_{args.domain}"
-    approaches = args.approaches.split(",") if args.approaches else None
     arms: Dict[str, RunConfig] = {}
-    for cfg in generate_run_configs(args.config, False, approaches=approaches):
+    for cfg in generate_run_configs(args.config, False):
         if cfg.env == env_name and cfg.approach not in arms:
             arms[cfg.approach] = cfg
     os.makedirs(args.out, exist_ok=True)

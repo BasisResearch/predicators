@@ -1,9 +1,7 @@
 """Sandbox-escape screening for agent-supplied text."""
 import os
 import re
-import sys
-import traceback
-from typing import List, Optional, Set
+from typing import Optional
 
 # Filesystem roots that, when they prefix an absolute path outside the
 # sandbox, mark it as a real escape (vs. data like "/done" printed by code).
@@ -84,37 +82,6 @@ def _scrub_host_paths(text: str) -> str:
     if home and home != "/":
         text = text.replace(home + os.sep, "~" + os.sep)
     return text
-
-
-def agent_traceback() -> str:
-    """The traceback of the exception being handled, as an agent is shown it:
-    host path prefixes scrubbed.
-
-    Under ``agent_sim_learn_fit_invisible`` the harness's own frames are
-    left out, since their file and function names and source lines name
-    what that arm's agent must not read. The agent's frames, the
-    libraries' and the error itself stay.
-    """
-    # pylint: disable-next=import-outside-toplevel
-    from predicators.settings import CFG
-    if not CFG.agent_sim_learn_fit_invisible:
-        return _scrub_host_paths(traceback.format_exc())
-    # _HOST_REPO_ROOT is the harness's package directory.
-    package = _HOST_REPO_ROOT + os.sep
-    error = traceback.TracebackException(*sys.exc_info())
-    pending: List[Optional[traceback.TracebackException]] = [error]
-    seen: Set[int] = set()
-    while pending:
-        link = pending.pop()
-        if link is None or id(link) in seen:
-            continue
-        seen.add(id(link))
-        link.stack = traceback.StackSummary.from_list([
-            frame for frame in link.stack
-            if not os.path.realpath(frame.filename).startswith(package)
-        ])
-        pending.extend([link.__cause__, link.__context__])
-    return _scrub_host_paths("".join(error.format()))
 
 
 # Path-like tokens: absolute (``/foo``) or parent-traversal (``..``/``../foo``),
