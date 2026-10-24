@@ -90,13 +90,13 @@ def test_evaluate_trajectory_helper(approach_cls):
     # Pre-built labels pass through unchanged.
     fn(states, [("Push", ("robot", ))], task_idx=0)
     assert evaluator.seen_options == [("Push", ("robot", ))]
-    with pytest.raises(ValueError, match="no goal atoms to judge"):
+    with pytest.raises(ValueError, match="no task evaluator"):
         fn(states, None, task_idx=1)
     with pytest.raises(ValueError, match="out of range"):
         fn(states, None, task_idx=2)
     # Without an index the helper scores the level in progress.
     stub._tool_context.current_task = stub._train_tasks[1]
-    with pytest.raises(ValueError, match="no goal atoms to judge"):
+    with pytest.raises(ValueError, match="no task evaluator"):
         fn(states, None)
     stub._tool_context.current_task = stub._train_tasks[0]
     assert fn(states, [act])["solved"] is False

@@ -307,30 +307,6 @@ def test_game_over_gate_section_follows_the_flag():
     utils.reset_config({})
 
 
-def test_win_first_section_follows_the_flag():
-    """The rehearsal gate's section tells the agent to act on the highest P-hat
-    exactly when the win-first flag is on, right after the gate."""
-    base = {
-        "continual_rehearsal_gate": True,
-        "belief_joint_draws": 16,
-        "continual_uncertainty_decisions": True,
-    }
-    rule = ("On a test level, act on the plan whose rehearsal from the "
-            "current observation has the highest P-hat, and use cost only "
-            "to break ties.")
-    utils.reset_config(base)
-    text = play_prompts.build_play_system_prompt(["run_python"] +
-                                                 list(CONTINUAL_TOOL_NAMES))
-    assert rule not in text
-    utils.reset_config({**base, "continual_rehearsal_win_first": True})
-    text = play_prompts.build_play_system_prompt(["run_python"] +
-                                                 list(CONTINUAL_TOOL_NAMES))
-    assert rule in text
-    assert text.index("### Test-level steps wait for a joint rehearsal") < \
-        text.index(rule)
-    utils.reset_config({})
-
-
 @pytest.mark.parametrize("check", [False, True])
 def test_predictive_check_section_follows_the_flag(check):
     """The system prompt describes the predictive check exactly when it is on

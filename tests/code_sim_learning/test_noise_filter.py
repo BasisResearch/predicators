@@ -203,12 +203,7 @@ def _bare_approach():
     approach._base_env = _RegistryEnv()
     approach._carried_physical_prior = {}
     approach._baseline_param_cache = None
-    # Set through setattr: pylint reads a plain assignment as the approach's
-    # own attribute and then types the method's fresh envs in the approach
-    # module as this stub.
-    setattr(approach,
-            "_make_planning_base_env",
-            lambda use_gui=False: _RegistryEnv())
+    approach._make_planning_base_env = lambda use_gui=False: _RegistryEnv()
     return approach
 
 

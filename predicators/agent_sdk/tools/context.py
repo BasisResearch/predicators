@@ -42,16 +42,6 @@ class LiveRehearsal:
     # other than the robot was still moving.
     lines_run: List[List[int]] = field(default_factory=list)
     moving_lines: List[List[int]] = field(default_factory=list)
-    # The notes its report ended with, without their "NOTE: " lead.
-    notes: List[str] = field(default_factory=list)
-
-
-def mark_notes_shown(rehearsals: List[LiveRehearsal], shown: Set[str],
-                     text: str) -> None:
-    """Add to ``shown`` each note of ``rehearsals`` that ``text``, an output
-    the agent was given, shows in full."""
-    for rehearsal in rehearsals:
-        shown.update(note for note in rehearsal.notes if note in text)
 
 
 @dataclass
@@ -92,10 +82,6 @@ class ToolContext:
     # need the real engine). A comparison arm lists what its surface
     # withholds; the probe raises on a listed call instead of serving it.
     probe_disabled: FrozenSet[str] = frozenset()
-    # ``sim`` methods this session's arm does not offer at all: the probe
-    # has no such attribute and ``dir(sim)`` leaves it out (the arm with
-    # the agent's own parameter belief has no ``fit``).
-    probe_absent: FrozenSet[str] = frozenset()
     # Synthesis-session loader behind ``sim.predicates()``: it reloads
     # the agent-authored predicates.py fresh, installs the result into
     # the approach so refinement sees the draft, and returns the report
@@ -129,9 +115,6 @@ class ToolContext:
     # session, newest last: what the rehearsal gate checks a request
     # against, and what the predictive check scores its outcome on.
     live_rehearsals: List["LiveRehearsal"] = field(default_factory=list)
-    # The rehearsal notes an output given to the agent has shown in full
-    # this session (see continual_rehearsal_notes_gate).
-    shown_notes: Set[str] = field(default_factory=set)
     # Installed by the model arm under continual_predictive_check: the
     # features the current model scores (type name -> feature names), or
     # None when no model is loaded; the predictive check compares those.
