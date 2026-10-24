@@ -160,6 +160,13 @@ class GlobalSettings:
     # four recorded peaks), and a failure that turns on how far a body goes
     # can then happen while a rehearsal clears it.
     continual_fit_reach_check = False
+    # Whether a fit report with a joint belief names the parameters whose
+    # most likely value sits on an end of the range the model declares, and
+    # a rehearsal of that model repeats it. The recordings push such a
+    # parameter past that end, and no draw of the belief goes beyond it
+    # (round fixes_r22's Balloons seed 1 fitted its balloon mass at 0.03,
+    # the top of its declared range, and its report did not say so).
+    continual_fit_bound_note = False
     # Whether a from-assets fit's belief traces a line for each engine
     # material the model does not declare, through the model's own value
     # of it, so the joint draws of that material follow the recordings.

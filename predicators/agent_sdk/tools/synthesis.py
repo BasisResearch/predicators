@@ -444,8 +444,9 @@ def create_synthesis_tools(
         compute_sse_recurrent, fit_rule_parameters, \
         fit_rule_parameters_latent
     from predicators.code_sim_learning.grid_seed import grid_candidates
-    from predicators.code_sim_learning.identifiability import \
-        format_identifiability, physics_sigma_points
+    from predicators.code_sim_learning.identifiability import bound_hits, \
+        bound_reminder, describe_bounds, format_identifiability, \
+        physics_sigma_points
     from predicators.code_sim_learning.orchestrator import run_rollout_sysid
     from predicators.code_sim_learning.physical_sysid import \
         DEFAULT_NOISE_SIGMA
@@ -757,6 +758,13 @@ def create_synthesis_tools(
                                      rules,
                                      latent_init,
                                      config=fit_config)
+        # The parameters whose most likely value sits on an end of its
+        # declared range: the belief's draws stop at that end.
+        bounds_found = (bound_hits(ident_report,
+                                   list(physical_specs) +
+                                   list(rule_specs), dict(fitted))
+                        if CFG.continual_fit_bound_note
+                        and outcome.belief is not None else [])
         if not exploratory:
             approach._apply_identified_physical_params(applied)  # pylint: disable=protected-access
             approach.note_carried_posterior(applied, ident_report)
@@ -785,7 +793,8 @@ def create_synthesis_tools(
                     num_points=CFG.agent_plan_validation_physics_margin_points)
                               if outcome.belief is None else []),
                 belief=outcome.belief,
-                reach=reach_reminder(reach_found))
+                reach=reach_reminder(reach_found),
+                bounds=bound_reminder(bounds_found))
         kept_at_init = sorted(n for n in physical_names
                               if applied[n] != fitted[n])
         # Like-for-like SSE headline: the % reduction is measured on the
@@ -893,6 +902,8 @@ def create_synthesis_tools(
 
         if outcome.belief is not None:
             lines.extend(["", *_format_parameter_belief(outcome.belief), ""])
+            if bounds_found:
+                lines.extend([*describe_bounds(bounds_found), ""])
             if outcome.fit_result.search_note:
                 lines.extend([outcome.fit_result.search_note, ""])
             if exploratory:

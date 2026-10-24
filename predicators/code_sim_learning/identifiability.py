@@ -10,6 +10,7 @@ for why non-identifiability is reported rather than regularized away.
 
 from __future__ import annotations
 
+import dataclasses
 import enum
 import logging
 from typing import Any, Callable, Dict, List, Optional, Sequence
@@ -279,6 +280,8 @@ def identifiability_report(
             "verdict": verdict,
             "note": note,
         }
+        if verdict is Verdict.AT_BOUND:
+            report[name]["bound_edge"] = at_bound[name]
         if belief_interval and np.isfinite(post) and post > 0:
             lo = _from_fit_scale(scales[i], z_map - post)
             hi = _from_fit_scale(scales[i], z_map + post)
@@ -727,3 +730,76 @@ def format_identifiability(report: Dict[str, Dict[str, Any]]) -> str:
                          f"{abl['sse_map']:.4g} at the joint MAP "
                          f"(tol {abl['tol']:.4g})")
     return "\n".join(lines)
+
+
+@dataclasses.dataclass(frozen=True)
+class BoundHit:
+    """A parameter whose most likely value sits on an end of its box."""
+    name: str
+    value: float
+    edge: str  # "lo" or "hi"
+    lo: float
+    hi: float
+
+    @property
+    def end(self) -> str:
+        """The end in words."""
+        return "lower" if self.edge == "lo" else "upper"
+
+
+def bound_hits(
+    report: Dict[str, Dict[str, Any]],
+    param_specs: Sequence[ParamSpec],
+    values: Dict[str, float],
+) -> List[BoundHit]:
+    """The parameters ``report`` finds at an end of their box, at ``values``,
+    in ``param_specs`` order."""
+    hits = []
+    for spec in param_specs:
+        info = report.get(spec.name) or {}
+        edge = info.get("bound_edge")
+        if (info.get("verdict") is not Verdict.AT_BOUND
+                or edge not in ("lo", "hi") or spec.name not in values):
+            continue
+        lo, hi = param_bounds([spec])
+        hits.append(
+            BoundHit(spec.name, float(values[spec.name]), edge, float(lo[0]),
+                     float(hi[0])))
+    return hits
+
+
+def describe_bounds(hits: Sequence[BoundHit]) -> List[str]:
+    """The fit report's lines on ``hits``; none without hits."""
+    if not hits:
+        return []
+    return [
+        "At a declared bound: the most likely value of each parameter below "
+        "sits on an end of the range simulator.py declares for it. The "
+        "recordings push it past that end, and no draw of the belief goes "
+        "beyond it.",
+        *(f"  {hit.name:<28} {hit.value:.4g} at the {hit.end} end of "
+          f"[{hit.lo:.4g}, {hit.hi:.4g}]" for hit in hits),
+        "A parameter held at an end means that the range is narrower than "
+        "the physics allows, or that the parameter takes up the error of a "
+        "mechanism the model lacks or gets wrong. Widen the range only as "
+        "far as the physics allows; if the value then runs to the new end, "
+        "look for that mechanism.",
+    ]
+
+
+def bound_reminder(hits: Sequence[BoundHit]) -> Optional[str]:
+    """One line for a rehearsal on the model these hits were found on; None
+    without hits."""
+    if not hits:
+        return None
+    parts = [
+        f"{hit.name} at the {hit.end} end ({hit.value:.4g})" for hit in hits
+    ]
+    if len(parts) == 1:
+        held, ranges = parts[0], "its declared range"
+    else:
+        held = ", ".join(parts[:-1]) + " and " + parts[-1]
+        ranges = "their declared ranges"
+    return (f"The fit holds {held} of {ranges} (fit "
+            "report, at a declared bound): the recordings push past that "
+            "end, and no draw of this rehearsal goes beyond it.")

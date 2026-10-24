@@ -136,6 +136,11 @@ class ToolContext:
     # how far they went in the recordings, or None when the fit found none
     # or ran on another version of the model.
     reach_note_provider: Optional[Callable[[], Optional[str]]] = None
+    # The canonical fit's reminder of the parameters whose most likely
+    # value sits on an end of the declared range (continual_fit_bound_note),
+    # or None when the fit found none or ran on another version of the
+    # model.
+    bound_note_provider: Optional[Callable[[], Optional[str]]] = None
     # Installed with it: the fitted program the joint draws come from
     # (the digest of its simulator.py) and the temperature they are drawn
     # at, or None while they come from the prior.
