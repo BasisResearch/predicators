@@ -1396,25 +1396,3 @@ def test_domino_evaluator_verdict_note_names_the_replay():
                                    labeled,
                                    sim_env=_ProbeEnv(True))
     assert verdict["note"] == ""
-
-
-def test_a_clean_push_needs_no_replay_and_any_other_contact_does() -> None:
-    """Contacts that show a clean push stand in for the replay; otherwise the
-    replay still decides."""
-    objs = _make_objects(["green", "blue1", "target"])
-    states = _build_states(objs, 30, {"green": 5, "blue1": 10, "target": 14})
-    step_options = _options([("Push", ("robot", "green"), 0, 7)], 30)
-    stalled = _FakeProbe(ok=False, detail="stalls at blue1")
-    ok, reason = check_cascade_legitimacy(states,
-                                          _real_goal(objs),
-                                          step_options,
-                                          probe=stalled,
-                                          clean_push=lambda *_: True)
-    assert ok, reason
-    ok, reason = check_cascade_legitimacy(states,
-                                          _real_goal(objs),
-                                          step_options,
-                                          probe=stalled,
-                                          clean_push=lambda *_: False)
-    assert not ok
-    assert "stalls at blue1" in reason

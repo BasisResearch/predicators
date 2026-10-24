@@ -85,7 +85,6 @@ class LocalSandboxSessionManager(SandboxSessionManagerBase):
         phase: Optional[str] = None,
         config: Optional[SessionConfig] = None,
         query_count_floor: int = 0,
-        claude_md_content: Optional[str] = None,
     ) -> None:
         super().__init__(system_prompt=system_prompt +
                          _LOCAL_SANDBOX_SYSTEM_PROMPT,
@@ -95,8 +94,7 @@ class LocalSandboxSessionManager(SandboxSessionManagerBase):
                          tool_names=tool_names,
                          extra_reference_files=extra_reference_files,
                          phase=phase,
-                         config=config,
-                         claude_md_content=claude_md_content)
+                         config=config)
         self._sandbox_log_path: Optional[str] = None
         self._query_count_seeded: bool = False
         # Lowest transcript number this session may hand out minus one:

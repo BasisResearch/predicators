@@ -82,10 +82,6 @@ _RUN_PYTHON_DESCRIPTION = (
     "recorded `trajectories`. This tool does NOT define the model: "
     "write `world_model.py` for that.")
 
-# What ``sim.score`` advises while nothing is recorded.
-_NO_RECORDINGS_HINT = \
-    "validate the model with sim.refine / sim.run rollouts instead."
-
 # The continual standalone arm's probe, kept close to WorldCoder: the agent
 # writes the world model, the harness scores it against the recorded data
 # and rolls a plan through it once; search, repeated trials, predicate
@@ -94,13 +90,6 @@ _NO_RECORDINGS_HINT = \
 STANDALONE_PROBE_DISABLED = frozenset({
     "refine", "predicates", "samplers", "render", "belief", "run_policy",
     "run_async", "gather", "suggest_probes", "trials"
-})
-# The probe calls that arm's ``sim`` does not have: the disabled calls
-# above, and the reports of a harness fit, which the arm never has. A call
-# to one finds no such attribute, so no refusal names it.
-STANDALONE_PROBE_ABSENT = frozenset({
-    "refine", "predicates", "render", "belief", "run_policy", "run_async",
-    "gather", "suggest_probes", "fit", "validate", "residuals"
 })
 
 STANDALONE_RUN_PYTHON_DESCRIPTION = (
@@ -130,27 +119,12 @@ STANDALONE_RUN_PYTHON_DESCRIPTION = (
     "reports each step's outcome as text (subgoal annotations are "
     "CHECKED) and advances the state; `sim.snapshot()` / "
     "`sim.restore(id)` bank and rewind the state. That is the whole "
-    "probe; write any search, sampling or diagnostics you need in your "
-    "own code. Probe "
+    "probe: there is no parameter search, repeated-trial rollout, "
+    "predicate scoring or scene rendering of predicted states; write any "
+    "search, sampling or diagnostics you need in your own code. Probe "
     "rollouts are predictions of your model - never confuse them with "
     "the recorded `trajectories`. This tool does NOT define the model: "
     "write `world_model.py` for that.")
-
-# What that arm's ``sim.score`` advises while nothing is recorded: the
-# one rollout call its probe has.
-STANDALONE_NO_RECORDINGS_HINT = \
-    "check the model with sim.run rollouts instead."
-
-# Appended under continual_provide_reward_model.
-STANDALONE_REWARD_MODEL_DESCRIPTION = (
-    " The namespace also binds the level's reward model: "
-    "evaluate_trajectory(states, actions=None, task_idx=None) -> "
-    "{reward, solved, note} scores a state sequence, such as "
-    "`sim.run(plan_text).states`, and with_features(state, {object_name: "
-    "{feature: value}}) returns a copy of a state with those features "
-    "changed. It reads only the states you give it: a rule that depends "
-    "on how the physics plays out from a state is not checked, and the "
-    "note says so.")
 
 
 def create_program_synthesis_tools(
@@ -168,7 +142,6 @@ def create_program_synthesis_tools(
     budget_check: Optional[Callable[[], None]] = None,
     rng: Optional[np.random.Generator] = None,
     run_python_description: str = _RUN_PYTHON_DESCRIPTION,
-    no_recordings_hint: str = _NO_RECORDINGS_HINT,
 ) -> ProgramSynthesisToolkit:
     """Build the program-synthesis session's tools and probe backends.
 
@@ -189,8 +162,6 @@ def create_program_synthesis_tools(
         rng: The scorer's random source (particle draws / resampling).
         run_python_description: The ``run_python`` tool description; an
             arm with a narrower probe passes its own.
-        no_recordings_hint: What ``sim.score`` advises while nothing is
-            recorded; an arm with a narrower probe passes its own.
     """
     # pylint: disable=import-outside-toplevel
     from claude_agent_sdk import tool as _sdk_tool
@@ -245,7 +216,8 @@ def create_program_synthesis_tools(
         assert program is not None
         if not trajectories:
             return (f"[{tag}] No recorded trajectories to score against "
-                    f"in this session: {no_recordings_hint}")
+                    "in this session: validate the model with sim.refine "
+                    "/ sim.run rollouts instead.")
         selected: Optional[Set[int]] = None
         if traj_idxs is not None:
             bad = sorted(i for i in traj_idxs

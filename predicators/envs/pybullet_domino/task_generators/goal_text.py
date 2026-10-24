@@ -8,8 +8,6 @@ instruction; the heavy variant also names the gray heavy blocks as fixed
 scenery.
 """
 
-from predicators.settings import CFG
-
 # The evaluator's counterfactual verification, stated in the goal text
 # so every enforced rule is inferable up front: without it, an agent
 # whose rollouts pass only with the arm's help sees nothing but opaque
@@ -20,31 +18,6 @@ CASCADE_VERIFICATION_NL = (
     "verified by replaying your push with every robot link except the "
     "fingertips made intangible, and the built layout must still cascade "
     "to the goal - topples that needed the arm's body earn nothing.")
-
-# The same rule under CFG.domino_contact_verdict, where the engine's
-# contacts settle a clean push and the replay runs otherwise.
-CONTACT_VERIFICATION_NL = (
-    " A solve only counts if the push itself causes the cascade: from the "
-    "push on, if any robot link other than the fingertips touches a domino, "
-    "or a fingertip touches one other than the green, your push is replayed "
-    "with every robot link except the fingertips made intangible, and the "
-    "built layout must still cascade to the goal - topples that needed the "
-    "arm's body earn nothing.")
-
-# What that rule adds for an agent that rehearses its plans
-# (CFG.domino_goal_names_rehearsal).
-REHEARSAL_REPLAY_NL = " A rehearsal always makes that replay."
-
-
-def configured(goal_nl: str) -> str:
-    """``goal_nl`` with the verification rule this run enforces."""
-    if CFG.domino_contact_verdict:
-        rule = CONTACT_VERIFICATION_NL
-        if CFG.domino_goal_names_rehearsal:
-            rule += REHEARSAL_REPLAY_NL
-        return goal_nl.replace(CASCADE_VERIFICATION_NL, rule)
-    return goal_nl
-
 
 MIN_BLOCK_GOAL_NL = (
     "Arrange the blue dominoes so that when the green domino is pushed, "

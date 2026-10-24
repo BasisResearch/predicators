@@ -37,42 +37,9 @@ import os
 import sys
 import time
 import traceback
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, List, Optional, Sequence
 
 logger = logging.getLogger(__name__)
-
-# Records that a forked child carries back beside its result, by name:
-# (read, merge). The parent passes each child's read() to its own merge. A
-# child's record starts as a copy of the parent's, so merge must give the
-# same result when it sees an entry twice (a union, never a count).
-_CHILD_RECORDS: Dict[str, Tuple[Callable[[], Any], Callable[[Any], None]]] = {}
-
-
-def register_child_record(name: str, read: Callable[[], Any],
-                          merge: Callable[[Any], None]) -> None:
-    """Carry ``read()`` back from every forked child into ``merge``."""
-    _CHILD_RECORDS[name] = (read, merge)
-
-
-def _merge_child_records(records: Dict[str, Any]) -> None:
-    """Fold a child's records (its ``_child_records()``) into this process's,
-    through each record's registered merge."""
-    for name, record in records.items():
-        entry = _CHILD_RECORDS.get(name)
-        if entry is not None:
-            entry[1](record)
-
-
-def _child_records() -> Dict[str, Any]:
-    """This child's registered records; one that fails to read is left out, so
-    a record never costs the child its result."""
-    records = {}
-    for name, (read, _merge) in _CHILD_RECORDS.items():
-        try:
-            records[name] = read()
-        except Exception:  # pylint: disable=broad-except
-            logger.debug("child record %s failed to read", name)
-    return records
 
 
 def parallel_rollouts_available() -> bool:
@@ -164,13 +131,12 @@ def _child_main(idx: int, job: Callable[[], Any], q: Any,
             # part of the returned result.
             logging.disable(logging.WARNING)
         result = job()
-        q.put((idx, True, result, _child_records()))
+        q.put((idx, True, result))
     except BaseException as e:  # pylint: disable=broad-except
         exit_code = 1
         try:
             q.put((idx, False,
-                   f"{type(e).__name__}: {e}\n{traceback.format_exc()}",
-                   _child_records()))
+                   f"{type(e).__name__}: {e}\n{traceback.format_exc()}"))
         except BaseException:  # pylint: disable=broad-except
             exit_code = 2
     finally:
@@ -234,9 +200,8 @@ def run_forked_rollouts(
                     "results; abandoning %d outstanding children.", label, got,
                     n, outstanding)
                 break
-            idx, ok, payload, records = q.get()
+            idx, ok, payload = q.get()
             got += 1
-            _merge_child_records(records)
             outstanding -= 1
             if ok:
                 out[idx] = payload

@@ -33,23 +33,19 @@ import logging
 import os
 import re
 import time
-from typing import TYPE_CHECKING, Any, Callable, Dict, FrozenSet, List, \
-    Optional, Sequence, Set, Tuple, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, \
+    Sequence, Set, Tuple, Union
 
 from predicators import utils
 from predicators.agent_sdk.config import RefinementConfig, ToolSurfaceConfig
 from predicators.agent_sdk.parallel_rollouts import prefetch_parallel
-from predicators.agent_sdk.probe_results import ProbeGatherResult, \
-    ProbeRefineResult, ProbeResult, ProbeTrialsResult, _BareNameFallbackDict, \
-    _StrLikeResult
 from predicators.agent_sdk.tools.context import LiveRehearsal, \
     absolute_rollout_seed, decorrelated_rollout_seed
 from predicators.agent_sdk.tools.scene import apply_state_modifications, \
     draw_pybullet_annotation, render_pybullet_image, render_scene_image
 from predicators.agent_sdk.tools.verdicts import _EvalStateCollector, \
     _policy_source_path, evaluate_states_with, load_ground_sampler_fns, \
-    make_solved_check, task_evaluator
-from predicators.code_sim_learning.model_state import memory_written_note
+    make_solved_check
 from predicators.structs import State, Task, excluded_object_type_names
 
 if TYPE_CHECKING:
@@ -173,6 +169,201 @@ def _attach_step_contacts(events: List[Dict[str, Any]],
         start += s["num_actions"]
 
 
+class _BareNameFallbackDict(Dict[str, Dict[str, float]]):
+    """``state()``'s full dict: keyed ``name:type``, resolving BARE object
+    names via ``__missing__``.
+
+    Agent code persisted before the ``name:type`` keying (sandbox
+    helpers, journal recipes replayed after a resume/requeue) indexes
+    the full dict by bare name; resolving that here costs new code
+    nothing and closes the same gap the single-object form's bare-name
+    path already closes. Ambiguous bare names (two objects sharing a
+    name across types - not constructible in current envs) fall through
+    to the ordinary KeyError.
+    """
+
+    def __missing__(self, key: str) -> Dict[str, float]:
+        matches = [k for k in self if k.split(":", 1)[0] == key]
+        if len(matches) == 1:
+            return self[matches[0]]
+        raise KeyError(key)
+
+
+class _StrLikeResult:
+    """String conveniences shared by the probe result types.
+
+    The results print like strings, so agents naturally slice
+    (``res[-800:]``), search (``'Goal reached: True' in res``), and call
+    string methods (``res.split('\\n')`` destroyed a 1200 s refine
+    result in run_20260830_145216 - AttributeError, then a full
+    identical re-run); without these both moves are errors that cost a
+    recovery turn (and recur after compaction erases the lesson). Any
+    ``str`` method not shadowed by a real attribute delegates to the
+    rendered report, so the whole string API works.
+    """
+
+    @property
+    def text(self) -> str:
+        """The full report as a plain string."""
+        return repr(self)
+
+    def __getitem__(self, key: Any) -> str:
+        return repr(self)[key]
+
+    def __contains__(self, item: str) -> bool:
+        return item in repr(self)
+
+    def __len__(self) -> int:
+        return len(repr(self))
+
+    def __getattr__(self, name: str) -> Any:
+        # Only reached for attributes not found normally (dataclass
+        # fields and real methods take precedence). Delegate public str
+        # methods (.split, .splitlines, .find, .lower, ...) to the
+        # rendered report; anything else raises AttributeError as usual.
+        if not name.startswith("_") and hasattr(str, name):
+            return getattr(repr(self), name)
+        raise AttributeError(
+            f"{type(self).__name__!r} object has no attribute {name!r}")
+
+
+@dataclasses.dataclass(repr=False)
+class ProbeResult(_StrLikeResult):
+    """Outcome of one ``BeliefProbe.run`` call.
+
+    ``steps`` is a list of per-step dicts (``option``, ``num_actions``,
+    ``failure``, ``added``, ``deleted``, ``subgoals_missing`` - the
+    step's ``-> {atoms}`` annotations that did NOT hold in the
+    post-state (the forward-pass divergence signal), ``image`` - the
+    saved post-step scene image path, if rendering is available; with
+    ``contacts=True`` also ``contacts`` - the step's contact-pair span
+    lines), plus ``goal_reached`` and ``final_atoms``. ``notes`` carries
+    caveats (ignored region annotations, horizon overruns).
+    ``print(result)`` renders the step-by-step summary.
+    """
+    steps: List[Dict[str, Any]]
+    goal_reached: bool
+    final_atoms: List[str]
+    final_state: State
+    notes: List[str] = dataclasses.field(default_factory=list)
+    # The rollout's state sequence, start state first, per low-level
+    # step where the option model records one (else per option): what
+    # ``evaluate_trajectory`` scores, so a rollout can be scored or
+    # inspected without rebuilding it by hand.
+    states: List[State] = dataclasses.field(default_factory=list)
+    # The state after each plan line, or None where the line did not run
+    # cleanly (:func:`_line_states`).
+    line_states: List[Optional[State]] = dataclasses.field(
+        default_factory=list)
+
+    def __repr__(self) -> str:
+        lines = []
+        for i, s in enumerate(self.steps):
+            line = f"Step {i}: {s['option']} ({s['num_actions']} actions)"
+            if s["failure"]:
+                line += f"\n  FAILURE: {s['failure']}"
+                if s.get("partial_actions"):
+                    line += (f"\n  It ran {s['partial_actions']} actions "
+                             "before it stopped; the state after this run "
+                             "is where it stopped, as after a real "
+                             "failure.")
+            if s.get("changed"):
+                label = ("Changed before it stopped"
+                         if s["failure"] else "Changed")
+                line += f"\n  {label}: {', '.join(s['changed'])}"
+            if s["added"] or s["deleted"]:
+                line += (f"\n  Added: {{{', '.join(s['added'])}}}"
+                         f"\n  Deleted: {{{', '.join(s['deleted'])}}}")
+            if s.get("subgoals_missing"):
+                line += ("\n  SUBGOAL NOT REACHED: "
+                         f"{{{', '.join(s['subgoals_missing'])}}}")
+            if "contacts" in s:
+                line += (
+                    "\n  Contacts: " +
+                    ("; ".join(s["contacts"]) if s["contacts"] else "none"))
+            lines.append(line)
+        lines.append(f"Goal reached: {self.goal_reached}")
+        lines.append(f"Final atoms: {{{', '.join(self.final_atoms)}}}")
+        images = [s["image"] for s in self.steps if s.get("image")]
+        if images:
+            lines.append("Saved images (view with Read):")
+            lines.extend(f"  {p}" for p in images)
+        lines.extend(f"NOTE: {n}" for n in self.notes)
+        return "\n".join(lines)
+
+
+@dataclasses.dataclass(repr=False)
+class ProbeTrialsResult(_StrLikeResult):
+    """Outcome of one ``BeliefProbe.run(..., trials=N)`` call.
+
+    ``trials`` holds one dict per trial (``goal_reached``,
+    ``num_actions``, ``failure`` - ``None`` or ``"step {i} ({option}):
+    {reason}"``; ``planner_seed`` - the motion-planner seed the trial
+    ran at, reproducible via ``run(plan, seed=..., fresh=True)`` - a
+    plain ``run(plan, seed=...)`` executes on the WARM shared env, a
+    different substrate that reads optimistic; with
+    ``solved=True`` also ``solved``/``reward`` from the task evaluator,
+    ``None`` when the check is unavailable or errored), plus
+    ``evaluation_status`` (accepted, rejected, unavailable, error, or
+    not_requested) and a non-sensitive ``evaluation_error`` diagnostic.
+    ``successes`` counts
+    goal-reaching trials. The current state is NOT advanced - repeated
+    trials are a measurement, not a navigation step.
+    """
+    trials: List[Dict[str, Any]]
+    successes: int
+    fresh_env_per_trial: bool
+    notes: List[str] = dataclasses.field(default_factory=list)
+
+    def __repr__(self) -> str:
+        n = len(self.trials)
+        env_note = ("fresh physics env + varied motion-planner seed per "
+                    "trial - reliability under this model and start state"
+                    if self.fresh_env_per_trial else
+                    "shared session env - trials are correlated, treat the "
+                    "rate as optimistic; this session has no fresh-env "
+                    "scope, so fresh=True is likewise unavailable")
+        scored = [t for t in self.trials if t.get("solved") is not None]
+        headline = f"Trials: {self.successes}/{n} reached the goal"
+        if scored:
+            n_solved = sum(1 for t in scored if t["solved"])
+            headline += (f", {n_solved}/{n} scored solved=True by the task "
+                         f"evaluator")
+        lines = [f"{headline} ({env_note})"]
+        for i, t in enumerate(self.trials):
+            seed_tag = (f" (planner seed {t['planner_seed']})"
+                        if t.get("planner_seed") is not None else "")
+            if t["failure"]:
+                line = f"  trial {i + 1}{seed_tag}: FAILED - {t['failure']}"
+            elif t["goal_reached"]:
+                line = (f"  trial {i + 1}{seed_tag}: goal reached "
+                        f"({t['num_actions']} actions)")
+            else:
+                line = (f"  trial {i + 1}{seed_tag}: goal NOT reached "
+                        f"({t['num_actions']} actions)")
+            if t.get("solved") is not None:
+                line += (f" - evaluator: solved={t['solved']}, "
+                         f"reward={t['reward']:.2f}")
+            elif t.get("evaluation_status") in {"unavailable", "error"}:
+                line += (f" - evaluator: {t['evaluation_status']} "
+                         f"({t['evaluation_error']}); NOT certified")
+            lines.append(line)
+        replay_notes = [t["note"] for t in scored if t.get("note")]
+        if replay_notes:
+            lines.append(f"  verdict note: {replay_notes[0]}")
+        if scored and any(t["goal_reached"] and not t["solved"]
+                          for t in scored):
+            lines.append(
+                "  goal atoms held but the evaluator scored a non-solve: "
+                "this route's success did not certify under the task's "
+                "rules. Either the rules reject the route (re-read the "
+                "goal's rules and plan a different route) or the success "
+                "is too marginal to reproduce reliably - same-route "
+                "parameter tuning rarely flips this verdict.")
+        lines.extend(f"NOTE: {n_}" for n_ in self.notes)
+        return "\n".join(lines)
+
+
 @dataclasses.dataclass(repr=False)
 class ProbeBeliefResult(_StrLikeResult):
     """Outcome of one ``BeliefProbe.run(..., belief_draws=K)`` call.
@@ -278,7 +469,6 @@ def _log_rehearsal(ctx: "ToolContext", plan_text: str,
         "stderr": result.stderr,
         "from_observation": result.from_observation,
         "draws": draws,
-        "mean": result.mean_verdict,
     }
     try:
         with open(os.path.join(ctx.log_dir, "rehearsals.jsonl"),
@@ -287,62 +477,6 @@ def _log_rehearsal(ctx: "ToolContext", plan_text: str,
             f.write(json.dumps(record) + "\n")
     except OSError as e:
         logging.warning("Could not log the rehearsal: %s", e)
-
-
-def _grounded_steps(sketch_steps: Any) -> List[Any]:
-    """Each step of a parsed sketch grounded at its own parameters."""
-    # pylint: disable-next=import-outside-toplevel
-    import numpy as np
-
-    # pylint: disable-next=import-outside-toplevel
-    from predicators.agent_sdk import bilevel_sketch
-    grounded: List[Any] = []
-    for st in sketch_steps:
-        params = (st.initial_params if st.initial_params is not None else
-                  np.array([], dtype=np.float32))
-        grounded.append(
-            bilevel_sketch.ground_step(st, np.asarray(params,
-                                                      dtype=np.float32)))
-    return grounded
-
-
-def _planning_values() -> str:
-    """What a report calls the values the planning model runs at: the fit's
-    point estimate, or the declared values in the arm whose text names no
-    harness fit (``agent_sim_learn_fit_invisible``)."""
-    # pylint: disable-next=import-outside-toplevel
-    from predicators.settings import CFG
-    if CFG.agent_sim_learn_fit_invisible:
-        return "the declared values"
-    return "the fit's point estimate"
-
-
-def _mean_disagreement_note(result: "ProbeJointResult") -> str:
-    """Under ``continual_rehearsal_mean_verdict``, the note for a mean rollout
-    whose verdict no scored draw shares: it ends the episode in GAME_OVER and
-    no draw does, or it solves the task and no draw does; "" otherwise.
-
-    The mean rollout runs at the fit's point estimate, the values the
-    planning model runs at, while the draws spread over the belief; a
-    point estimate at the edge of the belief can predict a loss that
-    every draw misses.
-    """
-    verdict = result.mean_verdict
-    scored = [d for d in result.draws if d.get("solved") is not None]
-    if verdict is None or not scored:
-        return ""
-    lead = (f"The rollout from the belief mean, at {_planning_values()} "
-            "(the values the planning model runs at), ")
-    if verdict["lost"] and not any(d.get("lost") for d in scored):
-        return (f"{lead}ends the episode in GAME_OVER, but none of the "
-                f"{len(scored)} draws the task's evaluator scored does: the "
-                "planning model predicts a loss the draws miss, so they may "
-                "understate its risk.")
-    if verdict["solved"] and not any(d.get("solved") for d in scored):
-        return (f"{lead}solves the task, but none of the {len(scored)} "
-                "draws the task's evaluator scored does: the planning model "
-                "predicts a success the draws do not support.")
-    return ""
 
 
 def _fmt_draw_params(params: Dict[str, float], limit: int = 4) -> str:
@@ -405,18 +539,6 @@ def _unreconstructed(env: Any) -> List[str]:
     ]
 
 
-def _memory_written(env: Any) -> Dict[str, str]:
-    """The model_state entries ``env``'s ``_domain_specific_step`` changed,
-    each with the value it left (see
-    ``PyBulletEnv.memory_written_by_step``)."""
-    return dict(getattr(env, "memory_written_by_step", None) or {})
-
-
-# How a single run's memory note starts: a rehearsal drops it from its
-# rollout from the belief mean when its draws' note already says the same.
-_RUN_MEMORY_LEAD = "While this model ran"
-
-
 def _beyond_recordings(ctx: "ToolContext",
                        states: Sequence[State]) -> Optional[str]:
     """Under ``continual_rehearsal_support_note``, the scored features the
@@ -473,65 +595,6 @@ def _beyond_recordings(ctx: "ToolContext",
     return ("The rollout from the belief mean takes " + "; ".join(parts) +
             ". No recording tests the model there, so its prediction there "
             "can be off by more than the draws' spread.")
-
-
-def _faster_than_recorded(ctx: "ToolContext",
-                          states: Sequence[State]) -> Optional[str]:
-    """Under ``continual_rehearsal_speed_note``, the scored bodies the rollout
-    from the belief mean moves faster than any recording shows them moving
-    under the same switch pattern; None when there are none.
-
-    A pattern no recording shows counts as a top speed of zero. The
-    margin is the data's own: a speed read from two noisy positions is
-    about as well tested within two of its sigmas.
-    """
-    # pylint: disable=import-outside-toplevel
-    from predicators.agent_sdk.speed_support import SPEED_WINDOW, \
-        scored_bodies, window_speeds
-    from predicators.observation_noise import ObservationNoise
-
-    # pylint: enable=import-outside-toplevel
-    if ctx.recorded_speeds_provider is None or \
-            ctx.scored_features_provider is None or not states:
-        return None
-    recorded = ctx.recorded_speeds_provider()
-    features = ctx.scored_features_provider()
-    if recorded is None or not features:
-        return None
-    switches, top = recorded
-    noise = ObservationNoise.from_cfg()
-    worst: Dict[Tuple[str, FrozenSet[str]], Tuple[float, float, float]] = {}
-    bodies = scored_bodies(features)
-    for obj, pattern, speed in window_speeds(states, bodies, switches):
-        sigma = (noise.feature_sigma(obj.type, bodies[obj.type.name][0])
-                 if noise.declared else 0.0)
-        record = top.get((obj.type.name, pattern), 0.0)
-        margin = max(_SUPPORT_SIGMAS * sigma * 2.0**0.5 / SPEED_WINDOW,
-                     _SUPPORT_EXACT * record)
-        key = (obj.name, pattern)
-        if speed > record + margin and speed - record > worst.get(
-                key, (0.0, 0.0, 0.0))[0]:
-            worst[key] = (speed - record, speed, record)
-    if not worst:
-        return None
-    named = sorted(worst.items(), key=lambda kv: -kv[1][0])[:_SUPPORT_NAMED]
-    parts = []
-    for (name, pattern), (_gap, speed, record) in named:
-        switched = ", ".join(sorted(pattern)) or "no switch"
-        type_name = next(o.type.name for o in states[0] if o.name == name)
-        seen = (f"the top recorded speed is {record:.4g}" if
-                (type_name, pattern) in top else "no recording has this")
-        parts.append(f"{name} at {speed:.4g} per step with {switched} on "
-                     f"({seen})")
-    # pylint: disable-next=import-outside-toplevel
-    from predicators.settings import CFG
-    then = ("check the model against what that plan records"
-            if CFG.agent_sim_learn_fit_invisible else "refit")
-    return ("The rollout from the belief mean moves " + "; ".join(parts) +
-            ". No recording tests the model at that speed, so its prediction "
-            "there can be off by more than the draws' spread. If a failure "
-            "there cannot be undone, first run a plan that stays safe if the "
-            f"model is wrong at that speed, then {then}.")
 
 
 def _counts_game_over() -> bool:
@@ -626,9 +689,9 @@ class ProbeJointResult(_StrLikeResult):
     scored, else goal reached), ``num_actions``, ``failure`` and
     ``planner_seed``. ``p_hat`` is the fraction of successful draws and
     ``stderr`` its standard error; ``mean`` is the step-by-step rollout
-    from the belief mean at the values the planning model runs at (the
-    point estimate). Only the mean rollout advances the current state,
-    and its fields (``final_state``, ``steps``, ``goal_reached``,
+    from the belief mean at the fit's point estimate, the values the
+    planning model runs at. Only the mean rollout advances the current
+    state, and its fields (``final_state``, ``steps``, ``goal_reached``,
     ``final_atoms``) read through, as on a single rollout's result.
     """
     draws: List[Dict[str, Any]]
@@ -640,10 +703,6 @@ class ProbeJointResult(_StrLikeResult):
     # The report's lines on the parameters the failing draws lean on
     # (``_outcome_leads``), when none separates them outright.
     leads: List[str] = dataclasses.field(default_factory=list)
-    # Under ``continual_rehearsal_mean_verdict``, the task evaluator's
-    # verdict on the mean rollout as on a draw (``solved``, ``lost``); None
-    # when it was not scored.
-    mean_verdict: Optional[Dict[str, bool]] = None
 
     @property
     def successes(self) -> int:
@@ -750,8 +809,8 @@ class ProbeJointResult(_StrLikeResult):
                      if n_ not in mean_notes)
         if self.mean is not None:
             lines.append("")
-            lines.append("Step-by-step rollout from the belief mean at "
-                         f"{_planning_values()} (the values the planning "
+            lines.append("Step-by-step rollout from the belief mean at the "
+                         "fit's point estimate (the values the planning "
                          "model runs at):")
             lines.append(repr(self.mean))
         return "\n".join(lines)
@@ -796,24 +855,13 @@ class ProbeBeliefState(_StrLikeResult):
         return "\n".join(lines)
 
 
-def _reference_point() -> str:
-    """A physics sweep's name for its reference point: the fitted values, or
-    the declared values in the arm whose text names no harness fit."""
-    # pylint: disable-next=import-outside-toplevel
-    from predicators.settings import CFG
-    if CFG.agent_sim_learn_fit_invisible:
-        return "declared values"
-    return "fitted params"
-
-
 @dataclasses.dataclass(repr=False)
 class ProbeSweepResult(_StrLikeResult):
     """Outcome of one ``BeliefProbe.run(..., physics_sweep=True)`` call.
 
     ``points`` holds one dict per sweep point in ascending-sigma order
     (``params`` - the physical-parameter override dict, ``None`` for
-    the reference point at the planning model's values, run first;
-    ``goal_reached``,
+    the fitted-values reference point run first; ``goal_reached``,
     ``num_actions``, ``failure``). ``successes`` counts goal-reaching
     points. Each point runs once on a fresh env at the BASE
     motion-planner seed, so its outcome is a deterministic measurement
@@ -833,7 +881,7 @@ class ProbeSweepResult(_StrLikeResult):
             "deterministic measurement, not a sample)"
         ]
         for p in self.points:
-            desc = (_reference_point() if p["params"] is None else ", ".join(
+            desc = ("fitted params" if p["params"] is None else ", ".join(
                 f"{k}={v:.4g}" for k, v in sorted(p["params"].items())))
             if p["failure"]:
                 line = f"  {desc}: FAILED - {p['failure']}"
@@ -844,12 +892,8 @@ class ProbeSweepResult(_StrLikeResult):
                         f"({p['num_actions']} actions)")
             lines.append(line)
         if self.successes < n:
-            # pylint: disable-next=import-outside-toplevel
-            from predicators.settings import CFG
-            owner = ("declared"
-                     if CFG.agent_sim_learn_fit_invisible else "identified")
             lines.append(
-                f"  the plan fails INSIDE the {owner}-parameter "
+                "  the plan fails INSIDE the identified-parameter "
                 "uncertainty range. The real environment may sit at any "
                 "of these points (success can be non-monotonic: passing "
                 "neighbors do NOT cover the points between them) - add "
@@ -948,6 +992,98 @@ class ProbeSuggestResult(_StrLikeResult):
         return "\n".join(lines)
 
 
+@dataclasses.dataclass(repr=False)
+class ProbeRefineResult(_StrLikeResult):
+    """Outcome of one ``BeliefProbe.refine`` call.
+
+    ``verdict`` states exactly what a SUCCESS certifies - ``executed``
+    (every step established its subgoal annotation; the task goal was
+    never checked), ``goal-reached`` (the goal atoms also held at the
+    last step), or ``evaluator-solved`` (the task evaluator additionally
+    scored the rollout as a solve) - so "SUCCESS" alone is never read
+    as more than it means. ``plan_lines`` holds one line per sketch
+    step with the refined params filled in (``[?]`` for steps the
+    search never refined) - paste them into ``sim.run`` or
+    ``skills_execute_plan``. ``near_miss`` is the deepest validation
+    failure (step index, the exact params that got furthest, and why
+    they failed), also populated on timeout/exhaustion. ``note``
+    carries caveats.
+    """
+    success: bool
+    reason: str
+    total_samples: int
+    step_samples: List[int]
+    plan_lines: List[str]
+    near_miss: Optional[Dict[str, Any]]
+    note: str = ""
+    verdict: str = ""
+
+    def __repr__(self) -> str:
+        lines = [
+            f"Refinement {'SUCCESS' if self.success else 'FAILURE'} "
+            f"({self.reason}): {self.total_samples} samples, per-step "
+            f"{self.step_samples}"
+        ]
+        if self.verdict:
+            lines.append(f"Verdict: {self.verdict}")
+        lines.append("Plan (refined params; [?] = never refined):")
+        lines.extend(f"  {l}" for l in self.plan_lines)
+        if self.near_miss is not None:
+            lines.append(f"Deepest near-miss: step "
+                         f"{self.near_miss['step_idx']} "
+                         f"{self.near_miss['option']} - "
+                         f"{self.near_miss['reason']}")
+        if self.note:
+            lines.append(f"NOTE: {self.note}")
+        return "\n".join(lines)
+
+
+@dataclasses.dataclass(repr=False)
+class ProbeGatherResult(_StrLikeResult):
+    """Outcome of one ``BeliefProbe.gather`` call.
+
+    One status line per handle; the full reports stay on the handles
+    (``print(handle.result)`` for a done handle, ``handle.error`` for a
+    failed one). ``pending`` handles are still running - keep them and
+    gather again later. ``stale`` flags done handles whose rollout ran
+    under an older ``simulator.py`` than the current file.
+    """
+    done: List[Any]
+    pending: List[Any]
+    stale: List[Any]
+    current_tag: Optional[str]
+
+    def __repr__(self) -> str:
+        lines = [
+            f"Gather: {len(self.done)} done, {len(self.pending)} pending."
+        ]
+        for h in self.done:
+            head = f"  handle {h.index}"
+            if not h.ok:
+                first = str(h.error).splitlines()[0] if h.error else "unknown"
+                lines.append(f"{head}: FAILED - {first}")
+                continue
+            r = h.result
+            if isinstance(r, ProbeTrialsResult):
+                summary = (f"trials {r.successes}/{len(r.trials)} reached "
+                           "the goal")
+            elif isinstance(r, ProbeResult):
+                summary = f"goal_reached={r.goal_reached}"
+            else:
+                summary = type(r).__name__
+            lines.append(f"{head}: {summary} - print(handle.result) for the "
+                         "full report")
+        for h in self.pending:
+            lines.append(f"  handle {h.index}: still running")
+        if self.stale:
+            idxs = ", ".join(str(h.index) for h in self.stale)
+            lines.append(
+                f"NOTE: handle(s) {idxs} ran under an OLDER simulator.py "
+                "than the current file - their results describe the model "
+                "as of their launch, not your latest edits.")
+        return "\n".join(lines)
+
+
 def _line_states(steps: Sequence[StepOutcome]) -> List[Optional[State]]:
     """Each plan line's state after it ran in a rehearsal draw, or None where
     the line did not run cleanly there (not initiable, no actions, a controller
@@ -1012,31 +1148,21 @@ def _failed_skills(failures: Sequence[Optional[str]]) -> List[str]:
     return names
 
 
-def _motion_failure_note(
-        lead: str,
-        skills: Sequence[str] = (),
-        record: Optional[Dict[str, Tuple[int, int]]] = None,
-        frames: Optional[str] = None,
-        spread: Optional[Tuple[float, float]] = None) -> Optional[str]:
+def _motion_failure_note(lead: str,
+                         skills: Sequence[str] = (),
+                         record: Optional[Dict[str, Tuple[int, int]]] = None,
+                         frames: Optional[str] = None) -> Optional[str]:
     """``lead`` plus a caveat on a skill controller's failure in a rollout
     under observation noise: the real controller plans on the true scene, this
     one on observed or drawn positions, and a few millimetres can change its
     plan. With this run's real ``record`` (per skill, calls that succeeded and
     failed), the note gives each of ``skills``'s; ``frames`` (see
-    :func:`_belief_frames_note`) says how a Wait would sharpen the start, and
-    ``spread`` (see :func:`_belief_spread`) how near the state belief puts the
-    plan's bodies, which is far nearer than one frame's noise once they have
-    rested a while.
+    :func:`_belief_frames_note`) says how a Wait would sharpen the start.
 
-    None when the observations are exact. Under
-    ``continual_point_values_only`` the note is ``lead`` with the real
-    record alone, and None without a record: that arm's text names no
-    noise.
+    None when the observations are exact.
     """
     # pylint: disable-next=import-outside-toplevel
     from predicators.observation_noise import ObservationNoise
-    # pylint: disable-next=import-outside-toplevel
-    from predicators.settings import CFG
     noise = ObservationNoise.from_cfg()
     if noise.position <= 0.0 and noise.orientation <= 0.0:
         return None
@@ -1046,24 +1172,14 @@ def _motion_failure_note(
     ]
     history = ("This run's real calls of it succeeded in: " + ", ".join(real) +
                ". " if real else "")
-    if CFG.continual_point_values_only:
-        return f"{lead} {history}".rstrip() if real else None
     sharpen = f"{frames} " if frames else ""
-    if spread is None:
-        start = ("these rollouts planned on positions with the observation "
-                 f"noise ({noise.position:g} m, {noise.orientation:g} rad)")
-    else:
-        start = ("these rollouts planned on positions the state belief "
-                 "estimates from noisy frames "
-                 f"({noise.position:g} m, {noise.orientation:g} rad of noise "
-                 f"each) to within about {spread[0]:.2g} m and "
-                 f"{spread[1]:.2g} rad for the bodies this plan acts on")
-    return (f"{lead} The real controller plans on the true scene; {start}, "
-            "and a few millimetres can change the arm's plan. "
-            f"{history}{sharpen}Weigh such a failure against the skill's "
-            "real record and against starts a few millimetres away "
-            "(reset(current=True, mods=...)) before you conclude the real "
-            "skill would fail.")
+    return (f"{lead} The real controller plans on the true scene; these "
+            "rollouts planned on positions with the observation noise "
+            f"({noise.position:g} m, {noise.orientation:g} rad), and a few "
+            f"millimetres can change the arm's plan. {history}{sharpen}Weigh "
+            "such a failure against the skill's real record and against "
+            "starts a few millimetres away (reset(current=True, mods=...)) "
+            "before you conclude the real skill would fail.")
 
 
 def _belief_frames_note(ctx: Any, grounded: Sequence[Any]) -> Optional[str]:
@@ -1083,14 +1199,19 @@ def _belief_frames_note(ctx: Any, grounded: Sequence[Any]) -> Optional[str]:
     from predicators.settings import CFG
 
     # pylint: enable=import-outside-toplevel
-    found = _fewest_frames(ctx, grounded)
-    if found is None:
+    used = getattr(getattr(ctx, "current_belief", None), "frames_used", None)
+    if not used:
         return None
-    bodies, fewest = found
+    names = [
+        obj.name for option in grounded
+        for obj in getattr(option, "objects", ()) if obj.name in used
+    ] or list(used)
     window = max(int(CFG.continual_belief_window), 1)
+    fewest = min(used[name] for name in names)
     sigma = ObservationNoise.from_cfg().position
     if fewest >= window or sigma <= 0.0:
         return None
+    bodies = sorted({n for n in names if used[n] == fewest})
     count = f"{fewest} frame{'s' if fewest != 1 else ''}"
     their = "its" if len(bodies) == 1 else "their"
     # Four times the frames halve the spread.
@@ -1102,43 +1223,6 @@ def _belief_frames_note(ctx: Any, grounded: Sequence[Any]) -> Optional[str]:
             f"sqrt(frames), to {sigma / window**0.5:.2g} m at {window} "
             "frames, so a Wait before this request makes these rollouts plan "
             f"on positions nearer the true ones{halve}.")
-
-
-def _fewest_frames(ctx: Any,
-                   grounded: Sequence[Any]) -> Optional[Tuple[List[str], int]]:
-    """The bodies a plan acts on (its steps' objects, else every noisy body)
-    that the state belief has the fewest frames of, and how many; None without
-    the belief the last observation showed."""
-    used = getattr(getattr(ctx, "current_belief", None), "frames_used", None)
-    if not used:
-        return None
-    names = [
-        obj.name for option in grounded
-        for obj in getattr(option, "objects", ()) if obj.name in used
-    ] or list(used)
-    fewest = min(used[name] for name in names)
-    return sorted({n for n in names if used[n] == fewest}), fewest
-
-
-def _belief_spread(ctx: Any,
-                   grounded: Sequence[Any]) -> Optional[Tuple[float, float]]:
-    """The position and orientation spread the state belief keeps of the bodies
-    a plan acts on: one frame's noise over the square root of the fewest frames
-    it has of them, up to ``continual_belief_window``.
-
-    None without the belief the last observation showed.
-    """
-    # pylint: disable=import-outside-toplevel
-    from predicators.observation_noise import ObservationNoise
-    from predicators.settings import CFG
-
-    # pylint: enable=import-outside-toplevel
-    found = _fewest_frames(ctx, grounded)
-    if found is None:
-        return None
-    frames = max(1, min(found[1], max(int(CFG.continual_belief_window), 1)))
-    noise = ObservationNoise.from_cfg()
-    return noise.position / frames**0.5, noise.orientation / frames**0.5
 
 
 def _skill_record(ctx: Any) -> Optional[Dict[str, Tuple[int, int]]]:
@@ -1154,13 +1238,7 @@ def _skill_record(ctx: Any) -> Optional[Dict[str, Tuple[int, int]]]:
         return None
 
 
-_Probe = TypeVar("_Probe", bound="_ProbeCore")
-
-
-# The core of the probe classes: every call but the harness fit's entry
-# points, which BeliefProbe adds. An agent can read the docstrings of the
-# core's public calls (help(sim)), so they name no harness fit.
-class _ProbeCore:
+class BeliefProbe:
     """Stateful exploration handle over the belief simulator.
 
     Typical loop::
@@ -1203,8 +1281,8 @@ class _ProbeCore:
         self._next_snapshot_id = 1
         self._refine_calls = 0
         self._belief_draw_calls = 0
-        self._instance_id = _ProbeCore._next_instance_id
-        _ProbeCore._next_instance_id += 1
+        self._instance_id = BeliefProbe._next_instance_id
+        BeliefProbe._next_instance_id += 1
         # True while the current state IS the task's unmodified initial
         # state (no mods, no rollout since reset). Gates require_solved:
         # the task evaluator's staging rules reference the true init, so
@@ -1257,10 +1335,10 @@ class _ProbeCore:
                 "omit it for the current level.")
         return ctx.train_tasks[task_idx]
 
-    def reset(self: _Probe,
+    def reset(self,
               task_idx: Optional[int] = None,
               mods: Optional[Modifications] = None,
-              current: bool = False) -> _Probe:
+              current: bool = False) -> "BeliefProbe":
         """Set the current state to a task's initial state, optionally with
         object-feature overrides applied to a copy.
 
@@ -1358,7 +1436,7 @@ class _ProbeCore:
         self._snapshots[sid] = (self._require_state().copy(), self._pristine)
         return sid
 
-    def restore(self: _Probe, snapshot_id: int) -> _Probe:
+    def restore(self, snapshot_id: int) -> "BeliefProbe":
         """Set the current state back to a snapshot."""
         self._require_state()  # follow a task change before restoring
         if snapshot_id not in self._snapshots:
@@ -1369,12 +1447,12 @@ class _ProbeCore:
         self._pristine = pristine
         return self
 
-    def drop(self: _Probe, snapshot_id: int) -> _Probe:
+    def drop(self, snapshot_id: int) -> "BeliefProbe":
         """Free a banked snapshot (they otherwise live for the session)."""
         self._snapshots.pop(snapshot_id, None)
         return self
 
-    def clear_snapshots(self: _Probe) -> _Probe:
+    def clear_snapshots(self) -> "BeliefProbe":
         """Free every banked snapshot."""
         self._snapshots.clear()
         return self
@@ -1415,6 +1493,38 @@ class _ProbeCore:
                                      is not None),
             current_level=task_idx is None)
 
+    def fit(self,
+            traj_idxs: Optional[List[int]] = None,
+            fixed: Optional[Dict[str, float]] = None,
+            path: Optional[str] = None) -> str:
+        """Fit the candidate simulator's parameters and return the report.
+
+        Synthesis sessions only (at solve time the deployed belief
+        model is fixed). With no arguments this is the CANONICAL fit -
+        the same fit the probe deploys for ``run``/``refine``, on the
+        full data - and, when ``simulator.py`` declares
+        ``AGENT_PARAM_SPECS`` on its subclass, the identified values are applied
+        to the planning base env. Passing ``traj_idxs`` (fit only those
+        trajectories' data) or ``fixed`` (pin parameters at given
+        values) makes the fit EXPLORATORY: a diagnostic report only -
+        nothing is published or applied, and the probe keeps running
+        the canonical fit. On the system-ID path ``traj_idxs`` is a
+        cross-trajectory consistency check (subset fits that disagree
+        mean heterogeneous data); ``fixed`` is rejected there - pin by
+        narrowing the param's declared bounds. Reports SSE at
+        init vs post-fit, fitted values with deltas, and (system-ID
+        path) per-parameter identifiability. The fit is the expensive
+        probe call; use deliberately.
+        """
+        ctx = self._ctx
+        _check_time_budget(ctx)
+        provider = ctx.probe_fit_provider
+        if provider is None:
+            raise RuntimeError(
+                "sim.fit is unavailable in this session: fitting happens "
+                "during learning; the solve-time belief model is fixed.")
+        return provider(path=path, traj_idxs=traj_idxs, fixed=fixed)
+
     def score(self,
               traj_idxs: Optional[List[int]] = None,
               num_particles: Optional[int] = None,
@@ -1443,14 +1553,14 @@ class _ProbeCore:
                  params: Optional[Dict[str, float]] = None) -> str:
         """Replay recorded actions at the current model's deployed parameters.
 
-        It changes no parameter value, drops no recording and takes no
-        real action. Returns errors for every selected full trajectory.
-        ``traj_idxs`` indexes the available recordings, never unseen
-        tasks. ``params`` optionally overrides named rule/physical
-        values for this diagnostic only, e.g. estimates from a subset of
-        the recordings. Keep validation data out of parameter estimation
-        and model design to call it held out. Errors are not a success
-        certificate for a future plan.
+        No fitting, segment rejection, or real actions. Returns errors
+        for every selected full trajectory, including ones a fit
+        rejected. ``traj_idxs`` indexes the available recordings, never
+        unseen tasks. ``params`` optionally overrides named
+        rule/physical values for this diagnostic only, e.g. estimates
+        from an exploratory subset fit. Exclude validation data from
+        fitting and model design to call it held out. Errors are not a
+        success certificate for a future plan.
         """
         ctx = self._ctx
         _check_time_budget(ctx)
@@ -1492,19 +1602,52 @@ class _ProbeCore:
                 f"{name}.py surface to load.")
         return loader
 
-    def _residuals(self,
-                   max_transitions: int = 100,
-                   abs_tol: float = 1e-4,
-                   rel_tol: float = 1e-3,
-                   num_worst_examples: int = 3,
-                   fit_params: bool = False,
-                   path: Optional[str] = None,
-                   rollout: bool = False,
-                   sweep_num_points: int = 6,
-                   sweep_params: Optional[Union[str, List[str]]] = None,
-                   phys_params: Optional[Dict[str, float]] = None) -> str:
-        """The report behind ``residuals``, for every argument a probe class
-        offers."""
+    def residuals(self,
+                  max_transitions: int = 100,
+                  abs_tol: float = 1e-4,
+                  rel_tol: float = 1e-3,
+                  num_worst_examples: int = 3,
+                  fit_params: bool = False,
+                  path: Optional[str] = None,
+                  rollout: bool = False,
+                  sweep_num_points: int = 6,
+                  sweep_params: Optional[Union[str, List[str]]] = None,
+                  phys_params: Optional[Dict[str, float]] = None) -> str:
+        """Per-feature residual report for the current simulator rules.
+
+        Synthesis sessions only. Loads the current simulator fresh from
+        ``simulator.py`` and reports, per feature in RESIDUAL_FEATURES,
+        mismatch counts, mean/max abs error, improvement over the
+        no-rule baseline (negative = the rules hurt), and the worst-N
+        example transitions - the fast inner loop for finding where the
+        rules disagree with the data. Uses init_value params unless
+        ``fit_params=True`` (LM-fits first; diagnostic only, nothing
+        published). Tolerance: ``|pred - obs| > rel_tol * |obs| +
+        abs_tol``. Snapshots the simulator file and tags the report
+        ``[cycle_XXX_vers_YYY]``. ``path`` scores a DIFFERENT simulator
+        file than the canonical one - use it to compare rule-set
+        candidates side by side.
+
+        ``rollout=True`` switches to the OPEN-LOOP report: free-running
+        replay of each recorded trajectory (errors compound, which the
+        teacher-forced default structurally cannot see). It is the only
+        residual view that can implicate or exonerate a physical
+        parameter; consult it before deciding the parameter
+        declaration either way. Two mutually exclusive opt-ins probe
+        the parameters themselves:
+
+        * ``sweep_params`` - a list of env-registry parameter names, or
+          ``"all"`` - sweeps each named parameter alone across its
+          plausible range (``sweep_num_points`` candidates each) and
+          reports whether the data is explained materially better at
+          another value. Slow: one fresh-env rollout per candidate per
+          motion segment, so name the suspects (or pass ``"all"`` once
+          before the declaration decision) rather than sweeping in a
+          loop.
+        * ``phys_params`` - ``{name: value}`` - scores the data at ONE
+          hypothesized point and reports the SSE ratio vs the baseline;
+          the cheap composable primitive for your own targeted sweeps.
+        """
         ctx = self._ctx
         _check_time_budget(ctx)
         provider = ctx.probe_residuals_provider
@@ -1807,21 +1950,18 @@ class _ProbeCore:
                              "frame", None)
         return mean_frame.copy() if mean_frame is not None else None
 
-    def _run_joint_draws(
-        self,
-        probe_task: Task,
-        grounded: List[Any],
-        sketch_steps: Any,
-        all_predicates: Any,
-        num_draws: int,
-        seed: Optional[int],
-        notices: List[str],
-        fresh: bool = False,
-        from_observation: Optional[bool] = None,
-        return_final: bool = False,
-        score: bool = True,
-        points: Optional[Sequence[Dict[str,
-                                       float]]] = None) -> ProbeJointResult:
+    def _run_joint_draws(self,
+                         probe_task: Task,
+                         grounded: List[Any],
+                         sketch_steps: Any,
+                         all_predicates: Any,
+                         num_draws: int,
+                         seed: Optional[int],
+                         notices: List[str],
+                         fresh: bool = False,
+                         from_observation: Optional[bool] = None,
+                         return_final: bool = False,
+                         score: bool = True) -> ProbeJointResult:
         """Rehearse the plan on ``num_draws`` joint draws of the belief.
 
         Each draw runs on a fresh env at its own physical parameters,
@@ -1837,11 +1977,6 @@ class _ProbeCore:
         current state). ``return_final`` adds each draw's final state,
         sanitized, as ``final``; ``score`` False skips the task
         evaluator.
-
-        ``points`` replaces the belief's draws with given physical
-        parameter values (see :meth:`run_points`): each runs from the
-        probe's own state at the same planner seed, so two points differ
-        in their parameters alone.
         """
         # pylint: disable=import-outside-toplevel
         import contextlib
@@ -1860,14 +1995,11 @@ class _ProbeCore:
         # So a missing or broken simulator.py refuses once, before any draw
         # or child, and the draws follow the latest edit of the file.
         self._option_model()
+        provider = ctx.joint_draws_provider
+        assert provider is not None
         if from_observation is None:
             from_observation = self._on_current_observation(probe_task.init)
-        if points is None:
-            provider = ctx.joint_draws_provider
-            assert provider is not None
-            draws = list(provider(num_draws, fresh=fresh))
-        else:
-            draws = [(dict(theta), probe_task.init.copy()) for theta in points]
+        draws = list(provider(num_draws, fresh=fresh))
         # A draw of the state belief under a noisy channel starts after a
         # quasi-static settle in its own engine (_settled).
         settle = from_observation and ObservationNoise.from_cfg().enabled
@@ -1884,19 +2016,21 @@ class _ProbeCore:
                 "sim.run(plan, draws=0).")
         names_provider = ctx.physical_param_names_provider
         physical = set(names_provider() if names_provider else ())
-        if points is not None:
-            physical.update(name for theta in points for name in theta)
         evaluator: Any = None
-        if score and ctx.probe_engine_available:
-            evaluator = task_evaluator(self._base_task)
-        prefix_states, prefix_labels = (self._episode_prefix(from_observation)
-                                        if evaluator is not None else ([], []))
+        if score and ctx.probe_engine_available and \
+                self._base_task is not None:
+            evaluator = self._base_task.evaluator
+        prefix_states: List[State] = []
+        prefix_labels: List[Any] = []
+        if evaluator is not None and from_observation and \
+                ctx.episode_prefix_provider is not None:
+            prefix_states, prefix_labels = ctx.episode_prefix_provider()
+            prefix_states = list(prefix_states)[:-1]
         base_seed = seed if seed is not None else CFG.seed
         draw_scope = ctx.joint_draw_scope
 
         def _one_draw(k: int) -> Dict[str, Any]:
             theta, start = draws[k]
-            seed_index = k if points is None else 0
             phys = {n: v for n, v in theta.items() if n in physical}
             rule = {n: v for n, v in theta.items() if n not in physical}
             solved: Optional[bool] = None
@@ -1905,13 +2039,12 @@ class _ProbeCore:
             lines_run: List[int] = []
             moving_lines: List[int] = []
             unreconstructed: List[str] = []
-            memory_written: Dict[str, str] = {}
             with (draw_scope(rule) if (rule and draw_scope is not None)
                   else contextlib.nullcontext()), \
                     (fresh_scope(physical_overrides=phys)
                      if phys else fresh_scope()), \
                     absolute_rollout_seed(seed), \
-                    decorrelated_rollout_seed(seed_index):
+                    decorrelated_rollout_seed(k):
                 model = self._option_model()
                 if settle:
                     start = _settled(getattr(model, "sim_env", None), start)
@@ -1937,8 +2070,6 @@ class _ProbeCore:
                     sketch=sketch_steps,
                     on_step=_on_step,
                     stop_on_failure=True)
-                memory_written = _memory_written(
-                    getattr(model, "sim_env", None))
                 if (collector is not None and not collector.coarse
                         and len(collector.states) > 1):
                     try:
@@ -2008,14 +2139,13 @@ class _ProbeCore:
                 "success": success,
                 "num_actions": sum(st.num_actions for st in r.steps),
                 "failure": failure,
-                "planner_seed": base_seed + seed_index,
+                "planner_seed": base_seed + k,
                 "unreconstructed": sorted(set(unreconstructed)),
-                "memory_written": memory_written,
             }
 
         prefetched = prefetch_parallel(
             [functools.partial(_one_draw, k) for k in range(len(draws))],
-            "probe joint draws" if points is None else "probe points")
+            "probe joint draws")
         results: List[Dict[str, Any]] = []
         try:
             for k in range(len(draws)):
@@ -2043,15 +2173,6 @@ class _ProbeCore:
                 f"other values of {features}, so those draws ran from another "
                 "state. Make the model set and report these features exactly, "
                 "or this rehearsal predicts from the wrong start.")
-        wrote = [d for d in results if d.get("memory_written")]
-        if wrote:
-            notices.append(
-                memory_written_note(
-                    f"In {len(wrote)} of {n} draws", {
-                        key: value
-                        for d in wrote
-                        for key, value in d["memory_written"].items()
-                    }))
         budget = ctx.execution_step_budget()
         over = [
             d for d in results if d["success"] and d["num_actions"] > budget
@@ -2068,14 +2189,13 @@ class _ProbeCore:
                 _failed_skills([d["failure"] for d in results]),
                 _skill_record(ctx),
                 _belief_frames_note(ctx, grounded)
-                if from_observation else None,
-                _belief_spread(ctx, grounded) if from_observation else None)
+                if from_observation else None)
             if motion is not None:
                 notices.append(motion)
         undeclared_provider = ctx.undeclared_param_names_provider
         undeclared = set(undeclared_provider() if undeclared_provider else ())
-        leads = ([] if points is not None or _separating_ranges(results) else
-                 _outcome_leads(results, undeclared))
+        leads = ([] if _separating_ranges(results) else _outcome_leads(
+            results, undeclared))
         return ProbeJointResult(results,
                                 p_hat,
                                 stderr,
@@ -2143,19 +2263,14 @@ class _ProbeCore:
         ``refine(require_solved=True)``, so the two evaluator-scored surfaces
         can never drift apart.
 
-        Returns the rule that judges the task (``task_evaluator``: its
-        evaluator, else its goal atoms). Raises when the current state
-        is not the task's unmodified initial state (the evaluator's
-        rules reference the true init, so any other start would give
-        silently wrong verdicts) or when the task has no goal atoms to
-        judge.
+        Returns the task evaluator. Raises when the current state is not
+        the task's unmodified initial state (the evaluator's rules
+        reference the true init, so any other start would give silently-
+        wrong verdicts) or when the task defines no evaluator.
         """
         if not self._ctx.probe_engine_available:
-            # The standalone model's session: the refusal names the flag
-            # the caller passed, and nothing the session lacks.
-            raise ValueError(
-                f"{flag} is not part of `sim` in this session: the "
-                "run_python description lists what `sim` offers here.")
+            raise ValueError("Engine evaluator replay is unavailable for a "
+                             "standalone program model.")
         if not self._pristine:
             raise ValueError(
                 f"{flag} needs the task's unmodified initial state (call "
@@ -2164,92 +2279,20 @@ class _ProbeCore:
                 "a verdict from a modified or advanced state would be "
                 "silently wrong.")
         assert self._base_task is not None
-        evaluator = task_evaluator(self._base_task)
+        evaluator = self._base_task.evaluator
         if evaluator is None:
-            raise ValueError(f"{flag}: this task has no goal atoms to judge.")
+            raise ValueError(f"{flag}: this task defines no task evaluator.")
         return evaluator
-
-    def _episode_prefix(
-            self, from_observation: bool) -> Tuple[List[State], List[Any]]:
-        """The recorded episode before the probe's start, with its labels.
-
-        A rollout from the current observation is scored after these
-        states; its own start replaces the episode's last one. Empty
-        when the probe is not on the current observation.
-        """
-        provider = self._ctx.episode_prefix_provider
-        if not from_observation or provider is None:
-            return [], []
-        states, labels = provider()
-        return list(states)[:-1], list(labels)
-
-    def _score_rollout(self, rollout: ProbeResult,
-                       from_observation: bool) -> Optional[Dict[str, bool]]:
-        """Score ``rollout`` as a rehearsal draw is scored.
-
-        The task evaluator judges the episode so far followed by the
-        rollout, up to where the episode first ends. None when it cannot
-        be scored (no engine, no evaluator, per-option states only).
-        """
-        if (not self._ctx.probe_engine_available or rollout.coarse
-                or len(rollout.states) < 2
-                or len(rollout.labels) != len(rollout.states) - 1):
-            return None
-        evaluator = task_evaluator(self._base_task)
-        if evaluator is None:
-            return None
-        prefix_states, prefix_labels = self._episode_prefix(from_observation)
-        collector = _EvalStateCollector(None, rollout.states[0])
-        collector.states = list(rollout.states)
-        collector.labels = list(rollout.labels)
-        try:
-            end = collector.first_terminal(evaluator, prefix_states)
-            upto = len(collector.states) if end is None else end
-            verdict = evaluate_states_with(
-                evaluator,
-                prefix_states + collector.states[:upto],
-                prefix_labels + collector.labels[:upto - 1],
-                sim_env=getattr(self._option_model(), "sim_env", None))
-        except Exception as e:  # pylint: disable=broad-except
-            # As for a draw: the report says nothing, the log keeps why.
-            logging.warning("Mean-rollout verdict failed: %r", e)
-            return None
-        solved = bool(verdict["solved"])
-        return {
-            "solved": solved,
-            "lost": bool(verdict["terminated"]) and not solved
-        }
-
-    def run_points(self,
-                   plan_text: str,
-                   points: Sequence[Dict[str, float]],
-                   seed: Optional[int] = None) -> List[Dict[str, Any]]:
-        """Run ``plan_text`` from the current state once per point of physical
-        parameter values, each on a fresh env at those values with every other
-        value at the planning model's.
-
-        The runs share the start state and the planner seed, so two of
-        them differ in their parameters alone. Returns one record per
-        point, a joint draw's (``params``, ``success``, ``solved``,
-        ``lost``, ``lost_line``, ``failure``); fewer when the time
-        budget ends the runs early.
-        """
-        _check_time_budget(self._ctx)
-        probe_task, sketch_steps, all_predicates, _ = \
-            self._parse_sketch(plan_text)
-        result = self._run_joint_draws(probe_task,
-                                       _grounded_steps(sketch_steps),
-                                       sketch_steps,
-                                       all_predicates,
-                                       len(points),
-                                       seed, [],
-                                       points=points)
-        return list(result.draws)
 
     def _run_rehearsal(self, plan_text: str, render: bool,
                        seed: Optional[int]) -> ProbeJointResult:
         """``run(plan)`` under the joint belief: the K joint draws, then the
         rollout from the belief mean (see :meth:`run`)."""
+        # pylint: disable-next=import-outside-toplevel
+        import numpy as np
+
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk import bilevel_sketch
         # pylint: disable-next=import-outside-toplevel
         from predicators.settings import CFG
         ctx = self._ctx
@@ -2257,9 +2300,15 @@ class _ProbeCore:
         ctx.test_call_id += 1
         probe_task, sketch_steps, all_predicates, notices = \
             self._parse_sketch(plan_text)
-        result = self._run_joint_draws(probe_task,
-                                       _grounded_steps(sketch_steps),
-                                       sketch_steps, all_predicates,
+        grounded: List[Any] = []
+        for st in sketch_steps:
+            params = (st.initial_params if st.initial_params is not None else
+                      np.array([], dtype=np.float32))
+            grounded.append(
+                bilevel_sketch.ground_step(
+                    st, np.asarray(params, dtype=np.float32)))
+        result = self._run_joint_draws(probe_task, grounded, sketch_steps,
+                                       all_predicates,
                                        int(CFG.belief_joint_draws), seed,
                                        notices)
         # The step-by-step rollout starts from the belief mean when the
@@ -2270,23 +2319,9 @@ class _ProbeCore:
                                seed=seed,
                                draws=0)
         if isinstance(result.mean, ProbeResult):
-            if any(d.get("memory_written") for d in result.draws):
-                result.mean.notes[:] = [
-                    note for note in result.mean.notes
-                    if not note.startswith(_RUN_MEMORY_LEAD)
-                ]
             beyond = _beyond_recordings(ctx, result.mean.states)
             if beyond:
                 result.notes.append(beyond)
-            faster = _faster_than_recorded(ctx, result.mean.states)
-            if faster:
-                result.notes.append(faster)
-            if CFG.continual_rehearsal_mean_verdict:
-                result.mean_verdict = self._score_rollout(
-                    result.mean, result.from_observation)
-                disagreement = _mean_disagreement_note(result)
-                if disagreement:
-                    result.notes.append(disagreement)
         if ctx.reach_note_provider is not None:
             reach = ctx.reach_note_provider()
             if reach:
@@ -2317,8 +2352,7 @@ class _ProbeCore:
                     ],
                     moving_lines=[
                         list(d.get("moving_lines") or []) for d in result.draws
-                    ],
-                    notes=list(result.notes)))
+                    ]))
             del ctx.live_rehearsals[:-_LIVE_REHEARSALS_KEPT]
         return result
 
@@ -2344,8 +2378,8 @@ class _ProbeCore:
         a fresh env and a planner seed per draw) and reports the success
         estimate P-hat with its standard error, each draw's outcome and
         the parameter ranges on which draws fail, followed by a
-        step-by-step rollout from the belief mean at the planning
-        model's values, with contacts, which advances the current state.
+        step-by-step rollout from the belief mean at the fit's point
+        estimate, with contacts, which advances the current state.
         ``draws=0`` runs only that single rollout: from the belief mean
         when the probe sits on the last real observation, else from the
         probe's state. ``draws=K`` is the rehearsal, and any other count
@@ -2418,13 +2452,13 @@ class _ProbeCore:
         +-1-sigma uncertainty range of the identified physical
         parameters - each on
         a fresh env at the base motion-planner seed, plus once at the
-        planning model's values, and returns a ``ProbeSweepResult`` with
-        per-point outcomes. Those
-        values carry real uncertainty and the true environment
+        fitted values, and returns a ``ProbeSweepResult`` with
+        per-point outcomes. The
+        fitted values carry real uncertainty and the true environment
         may sit anywhere in the range - and success can be
         NON-MONOTONIC in a physical parameter (a cascade that topples
         just above and just below some friction can fail exactly at
-        it), so ``trials=`` at those values CANNOT see this. A
+        it), so ``trials=`` at the fitted values CANNOT see this. A
         design near a feasibility boundary (e.g. the minimal block
         count) is exactly where such holes live: sweep it and add
         margin until EVERY point passes before executing it for real.
@@ -2489,17 +2523,14 @@ class _ProbeCore:
             return self._run_rehearsal(plan_text, render, seed)
         if not self._ctx.probe_engine_available and (solved or contacts
                                                      or physics_sweep):
-            # As above: the refusal names the flags the caller passed.
-            raise ValueError(
-                "sim.run takes no `solved`, `contacts` or `physics_sweep` "
-                "flag in this session: the run_python description lists "
-                "what `sim` offers here.")
+            raise ValueError("Engine diagnostics are unavailable for a "
+                             "standalone program model.")
         if trials < 1:
             raise ValueError(f"trials must be >= 1, got {trials}")
         if trials > 1 and "trials" in self._ctx.probe_disabled:
             raise RuntimeError(
-                "sim.run runs a plan once per call in this session: leave "
-                "`trials` out.")
+                "sim.run(trials>1) is unavailable in this session: run a "
+                "plan once per call.")
         if belief_draws > 0:
             self._require_available("belief")
         if "render" in self._ctx.probe_disabled:
@@ -2515,7 +2546,7 @@ class _ProbeCore:
                 "physics_sweep=True is its own mode: it varies the PHYSICS "
                 "per rollout (one deterministic rollout per parameter "
                 "point), while trials/solved/contacts measure the plan at "
-                f"the {_reference_point()}. Run them as separate calls.")
+                "the fitted values. Run them as separate calls.")
         if belief_draws < 0:
             raise ValueError(f"belief_draws must be >= 0, got {belief_draws}")
         if belief_draws > 0 and (trials > 1 or solved or contacts
@@ -2606,11 +2637,6 @@ class _ProbeCore:
             self._option_model()
             provider = ctx.physics_margin_provider
             sweep_points = list(provider() or []) if provider else []
-            if not sweep_points and CFG.agent_sim_learn_fit_invisible:
-                raise ValueError(
-                    "physics_sweep=True, but the model declares no "
-                    "physical parameter with a range to sweep. Rehearse "
-                    "the plan with sim.run(plan) instead.")
             if not sweep_points:
                 raise ValueError(
                     "physics_sweep=True, but no identified physical "
@@ -2999,7 +3025,6 @@ class _ProbeCore:
                 contact_env = env
                 contact_env.start_contact_recording()
         contact_events: List[Dict[str, Any]] = []
-        memory_written: Dict[str, str] = {}
         if seed is not None:
             notices.append(f"rollout ran at planner seed {seed} (base seed "
                            f"overridden for this call)")
@@ -3014,14 +3039,9 @@ class _ProbeCore:
                     sketch=sketch_steps,
                     on_step=_on_step,
                     stop_on_failure=True)
-                memory_written = _memory_written(
-                    getattr(model, "sim_env", None))
         finally:
             if contact_env is not None:
                 contact_events = contact_env.stop_contact_recording()
-        if memory_written:
-            notices.append(
-                memory_written_note(_RUN_MEMORY_LEAD, memory_written))
         if contact_env is not None:
             counted = sum(s["num_actions"] for s in step_dicts)
             recorded = contact_env.contact_steps_recorded
@@ -3062,8 +3082,6 @@ class _ProbeCore:
                 _failed_skills([s["failure"] for s in step_dicts]),
                 _skill_record(ctx),
                 _belief_frames_note(ctx, grounded)
-                if mean_start is not None else None,
-                _belief_spread(ctx, grounded)
                 if mean_start is not None else None)
             if motion is not None:
                 notices.append(motion)
@@ -3073,9 +3091,7 @@ class _ProbeCore:
                            stopped,
                            notices,
                            states=list(collectors[0].states),
-                           line_states=_line_states(result.steps),
-                           labels=list(collectors[0].labels),
-                           coarse=collectors[0].coarse)
+                           line_states=_line_states(result.steps))
 
     def run_policy(
         self,
@@ -3267,7 +3283,7 @@ class _ProbeCore:
         immediately.
 
         Launch several independent runs, keep working (edit the model,
-        think - even across ``run_python`` calls, handles survive
+        fit, think - even across ``run_python`` calls, handles survive
         in the namespace), then collect with ``gather``. Two semantic
         differences from ``run``: the session state does NOT advance
         (the child executes on a forked copy - a measurement, not
@@ -3683,18 +3699,19 @@ class _ProbeCore:
         elif require_goal:
             verdict = ("goal-reached - the task's goal atoms held at the "
                        "final step")
-            # Recommend the evaluator gate only when the task has a rule to
-            # judge it by: sessions without one wasted a call per session
-            # following this advice into a refusal (run_20260830, three
-            # sessions).
-            if task_evaluator(self._base_task) is not None:
+            # Recommend the evaluator gate only when the task HAS an
+            # evaluator: sessions without one wasted a call per session
+            # following this advice into "this task defines no task
+            # evaluator" (run_20260830, three sessions).
+            if (self._base_task is not None
+                    and self._base_task.evaluator is not None):
                 verdict += ("; no evaluator verdict (use "
                             "require_solved=True from a pristine reset() "
                             "for that).")
             else:
-                verdict += (" (this task has no goal atoms an evaluator "
-                            "could judge, so goal-reached is the strongest "
-                            "verdict available).")
+                verdict += (" (this task defines no evaluator, so "
+                            "goal-reached is the strongest verdict "
+                            "available).")
         else:
             verdict = ("executed - every step established its subgoal "
                        "annotation; the task goal was NOT checked (set "
@@ -3788,20 +3805,6 @@ class _ProbeCore:
 
     # ── Internals ────────────────────────────────────────────────
 
-    def __getattribute__(self, name: str) -> Any:
-        # A method the session's arm leaves out (ToolContext.probe_absent)
-        # does not exist on the probe.
-        if not name.startswith("_"):
-            ctx = object.__getattribute__(self, "__dict__").get("_ctx")
-            if name in getattr(ctx, "probe_absent", ()):
-                raise AttributeError(f"{type(self).__name__!r} object has no "
-                                     f"attribute {name!r}")
-        return object.__getattribute__(self, name)
-
-    def __dir__(self) -> List[str]:
-        absent = getattr(self._ctx, "probe_absent", ())
-        return [name for name in super().__dir__() if name not in absent]
-
     def _require_available(self, call: str) -> None:
         """Refuse a ``sim`` call this session's arm withholds."""
         if call in self._ctx.probe_disabled:
@@ -3831,164 +3834,6 @@ class _ProbeCore:
         return self._state
 
 
-class BeliefProbe(_ProbeCore):
-    """The probe with the harness fit's entry points: ``fit``, and the
-    ``fit_params`` and ``sweep_params`` modes of ``residuals``."""
-
-    def fit(self,
-            traj_idxs: Optional[List[int]] = None,
-            fixed: Optional[Dict[str, float]] = None,
-            path: Optional[str] = None) -> str:
-        """Fit the candidate simulator's parameters and return the report.
-
-        Synthesis sessions only (at solve time the deployed belief
-        model is fixed). With no arguments this is the CANONICAL fit -
-        the same fit the probe deploys for ``run``/``refine``, on the
-        full data - and, when ``simulator.py`` declares
-        ``AGENT_PARAM_SPECS`` on its subclass, the identified values are applied
-        to the planning base env. Passing ``traj_idxs`` (fit only those
-        trajectories' data) or ``fixed`` (pin parameters at given
-        values) makes the fit EXPLORATORY: a diagnostic report only -
-        nothing is published or applied, and the probe keeps running
-        the canonical fit. On the system-ID path ``traj_idxs`` is a
-        cross-trajectory consistency check (subset fits that disagree
-        mean heterogeneous data); ``fixed`` is rejected there - pin by
-        narrowing the param's declared bounds. Reports SSE at
-        init vs post-fit, fitted values with deltas, and (system-ID
-        path) per-parameter identifiability. The fit is the expensive
-        probe call; use deliberately.
-        """
-        ctx = self._ctx
-        _check_time_budget(ctx)
-        provider = ctx.probe_fit_provider
-        if provider is None:
-            raise RuntimeError(
-                "sim.fit is unavailable in this session: fitting happens "
-                "during learning; the solve-time belief model is fixed.")
-        return provider(path=path, traj_idxs=traj_idxs, fixed=fixed)
-
-    def residuals(self,
-                  max_transitions: int = 100,
-                  abs_tol: float = 1e-4,
-                  rel_tol: float = 1e-3,
-                  num_worst_examples: int = 3,
-                  fit_params: bool = False,
-                  path: Optional[str] = None,
-                  rollout: bool = False,
-                  sweep_num_points: int = 6,
-                  sweep_params: Optional[Union[str, List[str]]] = None,
-                  phys_params: Optional[Dict[str, float]] = None) -> str:
-        """Per-feature residual report for the current simulator rules.
-
-        Synthesis sessions only. Loads the current simulator fresh from
-        ``simulator.py`` and reports, per feature in RESIDUAL_FEATURES,
-        mismatch counts, mean/max abs error, improvement over the
-        no-rule baseline (negative = the rules hurt), and the worst-N
-        example transitions - the fast inner loop for finding where the
-        rules disagree with the data. Uses init_value params unless
-        ``fit_params=True`` (LM-fits first; diagnostic only, nothing
-        published). Tolerance: ``|pred - obs| > rel_tol * |obs| +
-        abs_tol``. Snapshots the simulator file and tags the report
-        ``[cycle_XXX_vers_YYY]``. ``path`` scores a DIFFERENT simulator
-        file than the canonical one - use it to compare rule-set
-        candidates side by side.
-
-        ``rollout=True`` switches to the OPEN-LOOP report: free-running
-        replay of each recorded trajectory (errors compound, which the
-        teacher-forced default structurally cannot see). It is the only
-        residual view that can implicate or exonerate a physical
-        parameter; consult it before deciding the parameter
-        declaration either way. Two mutually exclusive opt-ins probe
-        the parameters themselves:
-
-        * ``sweep_params`` - a list of env-registry parameter names, or
-          ``"all"`` - sweeps each named parameter alone across its
-          plausible range (``sweep_num_points`` candidates each) and
-          reports whether the data is explained materially better at
-          another value. Slow: one fresh-env rollout per candidate per
-          motion segment, so name the suspects (or pass ``"all"`` once
-          before the declaration decision) rather than sweeping in a
-          loop.
-        * ``phys_params`` - ``{name: value}`` - scores the data at ONE
-          hypothesized point and reports the SSE ratio vs the baseline;
-          the cheap composable primitive for your own targeted sweeps.
-        """
-        return self._residuals(max_transitions=max_transitions,
-                               abs_tol=abs_tol,
-                               rel_tol=rel_tol,
-                               num_worst_examples=num_worst_examples,
-                               fit_params=fit_params,
-                               path=path,
-                               rollout=rollout,
-                               sweep_num_points=sweep_num_points,
-                               sweep_params=sweep_params,
-                               phys_params=phys_params)
-
-
-# The probe under agent_sim_learn_fit_invisible: the core's calls, with a
-# ``residuals`` that takes the core's arguments alone. It has no ``fit``,
-# and an agent can read its docstrings, so they name none.
-class DeclaredValuesProbe(_ProbeCore):
-    """Stateful exploration handle over your simulator, which runs at the
-    values its declarations give."""
-
-    def residuals(self,
-                  max_transitions: int = 100,
-                  abs_tol: float = 1e-4,
-                  rel_tol: float = 1e-3,
-                  num_worst_examples: int = 3,
-                  path: Optional[str] = None,
-                  rollout: bool = False,
-                  phys_params: Optional[Dict[str, float]] = None) -> str:
-        """Residual report for the current simulator at its declared values.
-
-        Loads the current simulator fresh from ``simulator.py`` and
-        reports where it disagrees with the recorded data. Snapshots the
-        simulator file and tags the report ``[cycle_XXX_vers_YYY]``.
-        ``path`` scores a DIFFERENT simulator file than the canonical
-        one - use it to compare candidates side by side.
-
-        A model that is a ``RESIDUAL_ENV`` subclass gets the OPEN-LOOP
-        report: free-running replay of each recorded trajectory, where
-        errors compound. ``rollout=True`` asks for it by name.
-        ``phys_params`` - ``{name: value}`` - scores the data at ONE
-        hypothesized point and reports the SSE ratio vs the declared
-        values; the cheap composable primitive for your own targeted
-        sweeps. For a rule-form model the default report is per
-        transition: per feature in RESIDUAL_FEATURES, mismatch counts,
-        mean/max abs error and the worst-N example transitions, with the
-        tolerance ``|pred - obs| > rel_tol * |obs| + abs_tol``.
-        """
-        return self._residuals(max_transitions=max_transitions,
-                               abs_tol=abs_tol,
-                               rel_tol=rel_tol,
-                               num_worst_examples=num_worst_examples,
-                               fit_params=False,
-                               path=path,
-                               rollout=rollout,
-                               sweep_num_points=6,
-                               sweep_params=None,
-                               phys_params=phys_params)
-
-
-# The agent knows its probe as a BeliefProbe, whichever class serves it, so
-# the class's own errors (an unknown attribute or keyword) name that.
-DeclaredValuesProbe.__name__ = DeclaredValuesProbe.__qualname__ = "BeliefProbe"
-DeclaredValuesProbe.residuals.__qualname__ = "BeliefProbe.residuals"
-
-
-def probe_class_name() -> str:
-    """The name the session's agent knows its probe class by: it is bound in
-    the ``run_python`` namespace and makes extra independent instances."""
-    # pylint: disable-next=import-outside-toplevel
-    from predicators.settings import CFG
-    if CFG.continual_point_values_only:
-        # pylint: disable-next=import-outside-toplevel
-        from predicators.agent_sdk.point_probe import PROBE_NAME
-        return PROBE_NAME
-    return "BeliefProbe"
-
-
 def build_probe_namespace(ctx: "ToolContext") -> Dict[str, Any]:
     """The persistent ``run_python`` namespace (solve sessions).
 
@@ -4009,19 +3854,7 @@ def build_probe_namespace(ctx: "ToolContext") -> Dict[str, Any]:
 
     # pylint: disable-next=import-outside-toplevel
     from predicators.agent_sdk.tools.digests import render_trajectory_digest
-    # pylint: disable-next=import-outside-toplevel
-    from predicators.settings import CFG
     all_trajs = list(ctx.offline_trajectories) + list(ctx.online_trajectories)
-    probe_cls: Callable[["ToolContext"],
-                        Any] = (DeclaredValuesProbe
-                                if CFG.agent_sim_learn_fit_invisible else
-                                BeliefProbe)
-    if CFG.continual_point_values_only:
-        # The arm at one value per parameter holds a probe without the
-        # calls built on a belief.
-        # pylint: disable-next=import-outside-toplevel
-        from predicators.agent_sdk.point_probe import SimProbe
-        probe_cls = SimProbe
 
     def describe_trajectory(traj_idx: int,
                             include_states: bool = True,
@@ -4036,8 +3869,8 @@ def build_probe_namespace(ctx: "ToolContext") -> Dict[str, Any]:
                                         max_timesteps=max_timesteps)
 
     return {
-        "sim": probe_cls(ctx),
-        probe_class_name(): lambda: probe_cls(ctx),
+        "sim": BeliefProbe(ctx),
+        "BeliefProbe": lambda: BeliefProbe(ctx),
         "np": np,
         "trajectories": all_trajs,
         "describe_trajectory": describe_trajectory,
