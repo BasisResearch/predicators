@@ -1,10 +1,14 @@
 """Hidden object types (CFG.excluded_objects_in_state_str) stay out of every
-listing the agent reads: dict_str, pretty_str and the task digest."""
-from typing import Tuple
+listing the agent reads: dict_str, pretty_str, the task digest, the
+observation's belief block and a raw-control policy's observation."""
+from types import SimpleNamespace
+from typing import Any, Tuple
 
 import numpy as np
 
 from predicators import utils
+from predicators.agent_sdk.primitive_policy import primitive_observation
+from predicators.agent_sdk.tools.continual_tools import belief_object_lines
 from predicators.agent_sdk.tools.digests import render_task_digest
 from predicators.structs import Object, State, Task, Type, \
     excluded_object_type_names
@@ -34,6 +38,26 @@ def test_listings_hide_excluded_types() -> None:
     digest = render_task_digest(Task(state, set()), 0, [])
     assert "Objects: [fan_1:fan]" in digest
     assert "switch_1" not in digest
+    # The belief block smooths every object but lists only the shown ones.
+    belief = SimpleNamespace(frames_used={
+        "fan_1": 3,
+        "switch_1": 3
+    },
+                             object_line=lambda obj: f"{obj.name}: smoothed")
+    assert belief_object_lines(state, belief) == ["  fan_1: smoothed"]
+    # So does the observation a raw-control policy reads.
+    obs = SimpleNamespace(
+        frame=state,
+        level=SimpleNamespace(task=SimpleNamespace(goal_nl="")),
+        state=SimpleNamespace(value="NOT_FINISHED"),
+        ledger=SimpleNamespace(episode_steps=0, run_steps=0,
+                               steps_remaining=9))
+    session: Any = SimpleNamespace(observe=lambda: obs, action_spec={})
+    assert set(primitive_observation(session)["objects"]) == {"fan_1"}
+    utils.reset_config({})
+    assert set(
+        primitive_observation(session)["objects"]) == {"fan_1", "switch_1"}
+    assert len(belief_object_lines(state, belief)) == 2
     del fan_1
 
 
