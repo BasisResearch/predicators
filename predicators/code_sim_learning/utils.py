@@ -542,10 +542,7 @@ def stamp_physical_spec_scales(specs: List, base_env: Any) -> List:
     declared box narrower than it is widened to cover it, so the fit,
     the belief and the physics sweep keep at least that range for a
     parameter the recordings do not test (a scene base bound for the
-    from-assets arm names one for every engine material). A log-scale
-    box keeps its declared positive low end when the plausible range
-    starts at zero: a log scale cannot reach zero, and its low end
-    already stands for the values near it.
+    from-assets arm names one for every engine material).
     """
     getter = getattr(base_env, "get_physical_param_info", None)
     info = getter() if callable(getter) else {}
@@ -556,9 +553,8 @@ def stamp_physical_spec_scales(specs: List, base_env: Any) -> List:
         lo, hi = s.lo, s.hi
         plausible = entry.get("plausible")
         if plausible is not None:
-            floor = float(plausible[0])
-            if lo is not None and (scale != "log" or floor > 0):
-                lo = min(lo, floor)
+            if lo is not None:
+                lo = min(lo, float(plausible[0]))
             if hi is not None:
                 hi = max(hi, float(plausible[1]))
         stamped.append(

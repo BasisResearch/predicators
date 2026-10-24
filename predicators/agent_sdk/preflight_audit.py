@@ -22,7 +22,7 @@ from predicators.agent_sdk.restoration import restoration_report
 from predicators.agent_sdk.tools.budget import suspend_budget_watchdog
 from predicators.agent_sdk.tools.context import absolute_rollout_seed
 from predicators.agent_sdk.tools.verdicts import _EvalStateCollector, \
-    evaluate_states_with, task_evaluator
+    evaluate_states_with
 from predicators.run.interaction import ExecutePlan, ExecutePolicy, \
     ExecuteSkill, ExecutionProgress, ExecutionRequest, PrimitiveAction, \
     RequestReset
@@ -186,7 +186,7 @@ class PreflightAudit:
             prefix = episodes[-1]
             joined = list(prefix["states"][:-1]) + states
             joined_labels = step_option_labels(prefix["actions"]) + labels
-            evaluator = task_evaluator(task)
+            evaluator = task.evaluator
             if evaluator is None:
                 row["evaluation_status"] = "unavailable"
                 return

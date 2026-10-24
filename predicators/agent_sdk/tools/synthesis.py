@@ -345,7 +345,6 @@ def create_synthesis_tools(
     cycle_index_provider: Optional[Callable[[], int]] = None,
     budget_check: Optional[Callable[[], None]] = None,
     probe_surface: Optional[ProbeSurface] = None,
-    output_observer: Optional[Callable[[str], None]] = None,
 ) -> SynthesisToolkit:
     """Create the sim-learning synthesis agent's tool surface.
 
@@ -428,8 +427,6 @@ def create_synthesis_tools(
             (the rollout-residuals sweep) call it between rollouts so a
             budget stop returns the partial report instead of burning
             the rest of the attempt. ``None`` disables the checks.
-        output_observer: Called with the text of each ``run_python``
-            result as the agent is given it, or ``None``.
     """
     # pylint: disable=import-outside-toplevel
     import traceback  # pylint: disable=redefined-outer-name,reimported
@@ -1094,7 +1091,6 @@ def create_synthesis_tools(
         # in-call sweep is stopped with its partial output returned
         # instead of silently eating hours of the learn session.
         call_timeout_s=CFG.agent_sdk_synthesis_python_call_timeout,
-        output_observer=output_observer,
     )
 
     # ── run_fit (the ``sim.fit`` backend) ───────────────────────
@@ -1155,27 +1151,14 @@ def create_synthesis_tools(
                         "its lo/hi bounds in the declaration instead "
                         "(versioned in simulator.py, respected by the "
                         "whole fit stack).")
-            # pylint: disable=import-outside-toplevel
-            from predicators.code_sim_learning.model_state import \
-                memory_written_note
-            from predicators.code_sim_learning.rollout_env import \
-                clear_memory_written, memory_written_in_rollouts
-
-            # pylint: enable=import-outside-toplevel
-            clear_memory_written()
-            report = _evaluate_rollout_fit(rules,
-                                           specs,
-                                           physical_specs or [],
-                                           latent_init,
-                                           residual_features,
-                                           scope_note,
-                                           version_tag,
-                                           traj_idxs=traj_idxs)
-            written = memory_written_in_rollouts()
-            if written:
-                report += "\n\n" + memory_written_note(
-                    "In this fit's rollouts", written)
-            return report
+            return _evaluate_rollout_fit(rules,
+                                         specs,
+                                         physical_specs or [],
+                                         latent_init,
+                                         residual_features,
+                                         scope_note,
+                                         version_tag,
+                                         traj_idxs=traj_idxs)
 
         if fixed:
             known = {s.name for s in specs}

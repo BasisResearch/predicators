@@ -33,7 +33,6 @@ from predicators.agent_sdk.tools import SYNTHESIS_TOOL_NAMES, \
     _SnapshotTarget, evaluate_states_with, finalize_versioned_snapshot, \
     make_write_snapshot_hook, restored_version
 from predicators.agent_sdk.tools.digests import render_trajectory_digest
-from predicators.agent_sdk.tools.verdicts import task_evaluator
 from predicators.approaches.agent_base_approach import AgentBaseApproach
 from predicators.approaches.synthesis_validation import \
     build_candidate_option_model, carry_over_params, edited_declarations
@@ -2319,8 +2318,7 @@ class AgentSimLearningApproach(AgentBaseApproach):
 
         The returned function is the task's reward model: it scores a
         concrete state sequence with the task's env-defined
-        ``TaskEvaluator`` (for a task without one, the goal-atom rule
-        its real episodes use) and returns the public triple (dict of
+        ``TaskEvaluator`` and returns the public triple (dict of
         reward/solved/note) - never the evaluator itself, and never the
         certificate's internal legitimacy verdict or reason (the agent
         infers the scoring rules from the stated objective and the
@@ -2370,10 +2368,10 @@ class AgentSimLearningApproach(AgentBaseApproach):
             """
             if physics_sweep and not CFG.continual_uncertainty_decisions:
                 raise ValueError("Explicit uncertainty sweeps are disabled.")
-            evaluator = task_evaluator(self._level_task(task_idx))
+            evaluator = self._level_task(task_idx).evaluator
             if evaluator is None:
                 which = "(current level)" if task_idx is None else task_idx
-                raise ValueError(f"Task {which} has no goal atoms to judge.")
+                raise ValueError(f"Task {which} defines no task evaluator.")
             if not states:
                 raise ValueError("`states` must be a non-empty sequence.")
             step_options: Optional[Sequence[Any]] = None
@@ -2481,26 +2479,15 @@ class AgentSimLearningApproach(AgentBaseApproach):
             logger.warning("No simulator file at %s.", path)
             return None, None, None, None
 
-        # The file runs as a module would, with its __file__ and from its
-        # own folder. The agent's run_python loads it from the sandbox,
-        # where relative paths such as reference/scene/ resolve; the
-        # harness also loads it after a session, at the test-level gate
-        # and in its checks, and must see the same files there.
-        path = os.path.abspath(path)
         ns: Dict[str, Any] = dict(self._simulator_load_namespace())
         ns["trajectories"] = trajectories or []
-        ns["__file__"] = path
         with open(path, "r", encoding="utf-8") as f:
             code = f.read()
-        prev_cwd = os.getcwd()
         try:
-            os.chdir(os.path.dirname(path))
-            exec(compile(code, path, "exec"), ns)  # pylint: disable=exec-used
+            exec(code, ns)  # pylint: disable=exec-used
         except Exception:  # pylint: disable=broad-except
             logger.warning("Failed to exec %s.", path, exc_info=True)
             return None, None, None, None
-        finally:
-            os.chdir(prev_cwd)
 
         rules, specs, features = read_simulator_components(ns)
         residual_env_cls = read_residual_env(ns)
