@@ -8,10 +8,8 @@ the self-contained ``VALIDATE_SANDBOX_SCRIPT`` Bash/file-path hook.
 # pylint: disable=protected-access
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
-import re
 import subprocess
 import sys
 
@@ -19,11 +17,7 @@ from predicators.agent_sdk.sandbox_setup import VALIDATE_SANDBOX_SCRIPT, \
     sandbox_settings
 from predicators.agent_sdk.tools.results import _make_spilling_text_result
 from predicators.agent_sdk.tools.sandbox_guard import \
-    SANDBOX_ALLOWED_MODULES, SANDBOX_ALLOWED_MODULES_PATTERN, \
-    SANDBOX_ALLOWED_PACKAGES, SANDBOX_EXTRA_MODULES, \
-    SANDBOX_MODEL_FILE_MODULES, _screen_text_for_sandbox_escape, \
-    agent_code_import_refusal, allowed_modules_pattern, \
-    model_file_import_refusal
+    _screen_text_for_sandbox_escape
 
 # (text, should_block) — exercised against both the in-process screen and
 # the live hook script (as a Bash command).
@@ -119,181 +113,6 @@ def test_screen_without_sandbox_dir_still_guards_hidden_state() -> None:
     ]:
         assert _screen_text_for_sandbox_escape(text, None) is not None, text
     assert _screen_text_for_sandbox_escape("open('/etc/hosts')", None) is None
-
-
-# Agent Python that names a predicators module off the sandbox's list:
-# (code, the name the refusal carries). Python only: the Bash hook leaves
-# these to the python guard every ``python3`` loads, which refuses the
-# import itself.
-_UNAVAILABLE = [
-    ("import predicators.code_sim_learning.physical_sysid",
-     "predicators.code_sim_learning.physical_sysid"),
-    ("import predicators.code_sim_learning.physical_sysid as sysid",
-     "predicators.code_sim_learning.physical_sysid"),
-    ("from predicators.code_sim_learning.parameter_belief import "
-     "BeliefConfig", "predicators.code_sim_learning.parameter_belief"),
-    ("from predicators.code_sim_learning import scene_loader",
-     "predicators.code_sim_learning.scene_loader"),
-    ("from predicators.code_sim_learning.fit_space import ParamSpec",
-     "predicators.code_sim_learning.fit_space"),
-    ("from predicators.code_sim_learning.commands import ApplyForce",
-     "predicators.code_sim_learning.commands"),
-    ("from predicators.pybullet_helpers.motion_planning import "
-     "run_motion_planning", "predicators.pybullet_helpers.motion_planning"),
-    ("from predicators.pybullet_helpers import motion_planning",
-     "predicators.pybullet_helpers.motion_planning"),
-    ("from predicators.pybullet_helpers import (\n    geometry,\n"
-     "    motion_planning,\n)",
-     "predicators.pybullet_helpers.motion_planning"),
-    ("from predicators.pybullet_helpers import \\\n    controllers",
-     "predicators.pybullet_helpers.controllers"),
-    ("import predicators.approaches", "predicators.approaches"),
-    ("from predicators import approaches", "predicators.approaches"),
-    ("from predicators import utils, approaches as a",
-     "predicators.approaches"),
-    ("import numpy, predicators.agent_sdk.belief_probe",
-     "predicators.agent_sdk.belief_probe"),
-    ("from predicators.agent_sdk.belief_probe import BeliefProbe",
-     "predicators.agent_sdk.belief_probe"),
-    ("if True:\n    import predicators.observation_noise",
-     "predicators.observation_noise"),
-    ("import importlib\n"
-     "m = importlib.import_module('predicators.code_sim_learning.fitting')",
-     "predicators.code_sim_learning.fitting"),
-    ('m = __import__("predicators.code_sim_learning.lm")',
-     "predicators.code_sim_learning.lm"),
-    ('import sys\n'
-     'm = sys.modules["predicators.code_sim_learning.physical_sysid"]',
-     "predicators.code_sim_learning.physical_sysid"),
-    ("import sys\n"
-     "m = sys.modules.get('predicators.code_sim_learning.orchestrator')",
-     "predicators.code_sim_learning.orchestrator"),
-    ("import predicators\n"
-     "sse = predicators.code_sim_learning.fitting.compute_sse",
-     "predicators.code_sim_learning.fitting.compute_sse"),
-    ("exec('import predicators.option_model')", "predicators.option_model"),
-]
-# Agent Python that stays on the list.
-_AVAILABLE = [
-    "import predicators",
-    "import predicators.structs",
-    "import predicators.utils as utils",
-    "from predicators import utils",
-    "from predicators import structs, utils",
-    "from predicators.structs import State, Type",
-    "from predicators.structs import (\n    Object,\n    State,\n)",
-    "from predicators.utils import PyBulletState",
-    "from predicators.settings import CFG",
-    "from predicators.pybullet_helpers.geometry import Pose",
-    "from predicators.pybullet_helpers import geometry, joint",
-    "import predicators.third_party.fast_downward_translator.pddl as pddl",
-    "import importlib\nm = importlib.import_module('predicators.structs')",
-    "import sys\nm = sys.modules['predicators.utils']",
-    "s = predicators.structs.State({})",
-    "import pybullet, numpy, scipy.optimize",
-    "import pickle\n"
-    "with open('./data/trajectories.pkl', 'rb') as f:\n"
-    "    episodes = pickle.load(f)",
-    "open('./notes/predicators.txt').read()",
-    "print('the predicators package')",
-]
-
-
-def test_screen_refuses_predicators_modules_off_the_list(tmp_path) -> None:
-    """``run_python`` code runs in the harness process, where every module is
-    loaded, so its text is the barrier: any spelling that names a predicators
-    module off the allowlist is refused, with a reason that names the module
-    and says nothing about what it is for."""
-    sandbox = str(tmp_path)
-    for text, name in _UNAVAILABLE:
-        for sandbox_dir in (sandbox, None):
-            reason = _screen_text_for_sandbox_escape(text, sandbox_dir)
-            assert reason == (f"{name} is not available in the sandbox; use "
-                              "./reference/ and the tools"), text
-    for text in _AVAILABLE:
-        assert _screen_text_for_sandbox_escape(text, sandbox) is None, text
-        assert agent_code_import_refusal(text) is None, text
-    # The hidden modules keep their own reason, in every spelling.
-    for text in [
-            "from predicators import envs",
-            "m = __import__('predicators.envs.pybullet_fan')",
-            "import sys\nm = sys.modules['predicators.ground_truth_models']",
-            "import importlib\nm = importlib.import_module("
-            "'predicators.code_sim_learning.base_simulator')",
-    ]:
-        reason = _screen_text_for_sandbox_escape(text, sandbox)
-        assert reason is not None and "the sandbox hides" in reason, text
-
-
-def test_allowed_modules_pattern_is_exact() -> None:
-    """The shared pattern admits the listed modules and the vendored tree, and
-    nothing beside them: no sibling of a listed module, and no name that only
-    starts like one."""
-    allowed = re.compile(SANDBOX_ALLOWED_MODULES_PATTERN)
-    for name in SANDBOX_ALLOWED_MODULES + SANDBOX_EXTRA_MODULES + (
-            "predicators.third_party",
-            "predicators.third_party.fast_downward_translator.pddl.actions",
-    ):
-        assert allowed.fullmatch(name), name
-    for name in [
-            "predicators.structs2",
-            "predicators.utils.extra",
-            "predicators.pybullet_helpers.motion_planning",
-            "predicators.pybullet_helpers.robots",
-            "predicators.code_sim_learning.fit_space",
-            "predicators.code_sim_learning.commands",
-            "predicators.code_sim_learning.scene_loader",
-            "predicators.agent_sdk.belief_probe",
-            "predicators.third_party_extra",
-            "predicators.approaches",
-            "predicatorsXstructs",
-    ]:
-        assert not allowed.fullmatch(name), name
-    # The text screen needs to know which listed names are packages.
-    for name in SANDBOX_ALLOWED_MODULES + SANDBOX_EXTRA_MODULES:
-        spec = importlib.util.find_spec(name)
-        assert spec is not None, name
-        is_package = spec.submodule_search_locations is not None
-        assert is_package == (name in SANDBOX_ALLOWED_PACKAGES), name
-    # An arm's own extra modules are admitted exactly as well.
-    wider = re.compile(
-        allowed_modules_pattern(["predicators.pybullet_helpers.link"]))
-    assert wider.fullmatch("predicators.pybullet_helpers.link")
-    assert not wider.fullmatch("predicators.pybullet_helpers.links")
-    assert not allowed.fullmatch("predicators.pybullet_helpers.link")
-
-
-def test_model_file_screen_admits_the_two_imports_agents_are_shown() -> None:
-    """A model file may import ``ParamSpec`` and the physics commands, as the
-    model contract and the engine wrapper show; every other module is refused
-    as in ``run_python``."""
-    for text in [
-            "from predicators.code_sim_learning.fit_space import ParamSpec",
-            "from predicators.code_sim_learning.commands import ApplyForce, "
-            "Attach, SetVelocity",
-            "from predicators.code_sim_learning import commands",
-            "import predicators.code_sim_learning.commands as commands",
-            "from predicators.structs import State",
-    ]:
-        assert model_file_import_refusal(text) is None, text
-    for module in SANDBOX_MODEL_FILE_MODULES:
-        assert agent_code_import_refusal(f"import {module}") is not None
-    for text, name in [
-        ("from predicators.code_sim_learning import fitting",
-         "predicators.code_sim_learning.fitting"),
-        ("from predicators.code_sim_learning.physical_sysid import x",
-         "predicators.code_sim_learning.physical_sysid"),
-        ("from predicators.code_sim_learning.scene_loader import LoadedScene",
-         "predicators.code_sim_learning.scene_loader"),
-        ("import predicators.pybullet_helpers.motion_planning",
-         "predicators.pybullet_helpers.motion_planning"),
-    ]:
-        assert model_file_import_refusal(text) == (
-            f"{name} is not available in the sandbox; use ./reference/ and "
-            "the tools"), text
-    hidden = model_file_import_refusal(
-        "from predicators.envs.pybullet_env import PyBulletEnv")
-    assert hidden is not None and "the sandbox hides" in hidden
 
 
 # Bash-only: forms that would start a python without the sitecustomize

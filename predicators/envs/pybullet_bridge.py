@@ -385,6 +385,12 @@ class PyBulletBridgeEnv(PyBulletBridgeBaseEnv):
         # check in check_episode_trajectory.
         return {self._Bridged}
 
+    # Settle duration for the episode certificate below: three actions'
+    # worth of physics. An unsupported span in free fall leaves the
+    # 1.5 cm NextToEnd z-window within a single action's substeps
+    # (~3.4 cm of drop), so this carries ample margin.
+    _GOAL_SETTLE_SUBSTEPS: ClassVar[int] = 60
+
     def episode_terminated(self, observations: Sequence[Observation]) -> bool:
         """Let the robot withdraw before certifying a candidate bridge.
 
@@ -470,12 +476,7 @@ class PyBulletBridgeEnv(PyBulletBridgeBaseEnv):
         if not ok:
             return ok, reason
         before = self._certificate_snapshot()
-        # An unsupported span in free fall leaves the 1.5 cm NextToEnd
-        # z-window within a single action's substeps (~3.4 cm of drop),
-        # so three actions' worth already carries ample margin for that;
-        # see settings.bridge_goal_settle_substeps for the longer settle.
-        settle_substeps = CFG.bridge_goal_settle_substeps
-        for substep in range(settle_substeps):
+        for substep in range(self._GOAL_SETTLE_SUBSTEPS):
             p.stepSimulation(physicsClientId=self._physics_client_id)
             if (substep + 1) % CFG.pybullet_sim_steps_per_action == 0:
                 self._relax_resting_welds()
@@ -489,7 +490,7 @@ class PyBulletBridgeEnv(PyBulletBridgeBaseEnv):
             json.dumps({
                 "before": before,
                 "after": after,
-                "substeps": settle_substeps,
+                "substeps": self._GOAL_SETTLE_SUBSTEPS,
                 "accepted": not missing,
             }))
         if missing:

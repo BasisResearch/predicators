@@ -33,10 +33,6 @@ from predicators.agent_sdk.tools import SYNTHESIS_TOOL_NAMES, \
     _SnapshotTarget, evaluate_states_with, finalize_versioned_snapshot, \
     make_write_snapshot_hook, restored_version
 from predicators.agent_sdk.tools.digests import render_trajectory_digest
-from predicators.agent_sdk.tools.reward_model import level_task, \
-    score_trajectory, trajectory_step_options
-from predicators.agent_sdk.tools.sandbox_guard import model_file_import_refusal
-from predicators.agent_sdk.tools.verdicts import task_evaluator
 from predicators.approaches.agent_base_approach import AgentBaseApproach
 from predicators.approaches.synthesis_validation import \
     build_candidate_option_model, carry_over_params, edited_declarations
@@ -71,7 +67,8 @@ from predicators.observation_noise import ObservationNoise
 from predicators.option_model import _OptionModelBase, _OracleOptionModel
 from predicators.settings import CFG
 from predicators.structs import Action, DerivedPredicate, GroundAtom, \
-    LowLevelTrajectory, ParameterizedOption, Predicate, State, Task, Type
+    LowLevelTrajectory, ParameterizedOption, Predicate, State, Task, Type, \
+    step_option_labels
 
 logger = logging.getLogger(__name__)
 
@@ -541,11 +538,6 @@ class AgentSimLearningApproach(AgentBaseApproach):
     # _rehydrate_from_artifacts.
 
     _save_suffix: str = "AgentSimLearner"
-
-    # Why the last ``simulator.py`` read was not loaded: a predicators
-    # module it names that the sandbox does not offer (see
-    # _model_file_import_refusal). None when the file passed.
-    _model_import_refusal: Optional[str] = None
 
     _CHECKPOINT_SANDBOX_FILES: Tuple[str,
                                      ...] = ("simulator.py", "predicates.py",
@@ -1126,7 +1118,10 @@ class AgentSimLearningApproach(AgentBaseApproach):
             rules, specs, _, ns = self._load_simulator_from_module_file(
                 simulator_file, trajectories)
             if rules is None or specs is None:
-                raise RuntimeError(self._simulator_load_failure())
+                raise RuntimeError(
+                    "run_python probe: ./simulator.py failed to load "
+                    "(exec error or missing simulator exports) - "
+                    "fix the file and probe again.")
             # The candidate's rule parameters, which the joint belief
             # covers beside AGENT_PARAM_SPECS (see parameter_belief). As
             # for the subclass form (_choose_starting_values), the fitted
@@ -1169,10 +1164,7 @@ class AgentSimLearningApproach(AgentBaseApproach):
             # back as an empty "param fitting failed:").
             model, params = build_candidate_option_model(
                 self, rules, specs, latent_init=latent_init)
-            if CFG.agent_sim_learn_fit_invisible:
-                status = ("at the declared values of the current "
-                          "simulator.py")
-            elif CFG.agent_sim_learn_declared_params_only:
+            if CFG.agent_sim_learn_declared_params_only:
                 status = ("at the DECLARED values of the current "
                           "simulator.py (harness parameter estimation is "
                           "disabled in this run)")
@@ -2308,8 +2300,17 @@ class AgentSimLearningApproach(AgentBaseApproach):
         bound). Defaulting to index 0 scored test-level plans against
         the first training level's goal.
         """
-        return level_task(self._train_tasks, self._tool_context.current_task,
-                          task_idx)
+        if task_idx is None:
+            current = self._tool_context.current_task
+            if current is not None:
+                return current
+            task_idx = 0
+        tasks = self._train_tasks
+        if not 0 <= task_idx < len(tasks):
+            raise ValueError(f"task_idx {task_idx} out of range "
+                             f"(0-{len(tasks) - 1}, the levels reached so "
+                             "far; omit it for the current level).")
+        return tasks[task_idx]
 
     def _make_evaluate_trajectory_fn(self) -> Any:
         """Build the ``evaluate_trajectory`` helper exposed in the synthesis
@@ -2317,8 +2318,7 @@ class AgentSimLearningApproach(AgentBaseApproach):
 
         The returned function is the task's reward model: it scores a
         concrete state sequence with the task's env-defined
-        ``TaskEvaluator`` (for a task without one, the goal-atom rule
-        its real episodes use) and returns the public triple (dict of
+        ``TaskEvaluator`` and returns the public triple (dict of
         reward/solved/note) - never the evaluator itself, and never the
         certificate's internal legitimacy verdict or reason (the agent
         infers the scoring rules from the stated objective and the
@@ -2368,19 +2368,33 @@ class AgentSimLearningApproach(AgentBaseApproach):
             """
             if physics_sweep and not CFG.continual_uncertainty_decisions:
                 raise ValueError("Explicit uncertainty sweeps are disabled.")
-            task = self._level_task(task_idx)
-            # The one scoring path of every arm's helper; the baselines
-            # call it with no engine (tools/reward_model.py).
-            result = score_trajectory(
-                task,
-                states,
-                actions,
-                sim_env=getattr(self._option_model, "sim_env", None),
-                which="(current level)" if task_idx is None else task_idx)
+            evaluator = self._level_task(task_idx).evaluator
+            if evaluator is None:
+                which = "(current level)" if task_idx is None else task_idx
+                raise ValueError(f"Task {which} defines no task evaluator.")
+            if not states:
+                raise ValueError("`states` must be a non-empty sequence.")
+            step_options: Optional[Sequence[Any]] = None
+            if actions is not None:
+                acts = list(actions)
+                if acts and isinstance(acts[0], Action):
+                    step_options = step_option_labels(acts)
+                else:
+                    step_options = acts
+            verdict = evaluate_states_with(evaluator,
+                                           list(states),
+                                           step_options,
+                                           sim_env=getattr(
+                                               self._option_model, "sim_env",
+                                               None))
+            result = {
+                "reward": verdict["reward"],
+                "solved": verdict["solved"],
+                "note": verdict.get("note", ""),
+            }
             if physics_sweep:
                 result["sweep"] = self._sweep_evaluation(
-                    task_evaluator(task), list(states),
-                    trajectory_step_options(actions))
+                    evaluator, list(states), step_options)
             return result
 
         return evaluate_trajectory
@@ -2443,28 +2457,6 @@ class AgentSimLearningApproach(AgentBaseApproach):
             "BaseSimulator": base_simulator_class(getattr(CFG, "env", "")),
         }
 
-    def _model_file_import_refusal(self, code: str) -> Optional[str]:
-        """Why ``simulator.py`` text may not load, for the predicators modules
-        it names; ``None`` when it may.
-
-        The file runs in the harness process, where every module is
-        loaded, so the sandbox's import guard does not see it. Every
-        loader of the file asks here first. An arm whose model file the
-        harness writes itself overrides this.
-        """
-        return model_file_import_refusal(code)
-
-    def _simulator_load_failure(self) -> str:
-        """What the probe tells the agent when ``./simulator.py`` did not
-        load."""
-        if self._model_import_refusal is not None:
-            return ("run_python probe: ./simulator.py was not loaded: "
-                    f"sandbox guard: {self._model_import_refusal}. Remove "
-                    "that import and probe again.")
-        return ("run_python probe: ./simulator.py failed to load "
-                "(exec error or missing simulator exports) - "
-                "fix the file and probe again.")
-
     def _load_simulator_from_module_file(
         self,
         path: str,
@@ -2487,31 +2479,15 @@ class AgentSimLearningApproach(AgentBaseApproach):
             logger.warning("No simulator file at %s.", path)
             return None, None, None, None
 
-        # The file runs as a module would, with its __file__ and from its
-        # own folder. The agent's run_python loads it from the sandbox,
-        # where relative paths such as reference/scene/ resolve; the
-        # harness also loads it after a session, at the test-level gate
-        # and in its checks, and must see the same files there.
-        path = os.path.abspath(path)
         ns: Dict[str, Any] = dict(self._simulator_load_namespace())
         ns["trajectories"] = trajectories or []
-        ns["__file__"] = path
         with open(path, "r", encoding="utf-8") as f:
             code = f.read()
-        self._model_import_refusal = self._model_file_import_refusal(code)
-        if self._model_import_refusal is not None:
-            logger.warning("Simulator file %s not loaded: %s.", path,
-                           self._model_import_refusal)
-            return None, None, None, None
-        prev_cwd = os.getcwd()
         try:
-            os.chdir(os.path.dirname(path))
-            exec(compile(code, path, "exec"), ns)  # pylint: disable=exec-used
+            exec(code, ns)  # pylint: disable=exec-used
         except Exception:  # pylint: disable=broad-except
             logger.warning("Failed to exec %s.", path, exc_info=True)
             return None, None, None, None
-        finally:
-            os.chdir(prev_cwd)
 
         rules, specs, features = read_simulator_components(ns)
         residual_env_cls = read_residual_env(ns)

@@ -14,16 +14,6 @@ FLAGS:
   llm_openai_max_response_tokens: 1e6
   terminate_on_goal_reached: false
   pybullet_ik_validate: false
-  pybullet_solver_residual_threshold: 0.0
-  # Rules of the world and the harness that hold for every arm, so that
-  # no arm is judged or limited differently from another: a raw action
-  # may move an arm joint only as far as the robot can in one step,
-  # give_up is refused on a training level (which can always be reset),
-  # and an episode that ends while bodies still move keeps recording
-  # until they rest.
-  continual_raw_step_limit: true
-  continual_refuse_training_give_up: true
-  continual_record_until_rest: true
   num_train_tasks: 1
   num_test_tasks: 1
   video_fps: 20

@@ -15,8 +15,7 @@ from predicators.agent_sdk.tools.exploration import ProbeSurface, \
 from predicators.agent_sdk.tools.python_exec import _make_python_exec_tool
 from predicators.agent_sdk.tools.results import _make_coercing_tool, \
     _make_spilling_text_result
-from predicators.agent_sdk.tools.sandbox_guard import agent_traceback, \
-    model_file_import_refusal
+from predicators.agent_sdk.tools.sandbox_guard import _scrub_host_paths
 from predicators.agent_sdk.tools.snapshots import _ArtifactSnapshotter
 
 # A trimmed segment scoring within this factor of the trimming
@@ -346,7 +345,6 @@ def create_synthesis_tools(
     cycle_index_provider: Optional[Callable[[], int]] = None,
     budget_check: Optional[Callable[[], None]] = None,
     probe_surface: Optional[ProbeSurface] = None,
-    output_observer: Optional[Callable[[str], None]] = None,
 ) -> SynthesisToolkit:
     """Create the sim-learning synthesis agent's tool surface.
 
@@ -429,10 +427,9 @@ def create_synthesis_tools(
             (the rollout-residuals sweep) call it between rollouts so a
             budget stop returns the partial report instead of burning
             the rest of the attempt. ``None`` disables the checks.
-        output_observer: Called with the text of each ``run_python``
-            result as the agent is given it, or ``None``.
     """
     # pylint: disable=import-outside-toplevel
+    import traceback  # pylint: disable=redefined-outer-name,reimported
     from collections import defaultdict
 
     from claude_agent_sdk import tool as _sdk_tool
@@ -515,22 +512,12 @@ def create_synthesis_tools(
                 "ParamSpec": ParamSpec,
                 "BaseSimulator": base_simulator_class(getattr(CFG, "env", ""))
             })
-        # The file runs in this process, past the sandbox's import guard,
-        # so its text is screened for the predicators modules it names.
-        # The bound approach decides (a supplied model is exempt).
-        screen = getattr(approach, "_model_file_import_refusal",
-                         model_file_import_refusal)
-        refusal = screen(raw.decode("utf-8"))
-        if refusal is not None:
-            return None, None, None, None, None, version_tag, (
-                f"[{version_tag}] {path} was not loaded: sandbox guard: "
-                f"{refusal}. Remove that import.")
         try:
             exec(raw.decode("utf-8"), ns)  # pylint: disable=exec-used
         except Exception:  # pylint: disable=broad-except
             return None, None, None, None, None, version_tag, (
                 f"[{version_tag}] Error executing {path}:\n"
-                f"{agent_traceback()}")
+                f"{_scrub_host_paths(traceback.format_exc())}")
         rules, specs, features = read_simulator_components(ns)
         latent_init = read_latent_init(ns)
         physical_specs = read_physical_param_specs(ns)
@@ -1057,10 +1044,9 @@ def create_synthesis_tools(
                       "call.")
     values_phrase = ("at its current fit"
                      if surface.fit else "at its deployed values")
-    sweep_owner = "declared" if surface.fit_invisible else "identified"
     sweep_phrase = (
         "; physics_sweep=True also scores it at every point of the "
-        f"{sweep_owner} parameters' belief interval and reports the fraction "
+        "identified parameters' belief interval and reports the fraction "
         "scored solved" if surface.uncertainty else "")
     eval_signature = ("evaluate_trajectory(states, actions=None, "
                       "task_idx=None, physics_sweep=False) -> {reward, "
@@ -1105,7 +1091,6 @@ def create_synthesis_tools(
         # in-call sweep is stopped with its partial output returned
         # instead of silently eating hours of the learn session.
         call_timeout_s=CFG.agent_sdk_synthesis_python_call_timeout,
-        output_observer=output_observer,
     )
 
     # ── run_fit (the ``sim.fit`` backend) ───────────────────────
@@ -1166,27 +1151,14 @@ def create_synthesis_tools(
                         "its lo/hi bounds in the declaration instead "
                         "(versioned in simulator.py, respected by the "
                         "whole fit stack).")
-            # pylint: disable=import-outside-toplevel
-            from predicators.code_sim_learning.model_state import \
-                memory_written_note
-            from predicators.code_sim_learning.rollout_env import \
-                clear_memory_written, memory_written_in_rollouts
-
-            # pylint: enable=import-outside-toplevel
-            clear_memory_written()
-            report = _evaluate_rollout_fit(rules,
-                                           specs,
-                                           physical_specs or [],
-                                           latent_init,
-                                           residual_features,
-                                           scope_note,
-                                           version_tag,
-                                           traj_idxs=traj_idxs)
-            written = memory_written_in_rollouts()
-            if written:
-                report += "\n\n" + memory_written_note(
-                    "In this fit's rollouts", written)
-            return report
+            return _evaluate_rollout_fit(rules,
+                                         specs,
+                                         physical_specs or [],
+                                         latent_init,
+                                         residual_features,
+                                         scope_note,
+                                         version_tag,
+                                         traj_idxs=traj_idxs)
 
         if fixed:
             known = {s.name for s in specs}
@@ -1472,18 +1444,12 @@ def create_synthesis_tools(
         scope_str = "; ".join(f"{t}: {', '.join(fs)}"
                               for t, fs in sorted(scope.items()))
         rms_str = ", ".join(f"{r:.4g}" for r in seg_rms)
-        if loaded_native_model:
-            point_note = ("the current RESIDUAL_ENV at deployed parameter "
-                          "values. ")
-        elif CFG.agent_sim_learn_fit_invisible:
-            point_note = ("the base sim with the current historical rules "
-                          "(rule params at init_value; physical params at "
-                          "registry baselines). ")
-        else:
-            point_note = (
-                "the base sim with the current historical rules "
-                "(rule params at init_value; physical params at registry "
-                "baselines, NOT any already-applied fit). ")
+        point_note = (
+            "the current RESIDUAL_ENV at deployed parameter values. "
+            if loaded_native_model else
+            "the base sim with the current historical rules "
+            "(rule params at init_value; physical params at registry "
+            "baselines, NOT any already-applied fit). ")
         lines = [
             f"[{version_tag}] OPEN-LOOP ROLLOUT residual report - each "
             "recorded trajectory's actions replayed free-running from its "
@@ -1496,9 +1462,8 @@ def create_synthesis_tools(
             f"Scope (every feature with observed motion, independent of "
             f"RESIDUAL_FEATURES): {scope_str}.",
             "Residuals are normalized (angles wrapped), Huber-capped, with "
-            "endpoint/onset summary terms" +
-            ("." if CFG.agent_sim_learn_fit_invisible else
-             " - the same objective the system-ID fit minimizes."),
+            "endpoint/onset summary terms - the same objective the "
+            "system-ID fit minimizes.",
             "",
             f"Rollout SSE at current baselines: {baseline_sse:.6f}",
             f"Per-segment RMS at current baselines: [{rms_str}]  "
@@ -1524,11 +1489,9 @@ def create_synthesis_tools(
                 if better >= ratio_bar:
                     lines.append(
                         f"The data is {better:.1f}x better explained at "
-                        "this point than at the baseline - strong evidence " +
-                        ("FOR the overridden value(s)." if CFG.
-                         agent_sim_learn_fit_invisible else
-                         "FOR declaring the overridden parameter(s) in "
-                         "PHYSICAL_PARAM_SPECS."))
+                        "this point than at the baseline - strong evidence "
+                        "FOR declaring the overridden parameter(s) in "
+                        "PHYSICAL_PARAM_SPECS.")
                 elif worse >= ratio_bar:
                     lines.append(
                         f"The data is {worse:.1f}x WORSE explained at "
@@ -1621,33 +1584,7 @@ def create_synthesis_tools(
                     "reported above are complete; still unswept: "
                     f"{remaining} - re-run with sweep_params={remaining} "
                     "if their evidence is still needed.")
-        if CFG.agent_sim_learn_fit_invisible:
-            # This arm's report offers the one-point score alone.
-            lines.append("")
-            if phys_params:
-                lines.append(
-                    "How to read this: replay divergence is chaotic, so the "
-                    "SSE never reaches 0 even at perfect parameters - "
-                    "compare ratios, not absolutes (the run's consistency "
-                    f"bar is {ratio_bar:g}x). A value that explains the "
-                    "data materially better is one to write into the "
-                    "declaration.")
-            else:
-                lines.append("No parameter point requested. Parameters this "
-                             "data could be tested against:")
-                for name in sorted(sweepable):
-                    entry = sweepable[name]
-                    lines.append(
-                        f"  {name}: baseline {float(entry['default']):.4g}, "
-                        f"box [{float(entry['lo']):.4g}, "
-                        f"{float(entry['hi']):.4g}] "
-                        f"({entry.get('scale', 'linear')} scale)")
-                lines.append(
-                    "An absolute rollout SSE is meaningless under chaotic "
-                    "replay divergence - only ratios between parameter "
-                    "values carry evidence. Pass phys_params={name: value} "
-                    "to score one hypothesized point against the baseline.")
-        elif selected or phys_params:
+        if selected or phys_params:
             lines.extend([
                 "",
                 "How to read this: replay divergence is chaotic, so the "
@@ -1774,11 +1711,9 @@ def create_synthesis_tools(
             if err:
                 return str(err)
             if not rollout and (sweep_params is not None or phys_params):
-                names = ("phys_params applies"
-                         if CFG.agent_sim_learn_fit_invisible else
-                         "sweep_params/phys_params apply")
-                return (f"[{version_tag}] Error: {names} to the open-loop "
-                        "report only - pass rollout=True.")
+                return (f"[{version_tag}] Error: sweep_params/phys_params "
+                        "apply to the open-loop report only - pass "
+                        "rollout=True.")
             native_model = loaded_native_model
             if not rollout and (native_model or has_physics_rules(rules)):
                 # Command-emitting rules act through engine stepping,
@@ -2053,12 +1988,9 @@ def create_synthesis_tools(
         fit_state = approach._probe_fit_state()
         with open(simulator_file, "rb") as stream:
             digest = hashlib.sha256(stream.read()).hexdigest()
-        if CFG.agent_sim_learn_fit_invisible:
-            status = f"declared values ({version})"
-        elif fit_state.get("digest") == digest:
-            status = format_fit_status(fit_state)
-        else:
-            status = f"UNFITTED ({version}); carried/declared values"
+        status = (format_fit_status(fit_state)
+                  if fit_state.get("digest") == digest else
+                  f"UNFITTED ({version}); carried/declared values")
         if params is not None:
             status += "; explicit diagnostic overrides (nothing deployed)"
         return f"[{version}] " + replay_report(approach._get_rollout_fit_env(),
