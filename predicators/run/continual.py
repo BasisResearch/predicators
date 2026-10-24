@@ -1482,8 +1482,6 @@ class ContinualRun:
                 rec.reward if rec is not None else None,
                 "terminated":
                 rec.terminated if rec is not None else None,
-                "after_end":
-                int(ep.get("after_end", 0)),
             })
         return out
 
@@ -1533,8 +1531,6 @@ class ContinualRun:
                 r.reward if r is not None else None,
                 "terminated":
                 r.terminated if r is not None else None,
-                "after_end":
-                int(ep.get("after_end", 0)),
             })
         return out
 
@@ -1770,7 +1766,6 @@ class ContinualRun:
             lv.steps_before_first_win = lv.steps
             lv.resets_before_first_win = lv.resets
         self._close_episode("win", runner.evaluate())
-        self._record_until_rest(runner)
         render = self.render(f"ep{self._episode_index():03d}_win")
         self._terminal_index({
             "event": "win",
@@ -1786,7 +1781,6 @@ class ContinualRun:
         reason = runner.reason
         lv.game_overs.append(reason)
         self._close_episode(f"game_over:{reason}", runner.evaluate())
-        self._record_until_rest(runner)
         # With no reset available the level is over: lost (4.6).
         lost = not self.resets_allowed()
         if lost:
@@ -1806,27 +1800,6 @@ class ContinualRun:
             lv.index + 1, reason, lv.steps,
             "; the level has no resets, so it is lost" if lost else "")
         self._flush()
-
-    def _record_until_rest(self, runner: EpisodeRunner) -> None:
-        """Under ``continual_record_until_rest``, append the frames of the
-        ended episode's bodies coming to rest to its recording (see
-        ``EpisodeRunner.settle``).
-
-        They are not level steps.
-        """
-        if not CFG.continual_record_until_rest or not self._level_episodes:
-            return
-        states, actions = runner.settle(
-            CFG.continual_record_until_rest_max_steps)
-        if not states:
-            return
-        episode = self._level_episodes[-1]
-        episode["after_end"] = episode.get("after_end", 0) + len(states)
-        episode["states"].extend(states)
-        episode["actions"].extend(actions)
-        logging.info(
-            "[Continual] recorded %d frames after the episode ended, "
-            "until its bodies came to rest", len(states))
 
     # -- Episode records -------------------------------------------------
 

@@ -1,7 +1,6 @@
 """Tests for the continual-protocol play tools over a real session on the cover
 env, driven directly (no SDK)."""
 import asyncio
-import dataclasses
 import glob
 import json
 import logging
@@ -17,13 +16,10 @@ from predicators import observation_noise, utils
 from predicators.agent_sdk.belief_probe import BeliefProbe
 from predicators.agent_sdk.play_prompts import build_model_contract, \
     build_play_query, build_play_system_prompt, render_data_status
-from predicators.agent_sdk.tools.claim_check import ClaimCheck
-from predicators.agent_sdk.tools.context import LiveRehearsal, ToolContext, \
-    mark_notes_shown
-from predicators.agent_sdk.tools.continual_tools import \
-    ALL_CONTINUAL_TOOL_NAMES, CONTINUAL_TOOL_NAMES, PRIMITIVE_TOOL_NAMES, \
-    PlayState, build_continual_tools, context_status, format_observation, \
-    parse_plan_lines, play_tool_names
+from predicators.agent_sdk.tools.context import LiveRehearsal, ToolContext
+from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES, \
+    PRIMITIVE_TOOL_NAMES, PlayState, build_continual_tools, context_status, \
+    format_observation, parse_plan_lines, play_tool_names
 from predicators.approaches import create_approach
 from predicators.approaches.agent_continual_approach import \
     AgentContinualModelFreeApproach
@@ -908,119 +904,6 @@ def test_rehearsal_gate_waits_for_a_joint_rehearsal_of_the_request(
     ContinualRun(env, approach, driver).run()
 
 
-def test_a_reset_training_level_waits_as_a_test_level_does(
-        tmp_path: Any) -> None:
-    """Under the practise gate a skill request on a reset training level needs
-    the model and a rehearsal, raw control needs the model, and the refusals
-    charge nothing; the first attempt is free, and a low P-hat passes."""
-    env, approach, ctx = _setup(tmp_path)
-    plan = _oracle_plan_text(approach, env.get_train_tasks()[0].task)
-    line = plan.splitlines()[0]
-    driver = _Driver()
-
-    def body(session: ProtocolSession) -> None:
-        tools = build_continual_tools(ctx,
-                                      session,
-                                      PlayState(),
-                                      save_render=lambda tag: None,
-                                      tool_names=ALL_CONTINUAL_TOOL_NAMES)
-        ready = [False]
-
-        def practising() -> bool:
-            return session.observe().ledger.level_resets >= 1
-
-        def skill_gate() -> Optional[str]:
-            return "Write a model." if practising() and not ready[0] else None
-
-        ctx.practise_gate = practising
-        ctx.skill_gate = skill_gate
-        ctx.live_rehearsals.clear()
-        out = _call(tools, "skills_invoke", skill=line)
-        assert "rehearse this" not in out and "Write a model" not in out
-        assert session.observe().ledger.level_steps > 0
-        _call(tools, "env_reset")
-        steps = session.observe().ledger.run_steps
-        ctx.current_observation = session.observe().frame
-        action = [0.0] * session.action_space.shape[0]
-        for out in (_call(tools, "skills_invoke",
-                          skill=line), _call(tools, "env_step",
-                                             action=action)):
-            assert "Write a model." in out and "Nothing was charged" in out
-        ready[0] = True
-        out = _call(tools, "skills_invoke", skill=line)
-        assert "reset without a win: rehearse this" in out
-        assert session.observe().ledger.run_steps == steps
-        ctx.live_rehearsals.append(
-            LiveRehearsal(ctx.current_observation, plan, 0.0))
-        out = _call(tools, "skills_invoke", skill=line)
-        assert "rehearse this" not in out
-        assert session.observe().ledger.run_steps > steps
-        ctx.practise_gate = None
-        ctx.skill_gate = None
-
-    driver.body = body
-    ContinualRun(env, approach, driver).run()
-
-
-def test_claim_check_holds_a_request_until_a_record_closes(
-        tmp_path: Any) -> None:
-    """A due claim check refuses a skill request for nothing; a record lets it
-    through; on a test level an open record holds the step."""
-    env, approach, ctx = _setup(tmp_path, continual_claim_check_resets=1)
-    line = _oracle_plan_text(approach,
-                             env.get_train_tasks()[0].task).splitlines()[0]
-    driver = _Driver()
-    record = {
-        "claim": "c",
-        "rules_out": "r",
-        "direct_tests": [{
-            "recording": 0,
-            "what": "w"
-        }],
-        "what_varied": "nothing",
-        "rival": "v",
-        "next_experiment": "e",
-        "predictions": {
-            "claim": "a",
-            "rival": "b"
-        },
-    }
-
-    def body(session: ProtocolSession) -> None:
-        tools = build_continual_tools(ctx,
-                                      session,
-                                      PlayState(),
-                                      save_render=lambda tag: None,
-                                      tool_names=ALL_CONTINUAL_TOOL_NAMES)
-        out = _call(tools, "claims_record", **record)
-        assert out.startswith("ERROR") and "No claim check runs" in out
-        ctx.claim_check = ClaimCheck()
-        ctx.recording_count = lambda: 1
-        ctx.live_rehearsals.clear()
-        _call(tools, "env_reset")
-        steps = session.observe().ledger.run_steps
-        out = _call(tools, "skills_invoke", skill=line)
-        assert "Claim check:" in out and "Nothing was charged" in out
-        out = _call(tools, "skills_execute_plan", plan=line)
-        assert "Claim check:" in out
-        assert session.observe().ledger.run_steps == steps
-        assert "Recorded as 0" in _call(tools, "claims_record", **record)
-        out = _call(tools, "skills_invoke", skill=line)
-        assert "Claim check:" not in out
-        assert session.observe().ledger.run_steps > steps
-        out = _call(tools,
-                    "claims_resolve",
-                    id=0,
-                    verdict="refuted",
-                    result="x")
-        assert "resolved" in out
-        ctx.claim_check = None
-        ctx.recording_count = None
-
-    driver.body = body
-    ContinualRun(env, approach, driver).run()
-
-
 def _wait_option() -> utils.SingletonParameterizedOption:
     """A one-step Wait skill for the cover env, whose actions place nothing
     where no block is held."""
@@ -1065,130 +948,6 @@ def test_rehearsal_gate_lets_the_wait_lines_that_end_a_request_through(
         assert session.observe().ledger.level_steps == 0
         assert not refused(line + "\nWait()[25]\nWait()[5]")
         assert session.observe().ledger.level_steps > 0
-        ctx.rehearsal_gate = None
-
-    driver.body = body
-    ContinualRun(env, approach, driver).run()
-
-
-def _moving(frame: Any) -> Any:
-    """``frame`` with a body the belief sees moving."""
-    state = frame.copy()
-    state.simulator_state = {
-        "body_velocities": {
-            "block0": ((0.1, 0.0, 0.0), (0.0, 0.0, 0.0))
-        }
-    }
-    return state
-
-
-def test_the_safe_plan_gate_reads_the_whole_plan(tmp_path: Any) -> None:
-    """Under continual_rehearsal_safe_plan, a draw lost at any line of the plan
-    refuses the request, charging nothing; a plan no draw loses passes, and so
-    does a Wait request."""
-    env, approach, ctx = _setup(tmp_path)
-    ctx.options = set(ctx.options) | {_wait_option()}
-    lines = _oracle_plan_text(approach,
-                              env.get_train_tasks()[0].task).splitlines()
-    assert len(lines) >= 2
-    plan = lines[0] + "\n" + lines[1]
-    driver = _Driver()
-
-    def body(session: ProtocolSession) -> None:
-        utils.update_config({"continual_rehearsal_safe_plan": True})
-        ctx.rehearsal_gate = lambda: True
-        ctx.live_rehearsals.clear()
-        ctx.current_observation = session.observe().frame
-        tools = build_continual_tools(ctx,
-                                      session,
-                                      PlayState(),
-                                      save_render=lambda tag: None)
-
-        def refused(lost_lines: List[Optional[int]]) -> bool:
-            ctx.live_rehearsals.append(
-                LiveRehearsal(ctx.current_observation,
-                              plan,
-                              0.5,
-                              lost_lines=lost_lines))
-            out = _call(tools, "skills_invoke", skill=lines[0])
-            return ("draws of this plan's rehearsal end the episode" in out
-                    and "Nothing was charged" in out)
-
-        # One lost draw, on a line the request does not reach yet.
-        assert refused([1, None, None, None])
-        assert session.observe().ledger.level_steps == 0
-        assert "GAME_OVER" not in _call(tools,
-                                        "skills_execute_plan",
-                                        plan="Wait()[1]")
-        assert not refused([None] * 4)
-        assert session.observe().ledger.level_steps > 0
-        utils.update_config({"continual_rehearsal_safe_plan": False})
-        ctx.rehearsal_gate = None
-
-    driver.body = body
-    ContinualRun(env, approach, driver).run()
-
-
-def test_the_still_start_gate_waits_for_rest(tmp_path: Any,
-                                             monkeypatch: Any) -> None:
-    """Under continual_rehearsal_still_start, a new plan is refused while the
-    belief sees a body moving, unless Wait lines alone lose more draws, and any
-    plan passes after continual_rehearsal_still_wait steps."""
-    env, approach, ctx = _setup(tmp_path)
-    ctx.options = set(ctx.options) | {_wait_option()}
-    line = _oracle_plan_text(approach,
-                             env.get_train_tasks()[0].task).splitlines()[0]
-    driver = _Driver()
-
-    def body(session: ProtocolSession) -> None:
-        utils.update_config({
-            "continual_rehearsal_still_start": True,
-            "continual_rehearsal_safe_plan": True,
-            "continual_rehearsal_still_wait": 3,
-        })
-        ctx.rehearsal_gate = lambda: True
-        ctx.live_rehearsals.clear()
-        real_observe = session.observe
-
-        def observe() -> Any:
-            obs = real_observe()
-            return dataclasses.replace(obs, frame=_moving(obs.frame))
-
-        monkeypatch.setattr(session, "observe", observe)
-        ctx.current_observation = session.observe().frame
-        tools = build_continual_tools(ctx,
-                                      session,
-                                      PlayState(),
-                                      save_render=lambda tag: None)
-        ctx.live_rehearsals.append(
-            LiveRehearsal(ctx.current_observation,
-                          line,
-                          0.5,
-                          lost_lines=[None, 0]))
-
-        def request() -> str:
-            return _call(tools, "skills_invoke", skill=line)
-
-        out = request()
-        assert "a body is moving" in out and "Nothing was charged" in out
-        # Waiting loses every draw, this plan only one: it is the safer
-        # choice, under both gates.
-        ctx.live_rehearsals.insert(
-            0,
-            LiveRehearsal(ctx.current_observation,
-                          "Wait()[5]",
-                          0.0,
-                          lost_lines=[0, 0]))
-        assert session.observe().ledger.level_steps == 0
-        out = request()
-        assert "a body is moving" not in out
-        assert "draws of this plan's rehearsal" not in out
-        assert session.observe().ledger.level_steps > 0
-        utils.update_config({
-            "continual_rehearsal_still_start": False,
-            "continual_rehearsal_safe_plan": False,
-            "continual_rehearsal_still_wait": 120,
-        })
         ctx.rehearsal_gate = None
 
     driver.body = body
@@ -1270,67 +1029,6 @@ def test_the_game_over_gate_refuses_a_request_its_draws_lose(
         assert not refused([2, 2, 2, 0])
         assert session.observe().ledger.level_steps > 0
         utils.update_config({"continual_rehearsal_game_over_gate": 0.0})
-        ctx.rehearsal_gate = None
-
-    driver.body = body
-    ContinualRun(env, approach, driver).run()
-
-
-def test_the_notes_gate_shows_a_rehearsal_s_unseen_notes_once(
-        tmp_path: Any) -> None:
-    """Under continual_rehearsal_notes_gate, a rehearsed request whose
-    rehearsal ended with notes no output given to the agent showed in full is
-    refused once, charging nothing, with the notes in the refusal, and the
-    request sent again runs; a rehearsal whose notes an output showed lets its
-    request through at once, and with the flag off nothing is refused."""
-    env, approach, ctx = _setup(tmp_path)
-    lines = _oracle_plan_text(approach,
-                              env.get_train_tasks()[0].task).splitlines()
-    assert len(lines) >= 2
-    driver = _Driver()
-
-    def body(session: ProtocolSession) -> None:
-        utils.update_config({"continual_rehearsal_notes_gate": True})
-        ctx.rehearsal_gate = lambda: True
-        ctx.live_rehearsals.clear()
-        ctx.shown_notes.clear()
-        tools = build_continual_tools(ctx,
-                                      session,
-                                      PlayState(),
-                                      save_render=lambda tag: None)
-
-        def rehearse(plan: str, note: str) -> None:
-            ctx.current_observation = session.observe().frame
-            ctx.live_rehearsals.append(
-                LiveRehearsal(ctx.current_observation, plan, 0.9,
-                              notes=[note]))
-
-        warning = "The rollout from the belief mean ends in GAME_OVER."
-        rehearse("\n".join(lines), warning)
-        out = _call(tools, "skills_invoke", skill=lines[0])
-        assert out.startswith("ERROR") and "(P-hat 0.90)" in out
-        assert f"NOTE: {warning}" in out and "Nothing was charged" in out
-        assert session.observe().ledger.level_steps == 0
-        out = _call(tools, "skills_invoke", skill=lines[0])
-        assert "Nothing was charged" not in out
-        steps = session.observe().ledger.level_steps
-        assert steps > 0
-        # Printed in full before the request: it runs at once. A note cut
-        # short does not count as shown.
-        rehearse("\n".join(lines[1:]), "No recording tests the model there.")
-        mark_notes_shown(ctx.live_rehearsals, ctx.shown_notes,
-                         "NOTE: No recording tests the model")
-        assert "No recording tests the model there." not in ctx.shown_notes
-        mark_notes_shown(
-            ctx.live_rehearsals, ctx.shown_notes,
-            "P-hat 0.9\nNOTE: No recording tests the model there.")
-        out = _call(tools, "skills_execute_plan", plan=lines[1])
-        assert "Nothing was charged" not in out
-        assert session.observe().ledger.level_steps > steps
-        utils.update_config({"continual_rehearsal_notes_gate": False})
-        rehearse(lines[1], "A note nobody printed.")
-        out = _call(tools, "skills_invoke", skill=lines[1])
-        assert "no output of yours has shown" not in out
         ctx.rehearsal_gate = None
 
     driver.body = body
@@ -1447,75 +1145,6 @@ def test_predictive_check_scores_a_request_against_its_rehearsal(
             assert "came from the prior" in out
         if case == "edited":
             assert "an earlier simulator.py" in out
-        ctx.scored_features_provider = None
-        ctx.prediction_basis_provider = None
-
-    driver.body = body
-    ContinualRun(env, approach, driver).run()
-
-
-@pytest.mark.parametrize("case", ["continues", "interrupted"])
-def test_predictive_check_follows_a_plan_run_over_several_requests(
-        tmp_path: Any, caplog: Any, case: str) -> None:
-    """A request that continues the plan of the request before it, with nothing
-    run in between, is scored against the same rehearsal's draws at the line it
-    reaches: a Wait run on its own after the rehearsed line is checked where
-    the plan put the scene, as if the plan had run as one request.
-
-    Any other request in between ends the continuation, and the Wait is
-    then not scored.
-    """
-    env, approach, ctx = _setup(tmp_path)
-    first_task = env.get_train_tasks()[0].task
-    line = _oracle_plan_text(approach, first_task).splitlines()[0]
-    ctx.options = set(ctx.options) | {_wait_option()}
-    driver = _Driver()
-
-    def body(session: ProtocolSession) -> None:
-        ctx.live_rehearsals.clear()
-        start = session.observe().frame
-        target = next(o for o in start if o.type.name == "target")
-        # The targets never move: the draws put them right after the
-        # line, and 0.2 off after the Wait that follows it.
-        predicted: List[List[Optional[State]]] = []
-        for jitter in (-0.01, 0.0, 0.01, 0.005):
-            after_line, after_wait = start.copy(), start.copy()
-            pose = start.get(target, "pose")
-            after_line.set(target, "pose", pose + jitter)
-            after_wait.set(target, "pose", pose + 0.2 + jitter)
-            predicted.append([after_line, after_wait])
-        ctx.scored_features_provider = lambda: {"target": ["pose"]}
-        ctx.prediction_basis_provider = lambda: (
-            "program", max(2.0, ctx.predictive_temperature))
-        ctx.live_rehearsals.append(
-            LiveRehearsal(start, line + "\nWait()[5]", 0.9, predicted,
-                          ("program", 2.0)))
-        tools = build_continual_tools(ctx,
-                                      session,
-                                      PlayState(),
-                                      save_render=lambda tag: None)
-        with caplog.at_level(logging.INFO):
-            first = _call(tools, "skills_invoke", skill=line)
-            if case == "interrupted":
-                _call(tools, "skills_invoke", skill="Wait()[1]")
-            second = _call(tools, "skills_invoke", skill="Wait()[5]")
-        logged = [
-            r.getMessage() for r in caplog.records
-            if r.getMessage().startswith("Prediction check: worst")
-        ]
-        assert "Prediction check" not in first
-        if case == "continues":
-            assert len(logged) == 2
-            assert ("Prediction check: this outcome, which continues the "
-                    "rehearsed plan from its line 2 to its line 2, lies "
-                    "outside the rehearsal's draws") in second
-            assert f"{target.name}.pose is" in second
-            assert ctx.predictive_program == "program"
-            assert ctx.predictive_temperature > 2.0 * 50
-        else:
-            assert len(logged) == 1
-            assert "Prediction check" not in second
-            assert ctx.predictive_temperature == 1.0
         ctx.scored_features_provider = None
         ctx.prediction_basis_provider = None
 

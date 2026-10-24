@@ -43,10 +43,6 @@ TOOL_BLURBS = {
     "skills_execute_plan":
     "a plan, one line per skill, executed in order; stops at a failed "
     "skill, a divergence (unless told not to), a WIN or a GAME_OVER.",
-    "claims_record":
-    "the belief a step leans on, when a claim check asks for it. Free.",
-    "claims_resolve":
-    "closes a claim record with what its experiment showed. Free.",
     "run_python":
     "code in the sandbox with the `sim` probe over your model files "
     "(`sim.fit`, `sim.residuals`, `sim.run`, `sim.refine`, ...). Free.",
@@ -126,8 +122,7 @@ def build_play_system_prompt(tool_names: Sequence[str],
                              oracle_dynamics: bool = False,
                              scene_built: bool = False,
                              scene_package: bool = False,
-                             fit_gate: bool = False,
-                             agent_belief: bool = False) -> str:
+                             fit_gate: bool = False) -> str:
     """The system prompt of the run's conversation.
 
     The tool surface selects the variant: an arm with ``run_python``
@@ -159,11 +154,7 @@ def build_play_system_prompt(tool_names: Sequence[str],
     listing instead; for the model-free arm it adds that listing as
     plain files to use however the agent likes, with no simulator.
     ``fit_gate`` (EMPIRIC from assets) says the test-level gate also
-    waits for a fit of the current ``simulator.py``. ``agent_belief`` (EMPIRIC
-    from assets with the agent's own parameter belief) gives a scene-built
-    arm with no harness fit the from-assets arm statement for an agent that
-    estimates its parameters and supplies their draws, and the predictive
-    check's statement for draws the harness never tempers.
+    waits for a fit of the current ``simulator.py``.
     """
     names = set(tool_names)
     model = "run_python" in names
@@ -196,10 +187,8 @@ def build_play_system_prompt(tool_names: Sequence[str],
         sections.append(frozen_section)
     if scene_built:
         sections.append(
-            render(
-                "play_system", "arm_from_assets"
-                if fit_available else "arm_from_assets_agent_belief"
-                if agent_belief else "arm_real_to_sim"))
+            render("play_system",
+                   "arm_from_assets" if fit_available else "arm_real_to_sim"))
     # The joint belief replaces trials / solved / belief_draws with one
     # rehearsal over its K joint draws (paper Section 3.3).
     joint = (int(CFG.belief_joint_draws) > 0 and not point_estimate
@@ -271,35 +260,14 @@ def build_play_system_prompt(tool_names: Sequence[str],
                        "model_gate_fit" if fit_gate else "model_gate"))
         if CFG.continual_rehearsal_gate and joint:
             sections.append(render("play_system", "rehearsal_gate"))
-            if CFG.continual_rehearsal_win_first:
-                sections.append(render("play_system", "rehearsal_win_first"))
             if CFG.continual_rehearsal_game_over_gate > 0.0:
                 sections.append(
                     render(
                         "play_system",
                         "rehearsal_game_over_gate",
                         share=f"{CFG.continual_rehearsal_game_over_gate:.0%}"))
-            if CFG.continual_rehearsal_safe_plan:
-                sections.append(render("play_system", "rehearsal_safe_plan"))
-            if CFG.continual_rehearsal_still_start:
-                sections.append(
-                    render("play_system",
-                           "rehearsal_still_start",
-                           wait=str(CFG.continual_rehearsal_still_wait)))
-        if CFG.continual_practise_after_reset and joint:
-            sections.append(render("play_system", "practise_after_reset"))
-        if CFG.continual_claim_check:
-            sections.append(
-                render("play_system",
-                       "claim_check",
-                       resets=str(CFG.continual_claim_check_resets),
-                       win=f"{CFG.continual_claim_check_win_p_hat:.2f}",
-                       low=f"{CFG.continual_claim_check_low_p_hat:.2f}"))
         if CFG.continual_predictive_check and joint:
-            sections.append(
-                render(
-                    "play_system", "predictive_check_agent_belief"
-                    if agent_belief else "predictive_check"))
+            sections.append(render("play_system", "predictive_check"))
         if CFG.continual_skill_preflight:
             sections.append(render("play_system", "skill_preflight"))
         if CFG.agent_model_repair and not frozen:
@@ -433,7 +401,6 @@ def build_model_contract(
     supplied_model: bool = False,
     scene_built: bool = False,
     sampled_materials: bool = False,
-    agent_belief: bool = False,
 ) -> str:
     """The contract of the model files, for the model arm's system prompt
     (``play_model_contract.md``).
@@ -454,9 +421,7 @@ def build_model_contract(
     undeclared (as far as the recordings allow, under
     ``belief_material_lines``) and a declared material keeps at least its
     plausible range; otherwise undeclared materials keep the scene's
-    values. ``agent_belief`` (with ``declared_params_only``) replaces the
-    no-harness-fitting section with the contract of ``PARAM_DRAWS``, the
-    agent's own parameter draws.
+    values.
     """
     if supplied_model:
         parts = [
@@ -509,12 +474,7 @@ def build_model_contract(
                 if declared_params_only else "observation_noise"))
     if physical_params_section:
         parts.append(physical_params_section)
-    if declared_params_only and agent_belief:
-        parts.append(
-            render("play_model_contract",
-                   "agent_belief_draws",
-                   num_draws=str(int(CFG.belief_joint_draws))))
-    elif declared_params_only:
+    if declared_params_only:
         # Without uncertainty decisions the declared ranges drive nothing.
         parts.append(
             render(
