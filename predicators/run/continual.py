@@ -564,6 +564,9 @@ class ContinualRun:
         self._level_episodes: List[Dict[str, Any]] = []
         self._current: Optional[int] = None
         self._replaying = False
+        # While a resume applies the steps its action log holds past the
+        # checkpoint: they are charged and recorded, but already logged.
+        self._logged_tail = False
         # While a skill runs, terminal index entries wait until after the
         # invocation's own entry so the index reads in order.
         self._in_invocation = False
@@ -674,11 +677,13 @@ class ContinualRun:
                     raise RunEnded("all_levels_won")
                 self._check_caps()
                 self._begin_level(k)
+                lv = self._card.levels[k]
                 try:
-                    self._level_player.play_level(self._session)
+                    # A resume can finish the level from its logged steps.
+                    if not (lv.won or lv.lost):
+                        self._level_player.play_level(self._session)
                 finally:
                     self._end_level(k)
-                lv = self._card.levels[k]
                 if lv.lost:
                     raise RunEnded(
                         "level_lost", f"level {k + 1} ended in GAME_OVER "
@@ -1461,6 +1466,17 @@ class ContinualRun:
         assert ckpt is not None
         episode, action_records = self._recording.read_current_action_records()
         action_arrs = [a["arr"] for a in action_records]
+        # The action log is synced every step, the checkpoint and the card
+        # only on a flush, so a run stopped between flushes (or whose
+        # flush failed, as on a full disk) has logged steps past the
+        # checkpoint. The replay is verified where the checkpoint was
+        # taken; the logged rest is then applied as the steps it was.
+        head = len(action_arrs)
+        taken_at = ckpt.get("episode_steps")
+        if (taken_at is not None and int(ckpt["episode"]) == episode
+                and int(ckpt["steps"]) == lv.steps
+                and 0 <= int(taken_at) <= len(action_arrs)):
+            head = int(taken_at)
         now = time.time()
         lv.resumes += 1
         lv.preemptions += 1
@@ -1474,12 +1490,12 @@ class ContinualRun:
             self._runner.reset(spec.split, spec.task_idx)
             actions = restore_actions(action_records,
                                       self._runner.observation(), self.skills)
-            self._runner.replay(actions)
+            self._runner.replay(actions[:head])
         finally:
             self._replaying = False
         replayed = self._runner.num_steps
         state_ok = states_close(self._runner.observation(), ckpt["state"])
-        ok = replayed == len(action_arrs) and state_ok
+        ok = replayed == head and state_ok
         # Rebuild the in-memory episode list from the pickle so the
         # level's data stays complete across the resume.
         self._level_episodes = self._reload_episodes()
@@ -1487,10 +1503,23 @@ class ContinualRun:
             logging.info(
                 "[Continual] replay verified: %d steps, state "
                 "matches the checkpoint", replayed)
+            past = len(action_arrs) - head
+            if past:
+                # Charged and recorded as they happened (a win or a game
+                # over among them included), without logging them twice.
+                logging.info(
+                    "[Continual] applying %d logged steps past the "
+                    "checkpoint", past)
+                self._logged_tail = True
+                try:
+                    self._runner.replay(actions[head:])
+                finally:
+                    self._logged_tail = False
             self._index({
                 "event": "resume",
                 "episode": episode,
-                "replayed_steps": replayed,
+                "replayed_steps": self._runner.num_steps,
+                "past_checkpoint": past,
                 "verified": True,
                 "downtime": lv.downtime,
                 "state": self._runner.episode_state.value,
@@ -1559,7 +1588,8 @@ class ContinualRun:
         ep.steps += 1
         self._steps_since_flush += 1
         assert self._recording is not None
-        self._recording.append_step(ep.index, ep.steps - 1, action)
+        if not self._logged_tail:
+            self._recording.append_step(ep.index, ep.steps - 1, action)
         self._level_episodes[-1]["actions"].append(action)
         self._level_episodes[-1]["states"].append(outcome.observation)
         if outcome.state is EpisodeState.WIN:
@@ -1690,7 +1720,8 @@ class ContinualRun:
             _, lv = self._require_level()
             self._recording.flush(self._level_episodes,
                                   self._runner.observation(),
-                                  self._episode_index(), lv.steps)
+                                  self._episode_index(), lv.steps,
+                                  self._runner.num_steps)
         self._steps_since_flush = 0
 
     def _terminal_index(self, entry: Dict[str, Any]) -> None:
