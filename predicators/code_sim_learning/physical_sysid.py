@@ -340,7 +340,11 @@ def fit_params_rollout(
                        sensitivity=sensitivity,
                        lm_notes=lm_notes)
     n_lm = num_rollouts_run() - n_start - n_grid
-    if (config.anchor_ablation and config.grid_flat_frac > 0 and trajectories):
+    # The ablation pins moved parameters back to their anchors, which
+    # only calibrated baselines warrant; a guess has no claim beyond the
+    # prior the fit already folds in.
+    if (config.anchor_ablation and not config.anchors_are_guesses
+            and config.grid_flat_frac > 0 and trajectories):
         result = _anchor_backward_elimination(
             base_env,
             trajectories,
@@ -538,7 +542,7 @@ def _anchor_backward_elimination(
         # The grid flat set's tolerance (interval-belief terms included,
         # see grid_seed.flat_tolerance), so "data-equivalent" means the
         # same thing here as in the sweep.
-        tol = flat_tolerance(sse_curr, noise_floor, config.grid_flat_frac,
+        tol = flat_tolerance(sse_curr, noise_floor, config.flat_band_frac,
                              noise_sse, sigma_tol)
         cost_curr = prior_cost(point)
         best: Optional[Tuple[float, ParamSpec, Dict[str, float]]] = None
