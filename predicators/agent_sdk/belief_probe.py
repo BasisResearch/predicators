@@ -3805,6 +3805,20 @@ class BeliefProbe:
 
     # ── Internals ────────────────────────────────────────────────
 
+    def __getattribute__(self, name: str) -> Any:
+        # A method the session's arm leaves out (ToolContext.probe_absent)
+        # does not exist on the probe.
+        if not name.startswith("_"):
+            ctx = object.__getattribute__(self, "__dict__").get("_ctx")
+            if name in getattr(ctx, "probe_absent", ()):
+                raise AttributeError(f"{type(self).__name__!r} object has no "
+                                     f"attribute {name!r}")
+        return object.__getattribute__(self, name)
+
+    def __dir__(self) -> List[str]:
+        absent = getattr(self._ctx, "probe_absent", ())
+        return [name for name in super().__dir__() if name not in absent]
+
     def _require_available(self, call: str) -> None:
         """Refuse a ``sim`` call this session's arm withholds."""
         if call in self._ctx.probe_disabled:
