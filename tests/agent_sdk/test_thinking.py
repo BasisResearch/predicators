@@ -2,8 +2,8 @@
 
 Characterizes ``resolve_thinking_config``: legacy model families (per
 ``_LEGACY_MODEL_MARKERS``) get manual extended thinking with a fixed
-token budget, while sonnet-5 / opus-4.7+ / unknown future models get
-adaptive thinking.
+token budget, while sonnet-5 / opus-4.7+ / haiku-5.5+ / unknown future
+models get adaptive thinking.
 """
 import pytest
 
@@ -15,7 +15,10 @@ _LEGACY_MODELS = [
     "claude-sonnet-4-5",
     "claude-sonnet-4-20250514",
     "claude-haiku-4-5",
+    "claude-haiku-4-5-20251001",
     "claude-haiku-3-5",
+    "claude-3-5-haiku-20241022",
+    "claude-3-haiku-20240307",
     "claude-opus-4-0",
     "claude-opus-4-1",
     "claude-opus-4-5",
@@ -32,6 +35,7 @@ _ADAPTIVE_MODELS = [
     "claude-opus-4-8",
     "claude-fable-5",
     # Unknown/future names default to adaptive.
+    "claude-haiku-6",
     "claude-nova-9",
     "some-future-model",
 ]
@@ -49,10 +53,27 @@ def test_legacy_models_get_budgeted_thinking(model_name):
 
 @pytest.mark.parametrize("model_name", _ADAPTIVE_MODELS)
 def test_adaptive_models_get_adaptive_thinking(model_name):
-    """Sonnet-5+/opus-4.7+/unknown models resolve to adaptive thinking."""
+    """Sonnet-5+/opus-4.7+/haiku-5.5+/unknown models get adaptive."""
     config = resolve_thinking_config(model_name)
     assert config == {"type": "adaptive"}
     assert "budget_tokens" not in config
+
+
+def test_haiku_budget_stops_at_haiku_4_5():
+    """Only pre-adaptive Haiku models keep the fixed thinking budget.
+
+    claude-haiku-5-5 supports only adaptive thinking and rejects
+    ``budget_tokens`` with a 400. It must resolve like claude-opus-5-5.
+    claude-haiku-4-5 and claude-sonnet-4-6 keep their budget.
+    """
+    legacy = {
+        "type": "enabled",
+        "budget_tokens": LEGACY_THINKING_BUDGET_TOKENS,
+    }
+    assert resolve_thinking_config("claude-haiku-4-5") == legacy
+    assert resolve_thinking_config("claude-haiku-5-5") == {"type": "adaptive"}
+    assert resolve_thinking_config("claude-opus-5-5") == {"type": "adaptive"}
+    assert resolve_thinking_config("claude-sonnet-4-6") == legacy
 
 
 def test_matching_is_case_insensitive():
