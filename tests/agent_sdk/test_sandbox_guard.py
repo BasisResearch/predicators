@@ -13,7 +13,8 @@ import os
 import subprocess
 import sys
 
-from predicators.agent_sdk.sandbox_setup import VALIDATE_SANDBOX_SCRIPT
+from predicators.agent_sdk.sandbox_setup import VALIDATE_SANDBOX_SCRIPT, \
+    sandbox_settings
 from predicators.agent_sdk.tools.results import _make_spilling_text_result
 from predicators.agent_sdk.tools.sandbox_guard import \
     _screen_text_for_sandbox_escape
@@ -224,13 +225,14 @@ def test_hook_reads_other_spellings_from_the_mount_table(tmp_path) -> None:
                                         f"MOUNTS_FILE = {str(mounts)!r}"))
     # Run the script's definitions with the request stubbed out (the
     # tool dispatch after the "# File-path tools" marker is dropped).
-    probe = ("import json, sys; sys.argv = ['x']; "
+    probe = ("import json, os, sys; sys.argv = ['x']; "
+             "g = {'__file__': os.path.abspath('validate_sandbox.py')}; "
              "exec(open('validate_sandbox.py').read().replace("
              "'data = json.load(sys.stdin)', 'data = {}').split("
-             "'\\n# File-path tools')[0]); "
-             "print(json.dumps({'spellings': SANDBOX_SPELLINGS, "
-             f"'inside': within({str(mnt_b / 'sb' / 'a.txt')!r}), "
-             f"'outside': within({str(mnt_b / 'secret.txt')!r})}}))")
+             "'\\n# File-path tools')[0], g); "
+             "print(json.dumps({'spellings': g['SANDBOX_SPELLINGS'], "
+             f"'inside': g['within']({str(mnt_b / 'sb' / 'a.txt')!r}), "
+             f"'outside': g['within']({str(mnt_b / 'secret.txt')!r})}}))")
     out = subprocess.run([sys.executable, "-c", probe],
                          cwd=str(sandbox),
                          capture_output=True,
@@ -275,3 +277,41 @@ def test_spilling_noop_without_sandbox() -> None:
     text = _make_spilling_text_result(None)
     big = "z" * 50000
     assert text(big) == {"content": [{"type": "text", "text": big}]}
+
+
+def test_hook_survives_a_cd_into_a_subdirectory(tmp_path) -> None:
+    """The settings name the guard by absolute path and the guard keeps the
+    sandbox as its root, so a session that cd'ed into a subdirectory (a from-
+    assets agent ran ``cd reference/base_sim``) can still use its tools and cd
+    back, and still cannot leave."""
+    sandbox = tmp_path / "sandbox"
+    (sandbox / ".claude").mkdir(parents=True)
+    (sandbox / ".claude" /
+     "validate_sandbox.py").write_text(VALIDATE_SANDBOX_SCRIPT)
+    subdir = sandbox / "reference" / "base_sim"
+    subdir.mkdir(parents=True)
+    (tmp_path / "outside.txt").write_text("x")
+    command = sandbox_settings(
+        str(sandbox))["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+
+    def denied(tool_name, tool_input) -> bool:
+        payload = json.dumps({
+            "tool_name": tool_name,
+            "tool_input": tool_input,
+            "cwd": str(subdir),
+        })
+        # A hook command runs through the shell in the session's directory.
+        out = subprocess.run(command,
+                             shell=True,
+                             cwd=str(subdir),
+                             input=payload,
+                             capture_output=True,
+                             text=True,
+                             check=True)
+        return '"deny"' in out.stdout
+
+    assert not denied("Bash", {"command": "cd ../.. && ls"})
+    assert not denied("Read", {"file_path": "../../simulator.py"})
+    assert not denied("Read", {"file_path": str(sandbox / "simulator.py")})
+    assert denied("Read", {"file_path": "../../../outside.txt"})
+    assert denied("Bash", {"command": f"cat {tmp_path / 'outside.txt'}"})
