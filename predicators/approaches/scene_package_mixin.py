@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any, List, Optional, Tuple
 from predicators.agent_sdk.sandbox_setup import GeneratedReference, \
     ReferenceFiles
 from predicators.code_sim_learning.rollout_env import dispose_env
-from predicators.code_sim_learning.scene_manifest import \
+from predicators.code_sim_learning.scene_manifest import GeneratedAsset, \
     build_scene_manifest, scene_manifest_text
 from predicators.envs import create_new_env
 from predicators.run import paths
@@ -103,7 +103,11 @@ class ScenePackageMixin:
         text = scene_manifest_text(manifest)
         files["scene/scene_manifest.json"] = GeneratedReference(
             text, "the scene of the level being played")
-        files.update(assets)
+        files.update({
+            path: (GeneratedReference(source.text, source.origin)
+                   if isinstance(source, GeneratedAsset) else source)
+            for path, source in assets.items()
+        })
         self._scene_package_summary = (len(manifest["bodies"]), len(assets))
         self._record_level_manifest(text)
         return files
