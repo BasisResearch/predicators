@@ -45,8 +45,7 @@ from predicators.agent_sdk.tools.scene import apply_state_modifications, \
     draw_pybullet_annotation, render_pybullet_image, render_scene_image
 from predicators.agent_sdk.tools.verdicts import _EvalStateCollector, \
     _policy_source_path, evaluate_states_with, load_ground_sampler_fns, \
-    make_solved_check, task_evaluator
-from predicators.code_sim_learning.model_state import memory_written_note
+    make_solved_check
 from predicators.structs import State, Task, excluded_object_type_names
 
 if TYPE_CHECKING:
@@ -538,18 +537,6 @@ def _unreconstructed(env: Any) -> List[str]:
         f"{obj.name}.{feature}" for obj, feature in lossy
         if obj.type.name != "robot"
     ]
-
-
-def _memory_written(env: Any) -> Dict[str, str]:
-    """The model_state entries ``env``'s ``_domain_specific_step`` changed,
-    each with the value it left (see
-    ``PyBulletEnv.memory_written_by_step``)."""
-    return dict(getattr(env, "memory_written_by_step", None) or {})
-
-
-# How a single run's memory note starts: a rehearsal drops it from its
-# rollout from the belief mean when its draws' note already says the same.
-_RUN_MEMORY_LEAD = "While this model ran"
 
 
 def _beyond_recordings(ctx: "ToolContext",
@@ -2030,8 +2017,9 @@ class BeliefProbe:
         names_provider = ctx.physical_param_names_provider
         physical = set(names_provider() if names_provider else ())
         evaluator: Any = None
-        if score and ctx.probe_engine_available:
-            evaluator = task_evaluator(self._base_task)
+        if score and ctx.probe_engine_available and \
+                self._base_task is not None:
+            evaluator = self._base_task.evaluator
         prefix_states: List[State] = []
         prefix_labels: List[Any] = []
         if evaluator is not None and from_observation and \
@@ -2051,7 +2039,6 @@ class BeliefProbe:
             lines_run: List[int] = []
             moving_lines: List[int] = []
             unreconstructed: List[str] = []
-            memory_written: Dict[str, str] = {}
             with (draw_scope(rule) if (rule and draw_scope is not None)
                   else contextlib.nullcontext()), \
                     (fresh_scope(physical_overrides=phys)
@@ -2083,8 +2070,6 @@ class BeliefProbe:
                     sketch=sketch_steps,
                     on_step=_on_step,
                     stop_on_failure=True)
-                memory_written = _memory_written(
-                    getattr(model, "sim_env", None))
                 if (collector is not None and not collector.coarse
                         and len(collector.states) > 1):
                     try:
@@ -2156,7 +2141,6 @@ class BeliefProbe:
                 "failure": failure,
                 "planner_seed": base_seed + k,
                 "unreconstructed": sorted(set(unreconstructed)),
-                "memory_written": memory_written,
             }
 
         prefetched = prefetch_parallel(
@@ -2189,15 +2173,6 @@ class BeliefProbe:
                 f"other values of {features}, so those draws ran from another "
                 "state. Make the model set and report these features exactly, "
                 "or this rehearsal predicts from the wrong start.")
-        wrote = [d for d in results if d.get("memory_written")]
-        if wrote:
-            notices.append(
-                memory_written_note(
-                    f"In {len(wrote)} of {n} draws", {
-                        key: value
-                        for d in wrote
-                        for key, value in d["memory_written"].items()
-                    }))
         budget = ctx.execution_step_budget()
         over = [
             d for d in results if d["success"] and d["num_actions"] > budget
@@ -2288,12 +2263,10 @@ class BeliefProbe:
         ``refine(require_solved=True)``, so the two evaluator-scored surfaces
         can never drift apart.
 
-        Returns the rule that judges the task (``task_evaluator``: its
-        evaluator, else its goal atoms). Raises when the current state
-        is not the task's unmodified initial state (the evaluator's
-        rules reference the true init, so any other start would give
-        silently wrong verdicts) or when the task has no goal atoms to
-        judge.
+        Returns the task evaluator. Raises when the current state is not
+        the task's unmodified initial state (the evaluator's rules
+        reference the true init, so any other start would give silently-
+        wrong verdicts) or when the task defines no evaluator.
         """
         if not self._ctx.probe_engine_available:
             raise ValueError("Engine evaluator replay is unavailable for a "
@@ -2306,9 +2279,9 @@ class BeliefProbe:
                 "a verdict from a modified or advanced state would be "
                 "silently wrong.")
         assert self._base_task is not None
-        evaluator = task_evaluator(self._base_task)
+        evaluator = self._base_task.evaluator
         if evaluator is None:
-            raise ValueError(f"{flag}: this task has no goal atoms to judge.")
+            raise ValueError(f"{flag}: this task defines no task evaluator.")
         return evaluator
 
     def _run_rehearsal(self, plan_text: str, render: bool,
@@ -2346,11 +2319,6 @@ class BeliefProbe:
                                seed=seed,
                                draws=0)
         if isinstance(result.mean, ProbeResult):
-            if any(d.get("memory_written") for d in result.draws):
-                result.mean.notes[:] = [
-                    note for note in result.mean.notes
-                    if not note.startswith(_RUN_MEMORY_LEAD)
-                ]
             beyond = _beyond_recordings(ctx, result.mean.states)
             if beyond:
                 result.notes.append(beyond)
@@ -3057,7 +3025,6 @@ class BeliefProbe:
                 contact_env = env
                 contact_env.start_contact_recording()
         contact_events: List[Dict[str, Any]] = []
-        memory_written: Dict[str, str] = {}
         if seed is not None:
             notices.append(f"rollout ran at planner seed {seed} (base seed "
                            f"overridden for this call)")
@@ -3072,14 +3039,9 @@ class BeliefProbe:
                     sketch=sketch_steps,
                     on_step=_on_step,
                     stop_on_failure=True)
-                memory_written = _memory_written(
-                    getattr(model, "sim_env", None))
         finally:
             if contact_env is not None:
                 contact_events = contact_env.stop_contact_recording()
-        if memory_written:
-            notices.append(
-                memory_written_note(_RUN_MEMORY_LEAD, memory_written))
         if contact_env is not None:
             counted = sum(s["num_actions"] for s in step_dicts)
             recorded = contact_env.contact_steps_recorded
@@ -3737,18 +3699,19 @@ class BeliefProbe:
         elif require_goal:
             verdict = ("goal-reached - the task's goal atoms held at the "
                        "final step")
-            # Recommend the evaluator gate only when the task has a rule to
-            # judge it by: sessions without one wasted a call per session
-            # following this advice into a refusal (run_20260830, three
-            # sessions).
-            if task_evaluator(self._base_task) is not None:
+            # Recommend the evaluator gate only when the task HAS an
+            # evaluator: sessions without one wasted a call per session
+            # following this advice into "this task defines no task
+            # evaluator" (run_20260830, three sessions).
+            if (self._base_task is not None
+                    and self._base_task.evaluator is not None):
                 verdict += ("; no evaluator verdict (use "
                             "require_solved=True from a pristine reset() "
                             "for that).")
             else:
-                verdict += (" (this task has no goal atoms an evaluator "
-                            "could judge, so goal-reached is the strongest "
-                            "verdict available).")
+                verdict += (" (this task defines no evaluator, so "
+                            "goal-reached is the strongest verdict "
+                            "available).")
         else:
             verdict = ("executed - every step established its subgoal "
                        "annotation; the task goal was NOT checked (set "
@@ -3841,20 +3804,6 @@ class BeliefProbe:
         return proposals[best], note, extra_samples
 
     # ── Internals ────────────────────────────────────────────────
-
-    def __getattribute__(self, name: str) -> Any:
-        # A method the session's arm leaves out (ToolContext.probe_absent)
-        # does not exist on the probe.
-        if not name.startswith("_"):
-            ctx = object.__getattribute__(self, "__dict__").get("_ctx")
-            if name in getattr(ctx, "probe_absent", ()):
-                raise AttributeError(f"{type(self).__name__!r} object has no "
-                                     f"attribute {name!r}")
-        return object.__getattribute__(self, name)
-
-    def __dir__(self) -> List[str]:
-        absent = getattr(self._ctx, "probe_absent", ())
-        return [name for name in super().__dir__() if name not in absent]
 
     def _require_available(self, call: str) -> None:
         """Refuse a ``sim`` call this session's arm withholds."""

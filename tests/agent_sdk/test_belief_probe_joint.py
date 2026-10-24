@@ -19,7 +19,6 @@ from predicators.agent_sdk.belief_probe import BeliefProbe, ProbeJointResult, \
     ProbeResult, _beyond_recordings, _line_states, _outcome_leads, \
     _separating_ranges
 from predicators.agent_sdk.plan_execution import StepOutcome
-from predicators.agent_sdk.tools.verdicts import task_evaluator
 from predicators.structs import Action, GroundAtom, LowLevelTrajectory, \
     Object, State, Task, TaskEvaluator, Type
 from tests.agent_sdk.test_belief_probe_physics_sweep import _block, \
@@ -87,9 +86,7 @@ def test_rehearsal_reports_p_hat_draws_and_the_mean_rollout():
     assert rehearsal.mean_states[0].get(_block, "x") == pytest.approx(0.95)
     # Each draw ran in the fresh scope at its own physical parameters.
     assert scope_overrides[:4] == [{"friction": f} for f in _FRICTIONS]
-    # The task has no evaluator, so its goal atoms judge each draw, as a
-    # real episode of it is judged.
-    assert [d["solved"] for d in res.draws] == [True, False, True, False]
+    assert all(d["solved"] is None for d in res.draws)  # no evaluator
     assert [d["planner_seed"] for d in res.draws] == \
         [utils.CFG.seed + k for k in range(4)]
     assert isinstance(res.mean, ProbeResult)
@@ -103,9 +100,7 @@ def test_rehearsal_reports_p_hat_draws_and_the_mean_rollout():
         _ = res.nonsense
     text = res.text
     assert "P-hat = 0.50 +- 0.25 (2/4 succeeded; each draw pairs" in text
-    assert "draw 1 [friction=0.5]: goal atoms did not hold, NOT solved" \
-        in text
-    assert "could not be scored" not in text
+    assert "draw 1 [friction=0.5]: goal NOT reached" in text
     assert "no single parameter separates" in text
     assert "Step-by-step rollout from the belief mean" in text
     utils.reset_config({})
@@ -689,48 +684,4 @@ def test_suggest_probes_ranks_by_information_over_the_joint_draws():
     assert calls and all(fresh is False for _, fresh in calls)
     with pytest.raises(ValueError, match="needs the plan"):
         sim.suggest_probes()
-    utils.reset_config({})
-
-
-def test_a_task_without_an_evaluator_is_judged_by_its_goal_atoms():
-    """A task's own evaluator judges it; one without an evaluator is judged by
-    its goal atoms, as its real episodes are; one with no goal atoms has
-    nothing to judge."""
-    high = State({_block: np.array([0.95], dtype=np.float32)})
-    low = State({_block: np.array([0.5], dtype=np.float32)})
-    goal = {GroundAtom(_ReachedHi, [_block])}
-    own = TaskEvaluator(goal)
-    assert task_evaluator(Task(high, goal, evaluator=own)) is own
-    plain = task_evaluator(Task(high, goal))
-    assert isinstance(plain, TaskEvaluator) and plain.goal == goal
-    assert plain.terminated(high) and not plain.terminated(low)
-    assert plain.solved([low, high], None)
-    assert not plain.solved([high, low], None)
-    assert task_evaluator(Task(high, set())) is None
-    assert task_evaluator(None) is None
-
-
-def test_a_rehearsal_names_the_memory_the_models_step_wrote():
-    """The draws' note names the model_state entries the model's step wrote,
-    the rollout from the belief mean does not repeat it, and a plain run says
-    it too."""
-    ctx, model, _, _ = _joint_ctx()
-    # pylint: disable-next=attribute-defined-outside-init
-    model.sim_env = type("E", (),
-                         {"memory_written_by_step": {
-                             "links": "[['a', 'b']]"
-                         }})()
-    sim = BeliefProbe(ctx)
-    _on_observation(sim, ctx)
-    res = sim.run(_PLAN, render=False)
-    assert [d["memory_written"] for d in res.draws] == \
-        [{"links": "[['a', 'b']]"}] * 4
-    note = ("simulator.py's _domain_specific_step changed these model_state "
-            "entries: links (now [['a', 'b']])")
-    text = res.text
-    assert f"In 4 of 4 draws, {note}" in text
-    assert text.count(note) == 1
-    assert "rebuilds model_state with update_model_state alone" in text
-    single = sim.run(_PLAN, render=False, draws=0)
-    assert f"While this model ran, {note}" in single.text
     utils.reset_config({})

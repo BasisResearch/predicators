@@ -70,34 +70,6 @@ APPROACHES:
       # The belief's temperature is set per recorded segment, so more
       # recordings narrow it.
       belief_segment_temperature: true
-  # EMPIRIC from assets with the agent's own parameter belief: the agent
-  # builds its scene as in EMPIRIC from assets, the harness fits nothing,
-  # and the agent estimates its parameters by any method and supplies their
-  # uncertainty as parameter draws (PARAM_DRAWS) that rehearsals, execution
-  # monitoring and the predictive check run on. Parked like EMPIRIC from
-  # assets.
-  from_assets_agent_belief_opus:
-    NAME: agent_continual_from_assets_agent_belief
-    SKIP: true
-    FLAGS:
-      agent_sdk_model_name: claude-opus-5
-      continual_require_model_on_test: true
-      # No harness estimation: sim.fit refuses, and each declaration's
-      # init_value is the point estimate the deployed model runs.
-      agent_sim_learn_declared_params_only: true
-      # The rest is EMPIRIC from assets' menu, less the switches that act
-      # on a fit (its reach check, bound note, material lines and segment
-      # temperatures).
-      continual_rehearsal_gate: true
-      continual_predictive_check: true
-      continual_belief_velocities: true
-      continual_raw_step_limit: true
-      continual_rehearsal_game_over: true
-      continual_rehearsal_support_note: true
-      continual_refuse_training_give_up: true
-      scene_observed_sizes: true
-      continual_belief_window: 64
-      continual_pooled_level_init: true
   # Model-free: the same agent with the model-side machinery switched
   # off, so the two differ only in the model.
   mf_opus:

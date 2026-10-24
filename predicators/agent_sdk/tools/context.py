@@ -82,10 +82,6 @@ class ToolContext:
     # need the real engine). A comparison arm lists what its surface
     # withholds; the probe raises on a listed call instead of serving it.
     probe_disabled: FrozenSet[str] = frozenset()
-    # ``sim`` methods this session's arm does not offer at all: the probe
-    # has no such attribute and ``dir(sim)`` leaves it out (the arm with
-    # the agent's own parameter belief has no ``fit``).
-    probe_absent: FrozenSet[str] = frozenset()
     # Synthesis-session loader behind ``sim.predicates()``: it reloads
     # the agent-authored predicates.py fresh, installs the result into
     # the approach so refinement sees the draft, and returns the report

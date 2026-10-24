@@ -387,26 +387,9 @@ def _wait_steps(
 
 class _RehearsalMatch(NamedTuple):
     """A rehearsal that let a request through, and how many of the request's
-    leading lines its plan repeated, from its line ``start`` on (0 for a
-    request that begins the plan; more for one that continues it)."""
+    leading lines its plan repeated."""
     rehearsal: LiveRehearsal
     lines: int
-    start: int = 0
-
-
-class _PlanCursor:
-    """Where the last scored request left its rehearsal's plan: the match, and
-    the run's position (level, steps, resets) when the request ended; both None
-    after any other request or action."""
-
-    def __init__(self) -> None:
-        self.match: Optional[_RehearsalMatch] = None
-        self.position: Optional[Tuple[int, int, int]] = None
-
-    def clear(self) -> None:
-        """Forget the place."""
-        self.match = None
-        self.position = None
 
 
 # ── Tools ──────────────────────────────────────────────────────────
@@ -517,55 +500,6 @@ def build_continual_tools(
                 return _RehearsalMatch(rehearsal, shared)
         return None
 
-    plan_cursor = _PlanCursor()
-
-    def _position() -> Tuple[int, int, int]:
-        ledger = session.observe().ledger
-        return (ledger.level_index, ledger.run_steps, ledger.run_resets)
-
-    def _continuing_rehearsal(
-        parsed: List[Tuple[_Option, Set[GroundAtom], Set[GroundAtom]]]
-    ) -> Optional[_RehearsalMatch]:
-        """The rehearsal whose plan the request continues: the last scored
-        request ran its lines up to here, nothing has run since, and the
-        request repeats its next lines (a Wait that lets a released body
-        settle, say).
-
-        The request is then scored against that rehearsal's draws at the
-        line it reaches, as if the plan had run as one request.
-        """
-        previous = plan_cursor.match
-        if previous is None or plan_cursor.position is None:
-            return None
-        try:
-            if _position() != plan_cursor.position:
-                return None
-            rehearsed = parse_plan_lines(previous.rehearsal.plan_text, ctx,
-                                         _level_task())
-        except (EpisodeOver, ValueError):
-            return None
-        start = previous.start + previous.lines
-        shared = _shared_lines(rehearsed[start:], parsed)
-        if shared < max(_motion_lines(parsed), 1):
-            return None
-        return _RehearsalMatch(previous.rehearsal, shared, start)
-
-    def _advance_cursor(match: Optional[_RehearsalMatch], num_lines: int,
-                        progress: ExecutionProgress) -> None:
-        """Keep the request's place in its rehearsal's plan when the rehearsal
-        repeated all of it and all of it ran; else forget it."""
-        plan_cursor.clear()
-        if match is None or match.lines != num_lines or \
-                len(progress.skills) != num_lines or \
-                any(skill.result.status != "succeeded"
-                    for skill in progress.skills):
-            return
-        try:
-            plan_cursor.position = _position()
-        except EpisodeOver:
-            return
-        plan_cursor.match = match
-
     def _unrehearsed(
             parsed: List[Tuple[_Option, Set[GroundAtom], Set[GroundAtom]]],
             match: Optional[_RehearsalMatch]) -> Optional[Dict[str, Any]]:
@@ -613,7 +547,7 @@ def build_continual_tools(
         motion = _motion_lines(parsed)
         if motion == 0:
             return None
-        rehearsal = match.rehearsal
+        rehearsal, _ = match
         try:
             rehearsed = parse_plan_lines(rehearsal.plan_text, ctx,
                                          _level_task())
@@ -693,7 +627,7 @@ def build_continual_tools(
         provider = ctx.scored_features_provider
         if provider is None or match is None:
             return ""
-        rehearsal, num_lines, start = match
+        rehearsal, num_lines = match
         ran = progress.skills[:num_lines]
         # A plan that stopped at or before the last shared line, by a
         # divergence or the end of the episode, is not scored.
@@ -708,9 +642,8 @@ def build_continual_tools(
         if outcome.episode_state is not EpisodeState.NOT_FINISHED:
             return ""
         predicted: List[State] = []
-        line = start + num_lines
         for states in rehearsal.line_states:
-            last = states[line - 1] if len(states) >= line else None
+            last = states[num_lines - 1] if len(states) >= num_lines else None
             if last is not None:
                 predicted.append(last)
         features = provider()
@@ -736,14 +669,9 @@ def build_continual_tools(
         # Wait lines past the rehearsed ones leave the draws no prediction
         # of the request's end, so the check scores the last line they
         # predicted.
-        if start:
-            which = (f"this outcome, which continues the rehearsed plan from "
-                     f"its line {start + 1} to its line {line},")
-        elif len(progress.skills) == num_lines:
-            which = "this outcome"
-        else:
-            which = (f"the outcome of line {num_lines}, the last the "
-                     "rehearsal repeated,")
+        which = ("this outcome" if len(progress.skills) == num_lines else
+                 f"the outcome of line {num_lines}, the last the rehearsal "
+                 "repeated,")
         text = (
             f"\nPrediction check: {which} lies outside the rehearsal's "
             f"draws: {name}.{feat} is {check.observed:.4g} where the "
@@ -751,8 +679,8 @@ def build_continual_tools(
             f"{check.spread:.2g}, {check.z_max:.1f} predictive spreads away "
             f"(a calibrated prediction stays within {check.critical:.1f} "
             f"over these {check.num_features} features).")
-        point = (rehearsal.mean_states[line - 1]
-                 if len(rehearsal.mean_states) >= line else None)
+        point = (rehearsal.mean_states[num_lines - 1]
+                 if len(rehearsal.mean_states) >= num_lines else None)
         if point is not None and point_predicts(
                 frame, point, check.missed, noise, check.num_features, widths):
             sampled = ("" if CFG.belief_material_lines else
@@ -1171,13 +1099,10 @@ def build_continual_tools(
         try:
             progress = ExecutionProgress()
             lines: List[str] = []
-            scored = match or _continuing_rehearsal(parsed)
-            plan_cursor.clear()
             await _execute(
                 ExecuteSkill(option, expected, str(args.get("note", "")),
                              absent), progress, _skill_reporter(lines))
-            text = lines[0] + _prediction_note(scored, progress)
-            _advance_cursor(scored, len(parsed), progress)
+            text = lines[0] + _prediction_note(match, progress)
             render = save_render(f"invoke_{state.charged_calls:04d}")
             if render:
                 text += f"\n[render] {render}"
@@ -1241,8 +1166,6 @@ def build_continual_tools(
                 tuple(
                     ExecuteSkill(option, expected, note, absent)
                     for option, expected, absent in parsed), stop)
-            scored = match or _continuing_rehearsal(parsed)
-            plan_cursor.clear()
             await _execute(request, progress,
                            _skill_reporter(lines, len(parsed)))
             count = len(progress.skills)
@@ -1251,8 +1174,7 @@ def build_continual_tools(
             elif progress.stop_reason not in ("", "terminal"):
                 lines.append(f"plan stopped: skill {count} "
                              f"{progress.stop_reason}")
-            checked = _prediction_note(scored, progress)
-            _advance_cursor(scored, len(parsed), progress)
+            checked = _prediction_note(match, progress)
             if checked:
                 lines.append(checked.lstrip("\n"))
             render = save_render(f"plan_{state.charged_calls:04d}")
