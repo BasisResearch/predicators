@@ -50,8 +50,7 @@ from predicators import utils
 from predicators.code_sim_learning.commands import ApplyForce, ApplyTorque, \
     Attach, PhysicsCommand, SetVelocity
 from predicators.code_sim_learning.model_state import advance_model_state, \
-    has_model_state, initial_model_state, memory_entries, \
-    restored_model_state
+    has_model_state, initial_model_state, restored_model_state
 from predicators.envs import BaseEnv
 from predicators.pybullet_helpers import retry_pybullet_call, studio_visuals, \
     world_gap
@@ -254,18 +253,6 @@ class PyBulletEnv(BaseEnv):
                                                ...]] = (("roll", "tilt",
                                                          "wrist"), )
 
-    # Whether simulate() drops the commands this env's own
-    # _domain_specific_step queued when it jumps to another state (see
-    # simulate). Agent-built scene models (SceneBase) turn it on; a
-    # benchmark env keeps its step's commands across the jump.
-    _drop_step_commands_at_jumps: ClassVar[bool] = False
-    # Whether the first action after a state restore first runs this env's
-    # _domain_specific_step on the restored world (see _step_once), so that
-    # action runs with the commands the step queues for that state, as
-    # every later action does. Agent-built scene models (SceneBase) turn it
-    # on; a benchmark env keeps its behaviour.
-    _step_restored_states: ClassVar[bool] = False
-
     # _set_state round-trips the written state through _get_state and
     # compares, then reacts by mismatch *magnitude* - no per-env opt-in:
     #   * any feature off by more than _reconstruction_warn_atol → warn,
@@ -388,15 +375,6 @@ class PyBulletEnv(BaseEnv):
         # Residual physics commands awaiting the next action's substeps;
         # see queue_residual_commands for the contract.
         self._pending_residual_commands: List[PhysicsCommand] = []
-        # Whether this env's own _domain_specific_step queued the pending
-        # commands (computed for the state its step left), and whether that
-        # step is running now. simulate() drops such commands when it jumps
-        # to another state.
-        self._commands_from_step = False
-        self._in_domain_step = False
-        # Whether _set_state restored a state that no action has run from
-        # yet (see _step_restored_states).
-        self._restored_since_step = False
         # Welds created by Attach commands, keyed by the unordered
         # object-name pair. Reconciled against the pending commands once
         # per action (re-emit-to-persist), cleared at episode reset.
@@ -471,13 +449,6 @@ class PyBulletEnv(BaseEnv):
         # so a learned rule that reads its own emitted feature still sees the
         # right input. Empty on sequential rollouts (no reset → nothing lost).
         self._last_unreconstructible_features: List[Tuple[Object, str]] = []
-
-        # The model_state entries _domain_specific_step has changed and
-        # update_model_state does not rebuild from the observation, each
-        # with the value the step left, since this env was built. A reset
-        # from an observation rebuilds memory with update_model_state
-        # alone (restored_model_state), so these entries are lost there.
-        self.memory_written_by_step: Dict[str, str] = {}
 
         # Opt-in contact recording (see start_contact_recording): while
         # the log is not None, every step() appends that step's contact
@@ -829,24 +800,15 @@ class PyBulletEnv(BaseEnv):
                                                      self._agent_param_values)
         if self._current_observation is None or \
             not state.allclose(self._current_state):
-            # Commands a caller queued at this point were computed for
+            # Commands already queued at this point were computed for
             # exactly this incoming state: the option model queues them
             # only after matching the state it emitted them for (see
             # the combined-simulator queue sites), so the lifecycle
             # wipe in _set_state must not eat them. Commanded
             # attachments still reset -- a re-emitted Attach in the
             # preserved queue re-freezes its frame at the poses this
-            # _set_state restores. Commands this env's own step queued
-            # were computed for the state that step left, which this
-            # state is not; where _drop_step_commands_at_jumps holds they
-            # are dropped, so a rollout's first action does not depend on
-            # what the env simulated before. Where _step_restored_states
-            # holds, that action then runs with the commands the step
-            # queues for this state (see _step_once), as in a fresh world.
-            stale = (self._commands_from_step
-                     and self._drop_step_commands_at_jumps)
-            queued_commands = ([]
-                               if stale else self._pending_residual_commands)
+            # _set_state restores.
+            queued_commands = self._pending_residual_commands
             self._set_state(state)
             self._pending_residual_commands = queued_commands
         else:
@@ -884,30 +846,15 @@ class PyBulletEnv(BaseEnv):
                    action: Action,
                    render_obs: bool = False) -> Observation:
         """Advance the simulation one action, with no executor involved."""
+        self._step_base(action)
         run_model = (not self._skip_domain_specific_dynamics
                      or self._agent_model_dynamics)
-        if self._restored_since_step:
-            self._restored_since_step = False
-            if run_model and self._step_restored_states:
-                self._step_restored_state()
-        self._step_base(action)
         if run_model:
-            before_update: Optional[Dict[str, Any]] = None
-            memory_before: Dict[str, str] = {}
             if has_model_state(type(self)):
-                before_update = copy.deepcopy(self._model_state)
                 advance_model_state(type(self), self._get_state(),
                                     self._model_state,
                                     self._agent_param_values, action)
-                memory_before = memory_entries(self._model_state)
-            self._in_domain_step = True
-            try:
-                self._domain_specific_step()
-            finally:
-                self._in_domain_step = False
-            if before_update is not None:
-                self._note_memory_written_by_step(memory_before, before_update,
-                                                  action)
+            self._domain_specific_step()
         # After ALL of this step's dynamics (a domain step may have just
         # created or re-anchored welds), and regardless of
         # skip_domain_specific_dynamics (base-sim mode still executes
@@ -918,29 +865,6 @@ class PyBulletEnv(BaseEnv):
             render=CFG.rgb_observation or render_obs)
         self._current_observation = observation
         return observation
-
-    def _step_restored_state(self) -> None:
-        """Run the domain step on a restored world, before its first action.
-
-        A restored state stands for one that a step left: its features
-        already show that step's changes, and the commands that step
-        queued for the next action (a model's lift, a fan's wind) act
-        during that action. A rollout from a restored state (a fresh
-        world, a reset or a jump) has no such step, so without this its
-        first action runs without those commands, unlike every later
-        one. The step's commands go after any that a caller queued for
-        the same state. The step must leave a state that a step already
-        left as it is, apart from the commands it queues.
-        """
-        caller_commands = self._pending_residual_commands
-        self._pending_residual_commands = []
-        self._in_domain_step = True
-        try:
-            self._domain_specific_step()
-        finally:
-            self._in_domain_step = False
-        self._pending_residual_commands = (list(caller_commands) +
-                                           self._pending_residual_commands)
 
     def _step_base(self, action: Action) -> None:
         """Run robot control, physics stepping, and grasp management."""
@@ -1010,7 +934,6 @@ class PyBulletEnv(BaseEnv):
         # Consumed: commands act for exactly one action and expire
         # unless the residual simulator re-queues them post-step.
         self._pending_residual_commands = []
-        self._commands_from_step = False
 
         if self._contact_log is not None:
             self._record_step_contacts()
@@ -1178,18 +1101,12 @@ class PyBulletEnv(BaseEnv):
         jump-validity: queue only commands computed for the state the
         next step will run from (the combined simulators key their
         pending commands to that exact state and drop them when the
-        planner backtracks elsewhere). Commands an env's own
-        ``_domain_specific_step`` queues are for the state that step
-        leaves, so where ``_drop_step_commands_at_jumps`` holds,
-        ``simulate`` drops them when it jumps elsewhere, and where
-        ``_step_restored_states`` holds, the first action from a
-        restored state runs the step once to queue that state's own.
-        Only meaningful on position/velocity control modes: the
-        kinematic ``reset`` control mode runs no physics substeps, so
-        commands would have nothing to act on.
+        planner backtracks elsewhere). Only meaningful on
+        position/velocity control modes: the kinematic ``reset``
+        control mode runs no physics substeps, so commands would have
+        nothing to act on.
         """
         self._pending_residual_commands = list(commands)
-        self._commands_from_step = self._in_domain_step
 
     def _residual_command_body_ids(self) -> Dict[str, int]:
         """Object name -> body id, for resolving residual commands.
@@ -1269,43 +1186,6 @@ class PyBulletEnv(BaseEnv):
             if key not in self._cmd_weld_constraints:
                 self._cmd_weld_constraints[key] = self._create_command_weld(
                     ids[left], ids[right])
-
-    def _note_memory_written_by_step(self, before: Dict[str, str],
-                                     before_update: Dict[str, Any],
-                                     action: Action) -> None:
-        """Record the model_state entries ``_domain_specific_step`` changed
-        from ``before`` (``memory_entries`` just before it ran) that the
-        observation-driven update does not rebuild, each with the value the
-        step left: its text, "empty" or "deleted".
-
-        The update rebuilds an entry when, run from ``before_update``
-        (the memory before this step's update) on the state after the
-        step, as execution tracking runs it on the observation after a
-        real step, it gives the entry the step left. An entry a step
-        writes and then also shows in an observable feature that the
-        update reads (a balloon the step pops) is therefore not
-        recorded.
-        """
-        after = memory_entries(self._model_state)
-        changed = {
-            key
-            for key in before.keys() | after.keys()
-            if before.get(key) != after.get(key)
-        }
-        if not changed:
-            return
-        advance_model_state(type(self), self._get_state(), before_update,
-                            self._agent_param_values, action)
-        rebuilt = memory_entries(before_update)
-        names = {str(key) for key in self._model_state}
-        for key in changed:
-            if rebuilt.get(key) == after.get(key):
-                continue
-            if key in after:
-                self.memory_written_by_step[key] = after[key]
-            else:
-                self.memory_written_by_step[key] = ("empty" if key in names
-                                                    else "deleted")
 
     def restore_model_state(self) -> None:
         """Optional candidate hook after poses and inferred memory reset.
@@ -1881,8 +1761,6 @@ class PyBulletEnv(BaseEnv):
             self._model_state = restored_model_state(type(self), state,
                                                      self._agent_param_values)
         self._pending_residual_commands = []
-        self._commands_from_step = False
-        self._restored_since_step = True
         self._clear_commanded_attachments()
 
         # Cohort change or the very first call forces a full reset:

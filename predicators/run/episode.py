@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import enum
 import logging
-import math
 import time
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Sequence, Set, Tuple
@@ -287,45 +286,6 @@ class EpisodeRunner:
                 break
         return outcome
 
-    def settle(self,
-               max_steps: int,
-               tol: float = 1e-4,
-               window: int = 6) -> Tuple[List[State], List[Action]]:
-        """After the episode has ended, keep stepping the env with the robot
-        holding its last command until every non-robot object's features change
-        by at most ``tol`` for ``window`` consecutive steps, or ``max_steps``
-        actions ran.
-
-        Returns the new observations and the actions that produced them.
-        They are not part of the episode: its verdict, step count and
-        trajectory are unchanged. Only a ``PyBulletEnv`` with a recorded
-        action can hold still, so any other episode returns nothing.
-        """
-        assert self._episode_state is not EpisodeState.NOT_FINISHED
-        if not isinstance(self._env, PyBulletEnv) or not self._actions:
-            return [], []
-        hold = Action(self._actions[-1].arr.copy())
-        states: List[State] = []
-        actions: List[Action] = []
-        previous = self._observations[-1]
-        quiet = 0
-        t0 = time.perf_counter()
-        for _ in range(max_steps):
-            try:
-                obs = self._env.step(hold, render_obs=False)
-            except utils.EnvironmentFailure:
-                break
-            assert isinstance(obs, State)
-            states.append(obs)
-            actions.append(hold)
-            quiet = quiet + 1 if _max_object_change(previous, obs) <= tol \
-                else 0
-            previous = obs
-            if quiet >= window:
-                break
-        self._env_seconds += time.perf_counter() - t0
-        return states, actions
-
     def finish(self) -> None:
         """Release anything the env holds for an episode that is being
         abandoned (a reset before it ended)."""
@@ -365,18 +325,3 @@ class EpisodeRunner:
         self._episode_state = state
         self._reason = reason
         self._env.finish_execution(state is EpisodeState.WIN)
-
-
-def _max_object_change(before: State, after: State) -> float:
-    """The largest change of any feature of a non-robot object between two
-    observations (angles wrapped)."""
-    largest = 0.0
-    for obj in after:
-        if obj.type.name == "robot" or obj not in before:
-            continue
-        for feat in obj.type.feature_names:
-            delta = float(after.get(obj, feat)) - float(before.get(obj, feat))
-            if feat in ("yaw", "roll", "pitch", "rot", "angle"):
-                delta = (delta + math.pi) % (2.0 * math.pi) - math.pi
-            largest = max(largest, abs(delta))
-    return largest

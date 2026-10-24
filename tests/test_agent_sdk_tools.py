@@ -370,16 +370,14 @@ def test_run_python_refine_require_solved_guards(ctx: Any) -> None:
     result = _run(tools["run_python"]({"code": code}))
     assert "unmodified initial state" in result["content"][0]["text"]
 
-    # Pristine start but the task has no goal atoms to judge: refused.
+    # Pristine start but the task defines no evaluator: refused.
     import dataclasses
     saved_task = ctx.current_task
     try:
-        ctx.current_task = dataclasses.replace(saved_task,
-                                               evaluator=None,
-                                               goal=set())
+        ctx.current_task = dataclasses.replace(saved_task, evaluator=None)
         code = f'sim.reset()\nsim.refine("{plan_line}", require_solved=True)'
         result = _run(tools["run_python"]({"code": code}))
-        assert "no goal atoms to judge" in result["content"][0]["text"]
+        assert "defines no task evaluator" in result["content"][0]["text"]
     finally:
         ctx.current_task = saved_task
     print("  PASS: run_python (require_solved guards)")
@@ -409,12 +407,10 @@ def test_run_python_run_solved_guards(ctx: Any) -> None:
     import dataclasses
     saved_task = ctx.current_task
     try:
-        ctx.current_task = dataclasses.replace(saved_task,
-                                               evaluator=None,
-                                               goal=set())
+        ctx.current_task = dataclasses.replace(saved_task, evaluator=None)
         code = f'sim.reset()\nsim.run("{wait_line}", trials=2, solved=True)'
         result = _run(tools["run_python"]({"code": code}))
-        assert "no goal atoms to judge" in result["content"][0]["text"]
+        assert "defines no task evaluator" in result["content"][0]["text"]
     finally:
         ctx.current_task = saved_task
     print("  PASS: run_python (run solved/contacts guards)")

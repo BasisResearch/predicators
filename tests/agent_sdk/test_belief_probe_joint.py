@@ -19,7 +19,6 @@ from predicators.agent_sdk.belief_probe import BeliefProbe, ProbeJointResult, \
     ProbeResult, _beyond_recordings, _line_states, _outcome_leads, \
     _separating_ranges
 from predicators.agent_sdk.plan_execution import StepOutcome
-from predicators.agent_sdk.tools.verdicts import task_evaluator
 from predicators.structs import Action, GroundAtom, LowLevelTrajectory, \
     Object, State, Task, TaskEvaluator, Type
 from tests.agent_sdk.test_belief_probe_physics_sweep import _block, \
@@ -87,9 +86,7 @@ def test_rehearsal_reports_p_hat_draws_and_the_mean_rollout():
     assert rehearsal.mean_states[0].get(_block, "x") == pytest.approx(0.95)
     # Each draw ran in the fresh scope at its own physical parameters.
     assert scope_overrides[:4] == [{"friction": f} for f in _FRICTIONS]
-    # The task has no evaluator, so its goal atoms judge each draw, as a
-    # real episode of it is judged.
-    assert [d["solved"] for d in res.draws] == [True, False, True, False]
+    assert all(d["solved"] is None for d in res.draws)  # no evaluator
     assert [d["planner_seed"] for d in res.draws] == \
         [utils.CFG.seed + k for k in range(4)]
     assert isinstance(res.mean, ProbeResult)
@@ -103,9 +100,7 @@ def test_rehearsal_reports_p_hat_draws_and_the_mean_rollout():
         _ = res.nonsense
     text = res.text
     assert "P-hat = 0.50 +- 0.25 (2/4 succeeded; each draw pairs" in text
-    assert "draw 1 [friction=0.5]: goal atoms did not hold, NOT solved" \
-        in text
-    assert "could not be scored" not in text
+    assert "draw 1 [friction=0.5]: goal NOT reached" in text
     assert "no single parameter separates" in text
     assert "Step-by-step rollout from the belief mean" in text
     utils.reset_config({})
@@ -564,66 +559,6 @@ def test_a_draw_is_judged_where_its_episode_first_ends():
     assert collector.line_of(3) == 1
 
 
-def _overrun_probe(frictions):
-    """A probe on the current observation whose task ends unsolved once the
-    block stops short of the goal, scored by the engine's evaluator."""
-    ctx, _, _, _ = _joint_ctx(frictions)
-    ctx.probe_engine_available = True
-    assert ctx.current_task is not None
-    ctx.current_task = Task(ctx.current_task.init,
-                            ctx.current_task.goal,
-                            evaluator=_OverrunEvaluator(
-                                {GroundAtom(_ReachedHi, [_block])}))
-    sim = BeliefProbe(ctx)
-    _on_observation(sim, ctx)
-    return sim, ctx
-
-
-def test_a_rehearsal_says_when_its_point_estimate_loses_where_no_draw_does():
-    """Under continual_rehearsal_mean_verdict the rollout from the belief mean,
-    at the point estimate, is scored as a draw is, and the report says when it
-    ends the episode in GAME_OVER, or solves it, and no scored draw does.
-
-    Every draw's friction here sits in the model's hole, where Move does
-    nothing, while the point estimate's friction (0.4746) moves the
-    block: a point estimate the draws leave out.
-    """
-    in_hole = (0.495, 0.5, 0.505, 0.499)
-    sim, ctx = _overrun_probe(in_hole)
-    utils.update_config({"continual_rehearsal_mean_verdict": True})
-    # Stopping at 0.6 ends the episode unsolved, at the point estimate only.
-    res = sim.run("Move(block0:block)[0.6]", render=False)
-    assert [d["lost"] for d in res.draws] == [False] * 4
-    assert res.mean_verdict == {"solved": False, "lost": True}
-    assert ("NOTE: The rollout from the belief mean, at the fit's point "
-            "estimate (the values the planning model runs at), ends the "
-            "episode in GAME_OVER, but none of the 4 draws the task's "
-            "evaluator scored does") in repr(res)
-    # The live rehearsal keeps the report's notes, for the notes gate.
-    assert ctx.live_rehearsals[-1].notes == res.notes
-    assert any(
-        n.startswith("The rollout from the belief mean, at the fit's")
-        for n in ctx.live_rehearsals[-1].notes)
-    # Reaching 0.95 solves it at the point estimate only.
-    _on_observation(sim, ctx)
-    res = sim.run(_PLAN, render=False)
-    assert [d["solved"] for d in res.draws] == [False] * 4
-    assert res.mean_verdict == {"solved": True, "lost": False}
-    assert "solves the task, but none of the 4 draws" in repr(res)
-    # A draw that loses as the point estimate does: no note.
-    sim, ctx = _overrun_probe((0.3, ) + in_hole[1:])
-    utils.update_config({"continual_rehearsal_mean_verdict": True})
-    res = sim.run("Move(block0:block)[0.6]", render=False)
-    assert [d["lost"] for d in res.draws] == [True, False, False, False]
-    assert res.mean_verdict == {"solved": False, "lost": True}
-    assert "The rollout from the belief mean" not in repr(res)
-    # Without the flag the mean rollout is not scored.
-    sim, ctx = _overrun_probe(in_hole)
-    res = sim.run("Move(block0:block)[0.6]", render=False)
-    assert res.mean_verdict is None
-    assert "The rollout from the belief mean" not in repr(res)
-
-
 def test_a_draw_whose_skill_fails_partway_is_scored_on_what_it_did(
         monkeypatch):
     """A draw whose skill failed after it moved the world is scored on the
@@ -749,48 +684,4 @@ def test_suggest_probes_ranks_by_information_over_the_joint_draws():
     assert calls and all(fresh is False for _, fresh in calls)
     with pytest.raises(ValueError, match="needs the plan"):
         sim.suggest_probes()
-    utils.reset_config({})
-
-
-def test_a_task_without_an_evaluator_is_judged_by_its_goal_atoms():
-    """A task's own evaluator judges it; one without an evaluator is judged by
-    its goal atoms, as its real episodes are; one with no goal atoms has
-    nothing to judge."""
-    high = State({_block: np.array([0.95], dtype=np.float32)})
-    low = State({_block: np.array([0.5], dtype=np.float32)})
-    goal = {GroundAtom(_ReachedHi, [_block])}
-    own = TaskEvaluator(goal)
-    assert task_evaluator(Task(high, goal, evaluator=own)) is own
-    plain = task_evaluator(Task(high, goal))
-    assert isinstance(plain, TaskEvaluator) and plain.goal == goal
-    assert plain.terminated(high) and not plain.terminated(low)
-    assert plain.solved([low, high], None)
-    assert not plain.solved([high, low], None)
-    assert task_evaluator(Task(high, set())) is None
-    assert task_evaluator(None) is None
-
-
-def test_a_rehearsal_names_the_memory_the_models_step_wrote():
-    """The draws' note names the model_state entries the model's step wrote,
-    the rollout from the belief mean does not repeat it, and a plain run says
-    it too."""
-    ctx, model, _, _ = _joint_ctx()
-    # pylint: disable-next=attribute-defined-outside-init
-    model.sim_env = type("E", (),
-                         {"memory_written_by_step": {
-                             "links": "[['a', 'b']]"
-                         }})()
-    sim = BeliefProbe(ctx)
-    _on_observation(sim, ctx)
-    res = sim.run(_PLAN, render=False)
-    assert [d["memory_written"] for d in res.draws] == \
-        [{"links": "[['a', 'b']]"}] * 4
-    note = ("simulator.py's _domain_specific_step changed these model_state "
-            "entries: links (now [['a', 'b']])")
-    text = res.text
-    assert f"In 4 of 4 draws, {note}" in text
-    assert text.count(note) == 1
-    assert "rebuilds model_state with update_model_state alone" in text
-    single = sim.run(_PLAN, render=False, draws=0)
-    assert f"While this model ran, {note}" in single.text
     utils.reset_config({})
