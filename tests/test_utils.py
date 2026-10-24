@@ -3269,6 +3269,22 @@ def test_ops_and_specs_to_dummy_nsrts():
     assert nsrt.delete_effects == delete_effects
     assert nsrt.option == parameterized_option
     assert not nsrt.option_vars
+    # The dummy samplers return zeros of each option's params shape, so the
+    # sampled options ground, a parameterless option's included.
+    push_option = utils.SingletonParameterizedOption(
+        "Push", lambda s, m, o, p: Action(np.zeros(1, dtype=np.float32)))
+    push_operator = STRIPSOperator("Push", parameters, preconditions,
+                                   add_effects, delete_effects, set())
+    nsrts = utils.ops_and_specs_to_dummy_nsrts(
+        [strips_operator, push_operator], [(parameterized_option, []),
+                                           (push_option, [])])
+    rng = np.random.default_rng(0)
+    objects = [cup_type("cup"), plate_type("plate")]
+    for dummy_nsrt in nsrts:
+        ground_nsrt = dummy_nsrt.ground(objects)
+        option = ground_nsrt.sample_option(State({}), set(), rng)
+        assert option.params.shape == dummy_nsrt.option.params_space.shape
+        assert not option.params.any()
 
 
 def test_string_to_python_object():
