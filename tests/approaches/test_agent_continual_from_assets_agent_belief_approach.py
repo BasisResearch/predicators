@@ -90,7 +90,7 @@ def test_param_draws_are_checked_against_the_declarations():
         ([{}] * (MAX_AGENT_DRAWS + 1), "the most it may hold"),
     ):
         rows, why = agent_param_draws(value, _SPECS)
-        assert rows == [] and reason in why, (value, why)
+        assert not rows and reason in why, (value, why)
 
     def broken() -> Any:
         raise RuntimeError("no data")
@@ -260,12 +260,12 @@ def test_agent_rehearses_on_its_own_draws(tmp_path: Any,
                        code="sim.reset(current=True)\nprint('loaded')")
         assert "loaded" in loaded and not loaded.startswith("ERROR"), loaded
         assert "3 PARAM_DRAWS" in approach._fit_status_text()
-        code = (
-            "r = sim.reset(current=True).run('Wait(robot:robot)[2]')\n"
-            "spin = sorted({d['params']['jug_spinning_friction'] "
-            "for d in r.draws})\n"
-            "roll = {d['params'].get('jug_rolling_friction') for d in r.draws}\n"
-            "print('SPIN', spin, 'ROLL', roll)")
+        code = ("r = sim.reset(current=True).run('Wait(robot:robot)[2]')\n"
+                "spin = sorted({d['params']['jug_spinning_friction'] "
+                "for d in r.draws})\n"
+                "roll = {d['params'].get('jug_rolling_friction') "
+                "for d in r.draws}\n"
+                "print('SPIN', spin, 'ROLL', roll)")
         rehearsed = _call(approach, "run_python", code=code)
         assert not rehearsed.startswith("ERROR"), rehearsed
         assert "SPIN [0.001, 0.002, 0.003]" in rehearsed, rehearsed
