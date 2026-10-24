@@ -177,16 +177,10 @@ class ContinualPlayMixin:
         del session, state
 
     def _model_status(self, session: ProtocolSession) -> str:
-        """The status block of the query: the recorded data.
-
-        An arm with a model overrides it.
-        """
+        """The model-and-data block of the query; an arm with a belief model
+        overrides it."""
         n_eps, n_steps = self._episode_counts(session)
         return render_data_status(n_episodes=n_eps, n_steps=n_steps)
-
-    def _model_status_heading(self) -> str:
-        """The heading of the query's status block."""
-        return "Model and data"
 
     def _round_was_productive(self, session: ProtocolSession, state: PlayState,
                               steps_before: int, steps_after: int) -> bool:
@@ -414,7 +408,6 @@ class ContinualPlayMixin:
             predicates=self._render_predicates(),
             types=render_types_digest(ctx.types),
             model=self._model_status(session),
-            model_heading=self._model_status_heading(),
             journal=journal_mod.read_journal(sandbox),
             attempts=journal_mod.read_journal(
                 sandbox, filename=journal_mod.ATTEMPTS_FILENAME),
@@ -566,7 +559,6 @@ class ContinualPlayMixin:
                         self, "_current_predicates_version", None),
                     _env_reward=ep.get("reward"),
                     _env_terminated=ep.get("terminated"),
-                    _after_end=int(ep.get("after_end") or 0),
                 ))
         return out
 

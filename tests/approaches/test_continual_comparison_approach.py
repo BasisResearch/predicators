@@ -1,19 +1,16 @@
 """Continual comparison contracts exercised through real play tools."""
 import dataclasses
-import json
 import os
 import re
 import shlex
 import sys
-from typing import Any, Dict, Iterator, List, Set, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Set, Tuple
 
 import pybullet as p
 import pytest
 
 from predicators import utils
 from predicators.agent_sdk.belief_probe import BeliefProbe
-from predicators.agent_sdk.tools.program_synthesis import \
-    STANDALONE_PROBE_ABSENT
 from predicators.approaches import create_approach
 from predicators.approaches.agent_continual_ablation_approach import \
     AgentContinualNoUncertaintyApproach
@@ -49,25 +46,6 @@ def _arm_config(domain: str, approach: str) -> SingleSeedRunConfig:
                if c.env == f"pybullet_{domain}" and c.approach == approach)
     assert isinstance(cfg, SingleSeedRunConfig)
     return cfg
-
-
-def _scripted_flags(cfg: SingleSeedRunConfig, tmp_path: Any) -> Dict[str, Any]:
-    """The benchmark flags of ``cfg`` for a scripted session with local
-    outputs.
-
-    The scripts step raw actions further than the robot moves in one
-    step and end with give_up on a training level, so the two shared
-    rules that refuse those are off here; they have their own tests.
-    """
-    flags = {k: v for k, v in cfg.flags.items() if k != "log"}
-    flags.update(continual_render=False,
-                 continual_make_video=False,
-                 continual_runs_dir=str(tmp_path / "runs"),
-                 continual_raw_step_limit=False,
-                 continual_refuse_training_give_up=False,
-                 env=cfg.env,
-                 approach=cfg.approach)
-    return flags
 
 
 @pytest.fixture(autouse=True)
@@ -163,7 +141,16 @@ def test_ablation_play_tools(tmp_path: Any, monkeypatch: Any, arm: str,
                              domain: str) -> None:
     """No-uncertainty uses raw observations; tools enforce arm restrictions."""
     cfg = _arm_config(domain, f"agent_continual_{arm}")
-    _config(tmp_path, **_scripted_flags(cfg, tmp_path))
+    _config(
+        tmp_path, **{
+            **{k: v
+               for k, v in cfg.flags.items() if k != "log"}, "continual_render":
+            False,
+            "continual_make_video": False,
+            "continual_runs_dir": str(tmp_path / "runs"),
+            "env": cfg.env,
+            "approach": cfg.approach
+        })
     env = create_new_env(cfg.env, do_cache=False, use_gui=False)
     agent: Any = create_approach(cfg.approach, env.predicates,
                                  get_gt_options(env.get_name()), env.types,
@@ -316,7 +303,16 @@ def _configure_domain_comparison(tmp_path: Any, domain: str,
                                  approach: str) -> str:
     """Use the benchmark's real domain settings with local test outputs."""
     cfg = _arm_config(domain, approach)
-    _config(tmp_path, **_scripted_flags(cfg, tmp_path))
+    _config(
+        tmp_path, **{
+            **{k: v
+               for k, v in cfg.flags.items() if k != "log"}, "continual_render":
+            False,
+            "continual_make_video": False,
+            "continual_runs_dir": str(tmp_path / "runs"),
+            "env": cfg.env,
+            "approach": cfg.approach
+        })
     return cfg.env
 
 
@@ -417,64 +413,22 @@ def transition(obs, latent, option, rng):
         assert live_bodies() == before
         # Close to WorldCoder: score and one rollout at a time; plan
         # search, repeated trials, predicate scoring and engine renders
-        # are not there, and the descriptions do not offer them.
+        # are refused, and the descriptions do not offer them.
         assert probe.run(plan) is not None  # text-only rollout
-        with pytest.raises(RuntimeError, match="runs a plan once per call"):
-            probe.run(plan, trials=2)
-        for absent in sorted(STANDALONE_PROBE_ABSENT):
-            assert absent not in dir(probe), absent
-            with pytest.raises(AttributeError, match=f"'{absent}'"):
-                getattr(probe, absent)
-        # That was the probe core. The agent holds a ``sim`` that defines
-        # the arm's calls alone, and no name for a probe class: a withheld
-        # call is no attribute of it and a withheld keyword no argument.
-        held = _call(agent,
-                     "run_python",
-                     code="import json\nprint(json.dumps([type(sim).__name__, "
-                     "sorted(n for n in dir(sim) if not n.startswith('_')), "
-                     "sorted(n for n in ('BeliefProbe', 'ParamSpec') "
-                     "if n in dir())]))")
-        listed = next(line for line in held.splitlines()
-                      if line.startswith('["'))
-        assert json.loads(listed) == [
-            "WorldModelProbe",
-            ["reset", "restore", "run", "score", "snapshot", "state", "task"],
-            []
-        ], held
-        for absent in sorted(STANDALONE_PROBE_ABSENT):
-            refused = _call(agent, "run_python", code=f"sim.{absent}")
-            assert ("AttributeError: 'WorldModelProbe' object has no "
-                    f"attribute '{absent}'") in refused, refused
-        for keyword in ("trials=2", "solved=True", "contacts=True",
-                        "physics_sweep=True", "draws=0", "belief_draws=2"):
-            refused = _call(agent,
-                            "run_python",
-                            code=f"sim.run({plan!r}, {keyword})")
-            name = keyword.split("=", maxsplit=1)[0]
-            assert f"got an unexpected keyword argument '{name}'" in refused, \
-                refused
-            # The agent's own frame, and no file or wording of the harness.
-            assert refused.count("File ") == 1, refused
-            assert "session" not in refused and "predicators" not in refused
+        refusals: List[Callable[[], Any]] = [
+            lambda: probe.refine(plan), lambda: probe.run(plan, trials=2),
+            probe.predicates, lambda: probe.render("x"),
+            lambda: probe.suggest_probes(plan), probe.belief
+        ]
+        for refused in refusals:
+            with pytest.raises(RuntimeError, match="unavailable"):
+                refused()
         tools = {t.name: t for t in ctx.extra_mcp_tools}
         desc = tools["run_python"].description
         for absent in ("sim.refine", "trials=", "sim.predicates", "sim.render",
-                       "physics_sweep"):
+                       "evaluate_trajectory"):
             assert absent not in desc, absent
         assert "sim.score" in desc and "sim.run(plan_text)" in desc
-        # The level's reward model scores the model's own rollout with no
-        # engine behind it, and only the three public keys come back.
-        assert "evaluate_trajectory(states, actions=None, task_idx=None)" \
-            in desc
-        assert "## Interpreting task verdicts" in prompt
-        scored = _call(agent,
-                       "run_python",
-                       code=f"rollout = sim.reset(current=True).run({plan!r})"
-                       "\nverdict = evaluate_trajectory(rollout.states)\n"
-                       "print(len(rollout.states) > 1, sorted(verdict), "
-                       "verdict['solved'], repr(verdict['note']))")
-        assert "True ['note', 'reward', 'solved'] False ''" in scored, scored
-        assert live_bodies() == before
         assert "sim.refine" not in prompt
         assert "first rehearses" not in prompt
         for kwargs in ({
@@ -484,7 +438,7 @@ def transition(obs, latent, option, rng):
         }, {
                 "physics_sweep": True
         }):
-            with pytest.raises(ValueError, match="takes no `solved`"):
+            with pytest.raises(ValueError, match="Engine diagnostics"):
                 probe.run(plan, **kwargs)
 
         assert ctx.probe_fit_provider is None
@@ -502,91 +456,6 @@ def transition(obs, latent, option, rng):
     card = ContinualRun(env, agent, create_level_player(env, agent)).run()
     assert card.total_steps == 1
     assert isinstance(agent._option_model, ProgramOptionModel)  # pylint: disable=protected-access
-
-
-_SCORE_A_BOILED_JUG = '''
-start = train_tasks[0].init
-boiled = {}
-for obj in start:
-    wanted = {}
-    if obj.type.name == "jug":
-        wanted = {"water_volume": 100.0, "heat_level": 1.0,
-                  "bubbling_level": 1.0}
-    elif obj.type.name == "burner":
-        wanted = {"is_on": 0.0}
-    elif obj.type.name == "faucet":
-        wanted = {"is_on": 0.0, "spilled_level": 0.0}
-    boiled[obj.name] = {
-        f: v for f, v in wanted.items() if f in obj.type.feature_names}
-done = with_features(start, boiled)
-print("A", evaluate_trajectory([start, done]))
-print("B", evaluate_trajectory([start, start],
-                               [("Wait", ("robot",), (1.0,))]))
-print("C", is_goal_state(done), is_goal_state(start))
-try:
-    evaluate_trajectory([start, done], physics_sweep=True)
-except TypeError:
-    print("D no sweep")
-'''
-
-_NAME_THE_HELPERS = '''
-for name in ("evaluate_trajectory", "with_features", "is_goal_state"):
-    print(name, name in dir())
-'''
-
-
-@pytest.mark.parametrize("provided", [True, False])
-def test_standalone_reward_model_has_no_engine(tmp_path: Any, monkeypatch: Any,
-                                               provided: bool) -> None:
-    """Under its flag the standalone arm scores states with the level's reward
-    model through the public helper in ``run_python``: three keys, a goal state
-    scored solved, no physics sweep.
-
-    Without the flag the helper is absent.
-    """
-    _config(tmp_path,
-            approach="agent_continual_program_world_model",
-            continual_provide_reward_model=provided)
-    env = create_new_env("pybullet_boil", do_cache=False, use_gui=False)
-    agent: Any = create_approach("agent_continual_program_world_model",
-                                 env.predicates,
-                                 get_gt_options(env.get_name()), env.types,
-                                 env.action_space,
-                                 [t.task for t in env.get_train_tasks()])
-    outputs: List[str] = []
-
-    def query(*_args: Any, **_kwargs: Any) -> Any:
-        ctx = agent._tool_context  # pylint: disable=protected-access
-        prompt = agent._play_system_prompt()  # pylint: disable=protected-access
-        tools = {t.name: t for t in ctx.extra_mcp_tools}
-        desc = tools["run_python"].description
-        assert ("## Interpreting task verdicts" in prompt) is provided
-        assert ("evaluate_trajectory" in prompt) is provided
-        assert ("evaluate_trajectory" in desc) is provided
-        assert ("with_features" in desc) is provided
-        # Nothing else of EMPIRIC's came with it, by call or by name.
-        for absent in ("physics_sweep", "sim.fit", "sim.refine",
-                       "evaluator replays", "residual-fitting"):
-            assert absent not in desc and absent not in prompt, absent
-        outputs.append(
-            _call(agent,
-                  "run_python",
-                  code=_SCORE_A_BOILED_JUG if provided else _NAME_THE_HELPERS))
-        assert "Give-up recorded" in _call(agent, "give_up", note="audit")
-        return _result()
-
-    monkeypatch.setattr(agent, "_query_agent_sync", query)
-    agent.prepare_for_continual(Dataset([]))
-    ContinualRun(env, agent, create_level_player(env, agent)).run()
-    assert len(outputs) == 1
-    if provided:
-        assert "A {'reward': 1.0, 'solved': True, 'note': ''}" in outputs[0]
-        assert "B {'reward': 0.0, 'solved': False, 'note': ''}" in outputs[0]
-        assert "C True False" in outputs[0] and "D no sweep" in outputs[0]
-    else:
-        assert "evaluate_trajectory False" in outputs[0], outputs[0]
-        assert "with_features False" in outputs[0]
-        assert "is_goal_state True" in outputs[0]
 
 
 @pytest.mark.parametrize("domain",

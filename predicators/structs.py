@@ -1221,21 +1221,6 @@ class TaskEvaluator:
         del states, step_options, sim_env  # unused in the default
         return ""
 
-    def replay_unchecked(self,
-                         states: Sequence[State],
-                         step_options: Optional[Sequence[StepOption]],
-                         sim_env: Optional[Any] = None) -> bool:
-        """Whether the verdict left a physics-replay rule unchecked because the
-        caller supplied no ``sim_env``; False for a pure certificate.
-
-        True means that the goal atoms hold and no rule that needs no
-        physics was broken, and that the certificate then failed closed
-        for want of a replay. An agent-facing surface with no simulator
-        reads this bit to say so in its note. It never names a rule.
-        """
-        del states, step_options, sim_env  # unused in the default
-        return False
-
     def offline_metrics(
             self, states: Sequence[State],
             step_options: Optional[Sequence[StepOption]]) -> Dict[str, float]:
@@ -2151,10 +2136,6 @@ class LowLevelTrajectory:
     _source_predicates_version: Optional[str] = field(default=None)
     _env_reward: Optional[float] = field(default=None)
     _env_terminated: Optional[bool] = field(default=None)
-    # How many of the last actions (and states) were recorded after the
-    # episode ended, with the robot holding still while bodies came to
-    # rest (``continual_record_until_rest``). They were not level steps.
-    _after_end: int = field(default=0)
 
     def __post_init__(self) -> None:
         assert len(self._states) == len(self._actions) + 1
@@ -2182,12 +2163,6 @@ class LowLevelTrajectory:
         assert self._train_task_idx is not None, \
             "This trajectory doesn't contain a train task idx!"
         return self._train_task_idx
-
-    @property
-    def after_end(self) -> int:
-        """How many of the last actions were recorded after the episode ended,
-        with the robot holding still while bodies came to rest."""
-        return self._after_end
 
     @property
     def source_simulator_version(self) -> Optional[str]:
