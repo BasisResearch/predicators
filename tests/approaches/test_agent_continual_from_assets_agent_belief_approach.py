@@ -12,6 +12,8 @@ from typing import Any, Dict
 import numpy as np
 import pytest
 
+from predicators.agent_sdk.belief_probe import BeliefProbe
+from predicators.agent_sdk.tools import ToolContext
 from predicators.approaches import create_approach
 from predicators.approaches.agent_continual_from_assets_approach import \
     AgentContinualFromAssetsApproach
@@ -121,6 +123,17 @@ def test_the_belief_is_the_draws_and_nothing_tempers_it():
     assert all(r in many for r in subset)
 
 
+def test_a_method_the_arm_leaves_out_is_absent():
+    """A probe method listed in probe_absent does not exist on ``sim``; the
+    others stay."""
+    sim = BeliefProbe(ToolContext(probe_absent=frozenset({"fit"})))
+    assert not hasattr(sim, "fit") and "fit" not in dir(sim)
+    assert hasattr(sim, "run") and "run" in dir(sim)
+    with pytest.raises(AttributeError, match="no attribute 'fit'"):
+        sim.fit()  # pylint: disable=no-member
+    assert hasattr(BeliefProbe(ToolContext()), "fit")
+
+
 def test_arm_needs_the_joint_belief(tmp_path: Any) -> None:
     """Without uncertainty decisions or joint draws there is nothing to run the
     agent's draws on."""
@@ -135,6 +148,7 @@ def test_arm_serves_the_agents_draws(tmp_path: Any, monkeypatch: Any) -> None:
     approach = _make(tmp_path)
     assert approach._probe_surface().fit is False
     assert approach._probe_surface().uncertainty is True
+    assert approach._tool_context.probe_absent == frozenset({"fit"})
     approach._physical_param_specs = list(_SPECS)
     digest = {"now": "a"}
     monkeypatch.setattr(approach, "_current_simulator_digest",
@@ -256,10 +270,10 @@ def test_agent_rehearses_on_its_own_draws(tmp_path: Any,
         assert not rehearsed.startswith("ERROR"), rehearsed
         assert "SPIN [0.001, 0.002, 0.003]" in rehearsed, rehearsed
         assert "ROLL {None}" in rehearsed, rehearsed
-        refused = _call(approach, "run_python", code="print(sim.fit())")
-        assert "fit" in refused.lower() and (
-            "disabled" in refused.lower() or "refuse" in refused.lower()
-            or refused.startswith("ERROR")), refused
+        absent = _call(approach,
+                       "run_python",
+                       code="print(hasattr(sim, 'fit'), 'fit' in dir(sim))")
+        assert "False False" in absent, absent
         assert approach._model_readiness(str(sandbox / "simulator.py"),
                                          []) is None
         assert "Give-up recorded" in _call(approach, "give_up", note="done")
