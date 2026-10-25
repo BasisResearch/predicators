@@ -113,3 +113,19 @@ def memory_entries(model_state: Mapping[str, Any]) -> Dict[str, str]:
         for key, value in model_state.items()
         if not (isinstance(value, (dict, list, set, tuple)) and not value)
     }
+
+
+def memory_written_note(lead: str, written: Mapping[str, str]) -> str:
+    """Tell the agent that its model's step writes memory a reset cannot
+    rebuild (``PyBulletEnv.memory_written_by_step``), led by ``lead``."""
+    entries = ", ".join(f"{key} (now {value[:80]})"
+                        for key, value in sorted(written.items()))
+    return (
+        f"{lead}, simulator.py's _domain_specific_step changed these "
+        f"model_state entries: {entries}. A reset from an observation "
+        "rebuilds model_state with update_model_state alone, so every "
+        "rollout that starts from an observation starts without what the "
+        "step wrote: rehearsals from the current state, fit segments that "
+        "start mid-episode, and execution tracking. Infer these entries in "
+        "update_model_state from the observations, and only read them in "
+        "the step.")
