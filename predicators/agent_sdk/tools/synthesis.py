@@ -1151,14 +1151,27 @@ def create_synthesis_tools(
                         "its lo/hi bounds in the declaration instead "
                         "(versioned in simulator.py, respected by the "
                         "whole fit stack).")
-            return _evaluate_rollout_fit(rules,
-                                         specs,
-                                         physical_specs or [],
-                                         latent_init,
-                                         residual_features,
-                                         scope_note,
-                                         version_tag,
-                                         traj_idxs=traj_idxs)
+            # pylint: disable=import-outside-toplevel
+            from predicators.code_sim_learning.model_state import \
+                memory_written_note
+            from predicators.code_sim_learning.rollout_env import \
+                clear_memory_written, memory_written_in_rollouts
+
+            # pylint: enable=import-outside-toplevel
+            clear_memory_written()
+            report = _evaluate_rollout_fit(rules,
+                                           specs,
+                                           physical_specs or [],
+                                           latent_init,
+                                           residual_features,
+                                           scope_note,
+                                           version_tag,
+                                           traj_idxs=traj_idxs)
+            written = memory_written_in_rollouts()
+            if written:
+                report += "\n\n" + memory_written_note(
+                    "In this fit's rollouts", written)
+            return report
 
         if fixed:
             known = {s.name for s in specs}
