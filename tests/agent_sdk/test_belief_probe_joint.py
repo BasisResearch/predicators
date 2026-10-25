@@ -708,3 +708,29 @@ def test_a_task_without_an_evaluator_is_judged_by_its_goal_atoms():
     assert not plain.solved([high, low], None)
     assert task_evaluator(Task(high, set())) is None
     assert task_evaluator(None) is None
+
+
+def test_a_rehearsal_names_the_memory_the_models_step_wrote():
+    """The draws' note names the model_state entries the model's step wrote,
+    the rollout from the belief mean does not repeat it, and a plain run says
+    it too."""
+    ctx, model, _, _ = _joint_ctx()
+    # pylint: disable-next=attribute-defined-outside-init
+    model.sim_env = type("E", (),
+                         {"memory_written_by_step": {
+                             "links": "[['a', 'b']]"
+                         }})()
+    sim = BeliefProbe(ctx)
+    _on_observation(sim, ctx)
+    res = sim.run(_PLAN, render=False)
+    assert [d["memory_written"] for d in res.draws] == \
+        [{"links": "[['a', 'b']]"}] * 4
+    note = ("simulator.py's _domain_specific_step changed these model_state "
+            "entries: links (now [['a', 'b']])")
+    text = res.text
+    assert f"In 4 of 4 draws, {note}" in text
+    assert text.count(note) == 1
+    assert "rebuilds model_state with update_model_state alone" in text
+    single = sim.run(_PLAN, render=False, draws=0)
+    assert f"While this model ran, {note}" in single.text
+    utils.reset_config({})
