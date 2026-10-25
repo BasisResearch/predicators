@@ -45,7 +45,7 @@ from predicators.agent_sdk.tools.scene import apply_state_modifications, \
     draw_pybullet_annotation, render_pybullet_image, render_scene_image
 from predicators.agent_sdk.tools.verdicts import _EvalStateCollector, \
     _policy_source_path, evaluate_states_with, load_ground_sampler_fns, \
-    make_solved_check
+    make_solved_check, task_evaluator
 from predicators.structs import State, Task, excluded_object_type_names
 
 if TYPE_CHECKING:
@@ -2017,9 +2017,8 @@ class BeliefProbe:
         names_provider = ctx.physical_param_names_provider
         physical = set(names_provider() if names_provider else ())
         evaluator: Any = None
-        if score and ctx.probe_engine_available and \
-                self._base_task is not None:
-            evaluator = self._base_task.evaluator
+        if score and ctx.probe_engine_available:
+            evaluator = task_evaluator(self._base_task)
         prefix_states: List[State] = []
         prefix_labels: List[Any] = []
         if evaluator is not None and from_observation and \
@@ -2263,10 +2262,12 @@ class BeliefProbe:
         ``refine(require_solved=True)``, so the two evaluator-scored surfaces
         can never drift apart.
 
-        Returns the task evaluator. Raises when the current state is not
-        the task's unmodified initial state (the evaluator's rules
-        reference the true init, so any other start would give silently-
-        wrong verdicts) or when the task defines no evaluator.
+        Returns the rule that judges the task (``task_evaluator``: its
+        evaluator, else its goal atoms). Raises when the current state
+        is not the task's unmodified initial state (the evaluator's
+        rules reference the true init, so any other start would give
+        silently wrong verdicts) or when the task has no goal atoms to
+        judge.
         """
         if not self._ctx.probe_engine_available:
             raise ValueError("Engine evaluator replay is unavailable for a "
@@ -2279,9 +2280,9 @@ class BeliefProbe:
                 "a verdict from a modified or advanced state would be "
                 "silently wrong.")
         assert self._base_task is not None
-        evaluator = self._base_task.evaluator
+        evaluator = task_evaluator(self._base_task)
         if evaluator is None:
-            raise ValueError(f"{flag}: this task defines no task evaluator.")
+            raise ValueError(f"{flag}: this task has no goal atoms to judge.")
         return evaluator
 
     def _run_rehearsal(self, plan_text: str, render: bool,
@@ -3699,19 +3700,18 @@ class BeliefProbe:
         elif require_goal:
             verdict = ("goal-reached - the task's goal atoms held at the "
                        "final step")
-            # Recommend the evaluator gate only when the task HAS an
-            # evaluator: sessions without one wasted a call per session
-            # following this advice into "this task defines no task
-            # evaluator" (run_20260830, three sessions).
-            if (self._base_task is not None
-                    and self._base_task.evaluator is not None):
+            # Recommend the evaluator gate only when the task has a rule to
+            # judge it by: sessions without one wasted a call per session
+            # following this advice into a refusal (run_20260830, three
+            # sessions).
+            if task_evaluator(self._base_task) is not None:
                 verdict += ("; no evaluator verdict (use "
                             "require_solved=True from a pristine reset() "
                             "for that).")
             else:
-                verdict += (" (this task defines no evaluator, so "
-                            "goal-reached is the strongest verdict "
-                            "available).")
+                verdict += (" (this task has no goal atoms an evaluator "
+                            "could judge, so goal-reached is the strongest "
+                            "verdict available).")
         else:
             verdict = ("executed - every step established its subgoal "
                        "annotation; the task goal was NOT checked (set "
