@@ -17,6 +17,8 @@ from predicators.code_sim_learning.config import SysIdConfig
 from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.code_sim_learning.model_state import memory_from_history, \
     restored_model_state
+from predicators.code_sim_learning.rollout_env import clear_memory_written, \
+    memory_written_in_rollouts, rollout_states
 from predicators.ground_truth_models.balloons.gt_simulator_env import \
     BalloonsResidualEnv
 from predicators.structs import Action, LowLevelTrajectory, Object, State, Type
@@ -271,5 +273,26 @@ def test_memory_the_update_rebuilds_from_the_observation_is_not_recorded():
         second = env.simulate(env.simulate(initial, action), action)
         assert list(second.latent["popped"].values()) == [True]
         assert not env.memory_written_by_step
+    finally:
+        env.dispose()
+
+
+def test_rollouts_record_the_memory_their_steps_write():
+    """A rollout adds the memory its env's step wrote to this process's record,
+    which a fit clears before its rollouts and reads after."""
+    utils.reset_config({
+        "env": "pybullet_balloons",
+        "seed": 0,
+        "skill_phase_use_motion_planning": False,
+    })
+    initial = _balloons_start()
+    action = Action(np.array(initial.joint_positions, dtype=np.float32))
+    clear_memory_written()
+    env = _StepMemoryModel(use_gui=False)
+    try:
+        rollout_states(env, initial, [action, action], {})
+        assert memory_written_in_rollouts() == {"links": "[['a', 'b']]"}
+        clear_memory_written()
+        assert not memory_written_in_rollouts()
     finally:
         env.dispose()
