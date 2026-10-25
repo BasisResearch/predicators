@@ -50,7 +50,8 @@ from predicators import utils
 from predicators.code_sim_learning.commands import ApplyForce, ApplyTorque, \
     Attach, PhysicsCommand, SetVelocity
 from predicators.code_sim_learning.model_state import advance_model_state, \
-    has_model_state, initial_model_state, restored_model_state
+    has_model_state, initial_model_state, memory_entries, \
+    restored_model_state
 from predicators.envs import BaseEnv
 from predicators.pybullet_helpers import retry_pybullet_call, studio_visuals, \
     world_gap
@@ -449,6 +450,12 @@ class PyBulletEnv(BaseEnv):
         # so a learned rule that reads its own emitted feature still sees the
         # right input. Empty on sequential rollouts (no reset → nothing lost).
         self._last_unreconstructible_features: List[Tuple[Object, str]] = []
+
+        # The model_state entries _domain_specific_step has changed, each
+        # with the value it left, since this env was built. A reset from
+        # an observation rebuilds memory with update_model_state alone
+        # (restored_model_state), so what the step writes is lost there.
+        self.memory_written_by_step: Dict[str, str] = {}
 
         # Opt-in contact recording (see start_contact_recording): while
         # the log is not None, every step() appends that step's contact
@@ -850,11 +857,15 @@ class PyBulletEnv(BaseEnv):
         run_model = (not self._skip_domain_specific_dynamics
                      or self._agent_model_dynamics)
         if run_model:
+            memory_before: Optional[Dict[str, str]] = None
             if has_model_state(type(self)):
                 advance_model_state(type(self), self._get_state(),
                                     self._model_state,
                                     self._agent_param_values, action)
+                memory_before = memory_entries(self._model_state)
             self._domain_specific_step()
+            if memory_before is not None:
+                self._note_memory_written_by_step(memory_before)
         # After ALL of this step's dynamics (a domain step may have just
         # created or re-anchored welds), and regardless of
         # skip_domain_specific_dynamics (base-sim mode still executes
@@ -1186,6 +1197,15 @@ class PyBulletEnv(BaseEnv):
             if key not in self._cmd_weld_constraints:
                 self._cmd_weld_constraints[key] = self._create_command_weld(
                     ids[left], ids[right])
+
+    def _note_memory_written_by_step(self, before: Dict[str, str]) -> None:
+        """Record the model_state entries ``_domain_specific_step`` changed
+        from ``before`` (``memory_entries`` just before it ran), each with the
+        value it left."""
+        after = memory_entries(self._model_state)
+        for key in before.keys() | after.keys():
+            if before.get(key) != after.get(key):
+                self.memory_written_by_step[key] = after.get(key, "(removed)")
 
     def restore_model_state(self) -> None:
         """Optional candidate hook after poses and inferred memory reset.
