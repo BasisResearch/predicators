@@ -9,12 +9,38 @@ from predicators.agent_sdk.config import RefinementConfig, SessionConfig
 from predicators.agent_sdk.proposal_exec import build_exec_context, \
     load_ground_samplers
 from predicators.agent_sdk.tools.context import ToolContext
-from predicators.structs import Predicate, State, Task
+from predicators.structs import Predicate, State, Task, TaskEvaluator, \
+    VLMPredicate
 
 # A body moving more than this (metres a step, averaged over up to
 # _MOVING_SPAN transitions) has not come to rest.
 _MOVING_PER_STEP = 1e-3
 _MOVING_SPAN = 5
+
+
+def task_evaluator(task: Optional[Task]) -> Optional[TaskEvaluator]:
+    """The rule that judges ``task``'s episodes: its own evaluator, or, for a
+    task that has none, the goal-atom rule of ``BaseEnv.episode_terminated``
+    (the episode ends, solved, once the goal atoms hold).
+
+    None for a task with no goal atoms, or one whose goal a VLM judges.
+    Rehearsals score their draws with it, so a task without an evaluator
+    (Bridge, Boil) is judged by its own goal atoms; the agent's
+    predicates need not express that goal (in EMPIRIC from assets they
+    often do not). An env that adds a rule of its own outside the
+    evaluator is judged more leniently here than in a real episode:
+    Bridge also waits for the robot to clear the blocks and lets the
+    structure settle before it counts.
+    """
+    if task is None:
+        return None
+    if task.evaluator is not None:
+        return task.evaluator
+    goal = set(task.goal)
+    if not goal or any(
+            isinstance(atom.predicate, VLMPredicate) for atom in goal):
+        return None
+    return TaskEvaluator(goal)
 
 
 class _EvalStateCollector:
@@ -223,18 +249,17 @@ def _format_evaluator_verdict(verdict: Dict[str, Any],
 
 def _resolve_task_evaluator(ctx: ToolContext, task_idx: Union[int, str,
                                                               None]) -> Any:
-    """The evaluator of a tool's referenced task (``Task.evaluator``), or None.
+    """The rule that judges a tool's referenced task (:func:`task_evaluator`),
+    or None.
 
     ``task_idx`` follows the tools' convention: an int indexes the train
     tasks; ``"current"``/None means the current solve/explore task.
     """
     if isinstance(task_idx, int):
         if 0 <= task_idx < len(ctx.train_tasks):
-            return ctx.train_tasks[task_idx].evaluator
+            return task_evaluator(ctx.train_tasks[task_idx])
         return None
-    if ctx.current_task is not None:
-        return ctx.current_task.evaluator
-    return None
+    return task_evaluator(ctx.current_task)
 
 
 def _sandbox_base(ctx: ToolContext) -> Optional[str]:
