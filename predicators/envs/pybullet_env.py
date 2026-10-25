@@ -451,10 +451,11 @@ class PyBulletEnv(BaseEnv):
         # right input. Empty on sequential rollouts (no reset → nothing lost).
         self._last_unreconstructible_features: List[Tuple[Object, str]] = []
 
-        # The model_state entries _domain_specific_step has changed, each
-        # with the value it left, since this env was built. A reset from
-        # an observation rebuilds memory with update_model_state alone
-        # (restored_model_state), so what the step writes is lost there.
+        # The model_state entries _domain_specific_step has changed and
+        # update_model_state does not rebuild from the observation, each
+        # with the value the step left, since this env was built. A reset
+        # from an observation rebuilds memory with update_model_state
+        # alone (restored_model_state), so these entries are lost there.
         self.memory_written_by_step: Dict[str, str] = {}
 
         # Opt-in contact recording (see start_contact_recording): while
@@ -857,15 +858,18 @@ class PyBulletEnv(BaseEnv):
         run_model = (not self._skip_domain_specific_dynamics
                      or self._agent_model_dynamics)
         if run_model:
-            memory_before: Optional[Dict[str, str]] = None
+            before_update: Optional[Dict[str, Any]] = None
+            memory_before: Dict[str, str] = {}
             if has_model_state(type(self)):
+                before_update = copy.deepcopy(self._model_state)
                 advance_model_state(type(self), self._get_state(),
                                     self._model_state,
                                     self._agent_param_values, action)
                 memory_before = memory_entries(self._model_state)
             self._domain_specific_step()
-            if memory_before is not None:
-                self._note_memory_written_by_step(memory_before)
+            if before_update is not None:
+                self._note_memory_written_by_step(memory_before, before_update,
+                                                  action)
         # After ALL of this step's dynamics (a domain step may have just
         # created or re-anchored welds), and regardless of
         # skip_domain_specific_dynamics (base-sim mode still executes
@@ -1198,14 +1202,36 @@ class PyBulletEnv(BaseEnv):
                 self._cmd_weld_constraints[key] = self._create_command_weld(
                     ids[left], ids[right])
 
-    def _note_memory_written_by_step(self, before: Dict[str, str]) -> None:
+    def _note_memory_written_by_step(self, before: Dict[str, str],
+                                     before_update: Dict[str, Any],
+                                     action: Action) -> None:
         """Record the model_state entries ``_domain_specific_step`` changed
-        from ``before`` (``memory_entries`` just before it ran), each with the
-        value it left: its text, "empty" or "deleted"."""
+        from ``before`` (``memory_entries`` just before it ran) that the
+        observation-driven update does not rebuild, each with the value the
+        step left: its text, "empty" or "deleted".
+
+        The update rebuilds an entry when, run from ``before_update``
+        (the memory before this step's update) on the state after the
+        step, as execution tracking runs it on the observation after a
+        real step, it gives the entry the step left. An entry a step
+        writes and then also shows in an observable feature that the
+        update reads (a balloon the step pops) is therefore not
+        recorded.
+        """
         after = memory_entries(self._model_state)
+        changed = {
+            key
+            for key in before.keys() | after.keys()
+            if before.get(key) != after.get(key)
+        }
+        if not changed:
+            return
+        advance_model_state(type(self), self._get_state(), before_update,
+                            self._agent_param_values, action)
+        rebuilt = memory_entries(before_update)
         names = {str(key) for key in self._model_state}
-        for key in before.keys() | after.keys():
-            if before.get(key) == after.get(key):
+        for key in changed:
+            if rebuilt.get(key) == after.get(key):
                 continue
             if key in after:
                 self.memory_written_by_step[key] = after[key]
