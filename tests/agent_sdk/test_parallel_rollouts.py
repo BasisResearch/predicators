@@ -1,12 +1,13 @@
 """Tests for the fork-based parallel rollout helper."""
 
 import time
-from typing import Tuple
+from typing import Dict, Tuple
 
 import pytest
 
+from predicators.agent_sdk import parallel_rollouts
 from predicators.agent_sdk.parallel_rollouts import \
-    parallel_rollouts_available, run_forked_rollouts
+    parallel_rollouts_available, register_child_record, run_forked_rollouts
 
 
 def test_results_are_index_aligned() -> None:
@@ -110,3 +111,33 @@ def test_child_mutations_stay_in_child() -> None:
     out = run_forked_rollouts([job], max_workers=1, label="test")
     assert out == [99]
     assert shared["value"] == 1
+
+
+def test_child_records_reach_the_parent() -> None:
+    """A record each child adds to comes back merged into the parent's, and a
+    record that fails to read costs no child its result."""
+    if not parallel_rollouts_available():
+        pytest.skip("fork not available on this platform")
+    seen: Dict[str, int] = {}
+    register_child_record("test_seen", lambda: dict(seen), seen.update)
+    register_child_record("test_broken", lambda: 1 // 0, seen.update)
+    try:
+
+        def make_job(i: int):
+
+            def job() -> int:
+                seen[f"job{i}"] = i
+                return i
+
+            return job
+
+        out = run_forked_rollouts([make_job(i) for i in range(3)],
+                                  max_workers=3,
+                                  label="test")
+        assert out == [0, 1, 2]
+        assert seen == {"job0": 0, "job1": 1, "job2": 2}
+    finally:
+        # pylint: disable-next=protected-access
+        records = parallel_rollouts._CHILD_RECORDS
+        records.pop("test_seen", None)
+        records.pop("test_broken", None)

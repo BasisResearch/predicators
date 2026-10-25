@@ -46,6 +46,7 @@ from predicators.agent_sdk.tools.scene import apply_state_modifications, \
 from predicators.agent_sdk.tools.verdicts import _EvalStateCollector, \
     _policy_source_path, evaluate_states_with, load_ground_sampler_fns, \
     make_solved_check, task_evaluator
+from predicators.code_sim_learning.model_state import memory_written_note
 from predicators.structs import State, Task, excluded_object_type_names
 
 if TYPE_CHECKING:
@@ -549,21 +550,6 @@ def _memory_written(env: Any) -> Dict[str, str]:
 # How a single run's memory note starts: a rehearsal drops it from its
 # rollout from the belief mean when its draws' note already says the same.
 _RUN_MEMORY_LEAD = "While this model ran"
-
-
-def _memory_written_note(lead: str, written: Dict[str, str]) -> str:
-    """Tell the agent that its step writes memory a reset cannot rebuild."""
-    entries = ", ".join(f"{key} (now {value[:80]})"
-                        for key, value in sorted(written.items()))
-    return (
-        f"{lead}, simulator.py's _domain_specific_step changed these "
-        f"model_state entries: {entries}. A reset from an observation "
-        "rebuilds model_state with update_model_state alone, so every "
-        "rollout that starts from an observation starts without what the "
-        "step wrote: rehearsals from the current state, fit segments that "
-        "start mid-episode, and execution tracking. Infer these entries in "
-        "update_model_state from the observations, and only read them in "
-        "the step.")
 
 
 def _beyond_recordings(ctx: "ToolContext",
@@ -2206,7 +2192,7 @@ class BeliefProbe:
         wrote = [d for d in results if d.get("memory_written")]
         if wrote:
             notices.append(
-                _memory_written_note(
+                memory_written_note(
                     f"In {len(wrote)} of {n} draws", {
                         key: value
                         for d in wrote
@@ -3093,7 +3079,7 @@ class BeliefProbe:
                 contact_events = contact_env.stop_contact_recording()
         if memory_written:
             notices.append(
-                _memory_written_note(_RUN_MEMORY_LEAD, memory_written))
+                memory_written_note(_RUN_MEMORY_LEAD, memory_written))
         if contact_env is not None:
             counted = sum(s["num_actions"] for s in step_dicts)
             recorded = contact_env.contact_steps_recorded
