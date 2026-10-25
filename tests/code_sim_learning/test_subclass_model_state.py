@@ -51,10 +51,14 @@ class _StepMemoryModel(_MemoryModel):
     """Infers a link in its engine step, where no reset replays it."""
 
     def _domain_specific_step(self):
-        """Write a link once charged, and an entry it leaves empty."""
+        """Leave an entry empty, write a link once charged, then empty the link
+        and delete the events."""
         self.model_state.setdefault("unused", {})
-        if self.model_state["charge"] >= .5:
+        if self.model_state["charge"] == .5:
             self.model_state.setdefault("links", []).append(["a", "b"])
+        elif self.model_state["charge"] == .75:
+            self.model_state["links"].clear()
+            del self.model_state["events"]
 
 
 def _balloons_start() -> State:
@@ -179,6 +183,12 @@ def test_the_memory_a_step_writes_is_recorded():
         resumed.latent = memory_from_history([action, action], [first, second])
         assert "links" not in restored_model_state(_StepMemoryModel, resumed,
                                                    {"rate": .25})
+        # An entry the step empties or deletes is recorded as such.
+        env.simulate(second, action)
+        assert env.memory_written_by_step == {
+            "links": "empty",
+            "events": "deleted"
+        }
     finally:
         env.dispose()
 
