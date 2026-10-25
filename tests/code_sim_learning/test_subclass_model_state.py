@@ -61,6 +61,27 @@ class _StepMemoryModel(_MemoryModel):
             del self.model_state["events"]
 
 
+class _ObservedPopModel(_MemoryModel):
+    """Pops a balloon in its step and remembers it there, and its update reads
+    the pop back from the observation."""
+
+    @classmethod
+    def update_model_state(cls, observation, model_state, params, action):
+        """Count as the parent does, and remember each observed pop."""
+        super().update_model_state(observation, model_state, params, action)
+        for obj in observation:
+            if obj.type.name == "balloon" and \
+                    observation.get(obj, "popped") > .5:
+                model_state.setdefault("popped", {})[obj.name] = True
+
+    def _domain_specific_step(self):
+        """Pop the first balloon once charged."""
+        if self.model_state["charge"] == .5:
+            name = self._balloons[0].name
+            self._popped[name] = True
+            self.model_state.setdefault("popped", {})[name] = True
+
+
 def _balloons_start() -> State:
     """A known Balloons level, without the expensive oracle probes that
     generate one."""
@@ -233,3 +254,22 @@ def test_segments_rebuild_memory_from_the_recording_before_them():
         copied = copy.deepcopy(seg_states[0])
         assert restored_model_state(_MemoryModel, copied,
                                     {"rate": 1.0})["charge"] == start
+
+
+def test_memory_the_update_rebuilds_from_the_observation_is_not_recorded():
+    """A step that writes memory its update also infers from the observation
+    after the step loses nothing at a reset, so nothing is recorded."""
+    utils.reset_config({
+        "env": "pybullet_balloons",
+        "seed": 0,
+        "skill_phase_use_motion_planning": False,
+    })
+    initial = _balloons_start()
+    action = Action(np.array(initial.joint_positions, dtype=np.float32))
+    env = _ObservedPopModel(use_gui=False)
+    try:
+        second = env.simulate(env.simulate(initial, action), action)
+        assert list(second.latent["popped"].values()) == [True]
+        assert not env.memory_written_by_step
+    finally:
+        env.dispose()
