@@ -100,3 +100,16 @@ def advance_model_state(model_cls: Type[PyBulletEnv], observation: State,
     observed = observation_view(observation).copy()
     model_cls.update_model_state(observed, model_state, dict(params),
                                  Action(action.arr.copy()))
+
+
+def memory_entries(model_state: Mapping[str, Any]) -> Dict[str, str]:
+    """Each entry of ``model_state`` that holds something, as text to compare.
+
+    An entry left empty holds nothing a reset could lose (a step that
+    only creates an empty container loses nothing), so it is left out.
+    """
+    return {
+        str(key): repr(value)
+        for key, value in model_state.items()
+        if not (isinstance(value, (dict, list, set, tuple)) and not value)
+    }
