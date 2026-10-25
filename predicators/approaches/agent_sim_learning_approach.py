@@ -33,6 +33,7 @@ from predicators.agent_sdk.tools import SYNTHESIS_TOOL_NAMES, \
     _SnapshotTarget, evaluate_states_with, finalize_versioned_snapshot, \
     make_write_snapshot_hook, restored_version
 from predicators.agent_sdk.tools.digests import render_trajectory_digest
+from predicators.agent_sdk.tools.verdicts import task_evaluator
 from predicators.approaches.agent_base_approach import AgentBaseApproach
 from predicators.approaches.synthesis_validation import \
     build_candidate_option_model, carry_over_params, edited_declarations
@@ -2318,7 +2319,8 @@ class AgentSimLearningApproach(AgentBaseApproach):
 
         The returned function is the task's reward model: it scores a
         concrete state sequence with the task's env-defined
-        ``TaskEvaluator`` and returns the public triple (dict of
+        ``TaskEvaluator`` (for a task without one, the goal-atom rule
+        its real episodes use) and returns the public triple (dict of
         reward/solved/note) - never the evaluator itself, and never the
         certificate's internal legitimacy verdict or reason (the agent
         infers the scoring rules from the stated objective and the
@@ -2368,10 +2370,10 @@ class AgentSimLearningApproach(AgentBaseApproach):
             """
             if physics_sweep and not CFG.continual_uncertainty_decisions:
                 raise ValueError("Explicit uncertainty sweeps are disabled.")
-            evaluator = self._level_task(task_idx).evaluator
+            evaluator = task_evaluator(self._level_task(task_idx))
             if evaluator is None:
                 which = "(current level)" if task_idx is None else task_idx
-                raise ValueError(f"Task {which} defines no task evaluator.")
+                raise ValueError(f"Task {which} has no goal atoms to judge.")
             if not states:
                 raise ValueError("`states` must be a non-empty sequence.")
             step_options: Optional[Sequence[Any]] = None
