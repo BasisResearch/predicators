@@ -34,6 +34,21 @@ _NUM_ROLLOUTS = 0
 # of building one (fork_template).
 _FORK_TEMPLATES: Dict[int, Tuple[int, Any]] = {}
 
+# The model_state entries that the steps of this process's rollouts wrote
+# and their updates cannot rebuild (PyBulletEnv.memory_written_by_step),
+# with those of forked children's rollouts merged in (see fork_template).
+_MEMORY_WRITTEN: Dict[str, str] = {}
+
+
+def memory_written_in_rollouts() -> Dict[str, str]:
+    """The entries recorded since :func:`clear_memory_written`."""
+    return dict(_MEMORY_WRITTEN)
+
+
+def clear_memory_written() -> None:
+    """Start a new record (a fit clears it before its rollouts)."""
+    _MEMORY_WRITTEN.clear()
+
 
 @contextlib.contextmanager
 def fork_template(factory: Any) -> Iterator[None]:
@@ -52,7 +67,12 @@ def fork_template(factory: Any) -> Iterator[None]:
     """
     # Deferred: agent_sdk imports this package.
     # pylint: disable-next=import-outside-toplevel
-    from predicators.agent_sdk.parallel_rollouts import parallel_workers
+    from predicators.agent_sdk.parallel_rollouts import parallel_workers, \
+        register_child_record
+
+    # The forked children's rollouts add to their own copies of the record.
+    register_child_record("memory_written", memory_written_in_rollouts,
+                          _MEMORY_WRITTEN.update)
     if not callable(factory) or id(factory) in _FORK_TEMPLATES or \
             parallel_workers() <= 1:
         yield
@@ -248,5 +268,7 @@ def rollout_states(
             out.append(state)
         return out
     finally:
+        _MEMORY_WRITTEN.update(
+            getattr(env, "memory_written_by_step", None) or {})
         if env is not base_env:
             dispose_env(env)
