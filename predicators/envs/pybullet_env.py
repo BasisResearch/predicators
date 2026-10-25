@@ -1201,11 +1201,17 @@ class PyBulletEnv(BaseEnv):
     def _note_memory_written_by_step(self, before: Dict[str, str]) -> None:
         """Record the model_state entries ``_domain_specific_step`` changed
         from ``before`` (``memory_entries`` just before it ran), each with the
-        value it left."""
+        value it left: its text, "empty" or "deleted"."""
         after = memory_entries(self._model_state)
+        names = {str(key) for key in self._model_state}
         for key in before.keys() | after.keys():
-            if before.get(key) != after.get(key):
-                self.memory_written_by_step[key] = after.get(key, "(removed)")
+            if before.get(key) == after.get(key):
+                continue
+            if key in after:
+                self.memory_written_by_step[key] = after[key]
+            else:
+                self.memory_written_by_step[key] = ("empty" if key in names
+                                                    else "deleted")
 
     def restore_model_state(self) -> None:
         """Optional candidate hook after poses and inferred memory reset.
