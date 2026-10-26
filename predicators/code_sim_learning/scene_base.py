@@ -217,7 +217,10 @@ class SceneBase(PyBulletEnv):
     carry in its pose (a joint-backed switch reading, a level, a flag)
     are the subclass's: override ``_set_domain_specific_state`` and
     ``_get_domain_specific_feature`` and call ``super()`` for the rest.
-    Mechanisms go in ``_domain_specific_step``.
+    Mechanisms go in ``_domain_specific_step``. Commands the step queues
+    act on the next action from the state the step left; a rollout that
+    starts from another state runs its first action without them, as a
+    freshly built scene does.
 
     The engine's material properties are fittable parameters named
     ``<group>_<property>`` (``MATERIALS``): a group is an observed type
@@ -239,6 +242,9 @@ class SceneBase(PyBulletEnv):
     # same pose (as the real Bridge env declares it).
     _ORIENTATION_EULER_TRIPLES: ClassVar[Tuple[Tuple[str, str, str], ...]] = \
         PyBulletEnv._ORIENTATION_EULER_TRIPLES + (("roll", "pitch", "yaw"), )
+    # A rollout from another state must not run the commands this scene's
+    # step queued for the state it left (see PyBulletEnv.simulate).
+    _drop_step_commands_at_jumps: ClassVar[bool] = True
     _scene_types: ClassVar[Tuple[Type, ...]] = ()
     _robot_home_orn: ClassVar[Optional[Quaternion]] = None
     _asset_dir: ClassVar[str] = ""
