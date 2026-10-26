@@ -54,6 +54,15 @@ def register_child_record(name: str, read: Callable[[], Any],
     _CHILD_RECORDS[name] = (read, merge)
 
 
+def _merge_child_records(records: Dict[str, Any]) -> None:
+    """Fold a child's records (its ``_child_records()``) into this process's,
+    through each record's registered merge."""
+    for name, record in records.items():
+        entry = _CHILD_RECORDS.get(name)
+        if entry is not None:
+            entry[1](record)
+
+
 def _child_records() -> Dict[str, Any]:
     """This child's registered records; one that fails to read is left out, so
     a record never costs the child its result."""
@@ -227,10 +236,7 @@ def run_forked_rollouts(
                 break
             idx, ok, payload, records = q.get()
             got += 1
-            for name, record in records.items():
-                entry = _CHILD_RECORDS.get(name)
-                if entry is not None:
-                    entry[1](record)
+            _merge_child_records(records)
             outstanding -= 1
             if ok:
                 out[idx] = payload
