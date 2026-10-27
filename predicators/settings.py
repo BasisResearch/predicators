@@ -1606,6 +1606,13 @@ class GlobalSettings:
     balloons_hatch_panel_half_width = 0.16
     balloons_hatch_half_depth = 0.16
     balloons_band_half = 0.025
+    # The least distance (m) that a test level's reference release, run
+    # with the real skills, rests the box inside each edge of the band.
+    # Without it a level is accepted whose only winning release rests the
+    # box a fraction of a millimetre inside (seed 1's composition test
+    # level rested it 0.2 mm above the floor), so a model a few
+    # millimetres low rejects the one winning release.
+    balloons_test_rest_margin = 0.005
     # The box is at rest below this speed (m/s).
     balloons_goal_dwell_steps = 25
     balloons_settle_speed = 0.01
