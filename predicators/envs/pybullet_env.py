@@ -259,6 +259,12 @@ class PyBulletEnv(BaseEnv):
     # simulate). Agent-built scene models (SceneBase) turn it on; a
     # benchmark env keeps its step's commands across the jump.
     _drop_step_commands_at_jumps: ClassVar[bool] = False
+    # Whether the first action after a state restore first runs this env's
+    # _domain_specific_step on the restored world (see _step_once), so that
+    # action runs with the commands the step queues for that state, as
+    # every later action does. Agent-built scene models (SceneBase) turn it
+    # on; a benchmark env keeps its behaviour.
+    _step_restored_states: ClassVar[bool] = False
 
     # _set_state round-trips the written state through _get_state and
     # compares, then reacts by mismatch *magnitude* - no per-env opt-in:
@@ -388,6 +394,9 @@ class PyBulletEnv(BaseEnv):
         # to another state.
         self._commands_from_step = False
         self._in_domain_step = False
+        # Whether _set_state restored a state that no action has run from
+        # yet (see _step_restored_states).
+        self._restored_since_step = False
         # Welds created by Attach commands, keyed by the unordered
         # object-name pair. Reconciled against the pending commands once
         # per action (re-emit-to-persist), cleared at episode reset.
@@ -831,8 +840,9 @@ class PyBulletEnv(BaseEnv):
             # were computed for the state that step left, which this
             # state is not; where _drop_step_commands_at_jumps holds they
             # are dropped, so a rollout's first action does not depend on
-            # what the env simulated before (in a fresh world, the first
-            # action runs with none either).
+            # what the env simulated before. Where _step_restored_states
+            # holds, that action then runs with the commands the step
+            # queues for this state (see _step_once), as in a fresh world.
             stale = (self._commands_from_step
                      and self._drop_step_commands_at_jumps)
             queued_commands = ([]
@@ -874,9 +884,13 @@ class PyBulletEnv(BaseEnv):
                    action: Action,
                    render_obs: bool = False) -> Observation:
         """Advance the simulation one action, with no executor involved."""
-        self._step_base(action)
         run_model = (not self._skip_domain_specific_dynamics
                      or self._agent_model_dynamics)
+        if self._restored_since_step:
+            self._restored_since_step = False
+            if run_model and self._step_restored_states:
+                self._step_restored_state()
+        self._step_base(action)
         if run_model:
             before_update: Optional[Dict[str, Any]] = None
             memory_before: Dict[str, str] = {}
@@ -904,6 +918,29 @@ class PyBulletEnv(BaseEnv):
             render=CFG.rgb_observation or render_obs)
         self._current_observation = observation
         return observation
+
+    def _step_restored_state(self) -> None:
+        """Run the domain step on a restored world, before its first action.
+
+        A restored state stands for one that a step left: its features
+        already show that step's changes, and the commands that step
+        queued for the next action (a model's lift, a fan's wind) act
+        during that action. A rollout from a restored state (a fresh
+        world, a reset or a jump) has no such step, so without this its
+        first action runs without those commands, unlike every later
+        one. The step's commands go after any that a caller queued for
+        the same state. The step must leave a state that a step already
+        left as it is, apart from the commands it queues.
+        """
+        caller_commands = self._pending_residual_commands
+        self._pending_residual_commands = []
+        self._in_domain_step = True
+        try:
+            self._domain_specific_step()
+        finally:
+            self._in_domain_step = False
+        self._pending_residual_commands = (list(caller_commands) +
+                                           self._pending_residual_commands)
 
     def _step_base(self, action: Action) -> None:
         """Run robot control, physics stepping, and grasp management."""
@@ -1144,7 +1181,9 @@ class PyBulletEnv(BaseEnv):
         planner backtracks elsewhere). Commands an env's own
         ``_domain_specific_step`` queues are for the state that step
         leaves, so where ``_drop_step_commands_at_jumps`` holds,
-        ``simulate`` drops them when it jumps elsewhere.
+        ``simulate`` drops them when it jumps elsewhere, and where
+        ``_step_restored_states`` holds, the first action from a
+        restored state runs the step once to queue that state's own.
         Only meaningful on position/velocity control modes: the
         kinematic ``reset`` control mode runs no physics substeps, so
         commands would have nothing to act on.
@@ -1843,6 +1882,7 @@ class PyBulletEnv(BaseEnv):
                                                      self._agent_param_values)
         self._pending_residual_commands = []
         self._commands_from_step = False
+        self._restored_since_step = True
         self._clear_commanded_attachments()
 
         # Cohort change or the very first call forces a full reset:
