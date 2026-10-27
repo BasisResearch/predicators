@@ -124,8 +124,9 @@ def test_a_rollout_from_another_state_starts_without_the_step_commands(
     """The step's lift acts all through a sequential rollout.
 
     A rollout from another state starts without the lift the last
-    rollout's step queued, as a freshly built scene does, and a lift a
-    caller queues for the new start still acts.
+    rollout's step queued: its first action runs with the lift its own
+    start implies, as in a freshly built scene. A lift a caller queues
+    for the new start acts on top of it.
     """
     scene, init = _scene(tmp_path, step=_lift_ball)
     try:
@@ -148,5 +149,28 @@ def test_a_rollout_from_another_state_starts_without_the_step_commands(
         scene.queue_residual_commands(
             [ApplyForce(obj_name="ball", force=_LIFT)])
         assert first_z() > z_fresh + 1e-3
+    finally:
+        scene.dispose()
+
+
+def test_a_rollout_runs_its_first_action_with_its_start_states_commands(
+        tmp_path, monkeypatch):
+    """From a restored state, the step's lift acts from the first action on, as
+    on every later action; with the switch off, the first action runs without
+    it.
+
+    Nothing in this scene holds the ball up, so without the lift the
+    ball falls through the first action, and with it the ball rises.
+    """
+    scene, init = _scene(tmp_path, step=_lift_ball)
+    try:
+        ball = next(o for o in init if o.name == "ball")
+        action = Action(np.array(init.joint_positions, dtype=np.float32))
+        start = init.get(ball, "z")
+        lifted = scene.simulate(init, action).get(ball, "z")
+        monkeypatch.setattr(type(scene), "_step_restored_states", False)
+        unlifted = scene.simulate(init, action).get(ball, "z")
+        assert lifted > start + 0.01
+        assert unlifted < start - 0.01
     finally:
         scene.dispose()
