@@ -478,3 +478,45 @@ def test_bundle_test_levels_defeat_every_reading_of_the_rest_heights():
             ] == ["Release", "Wait"] * (len(order) - 1) + ["Release"]
     assert [name for kind, name in plan
             if kind == "Release"] == [f"clip{i}" for i in order]
+
+
+def test_a_test_levels_reference_rests_the_box_clear_of_the_band_edges():
+    """A test level's reference release, run with the real skills, rests the
+    box at least ``balloons_test_rest_margin`` inside each edge of the band.
+
+    A win that rests the box a fraction of a millimetre above the floor
+    is not clear of it; outcomes that did not win do not count.
+    """
+    mod, env = _make_env(num_train_tasks=2, num_test_tasks=1)
+    outcome = mod.BalloonsProbeOutcome
+    band = (0.8795, 0.9295)
+    assert not env.reference_rests_clear([outcome("won", 9, 0.8797, 0.0)],
+                                         band, 0.005)
+    assert env.reference_rests_clear(
+        [outcome("won", 9, 0.89, 0.0),
+         outcome("burst", 5, 1.1, 0.2)], band, 0.005)
+    state = env.get_test_tasks()[0].init
+    reference = env.solution_subset(state)
+    won = [o for o in env.candidate_outcomes(state)[reference] if o.won]
+    band = (state.get(env._band, "lo"), state.get(env._band, "hi"))
+    margin = utils.CFG.balloons_test_rest_margin
+    assert margin > 0
+    assert won and env.reference_rests_clear(won, band, margin)
+
+
+def test_a_near_edge_band_shifts_just_enough_to_clear_its_reference():
+    """A band whose winning rest sits 0.3 mm above its floor moves down just
+    far enough to clear it by the margin and a millimetre more, keeping its
+    width; winning rests spread wider than the band allows have no clearing
+    centre."""
+    mod, env = _make_env(num_train_tasks=1, num_test_tasks=1)
+    outcome = mod.BalloonsProbeOutcome
+    band = (0.8795, 0.9295)
+    won = [outcome("won", 9, 0.8798, 0.0), outcome("burst", 4, 1.1, 0.3)]
+    centre = env.clear_band_centre(won, band, 0.005)
+    assert centre is not None
+    shifted = (centre - 0.025, centre + 0.025)
+    assert env.reference_rests_clear(won, shifted, 0.005)
+    assert abs((0.8798 - shifted[0]) - 0.006) < 1e-5
+    spread = [outcome("won", 9, 0.85, 0.0), outcome("won", 9, 0.92, 0.0)]
+    assert env.clear_band_centre(spread, band, 0.005) is None
