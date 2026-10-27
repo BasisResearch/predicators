@@ -218,9 +218,13 @@ class SceneBase(PyBulletEnv):
     are the subclass's: override ``_set_domain_specific_state`` and
     ``_get_domain_specific_feature`` and call ``super()`` for the rest.
     Mechanisms go in ``_domain_specific_step``. Commands the step queues
-    act on the next action from the state the step left; a rollout that
-    starts from another state runs its first action without them, as a
-    freshly built scene does.
+    act on the next action from the state the step left. A rollout that
+    starts from a state (a fresh scene, a reset or a jump) runs the step
+    once on that state before its first action, so that action runs
+    with the commands that state implies, as every later action does,
+    and none that a step queued for another state. So the step must
+    leave a state that a step already left as it is, apart from the
+    commands it queues.
 
     The engine's material properties are fittable parameters named
     ``<group>_<property>`` (``MATERIALS``): a group is an observed type
@@ -243,8 +247,11 @@ class SceneBase(PyBulletEnv):
     _ORIENTATION_EULER_TRIPLES: ClassVar[Tuple[Tuple[str, str, str], ...]] = \
         PyBulletEnv._ORIENTATION_EULER_TRIPLES + (("roll", "pitch", "yaw"), )
     # A rollout from another state must not run the commands this scene's
-    # step queued for the state it left (see PyBulletEnv.simulate).
+    # step queued for the state it left (see PyBulletEnv.simulate), and
+    # its first action runs with the commands the step queues for its own
+    # start (see PyBulletEnv._step_once).
     _drop_step_commands_at_jumps: ClassVar[bool] = True
+    _step_restored_states: ClassVar[bool] = True
     _scene_types: ClassVar[Tuple[Type, ...]] = ()
     _robot_home_orn: ClassVar[Optional[Quaternion]] = None
     _asset_dir: ClassVar[str] = ""
