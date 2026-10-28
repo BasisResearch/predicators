@@ -599,6 +599,11 @@ def test_a_rehearsal_says_when_its_point_estimate_loses_where_no_draw_does():
             "estimate (the values the planning model runs at), ends the "
             "episode in GAME_OVER, but none of the 4 draws the task's "
             "evaluator scored does") in repr(res)
+    # The live rehearsal keeps the report's notes, for the notes gate.
+    assert ctx.live_rehearsals[-1].notes == res.notes
+    assert any(
+        n.startswith("The rollout from the belief mean, at the fit's")
+        for n in ctx.live_rehearsals[-1].notes)
     # Reaching 0.95 solves it at the point estimate only.
     _on_observation(sim, ctx)
     res = sim.run(_PLAN, render=False)
