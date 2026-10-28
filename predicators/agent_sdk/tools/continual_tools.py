@@ -669,6 +669,30 @@ def build_continual_tools(
                 "Nothing was charged." + _footer())
         return None
 
+    def _unseen_notes(
+            match: Optional[_RehearsalMatch]) -> Optional[Dict[str, Any]]:
+        """Under ``continual_rehearsal_notes_gate``, while the rehearsal gate
+        applies: a refusal that charges nothing when the rehearsal that let
+        the request through ended with notes no output given to the agent
+        has shown in full.
+
+        The refusal shows them, so the request sent again runs.
+        """
+        if (not CFG.continual_rehearsal_notes_gate or match is None
+                or ctx.rehearsal_gate is None or not ctx.rehearsal_gate()):
+            return None
+        rehearsal = match.rehearsal
+        unseen = [n for n in rehearsal.notes if n not in ctx.shown_notes]
+        if not unseen:
+            return None
+        ctx.shown_notes.update(unseen)
+        notes = "\n".join(f"NOTE: {note}" for note in unseen)
+        return _error_result(
+            "Test level: the rehearsal that let this request through "
+            f"(P-hat {rehearsal.p_hat:.2f}) ended with notes no output of "
+            f"yours has shown:\n{notes}\nWeigh them before this step; send "
+            "the request again to run it. Nothing was charged." + _footer())
+
     def _prediction_note(match: Optional[_RehearsalMatch],
                          progress: ExecutionProgress) -> str:
         """The predictive check of a request, under the arm's
@@ -1164,6 +1188,9 @@ def build_continual_tools(
         risky = _risky(parsed, match)
         if risky is not None:
             return risky
+        unseen = _unseen_notes(match)
+        if unseen is not None:
+            return unseen
         refused = _preflight(str(args.get("skill", "")), args)
         if refused is not None:
             return refused
@@ -1228,6 +1255,9 @@ def build_continual_tools(
         risky = _risky(parsed, match)
         if risky is not None:
             return risky
+        unseen = _unseen_notes(match)
+        if unseen is not None:
+            return unseen
         refused = _preflight(str(args.get("plan", "")), args)
         if refused is not None:
             return refused
