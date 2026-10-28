@@ -143,6 +143,14 @@ class GlobalSettings:
     # request whose share is larger is refused, charging nothing. 0 lets
     # every rehearsed request through (the default).
     continual_rehearsal_game_over_gate = 0.0
+    # Whether a joint rehearsal's report also scores its rollout from the
+    # belief mean, at the fit's point estimate (the values the planning
+    # model runs at), with the task's evaluator as it scores a draw, and
+    # says so when that rollout ends the episode in GAME_OVER, or solves
+    # it, and no scored draw does. A point estimate at the edge of the
+    # belief (a value at its bound, a fit cut short) can then predict a
+    # loss that every draw misses.
+    continual_rehearsal_mean_verdict = False
     # Whether a joint rehearsal's report names the scored features its
     # rollout from the belief mean drives past the range the recordings
     # show, by more than twice their declared observation noise: no
