@@ -345,6 +345,7 @@ def create_synthesis_tools(
     cycle_index_provider: Optional[Callable[[], int]] = None,
     budget_check: Optional[Callable[[], None]] = None,
     probe_surface: Optional[ProbeSurface] = None,
+    output_observer: Optional[Callable[[str], None]] = None,
 ) -> SynthesisToolkit:
     """Create the sim-learning synthesis agent's tool surface.
 
@@ -427,6 +428,8 @@ def create_synthesis_tools(
             (the rollout-residuals sweep) call it between rollouts so a
             budget stop returns the partial report instead of burning
             the rest of the attempt. ``None`` disables the checks.
+        output_observer: Called with the text of each ``run_python``
+            result as the agent is given it, or ``None``.
     """
     # pylint: disable=import-outside-toplevel
     import traceback  # pylint: disable=redefined-outer-name,reimported
@@ -1091,6 +1094,7 @@ def create_synthesis_tools(
         # in-call sweep is stopped with its partial output returned
         # instead of silently eating hours of the learn session.
         call_timeout_s=CFG.agent_sdk_synthesis_python_call_timeout,
+        output_observer=output_observer,
     )
 
     # ── run_fit (the ``sim.fit`` backend) ───────────────────────
