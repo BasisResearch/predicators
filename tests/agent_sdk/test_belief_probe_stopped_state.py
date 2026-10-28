@@ -283,6 +283,10 @@ def test_a_motion_failure_says_how_few_frames_its_start_rests_on():
         for n in res.notes)
     assert isinstance(res.mean, ProbeResult)
     assert any(hint in n for n in res.mean.notes)
+    # One frame: the spread is one frame's noise.
+    assert ("estimates from noisy frames (0.01 m, 0.02 rad of noise each) to "
+            "within about 0.01 m and 0.02 rad for the bodies this plan acts "
+            "on") in res.text
     # Four frames: a Wait can still narrow them, but no Wait within the
     # window halves the spread.
     ctx.current_belief = BeliefFrame(frame=ctx.current_observation.copy(),
@@ -293,18 +297,26 @@ def test_a_motion_failure_says_how_few_frames_its_start_rests_on():
         res.text
     assert "nearer the true ones." in res.text
     assert "halves the spread" not in res.text
-    # A full window: nothing a Wait would sharpen.
+    # A full window: nothing a Wait would sharpen, and the caveat gives the
+    # spread the window leaves, far below one frame's noise.
     ctx.current_belief = BeliefFrame(frame=ctx.current_observation.copy(),
                                      frames_used={"block0": 8})
     _on_observation(sim, ctx)
     res = sim.run("Move(block0:block)[0.95]", render=False)
     assert "controller failed" in res.text
     assert "The state belief has" not in res.text
-    # A start the probe staged is not the observed belief.
+    assert ("these rollouts planned on positions the state belief estimates "
+            "from noisy frames (0.01 m, 0.02 rad of noise each) to within "
+            "about 0.0035 m and 0.0071 rad for the bodies this plan acts on, "
+            "and a few millimetres") in res.text
+    assert "with the observation noise" not in res.text
+    # A start the probe staged is not the observed belief: one frame's noise.
     ctx.current_belief = BeliefFrame(frame=ctx.current_observation.copy(),
                                      frames_used={"block0": 1})
     sim.reset(mods={"block0": {"x": 0.1}})
     res = sim.run("Move(block0:block)[0.95]", render=False)
     assert "controller failed" in res.text
     assert "The state belief has" not in res.text
+    assert ("planned on positions with the observation noise (0.01 m, "
+            "0.02 rad)") in res.text
     utils.reset_config({})
