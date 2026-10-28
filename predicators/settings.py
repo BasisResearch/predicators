@@ -151,6 +151,14 @@ class GlobalSettings:
     # belief (a value at its bound, a fit cut short) can then predict a
     # loss that every draw misses.
     continual_rehearsal_mean_verdict = False
+    # Whether the rehearsal gate on a test level also refuses, once and
+    # charging nothing, a request whose rehearsal's report ended with notes
+    # that no run_python output showed in full, and shows them in the
+    # refusal, so the request sent again runs. Agents often print only a
+    # report's first line or the fields they parse (round 27's Fan seed 0
+    # and Domino seed 0 both lost on a step whose rehearsal warned, in a
+    # note their code never printed).
+    continual_rehearsal_notes_gate = False
     # Whether a joint rehearsal's report names the scored features its
     # rollout from the belief mean drives past the range the recordings
     # show, by more than twice their declared observation noise: no
