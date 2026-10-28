@@ -2475,7 +2475,8 @@ class BeliefProbe:
                     ],
                     moving_lines=[
                         list(d.get("moving_lines") or []) for d in result.draws
-                    ]))
+                    ],
+                    notes=list(result.notes)))
             del ctx.live_rehearsals[:-_LIVE_REHEARSALS_KEPT]
         return result
 

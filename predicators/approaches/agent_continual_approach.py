@@ -39,6 +39,7 @@ from predicators.agent_sdk.fit_status import format_fit_status
 from predicators.agent_sdk.predictive_check import MAX_INFLATION
 from predicators.agent_sdk.preflight_audit import PreflightAudit
 from predicators.agent_sdk.sandbox_setup import ReferenceFiles
+from predicators.agent_sdk.tools.context import mark_notes_shown
 from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES, \
     play_tool_names
 from predicators.agent_sdk.tools.exploration import ProbeSurface
@@ -284,6 +285,7 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         exec_ns = self._build_synthesis_exec_ns(trajectories)
         ctx = self._tool_context
         ctx.learn_cycle_index = self._learning_cycle_index()
+        ctx.shown_notes.clear()
         toolkit = create_synthesis_tools(
             exec_ns,
             base_pred_triples,
@@ -296,6 +298,11 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
             cycle_index_provider=self._learning_cycle_index,
             budget_check=lambda: _check_time_budget(self._tool_context),
             probe_surface=self._probe_surface(),
+            # The notes gate lets a request through once the notes of its
+            # rehearsal have been in an output the agent was given.
+            output_observer=((lambda text: mark_notes_shown(
+                ctx.live_rehearsals, ctx.shown_notes, text))
+                             if CFG.continual_rehearsal_notes_gate else None),
         )
         self._install_extra_synthesis_surfaces(exec_ns, base_pred_triples,
                                                inferred_hint, extra_paths)
