@@ -16,7 +16,8 @@ from predicators import observation_noise, utils
 from predicators.agent_sdk.belief_probe import BeliefProbe
 from predicators.agent_sdk.play_prompts import build_model_contract, \
     build_play_query, build_play_system_prompt, render_data_status
-from predicators.agent_sdk.tools.context import LiveRehearsal, ToolContext
+from predicators.agent_sdk.tools.context import LiveRehearsal, ToolContext, \
+    mark_notes_shown
 from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES, \
     PRIMITIVE_TOOL_NAMES, PlayState, build_continual_tools, context_status, \
     format_observation, parse_plan_lines, play_tool_names
@@ -1029,6 +1030,67 @@ def test_the_game_over_gate_refuses_a_request_its_draws_lose(
         assert not refused([2, 2, 2, 0])
         assert session.observe().ledger.level_steps > 0
         utils.update_config({"continual_rehearsal_game_over_gate": 0.0})
+        ctx.rehearsal_gate = None
+
+    driver.body = body
+    ContinualRun(env, approach, driver).run()
+
+
+def test_the_notes_gate_shows_a_rehearsal_s_unseen_notes_once(
+        tmp_path: Any) -> None:
+    """Under continual_rehearsal_notes_gate, a rehearsed request whose
+    rehearsal ended with notes no output given to the agent showed in full is
+    refused once, charging nothing, with the notes in the refusal, and the
+    request sent again runs; a rehearsal whose notes an output showed lets its
+    request through at once, and with the flag off nothing is refused."""
+    env, approach, ctx = _setup(tmp_path)
+    lines = _oracle_plan_text(approach,
+                              env.get_train_tasks()[0].task).splitlines()
+    assert len(lines) >= 2
+    driver = _Driver()
+
+    def body(session: ProtocolSession) -> None:
+        utils.update_config({"continual_rehearsal_notes_gate": True})
+        ctx.rehearsal_gate = lambda: True
+        ctx.live_rehearsals.clear()
+        ctx.shown_notes.clear()
+        tools = build_continual_tools(ctx,
+                                      session,
+                                      PlayState(),
+                                      save_render=lambda tag: None)
+
+        def rehearse(plan: str, note: str) -> None:
+            ctx.current_observation = session.observe().frame
+            ctx.live_rehearsals.append(
+                LiveRehearsal(ctx.current_observation, plan, 0.9,
+                              notes=[note]))
+
+        warning = "The rollout from the belief mean ends in GAME_OVER."
+        rehearse("\n".join(lines), warning)
+        out = _call(tools, "skills_invoke", skill=lines[0])
+        assert out.startswith("ERROR") and "(P-hat 0.90)" in out
+        assert f"NOTE: {warning}" in out and "Nothing was charged" in out
+        assert session.observe().ledger.level_steps == 0
+        out = _call(tools, "skills_invoke", skill=lines[0])
+        assert "Nothing was charged" not in out
+        steps = session.observe().ledger.level_steps
+        assert steps > 0
+        # Printed in full before the request: it runs at once. A note cut
+        # short does not count as shown.
+        rehearse("\n".join(lines[1:]), "No recording tests the model there.")
+        mark_notes_shown(ctx.live_rehearsals, ctx.shown_notes,
+                         "NOTE: No recording tests the model")
+        assert "No recording tests the model there." not in ctx.shown_notes
+        mark_notes_shown(
+            ctx.live_rehearsals, ctx.shown_notes,
+            "P-hat 0.9\nNOTE: No recording tests the model there.")
+        out = _call(tools, "skills_execute_plan", plan=lines[1])
+        assert "Nothing was charged" not in out
+        assert session.observe().ledger.level_steps > steps
+        utils.update_config({"continual_rehearsal_notes_gate": False})
+        rehearse(lines[1], "A note nobody printed.")
+        out = _call(tools, "skills_invoke", skill=lines[1])
+        assert "no output of yours has shown" not in out
         ctx.rehearsal_gate = None
 
     driver.body = body
