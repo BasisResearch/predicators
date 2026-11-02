@@ -159,6 +159,12 @@ class GlobalSettings:
     # and Domino seed 0 both lost on a step whose rehearsal warned, in a
     # note their code never printed).
     continual_rehearsal_notes_gate = False
+    # Whether a rehearsal-gated arm's prompt tells the agent to act, on a
+    # test level, on the plan whose rehearsal from the current observation
+    # has the highest P-hat, with cost (pieces, steps, reward terms) only
+    # breaking ties. Round 29's Domino seed 1 pushed at P-hat 0.81 over a
+    # plan near 0.93 with one more blue, to save a blue.
+    continual_rehearsal_win_first = False
     # Whether a joint rehearsal's report names the scored features its
     # rollout from the belief mean drives past the range the recordings
     # show, by more than twice their declared observation noise: no
