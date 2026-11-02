@@ -2,16 +2,18 @@
 
 import numpy as np
 import pytest
+import torch
 from gym.spaces import Box
 
 from predicators import utils
 from predicators.structs import NSRT, PNAD, Action, DefaultState, \
-    DemonstrationQuery, DummyOption, EnvironmentTask, EpisodeEvaluation, \
-    GroundAtom, GroundMacro, ImageOptionTrajectory, InteractionRequest, \
-    InteractionResult, LDLRule, LiftedAtom, LiftedDecisionList, \
-    LowLevelTrajectory, Macro, Object, ParameterizedOption, Predicate, Query, \
-    Segment, State, STRIPSOperator, Task, TaskEvaluator, Type, Variable, \
-    _Atom, _GroundNSRT, _GroundSTRIPSOperator, _Option, step_option_labels
+    DemonstrationQuery, DummyOption, EndogenousProcess, EnvironmentTask, \
+    EpisodeEvaluation, GroundAtom, GroundMacro, ImageOptionTrajectory, \
+    InteractionRequest, InteractionResult, LDLRule, LiftedAtom, \
+    LiftedDecisionList, LowLevelTrajectory, Macro, Object, \
+    ParameterizedOption, Predicate, Query, Segment, State, STRIPSOperator, \
+    Task, TaskEvaluator, Type, Variable, _Atom, _GroundNSRT, \
+    _GroundSTRIPSOperator, _Option, step_option_labels
 
 
 def test_object_type():
@@ -593,6 +595,116 @@ def test_option_ground_clamps_float_precision_boundary():
     assert option.params[0] <= np.pi  # clamped to the bound
     with pytest.raises(ValueError, match="outside bounds"):
         opt.ground([], np.array([np.pi + 0.01]))
+
+
+def test_option_ground_rejects_wrong_params_shape():
+    """Params whose shape differs from the params space raise a ValueError that
+    names the option and both shapes.
+
+    Regression: empty params passed the float-tolerance fallback
+    vacuously for a one-parameter space (np.all over no values is True),
+    so Grow's oracle grounded the skill-factory PickJug with no params
+    and crashed later reading params[0]; for a space with more
+    parameters, the fallback's bounds comparison raised a bare broadcast
+    error instead.
+    """
+
+    def policy(s, m, o, p):
+        del s, m, o  # unused
+        return Action(p)
+
+    def make_option(name, params_space):
+        return ParameterizedOption(name, [], params_space, policy,
+                                   lambda s, m, o, p: True,
+                                   lambda s, m, o, p: True)
+
+    descend = make_option("Descend", Box(0, 0.1, (1, )))
+    with pytest.raises(ValueError,
+                       match=r"'Descend'.* shape \(0,\), expected "
+                       r"shape \(1,\)"):
+        descend.ground([], np.array([]))
+    place = make_option("Place", Box(0, 1, (4, )))
+    with pytest.raises(ValueError,
+                       match=r"'Place'.* shape \(0,\), expected "
+                       r"shape \(4,\)"):
+        place.ground([], np.array([]))
+    with pytest.raises(ValueError,
+                       match=r"'Place'.* shape \(2,\), expected "
+                       r"shape \(4,\)"):
+        place.ground([], np.array([0.5, 0.5]))
+    with pytest.raises(ValueError,
+                       match=r"'Descend'.* shape \(1, 1\), expected "
+                       r"shape \(1,\)"):
+        descend.ground([], np.array([[0.05]]))
+    with pytest.raises(ValueError,
+                       match=r"'Descend'.* shape \(\), expected "
+                       r"shape \(1,\)"):
+        descend.ground([], np.array(0.05))
+    # A parameterless option still grounds with empty params.
+    push = make_option("Push", Box(0, 1, (0, )))
+    assert push.ground([], np.array([])).params.shape == (0, )
+    # Empty params still take the option's defaults when it has them.
+    wait = ParameterizedOption("Wait", [],
+                               Box(0, 1, (1, )),
+                               policy,
+                               lambda s, m, o, p: True,
+                               lambda s, m, o, p: True,
+                               default_params=(0.0, ))
+    assert wait.ground([], np.array([])).params.tolist() == [0.0]
+
+
+def test_sample_option_rejects_wrong_params_shape():
+    """A sampler whose params have the wrong shape for the option fails at
+    grounding, for NSRTs and endogenous processes alike; correctly shaped
+    params are still clipped into the params space.
+
+    Regression: the clip before grounding broadcast sampled params to
+    the space's shape, so empty params for Coffee's four-parameter
+    PlaceJugInMachine raised a bare broadcast error, one sampled value
+    filled all four params, and a parameterless option dropped a sampled
+    value without complaint.
+    """
+    cup_type = Type("cup", ["x"])
+    cup_var = Variable("?cup", cup_type)
+    cup = cup_type("cup")
+    state = State({cup: [0.0]})
+    full = Predicate("Full", [cup_type], lambda s, o: True)
+    rng = np.random.default_rng(0)
+
+    def ground_models(params_space, sampled, default_params=None):
+        option = ParameterizedOption("Fill", [cup_type],
+                                     params_space,
+                                     lambda s, m, o, p: Action(p),
+                                     lambda s, m, o, p: True,
+                                     lambda s, m, o, p: True,
+                                     default_params=default_params)
+
+        def sampler(s, g, rng, objs):
+            del s, g, rng, objs  # unused
+            return np.array(sampled)
+
+        add_effects = {LiftedAtom(full, [cup_var])}
+        nsrt = NSRT("FillCup", [cup_var], set(), add_effects, set(), set(),
+                    option, [cup_var], sampler)
+        process = EndogenousProcess("FillCup", [cup_var], set(), set(), set(),
+                                    add_effects, set(), utils.ConstantDelay(1),
+                                    torch.tensor(1.0), option, [cup_var],
+                                    sampler)
+        return [nsrt.ground([cup]), process.ground([cup])]
+
+    for shape, sampled in [((4, ), []), ((4, ), [0.3]), ((0, ), [0.0])]:
+        expected = (rf"'Fill'.* shape \({len(sampled)},\), expected shape "
+                    rf"\({shape[0]},\)")
+        for ground_model in ground_models(Box(0, 1, shape), sampled):
+            with pytest.raises(ValueError, match=expected):
+                ground_model.sample_option(state, set(), rng)
+    for ground_model in ground_models(Box(0, 1, (2, )), [-0.5, 1.5]):
+        option = ground_model.sample_option(state, set(), rng)
+        assert option.params.tolist() == [0.0, 1.0]
+    for ground_model in ground_models(Box(0, 1, (1, )), [],
+                                      default_params=(0.0, )):
+        option = ground_model.sample_option(state, set(), rng)
+        assert option.params.tolist() == [0.0]
 
 
 def test_option_memory_incorrect():

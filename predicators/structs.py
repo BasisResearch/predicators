@@ -1445,6 +1445,13 @@ class ParameterizedOption:
         if params.size == 0 and self.default_params is not None:
             params = np.array(self.default_params,
                               dtype=self.params_space.dtype)
+        # Check the shape first: the bounds check below passes empty params
+        # vacuously, and np.clip would broadcast a wrong shape.
+        if params.shape != self.params_space.shape:
+            raise ValueError(
+                f"Cannot ground '{self.name}': params {params.tolist()} "
+                f"have shape {params.shape}, expected shape "
+                f"{self.params_space.shape}")
         if not self.params_space.contains(params):
             # Values that passed through float32 (e.g. parsed agent plans)
             # can round a boundary value just past a float64 bound, since
@@ -1477,6 +1484,18 @@ class ParameterizedOption:
         params_str = " ".join(f"?x{i} - {t.name}"
                               for i, t in enumerate(self.types))
         return f"{self.name}({params_str})"
+
+
+def _clip_sampled_params(params: Array, params_space: Box) -> Array:
+    """Clip a sampler's params into an option's params space, for safety.
+
+    Params of another shape are returned unchanged, so that
+    ParameterizedOption.ground() rejects them; np.clip would broadcast
+    them to the space's shape instead.
+    """
+    if np.shape(params) != params_space.shape:
+        return params
+    return np.clip(params, params_space.low, params_space.high)
 
 
 @dataclass(eq=False)
@@ -2035,10 +2054,7 @@ class _GroundNSRT:
         # Note that the sampler takes in ALL self.objects, not just the subset
         # self.option_objs of objects that are passed into the option.
         params = self._sampler(state, goal, rng, self.objects)
-        # Clip the params into the params_space of self.option, for safety.
-        low = self.option.params_space.low
-        high = self.option.params_space.high
-        params = np.clip(params, low, high)
+        params = _clip_sampled_params(params, self.option.params_space)
         return self.option.ground(self.option_objs, params)
 
     def copy_with(self, **kwargs: Any) -> _GroundNSRT:
@@ -3577,10 +3593,7 @@ class _GroundEndogenousProcess(_GroundCausalProcess):
         # Note that the sampler takes in ALL self.objects, not just the subset
         # self.option_objs of objects that are passed into the option.
         params = self._sampler(state, goal, rng, self.objects)
-        # Clip the params into the params_space of self.option, for safety.
-        low = self.option.params_space.low
-        high = self.option.params_space.high
-        params = np.clip(params, low, high)
+        params = _clip_sampled_params(params, self.option.params_space)
         return self.option.ground(self.option_objs, params)
 
 
