@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING, ClassVar, Dict, Sequence, Set
 from typing import Type as TypingType
 
@@ -99,8 +100,16 @@ class _PyBulletCoffeeLegacyOptionsMixin(_MixinBase):
                 options.remove(_MoveToTwistJug)
                 options.remove(TwistJug)
 
+                # Twist turns the jug to jug_pickable_rot, which is what the
+                # TwistJug policy does when it gets no params. A twist amount
+                # could not express it: the policy reads the amount as the
+                # target angle, bounded to [-1, 1], and jug_pickable_rot is
+                # -pi/2.
                 Twist = utils.LinearChainParameterizedOption(
-                    "Twist", [_MoveToTwistJug, TwistJug])
+                    "Twist", [
+                        _MoveToTwistJug,
+                        replace(TwistJug, params_space=Box(0, 1, (0, )))
+                    ])
                 options.add(Twist)
 
         if CFG.coffee_move_back_after_place_and_push:
