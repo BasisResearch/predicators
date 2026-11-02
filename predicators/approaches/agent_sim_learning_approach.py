@@ -906,6 +906,10 @@ class AgentSimLearningApproach(AgentBaseApproach):
         state["applied_physical"] = dict(applied_physical or {})
         state["sigma_points"] = list(sigma_points or [])
         state["belief"] = belief.to_dict() if belief is not None else None
+        # A refit of unchanged content keeps the version and digest that
+        # key the cached beliefs, so drop them: the joint draws must come
+        # from this fit's belief, not the last one's.
+        self._belief_cache().clear()
         self._probe_model_cache().clear()
         self._tool_context.probe_param_status = format_fit_status(state)
         logger.info("Synthesis probe: deployed %d params; %s.", len(params),

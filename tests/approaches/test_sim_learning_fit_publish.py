@@ -7,14 +7,18 @@ the deploy path must be able to tell the two apart.
 """
 # pylint: disable=protected-access
 import math
+from types import SimpleNamespace
 from typing import Any, Dict
 
 import numpy as np
 
+from predicators import utils
 from predicators.agent_sdk.tools.context import ToolContext
 from predicators.approaches.agent_sim_learning_approach import \
     AgentSimLearningApproach
-from predicators.code_sim_learning.fit_space import FitResult
+from predicators.code_sim_learning.fit_space import FitResult, ParamSpec
+from predicators.code_sim_learning.parameter_belief import BeliefConfig, \
+    ParameterBelief, prior_belief
 
 
 def _approach() -> AgentSimLearningApproach:
@@ -98,3 +102,34 @@ def test_pinned_fit_of_a_changed_file_replaces_the_old_fit(
     assert published[2] == "cycle_000_vers_002"
     assert approach._published_fit_is_pinned()
     assert approach._fitted_params == {"k": 1.0}
+
+
+def test_a_refit_of_the_same_file_serves_its_own_belief(
+        tmp_path: Any, monkeypatch: Any) -> None:
+    """A canonical refit of unchanged simulator.py content, on more recordings,
+    replaces the belief the joint draws come from."""
+    utils.reset_config({"belief_joint_draws": 8})
+    sim_file = tmp_path / "simulator.py"
+    sim_file.write_text("RULES = []\n", encoding="utf-8")
+    approach = _approach()
+    monkeypatch.setattr(approach, "_resolve_synthesis_paths",
+                        lambda: SimpleNamespace(simulator_file=str(sim_file)))
+    spec = ParamSpec("k", 1.0, lo=0.0, hi=4.0)
+    approach._physical_param_specs = [spec]
+
+    def belief(center: float) -> ParameterBelief:
+        return prior_belief([spec], {"k": center}, {"k": 0.1},
+                            BeliefConfig(num_draws=8),
+                            seed=0)
+
+    for center in (1.0, 3.0):
+        approach._publish_probe_fit({"k": center},
+                                    "cycle_000_vers_001",
+                                    str(sim_file),
+                                    fit_result=_fit({"k": center}),
+                                    sse=0.5,
+                                    belief=belief(center))
+        served = approach.parameter_belief()
+        assert served is not None
+        assert np.allclose(served.draws, belief(center).draws)
+    utils.reset_config({})
