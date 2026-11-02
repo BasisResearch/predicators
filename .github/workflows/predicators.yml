@@ -24,6 +24,9 @@ jobs:
         restore-keys: |
           pip-${{ matrix.python-version }}-
     - run: |
+        # GitHub runners have no GPU. The default torch wheel pulls the CUDA
+        # stack (several GB), which can fill the runner disk.
+        pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
         pip install -e .
         pip install pytest-cov==2.12.1 pytest-split
     - name: Pytest (group ${{ matrix.group }}/8)
@@ -84,6 +87,9 @@ jobs:
           pip-${{ matrix.python-version }}-
     - name: Install dependencies
       run: |
+        # GitHub runners have no GPU. The default torch wheel pulls the CUDA
+        # stack (several GB), which can fill the runner disk.
+        pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
         pip install -e .
         pip install mypy==1.8.0
     - name: Mypy
@@ -109,6 +115,9 @@ jobs:
           pip-${{ matrix.python-version }}-
     - name: Install dependencies
       run: |
+        # GitHub runners have no GPU. The default torch wheel pulls the CUDA
+        # stack (several GB), which can fill the runner disk.
+        pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
         pip install -e .
         pip install pytest-pylint==0.18.0
     - name: Pylint
