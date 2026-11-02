@@ -1,5 +1,7 @@
 # Continual prompt review
 
+- [2026-10-04: EMPIRIC from assets on Domino](2026-10-04-domino-from-assets/README.md), the review copy and the prompts seed 1 of round `fixes_r1` received before it lost the test level.
+- [2026-09-19: the direct agent with the scene files](2026-09-19-direct-scene-files/README.md), the model-free arm given the engine wrapper, the scene manifest and the URDF and mesh files.
 - [2026-09-18: the eight comparison arms and the agentic real-to-sim baseline on Balloons](2026-09-18-balloons/README.md), one review copy per arm with the system prompt, sandbox notes, tools, and the first two queries.
 - 2026-09-09: the prompt cleanup below, with the Balloons review copies [balloons-system-after.md](balloons-system-after.md) and [balloons-first-round-after.md](balloons-first-round-after.md).
 

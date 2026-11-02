@@ -1,0 +1,756 @@
+{
+ "legend": {
+  "dimensions": "box: full extents [x, y, z]; sphere: [radius]; cylinder and capsule: [length, radius]; mesh: the scale applied to the file; plane: [normal x, y, z]",
+  "frames": "positions in metres, orientations as [x, y, z, w] quaternions; shape frames are local to their link",
+  "pose": "bodies bound to an observed object take their pose from the observation; the others list their fixed base pose",
+  "omitted": "masses, frictions, restitution and damping are not recorded; model or estimate them",
+  "visual_only": "bodies with no collision shape: they are seen, never touched, and list their visual shapes instead",
+  "not_listed": "the ground plane, the backdrop walls and the robot, which SceneBase's initialize_pybullet loads itself"
+ },
+ "robot": {
+  "name": "fetch",
+  "urdf": "assets/urdf/fetch_description/robots/fetch.urdf",
+  "base_position": [
+   0.75,
+   0.72,
+   0.0
+  ],
+  "base_orientation": [
+   0.0,
+   0.0,
+   0.7071067811865475,
+   0.7071067811865476
+  ]
+ },
+ "objects": {
+  "domino_0": "domino",
+  "domino_1": "domino",
+  "domino_2": "domino",
+  "domino_3": "domino",
+  "domino_4": "domino",
+  "domino_5": "domino",
+  "robot": "robot"
+ },
+ "bodies": [
+  {
+   "object": "domino_0",
+   "body_name": "",
+   "static": false,
+   "links": [
+    {
+     "index": -1,
+     "name": "link0",
+     "shapes": [
+      {
+       "geometry": "box",
+       "dimensions": [
+        0.07,
+        0.015,
+        0.15
+       ],
+       "local_position": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "local_orientation": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+       ]
+      }
+     ],
+     "visual_rgba": [
+      0.56,
+      0.93,
+      0.56,
+      1.0
+     ]
+    },
+    {
+     "index": 0,
+     "name": "link1",
+     "shapes": [],
+     "visual_rgba": [
+      0.56,
+      0.93,
+      0.56,
+      1.0
+     ],
+     "visual_shapes": [
+      {
+       "geometry": "mesh",
+       "dimensions": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "local_position": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "local_orientation": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+       ],
+       "rgba": [
+        0.56,
+        0.93,
+        0.56,
+        1.0
+       ]
+      }
+     ]
+    }
+   ],
+   "joints": [
+    {
+     "name": "joint1",
+     "type": "fixed",
+     "child_link": "link1",
+     "parent_link_index": -1,
+     "axis": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lower_limit": 1.0,
+     "upper_limit": -1.0,
+     "parent_frame_position": [
+      0.0,
+      0.0,
+      0.076
+     ],
+     "parent_frame_orientation": [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    }
+   ]
+  },
+  {
+   "object": "domino_1",
+   "body_name": "",
+   "static": false,
+   "links": [
+    {
+     "index": -1,
+     "name": "link0",
+     "shapes": [
+      {
+       "geometry": "box",
+       "dimensions": [
+        0.07,
+        0.015,
+        0.15
+       ],
+       "local_position": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "local_orientation": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+       ]
+      }
+     ],
+     "visual_rgba": [
+      0.85,
+      0.7,
+      0.85,
+      1.0
+     ]
+    },
+    {
+     "index": 0,
+     "name": "link1",
+     "shapes": [],
+     "visual_rgba": [
+      0.85,
+      0.7,
+      0.85,
+      1.0
+     ],
+     "visual_shapes": [
+      {
+       "geometry": "mesh",
+       "dimensions": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "local_position": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "local_orientation": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+       ],
+       "rgba": [
+        0.85,
+        0.7,
+        0.85,
+        1.0
+       ]
+      }
+     ]
+    }
+   ],
+   "joints": [
+    {
+     "name": "joint1",
+     "type": "fixed",
+     "child_link": "link1",
+     "parent_link_index": -1,
+     "axis": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lower_limit": 1.0,
+     "upper_limit": -1.0,
+     "parent_frame_position": [
+      0.0,
+      0.0,
+      0.076
+     ],
+     "parent_frame_orientation": [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    }
+   ]
+  },
+  {
+   "object": "domino_2",
+   "body_name": "",
+   "static": false,
+   "links": [
+    {
+     "index": -1,
+     "name": "link0",
+     "shapes": [
+      {
+       "geometry": "box",
+       "dimensions": [
+        0.07,
+        0.015,
+        0.15
+       ],
+       "local_position": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "local_orientation": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+       ]
+      }
+     ],
+     "visual_rgba": [
+      0.6,
+      0.8,
+      1.0,
+      1.0
+     ]
+    },
+    {
+     "index": 0,
+     "name": "link1",
+     "shapes": [],
+     "visual_rgba": [
+      0.6,
+      0.8,
+      1.0,
+      1.0
+     ],
+     "visual_shapes": [
+      {
+       "geometry": "mesh",
+       "dimensions": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "local_position": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "local_orientation": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+       ],
+       "rgba": [
+        0.6,
+        0.8,
+        1.0,
+        1.0
+       ]
+      }
+     ]
+    }
+   ],
+   "joints": [
+    {
+     "name": "joint1",
+     "type": "fixed",
+     "child_link": "link1",
+     "parent_link_index": -1,
+     "axis": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lower_limit": 1.0,
+     "upper_limit": -1.0,
+     "parent_frame_position": [
+      0.0,
+      0.0,
+      0.076
+     ],
+     "parent_frame_orientation": [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    }
+   ]
+  },
+  {
+   "object": "domino_3",
+   "body_name": "",
+   "static": false,
+   "links": [
+    {
+     "index": -1,
+     "name": "link0",
+     "shapes": [
+      {
+       "geometry": "box",
+       "dimensions": [
+        0.07,
+        0.015,
+        0.15
+       ],
+       "local_position": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "local_orientation": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+       ]
+      }
+     ],
+     "visual_rgba": [
+      0.6,
+      0.8,
+      1.0,
+      1.0
+     ]
+    },
+    {
+     "index": 0,
+     "name": "link1",
+     "shapes": [],
+     "visual_rgba": [
+      0.6,
+      0.8,
+      1.0,
+      1.0
+     ],
+     "visual_shapes": [
+      {
+       "geometry": "mesh",
+       "dimensions": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "local_position": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "local_orientation": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+       ],
+       "rgba": [
+        0.6,
+        0.8,
+        1.0,
+        1.0
+       ]
+      }
+     ]
+    }
+   ],
+   "joints": [
+    {
+     "name": "joint1",
+     "type": "fixed",
+     "child_link": "link1",
+     "parent_link_index": -1,
+     "axis": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lower_limit": 1.0,
+     "upper_limit": -1.0,
+     "parent_frame_position": [
+      0.0,
+      0.0,
+      0.076
+     ],
+     "parent_frame_orientation": [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    }
+   ]
+  },
+  {
+   "object": "domino_4",
+   "body_name": "",
+   "static": false,
+   "links": [
+    {
+     "index": -1,
+     "name": "link0",
+     "shapes": [
+      {
+       "geometry": "box",
+       "dimensions": [
+        0.07,
+        0.015,
+        0.15
+       ],
+       "local_position": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "local_orientation": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+       ]
+      }
+     ],
+     "visual_rgba": [
+      0.6,
+      0.8,
+      1.0,
+      1.0
+     ]
+    },
+    {
+     "index": 0,
+     "name": "link1",
+     "shapes": [],
+     "visual_rgba": [
+      0.6,
+      0.8,
+      1.0,
+      1.0
+     ],
+     "visual_shapes": [
+      {
+       "geometry": "mesh",
+       "dimensions": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "local_position": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "local_orientation": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+       ],
+       "rgba": [
+        0.6,
+        0.8,
+        1.0,
+        1.0
+       ]
+      }
+     ]
+    }
+   ],
+   "joints": [
+    {
+     "name": "joint1",
+     "type": "fixed",
+     "child_link": "link1",
+     "parent_link_index": -1,
+     "axis": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lower_limit": 1.0,
+     "upper_limit": -1.0,
+     "parent_frame_position": [
+      0.0,
+      0.0,
+      0.076
+     ],
+     "parent_frame_orientation": [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    }
+   ]
+  },
+  {
+   "object": "domino_5",
+   "body_name": "",
+   "static": false,
+   "links": [
+    {
+     "index": -1,
+     "name": "link0",
+     "shapes": [
+      {
+       "geometry": "box",
+       "dimensions": [
+        0.07,
+        0.015,
+        0.15
+       ],
+       "local_position": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "local_orientation": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+       ]
+      }
+     ],
+     "visual_rgba": [
+      0.6,
+      0.8,
+      1.0,
+      1.0
+     ]
+    },
+    {
+     "index": 0,
+     "name": "link1",
+     "shapes": [],
+     "visual_rgba": [
+      0.6,
+      0.8,
+      1.0,
+      1.0
+     ],
+     "visual_shapes": [
+      {
+       "geometry": "mesh",
+       "dimensions": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "local_position": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "local_orientation": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+       ],
+       "rgba": [
+        0.6,
+        0.8,
+        1.0,
+        1.0
+       ]
+      }
+     ]
+    }
+   ],
+   "joints": [
+    {
+     "name": "joint1",
+     "type": "fixed",
+     "child_link": "link1",
+     "parent_link_index": -1,
+     "axis": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "lower_limit": 1.0,
+     "upper_limit": -1.0,
+     "parent_frame_position": [
+      0.0,
+      0.0,
+      0.076
+     ],
+     "parent_frame_orientation": [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    }
+   ]
+  },
+  {
+   "object": null,
+   "body_name": "table",
+   "static": true,
+   "links": [
+    {
+     "index": -1,
+     "name": "base_link",
+     "shapes": [
+      {
+       "geometry": "box",
+       "dimensions": [
+        0.5,
+        0.9,
+        0.4
+       ],
+       "local_position": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "local_orientation": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+       ]
+      }
+     ],
+     "visual_rgba": [
+      1.0,
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ],
+   "joints": [],
+   "urdf": "assets/urdf/table.urdf",
+   "urdf_scale": 1.0,
+   "base_pose": {
+    "position": [
+     0.75,
+     1.35,
+     0.2
+    ],
+    "orientation": [
+     0.0,
+     0.0,
+     0.7071067811865475,
+     0.7071067811865476
+    ]
+   }
+  },
+  {
+   "object": null,
+   "body_name": "table",
+   "static": true,
+   "links": [
+    {
+     "index": -1,
+     "name": "base_link",
+     "shapes": [
+      {
+       "geometry": "box",
+       "dimensions": [
+        0.5,
+        0.9,
+        0.4
+       ],
+       "local_position": [
+        0.0,
+        0.0,
+        0.0
+       ],
+       "local_orientation": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+       ]
+      }
+     ],
+     "visual_rgba": [
+      1.0,
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ],
+   "joints": [],
+   "urdf": "assets/urdf/table.urdf",
+   "urdf_scale": 1.0,
+   "base_pose": {
+    "position": [
+     0.75,
+     1.85,
+     0.2
+    ],
+    "orientation": [
+     0.0,
+     0.0,
+     0.7071067811865475,
+     0.7071067811865476
+    ]
+   }
+  }
+ ]
+}
