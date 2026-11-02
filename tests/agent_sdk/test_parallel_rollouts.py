@@ -70,7 +70,12 @@ def test_child_exception_yields_none_slot() -> None:
 
 
 def test_deadline_abandons_hung_child() -> None:
-    """A hung child is abandoned at the deadline; fast peers survive."""
+    """A hung child is abandoned at the deadline; fast peers survive.
+
+    The deadline runs from before the forks, and forking a test process
+    of 20 GB takes about 0.3 s per child (more on a loaded node), so the
+    fast child gets seconds; the hung one would take minutes.
+    """
     if not parallel_rollouts_available():
         pytest.skip("fork not available on this platform")
 
@@ -78,16 +83,17 @@ def test_deadline_abandons_hung_child() -> None:
         return "done"
 
     def hung_job() -> str:
-        time.sleep(30)
+        time.sleep(300)
         return "never"
 
     start = time.monotonic()
     out = run_forked_rollouts([fast_job, hung_job],
                               max_workers=2,
                               label="test",
-                              per_job_timeout=1.0)
-    assert out == ["done", None]
-    assert time.monotonic() - start < 10
+                              per_job_timeout=5.0)
+    elapsed = time.monotonic() - start
+    assert out == ["done", None], f"after {elapsed:.2f}s"
+    assert elapsed < 60, f"after {elapsed:.2f}s"
 
 
 def test_child_mutations_stay_in_child() -> None:
