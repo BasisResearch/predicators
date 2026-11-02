@@ -18,7 +18,7 @@ from predicators.agent_sdk.primitive_policy_worker import REPLY_PREFIX
 from predicators.agent_sdk.sandbox_setup import pyguard_dir, pyguard_env
 from predicators.agent_sdk.tools.python_exec import _resolve_sandbox_file
 from predicators.agent_sdk.tools.sandbox_guard import _scrub_host_paths
-from predicators.structs import Action
+from predicators.structs import Action, excluded_object_type_names
 
 if TYPE_CHECKING:
     from predicators.run.continual import ProtocolObservation, ProtocolSession
@@ -29,6 +29,7 @@ def primitive_observation(
         observation: Optional[ProtocolObservation] = None) -> Dict[str, Any]:
     """A detached, JSON-compatible view of the current observed frame."""
     obs = observation if observation is not None else session.observe()
+    hidden = excluded_object_type_names()
     objects = {
         obj.name: {
             "type": obj.type.name,
@@ -37,7 +38,7 @@ def primitive_observation(
                 for name in obj.type.feature_names
             },
         }
-        for obj in obs.frame
+        for obj in obs.frame if obj.type.name not in hidden
     }
     sim_state = obs.frame.simulator_state
     joints = (sim_state.get("joint_positions")
