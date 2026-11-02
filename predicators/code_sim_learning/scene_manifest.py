@@ -13,12 +13,13 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 
 import pybullet as p
 
 from predicators import utils
-from predicators.envs.pybullet_env import PyBulletEnv
+from predicators.envs.pybullet_env import BuiltMesh, PyBulletEnv
 from predicators.pybullet_helpers import studio_visuals
 from predicators.pybullet_helpers.objects import loaded_asset
 from predicators.settings import CFG
@@ -56,7 +57,30 @@ LEGEND = {
                     "touched, and list their visual shapes instead"),
     "not_listed": ("the ground plane, the backdrop walls and the robot, "
                    "which SceneBase's initialize_pybullet loads itself"),
+    "generated": ("a mesh the deployment builds from vertices in memory "
+                  "comes as an OBJ file under assets/generated/, in its "
+                  "shape frame; concave: true means it is loaded as a "
+                  "triangle mesh (p.GEOM_FORCE_CONCAVE_TRIMESH), else as "
+                  "the convex hull of its vertices; collision_margin is "
+                  "the contact margin it is built with"),
 }
+
+
+@dataclass(frozen=True)
+class GeneratedAsset:
+    """An asset file the manifest writes from data (a mesh the deployment built
+    in memory, as OBJ text); ``origin`` says what it was made from."""
+    text: str
+    origin: str
+
+
+def _obj_text(mesh: BuiltMesh) -> str:
+    """``mesh`` as a Wavefront OBJ file in its shape frame."""
+    lines = ["# A mesh the deployment builds in memory, in its shape frame."]
+    lines += [f"v {x:.9g} {y:.9g} {z:.9g}" for x, y, z in mesh.vertices]
+    corners = iter(mesh.indices)
+    lines += [f"f {a + 1} {b + 1} {c + 1}" for a, b, c in zip(*[corners] * 3)]
+    return "\n".join(lines) + "\n"
 
 
 def _decode(value: Any) -> str:
@@ -98,11 +122,20 @@ def referenced_files(urdf_path: str) -> List[str]:
     return found
 
 
-def _shape_entries(body_id: int, link: int, client: int,
-                   files: Set[str]) -> List[Dict[str, Any]]:
+@dataclass
+class _BuiltShapes:
+    """The meshes an env built in memory (``PyBulletEnv._built_meshes``), the
+    label of the body being listed, and the generated files so far."""
+    meshes: Dict[Tuple[int, int], BuiltMesh]
+    files: Dict[str, GeneratedAsset]
+    label: str = ""
+
+
+def _shape_entries(body_id: int, link: int, client: int, files: Set[str],
+                   built: _BuiltShapes) -> List[Dict[str, Any]]:
     entries = []
-    for shape in p.getCollisionShapeData(body_id, link,
-                                         physicsClientId=client):
+    shapes = p.getCollisionShapeData(body_id, link, physicsClientId=client)
+    for index, shape in enumerate(shapes):
         geometry = _GEOMETRY_NAMES.get(shape[2], str(shape[2]))
         entry: Dict[str, Any] = {
             "geometry": geometry,
@@ -111,7 +144,21 @@ def _shape_entries(body_id: int, link: int, client: int,
             "local_orientation": [float(v) for v in shape[6]],
         }
         filename = _decode(shape[4])
-        if filename:
+        mesh = built.meshes.get((body_id, link))
+        if (shape[2] == p.GEOM_MESH and mesh is not None and len(shapes) == 1
+                and filename in ("", "unknown_file")):
+            # PyBullet reads back neither the vertices nor the triangles of
+            # a mesh built in memory; the env that built it kept them.
+            path = (f"assets/generated/{built.label}_link{link + 1}"
+                    f"_shape{index}.obj")
+            built.files[path] = GeneratedAsset(
+                _obj_text(mesh), f"the mesh the deployment builds in memory "
+                f"for {built.label}")
+            entry["file"] = path
+            entry["concave"] = mesh.concave
+            entry["collision_margin"] = float(
+                p.getDynamicsInfo(body_id, link, physicsClientId=client)[11])
+        elif filename:
             files.add(filename)
             entry["file"] = _relative_asset(filename) or os.path.basename(
                 filename)
@@ -140,13 +187,13 @@ def _visual_entries(visuals: List[Any],
     return entries
 
 
-def _link_entry(body_id: int, link: int, name: str, visuals: Dict[int,
-                                                                  List[Any]],
-                client: int, files: Set[str]) -> Dict[str, Any]:
+def _link_entry(body_id: int, link: int, name: str,
+                visuals: Dict[int, List[Any]], client: int, files: Set[str],
+                built: _BuiltShapes) -> Dict[str, Any]:
     entry: Dict[str, Any] = {
         "index": link,
         "name": name,
-        "shapes": _shape_entries(body_id, link, client, files),
+        "shapes": _shape_entries(body_id, link, client, files, built),
     }
     colours = [[float(v) for v in visual[7]]
                for visual in visuals.get(link, [])]
@@ -158,8 +205,9 @@ def _link_entry(body_id: int, link: int, name: str, visuals: Dict[int,
 
 
 def _body_entry(body_id: int, client: int, object_name: Optional[str],
-                files: Set[str]) -> Dict[str, Any]:
+                files: Set[str], built: _BuiltShapes) -> Dict[str, Any]:
     base_link, body_name = p.getBodyInfo(body_id, physicsClientId=client)
+    built.label = object_name or _decode(body_name) or f"body{body_id}"
     position, orientation = p.getBasePositionAndOrientation(
         body_id, physicsClientId=client)
     n_joints = p.getNumJoints(body_id, physicsClientId=client)
@@ -167,14 +215,15 @@ def _body_entry(body_id: int, client: int, object_name: Optional[str],
     for visual in p.getVisualShapeData(body_id, physicsClientId=client):
         visuals.setdefault(visual[1], []).append(visual)
     links: List[Dict[str, Any]] = [
-        _link_entry(body_id, -1, _decode(base_link), visuals, client, files)
+        _link_entry(body_id, -1, _decode(base_link), visuals, client, files,
+                    built)
     ]
     joints: List[Dict[str, Any]] = []
     for joint in range(n_joints):
         info = p.getJointInfo(body_id, joint, physicsClientId=client)
         links.append(
             _link_entry(body_id, joint, _decode(info[12]), visuals, client,
-                        files))
+                        files, built))
         joints.append({
             "name": _decode(info[1]),
             "type": _JOINT_NAMES.get(info[2], str(info[2])),
@@ -221,15 +270,16 @@ def _offstage(position: Sequence[float], backdrop: List[Tuple[float, float,
 
 
 def build_scene_manifest(
-        env: PyBulletEnv,
-        state: State) -> Tuple[Dict[str, Any], Dict[str, str]]:
+    env: PyBulletEnv, state: State
+) -> Tuple[Dict[str, Any], Dict[str, Union[str, GeneratedAsset]]]:
     """Inspect ``env`` at ``state`` and return ``(manifest, assets)``.
 
     ``env`` is a deployment world (the real env class); ``state`` is the
     level's initial state, whose objects name the bodies. ``assets``
     maps ``assets/...`` paths under the sandbox's ``reference/`` to the
     files to copy there: the URDF and mesh files of every listed body
-    and of the robot.
+    and of the robot, and as :class:`GeneratedAsset` the meshes the env
+    built in memory.
     """
     # pylint: disable=protected-access
     env._set_state(state)
@@ -240,6 +290,7 @@ def build_scene_manifest(
         for obj in env._objects if getattr(obj, "id", None) is not None
     }
     files: Set[str] = set()
+    built = _BuiltShapes(dict(env._built_meshes), {})
     bodies: List[Dict[str, Any]] = []
     # The scene base builds the backdrop walls as the deployment does.
     backdrop = [center for center, _ in studio_visuals.wall_specs(type(env))]
@@ -252,7 +303,7 @@ def build_scene_manifest(
                                                       physicsClientId=client)
         if object_name is None and _offstage(position, backdrop):
             continue
-        entry = _body_entry(body_id, client, object_name, files)
+        entry = _body_entry(body_id, client, object_name, files, built)
         # The ground plane is the scene base's own, like the backdrop. A
         # body without a collision shape is still seen: a ceiling that
         # marks a burst height, a target band, a pedestal post. A camera
@@ -292,7 +343,7 @@ def build_scene_manifest(
         },
         "bodies": bodies,
     }
-    assets: Dict[str, str] = {}
+    assets: Dict[str, Union[str, GeneratedAsset]] = dict(built.files)
     pending = sorted(files)
     while pending:
         source = pending.pop()
@@ -310,4 +361,7 @@ def scene_manifest_text(manifest: Dict[str, Any]) -> str:
     return json.dumps(manifest, indent=1, sort_keys=False) + "\n"
 
 
-__all__ = ["build_scene_manifest", "referenced_files", "scene_manifest_text"]
+__all__ = [
+    "GeneratedAsset", "build_scene_manifest", "referenced_files",
+    "scene_manifest_text"
+]

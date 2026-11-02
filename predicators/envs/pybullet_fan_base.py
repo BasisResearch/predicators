@@ -22,7 +22,7 @@ from typing import Any, ClassVar, Dict, List, Optional, Set, Tuple
 import numpy as np
 import pybullet as p
 
-from predicators.envs.pybullet_env import PyBulletEnv
+from predicators.envs.pybullet_env import BuiltMesh, PyBulletEnv
 from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
 from predicators.pybullet_helpers.objects import cap_switch_joint_travel, \
     create_object, create_pybullet_block, create_pybullet_sphere, \
@@ -796,6 +796,7 @@ class PyBulletFanBaseEnv(PyBulletEnv):
         for wall_id in self._boundary_wall_ids:
             if wall_id >= 0:
                 p.removeBody(wall_id, physicsClientId=self._physics_client_id)
+                self._built_meshes.pop((wall_id, -1), None)
         # pylint: disable=attribute-defined-outside-init
         self._boundary_wall_ids = []
         self._boundary_wall_spec = None
@@ -933,6 +934,10 @@ class PyBulletFanBaseEnv(PyBulletEnv):
                          lateralFriction=0.5,
                          collisionMargin=0.0,
                          physicsClientId=self._physics_client_id)
+        self._built_meshes[(body, -1)] = BuiltMesh(tuple(
+            (float(x), float(y), float(z)) for x, y, z in vertices),
+                                                   tuple(faces),
+                                                   concave=True)
         return body
 
     @classmethod
