@@ -197,9 +197,18 @@ class LevelRecording:
             f.write(json.dumps(entry, sort_keys=True, default=_json_default))
             f.write("\n")
 
-    def flush(self, episodes: Sequence[Dict[str, Any]], last_state: State,
-              episode: int, steps: int) -> None:
-        """Persist the episodes pickle and the checkpoint; sync the log."""
+    def flush(self,
+              episodes: Sequence[Dict[str, Any]],
+              last_state: State,
+              episode: int,
+              steps: int,
+              episode_steps: Optional[int] = None) -> None:
+        """Persist the episodes pickle and the checkpoint; sync the log.
+
+        ``steps`` counts the level's steps, ``episode_steps`` the
+        current episode's: where in the action log the checkpoint was
+        taken.
+        """
         self._actions_file.flush()
         os.fsync(self._actions_file.fileno())
         payload = [_sanitize_episode(ep) for ep in episodes]
@@ -208,6 +217,7 @@ class LevelRecording:
             self.checkpoint_path, {
                 "episode": episode,
                 "steps": steps,
+                "episode_steps": episode_steps,
                 "state": sanitize_state(last_state),
                 "ts": time.time(),
             })
