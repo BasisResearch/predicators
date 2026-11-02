@@ -36,6 +36,9 @@ APPROACHES:
       # the planning model runs, as it scores a draw, and says when that
       # rollout loses, or solves, where no draw does.
       continual_rehearsal_mean_verdict: true
+      # On a test level it acts on the rehearsed plan with the highest
+      # P-hat; cost only breaks ties.
+      continual_rehearsal_win_first: true
       # A request whose outcome lies outside its rehearsal's draws widens
       # the fitted program's belief.
       continual_predictive_check: true
