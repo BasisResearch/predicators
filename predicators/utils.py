@@ -1807,6 +1807,12 @@ def _format_wait_target_debug(
     ``target_atoms`` must become true and ``neg_target_atoms`` must
     become false; either set may be empty (a cure Wait is often
     annotated with only NOT atoms).
+
+    A target object missing from the state is listed without features.
+    Process planning injects ground-truth helper objects (the Fan grid's
+    ``loc_*`` cells) only into the planning task and re-derives them
+    inside its abstract function, so the executed state never holds
+    them.
     """
     cur_atoms = abstract_function(state)
     missing_targets = target_atoms - cur_atoms
@@ -1820,6 +1826,9 @@ def _format_wait_target_debug(
         key=lambda o: o.name)
     object_details = []
     for obj in target_objects:
+        if obj not in state.data:
+            object_details.append(f"{obj}: not in state")
+            continue
         feature_values = []
         for feature_name in obj.type.feature_names:
             value = state.get(obj, feature_name)
@@ -1960,9 +1969,13 @@ def option_policy_to_policy(
                     wait_terminate = True
                     wait_terminate_reason = (
                         "Wait step cap (target atoms NOT satisfied)")
-                elif abstract_function is not None and (
-                        num_cur_option_steps <= 1
-                        or num_cur_option_steps % 25 == 0):
+                elif abstract_function is not None and \
+                        logging.getLogger().isEnabledFor(logging.DEBUG) and (
+                            num_cur_option_steps <= 1
+                            or num_cur_option_steps % 25 == 0):
+                    # Only built when DEBUG is on: it re-abstracts the
+                    # state and reads every target object's features,
+                    # work wasted when nothing prints the line.
                     wait_debug = _format_wait_target_debug(
                         state, target_atoms, neg_target_atoms,
                         abstract_function)

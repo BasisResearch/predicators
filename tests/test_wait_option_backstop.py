@@ -9,12 +9,15 @@ critical final steps. The backstop terminates such a Wait at
 ``wait_option_max_steps``, matching the cap the untargeted (any-atom-
 change) branch already had.
 """
+import logging
+from typing import Tuple
+
 import numpy as np
 from gym.spaces import Box
 
 from predicators import utils
 from predicators.structs import Action, GroundAtom, Object, \
-    ParameterizedOption, Predicate, State, Type
+    ParameterizedOption, Predicate, State, Type, _Option
 from predicators.utils import OptionExecutionFailure
 
 _ROBOT = Type("robot", ["x"])
@@ -193,3 +196,65 @@ def test_neg_only_wait_terminates_when_atom_clears() -> None:
     policy = utils.option_plan_to_policy([option], abstract_function=_abstract)
     exhausted_at = _run_until_exhausted(policy, state, max_calls=50)
     assert 0 < exhausted_at < 10
+
+
+def _make_wait_on_absent_object() -> Tuple[_Option, State]:
+    """A Wait whose target atom names an object the executed state lacks.
+
+    Process planning injects ground-truth helper objects (the Fan grid's
+    ``loc_*`` cells) only into the planning task and re-derives them
+    inside its abstract function, so the executed state never holds
+    them.
+    """
+    loc_type = Type("loc", ["x", "y"])
+    at_loc = Predicate("RobotAtLoc", [_ROBOT, loc_type], lambda s, o: False)
+    robot_obj = Object("robby", _ROBOT)
+    loc = Object("loc_0.7900_1.6840", loc_type)
+    robot, option = _make_wait_option(GroundAtom(at_loc, [robot_obj, loc]))
+    state = State({robot: np.array([0.0])})
+    return option, state
+
+
+def test_wait_debug_line_skips_objects_absent_from_state(caplog) -> None:
+    """With DEBUG logging on, the Wait-continuing debug line reports a target
+    object missing from the state instead of raising KeyError on its features
+    (the Fan process-planning oracle crashed this way on a loc_* cell)."""
+    utils.reset_config({
+        "wait_option_terminate_on_atom_change": True,
+        "wait_option_max_steps": 30,
+    })
+    caplog.set_level(logging.DEBUG)
+    option, state = _make_wait_on_absent_object()
+    policy = utils.option_plan_to_policy([option],
+                                         abstract_function=lambda s: set())
+    # The debug line is built on Wait steps 1 and 25 (calls 2 and 26);
+    # call 31 observes step 30, trips the backstop and exhausts the plan.
+    assert _run_until_exhausted(policy, state, max_calls=50) == 31
+    debug_lines = [
+        r.getMessage() for r in caplog.records
+        if r.getMessage().startswith("Wait continuing")
+    ]
+    assert len(debug_lines) == 2
+    assert "loc_0.7900_1.6840:loc: not in state" in debug_lines[0]
+    assert "robby:robot: x=0.0000" in debug_lines[0]
+
+
+def test_wait_debug_line_not_built_without_debug_logging(caplog,
+                                                         monkeypatch) -> None:
+    """Below DEBUG, the Wait-continuing debug line is never built, so its state
+    reads cannot end an episode."""
+    utils.reset_config({
+        "wait_option_terminate_on_atom_change": True,
+        "wait_option_max_steps": 30,
+    })
+    caplog.set_level(logging.INFO)
+
+    def _fail_if_built(*args: object) -> str:
+        del args
+        raise AssertionError("Wait debug line built below DEBUG")
+
+    monkeypatch.setattr(utils, "_format_wait_target_debug", _fail_if_built)
+    option, state = _make_wait_on_absent_object()
+    policy = utils.option_plan_to_policy([option],
+                                         abstract_function=lambda s: set())
+    assert _run_until_exhausted(policy, state, max_calls=50) == 31
