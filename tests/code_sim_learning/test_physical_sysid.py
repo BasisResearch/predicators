@@ -1499,6 +1499,10 @@ def test_anchor_ablation_runs_for_calibrated_anchors_only(monkeypatch):
                         lambda *_args, **_kwargs: 1.0)
     monkeypatch.setattr(physical_sysid, "_anchor_backward_elimination",
                         fake_ablation)
+    # The whole-box search guessed starting values also get is not under
+    # test here.
+    monkeypatch.setattr(CFG, "code_sim_learning_rollout_global_design_points",
+                        0)
     trajectory = _trajectory([0.0, 0.1, 0.2])
     for guesses, ran in ((False, True), (True, False)):
         monkeypatch.setattr(CFG, "code_sim_learning_prior_spans_bounds",
@@ -1507,6 +1511,99 @@ def test_anchor_ablation_runs_for_calibrated_anchors_only(monkeypatch):
         physical_sysid.fit_params_rollout(None, [trajectory], specs,
                                           _RESIDUAL_FEATURES)
         assert bool(calls) is ran
+
+
+def _two_basins(k):
+    """A landscape with a local basin at 0.2 (SSE 10.5) and a better one at
+    0.8 (SSE 10.3)."""
+    return 10.0 + min(0.5 + 10.0 * (k - 0.2)**2, 0.3 + 10.0 * (k - 0.8)**2)
+
+
+def _stub_multistart(monkeypatch):
+    """Score points on _two_basins and let the LM settle in the basin its start
+    lies in."""
+
+    def fake_batch(_env, _trajs, points, *_args, **_kwargs):
+        return [_two_basins(point["k"]) for point in points]
+
+    def fake_lm(_env, _trajs, physical_specs, *_args, **_kwargs):
+        start = physical_specs[0].init_value
+        return np.array([0.2 if start < 0.5 else 0.8]), np.array([[start]])
+
+    monkeypatch.setattr(physical_sysid, "rollout_sse_by_point", fake_batch)
+    monkeypatch.setattr(physical_sysid, "fit_map_lm_rollout", fake_lm)
+
+
+def test_global_multistart_leaves_the_guesses_basin(monkeypatch):
+    """From a guess in the worse basin, the multi-start finds the better one
+    and makes it the point estimate; the worse basin joins the belief only when
+    it lies within twice the model's own misfit."""
+    import dataclasses
+
+    from predicators.code_sim_learning.config import SysIdConfig
+    _stub_multistart(monkeypatch)
+    spec = ParamSpec("k", 0.2, lo=0.0, hi=1.0)
+    config = dataclasses.replace(SysIdConfig.from_cfg(),
+                                 global_design_points=16,
+                                 global_starts=2)
+
+    def run(noise_sse):
+        return physical_sysid._global_multistart(
+            None, [_trajectory([0.0, 0.1])], [spec], [spec],
+            [], _RESIDUAL_FEATURES, (), None, None, np.array([0.2]),
+            np.array([1e6]), 0.05, config, (np.array([0.2]), None), noise_sse,
+            0.0)
+
+    # The best fit leaves 0.05 above the noise: the 0.2 basin, 0.2 worse,
+    # is distinguishable.
+    theta, jac, basins = run(10.25)
+    assert theta[0] == 0.8 and jac is not None
+    assert [(b[0]["k"], b[1]) for b in basins] == [(0.8, 10.3)]
+    # The best fit leaves 0.3 above the noise: the data cannot tell the
+    # basins apart, so both are kept, the worse one weighted down.
+    theta, _jac, basins = run(10.0)
+    assert theta[0] == 0.8
+    assert [b[0]["k"] for b in basins] == [0.8, 0.2]
+    assert basins[0][2] == 1.0
+    assert basins[1][2] == pytest.approx(np.exp(-0.2 / 0.6))
+
+
+def test_global_multistart_runs_for_guessed_starting_values_only(monkeypatch):
+    """Calibrated starting values sit in the right basin, so only guessed ones
+    get the whole-box search."""
+    from predicators.settings import CFG
+    calls = []
+
+    def fake_lm(_env,
+                _trajs,
+                physical_specs,
+                _features,
+                _rules=(),
+                rule_specs=(),
+                _latent=None,
+                **_kwargs):
+        all_specs = list(physical_specs) + list(rule_specs)
+        return np.array([s.init_value for s in all_specs], dtype=float), None
+
+    def fake_multistart(*args, **_kwargs):
+        calls.append(True)
+        return args[13][0], args[13][1], [({"mu": 0.5}, 1.0, 1.0)]
+
+    monkeypatch.setattr(physical_sysid, "fit_map_lm_rollout", fake_lm)
+    monkeypatch.setattr(physical_sysid, "_grid_seed_physical_specs",
+                        lambda _e, _t, specs, *_a, **_k: (list(specs), {}))
+    monkeypatch.setattr(physical_sysid, "compute_rollout_sse",
+                        lambda *_args, **_kwargs: 1.0)
+    monkeypatch.setattr(physical_sysid, "_global_multistart", fake_multistart)
+    specs = [ParamSpec("mu", 0.5, lo=0.1, hi=1.0)]
+    for guesses in (False, True):
+        monkeypatch.setattr(CFG, "code_sim_learning_prior_spans_bounds",
+                            guesses)
+        calls.clear()
+        result = physical_sysid.fit_params_rollout(
+            None, [_trajectory([0.0, 0.1, 0.2])], specs, _RESIDUAL_FEATURES)
+        assert bool(calls) is guesses
+        assert (result.basins is not None) is guesses
 
 
 def test_anchor_ablation_reverts_compensatory_param():

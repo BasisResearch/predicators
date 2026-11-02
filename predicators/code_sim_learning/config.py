@@ -110,6 +110,10 @@ class SysIdConfig:
     # The fit's starting values are the agent's guesses
     # (code_sim_learning_prior_spans_bounds), not calibrated baselines.
     anchors_are_guesses: bool = False
+    # The global multi-start under guessed starting values (settings
+    # code_sim_learning_rollout_global_design_points / _global_starts).
+    global_design_points: int = 0
+    global_starts: int = 0
 
     @property
     def flat_band_frac(self) -> float:
@@ -182,4 +186,7 @@ class SysIdConfig:
             track_frame_xy=tuple(CFG.code_sim_learning_track_frame_xy),
             observation_noise=_declared_observation_noise(),
             anchors_are_guesses=CFG.code_sim_learning_prior_spans_bounds,
+            global_design_points=(
+                CFG.code_sim_learning_rollout_global_design_points),
+            global_starts=CFG.code_sim_learning_rollout_global_starts,
         )

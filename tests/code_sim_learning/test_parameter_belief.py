@@ -6,7 +6,7 @@ import pytest
 from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.code_sim_learning.parameter_belief import BeliefConfig, \
     LinePosterior, ParameterBelief, build_parameter_belief, join_beliefs, \
-    prior_belief, stable_seed
+    mix_beliefs, prior_belief, stable_seed
 
 _SIGMA_N = 0.05
 
@@ -88,6 +88,72 @@ def test_report_names_a_point_estimate_outside_the_belief():
     assert "the fit's point estimate 0 lies outside it" in text
     on = _build(specs, {"a": 0.3}, residuals)
     assert "point estimate" not in "\n".join(on.describe())
+
+
+def _two_basin_beliefs():
+    """Beliefs around two basins of (a, b): (0.2, 0.9) and (0.8, 0.1)."""
+    specs = [
+        ParamSpec("a", 0.5, lo=0.0, hi=1.0),
+        ParamSpec("b", 0.5, lo=0.0, hi=1.0)
+    ]
+    config = BeliefConfig(num_draws=8, line_max_evals=40)
+    first = _build(specs, {
+        "a": 0.2,
+        "b": 0.9
+    },
+                   _gaussian_residuals(["a", "b"], [0.2, 0.9],
+                                       np.eye(2) * 40),
+                   config=config)
+    second = _build(specs, {
+        "a": 0.8,
+        "b": 0.1
+    },
+                    _gaussian_residuals(["a", "b"], [0.8, 0.1],
+                                        np.eye(2) * 40),
+                    config=config,
+                    seed=1)
+    return first, second
+
+
+def test_mixed_beliefs_draw_each_basin_jointly():
+    """A mixture over basins samples a basin, then its values: no draw pairs
+    one basin's value of a with the other's value of b.
+
+    Each factor covers both basins, the point estimate is the first
+    basin's, and the report says the recordings fit several parameter
+    sets.
+    """
+    first, second = _two_basin_beliefs()
+    mixed = mix_beliefs([first, second], [1.0, 1.0])
+    assert mixed.map_estimate == {"a": 0.2, "b": 0.9}
+    assert mixed.num_draws == 16
+    rows = mixed.sample(np.random.default_rng(0), 400)
+    near_first = sum(r["a"] < 0.5 < r["b"] for r in rows)
+    near_second = sum(r["b"] < 0.5 < r["a"] for r in rows)
+    assert near_first + near_second == 400
+    assert 140 < near_first < 260
+    lo, hi = mixed.highest_density_interval("a")
+    assert lo < 0.25 and hi > 0.75
+    assert "2 distinct parameter sets" in "\n".join(mixed.describe())
+
+
+def test_mixed_beliefs_round_trip_and_join():
+    """Checkpoints keep the mixture, and joining a prior factor keeps each
+    draw's basin."""
+    first, second = _two_basin_beliefs()
+    mixed = mix_beliefs([first, second], [3.0, 1.0])
+    restored = ParameterBelief.from_dict(mixed.to_dict())
+    assert restored.weights == pytest.approx([0.75, 0.25])
+    assert len(restored.components) == 2
+    assert np.array_equal(restored.draws, mixed.draws)
+    extra = prior_belief([ParamSpec("c", 0.5, lo=0.0, hi=1.0)], {"c": 0.0},
+                         {"c": 1.0},
+                         BeliefConfig(num_draws=16),
+                         seed=0)
+    joined = join_beliefs(mixed, extra)
+    assert len(joined.components) == 2
+    rows = joined.sample(np.random.default_rng(1), 200)
+    assert all((r["a"] < 0.5) == (r["b"] > 0.5) and "c" in r for r in rows)
 
 
 def test_gaussian_lines_recover_conditional_variances():

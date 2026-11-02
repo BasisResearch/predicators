@@ -63,16 +63,18 @@ working:
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
+from scipy.stats import qmc
 
 from predicators.code_sim_learning.config import DEFAULT_NOISE_SIGMA, \
     SysIdConfig
 from predicators.code_sim_learning.fit_space import FitResult, ParamSpec, \
-    prior_widths, to_fit_space
+    fit_space_bounds, from_fit_space, prior_widths, to_fit_space
 from predicators.code_sim_learning.grid_seed import \
     _grid_seed_physical_specs, flat_tolerance, min_explainable_fits, \
     min_explainable_rms
@@ -80,11 +82,12 @@ from predicators.code_sim_learning.identifiability import NOISE_FLOOR_EVALS, \
     format_identifiability, identifiability_report, \
     select_trustworthy_params
 from predicators.code_sim_learning.lm import log_hessian_identifiability
+from predicators.code_sim_learning.parameter_belief import stable_seed
 from predicators.code_sim_learning.rollout_env import RolloutTrajectory, \
     dispose_env, num_rollouts_run, physical_param_anchors, rollout_states
 from predicators.code_sim_learning.rollout_objective import \
     compute_rollout_residuals, compute_rollout_sse, fit_map_lm_rollout, \
-    per_trajectory_rms
+    per_trajectory_rms, rollout_sse_by_point
 from predicators.code_sim_learning.trajectory_prep import ResidualScaling, \
     compute_residual_scaling, expected_noise_sse, split_at_rest_points, \
     truncate_settled_tail
@@ -330,6 +333,14 @@ def fit_params_rollout(
                                   float(spec.hi)],
                 "sensitive": False,
             }
+    basins: Optional[List[Tuple[Dict[str, float], float, float]]] = None
+    if (config.anchors_are_guesses and config.global_design_points > 0
+            and config.global_starts > 0 and trajectories):
+        lm_theta, lm_jac, basins = _global_multistart(
+            base_env, trajectories, all_specs, physical_specs, rule_specs,
+            residual_features, rules, latent_init, scaling, center_int,
+            prior_sigma, noise_sigma, config, (lm_theta, lm_jac), noise_sse,
+            sigma_tol)
     result = FitResult(names=names,
                        samples=np.asarray(lm_theta, dtype=float)[None, :],
                        log_probs=np.zeros(1),
@@ -338,7 +349,8 @@ def fit_params_rollout(
                        prior_sigma=prior_sigma,
                        scales=scales,
                        sensitivity=sensitivity,
-                       lm_notes=lm_notes)
+                       lm_notes=lm_notes,
+                       basins=basins)
     n_lm = num_rollouts_run() - n_start - n_grid
     # The ablation pins moved parameters back to their anchors, which
     # only calibrated baselines warrant; a guess has no claim beyond the
@@ -371,6 +383,134 @@ def fit_params_rollout(
             n_total - n_grid - n_lm,
             time.monotonic() - fit_t0)
     return result
+
+
+# Two multi-start results closer than this fraction of every parameter's
+# fit-space box width are one basin.
+_SAME_BASIN_FRACTION = 0.05
+
+
+def _global_multistart(
+    base_env: Any,
+    trajectories: List[RolloutTrajectory],
+    all_specs: Sequence[ParamSpec],
+    physical_specs: Sequence[ParamSpec],
+    rule_specs: Sequence[ParamSpec],
+    residual_features: Dict[str, List[str]],
+    rules: Sequence[Any],
+    latent_init: Any,
+    scaling: Optional[ResidualScaling],
+    center_int: np.ndarray,
+    prior_sigma: np.ndarray,
+    noise_sigma: float,
+    config: SysIdConfig,
+    incumbent: Tuple[np.ndarray, Optional[np.ndarray]],
+    noise_sse: float,
+    sigma_tol: float,
+) -> Tuple[np.ndarray, Optional[np.ndarray], List[Tuple[Dict[str, float],
+                                                        float, float]]]:
+    """Search the whole box for the fit when the starting values are guesses.
+
+    A scrambled Sobol design of ``config.global_design_points`` over
+    every parameter's box (fit space; an unbounded side reaches two
+    prior widths past the anchor) is scored in one batch, and the
+    rollout LM runs from the best ``config.global_starts`` design
+    points. The incumbent (the fit from the guesses) and every LM result
+    are compared on the cost the LM minimizes, the replay SSE over
+    ``2 noise_sigma^2`` plus the prior term; the cheapest is the point
+    estimate, returned with its Jacobian.
+
+    The basins are the distinct results whose SSE lies within twice the
+    model's own misfit of the point estimate's: the SSE the best fit
+    leaves above the declared noise channel's expected SSE, or the
+    likelihood floor when that is larger. Recordings the model fits no
+    closer than that cannot prefer one of them, so the parameter belief
+    mixes them, each weighted by ``exp(-dSSE / (2 misfit))``.
+    """
+    names = [s.name for s in all_specs]
+    physical_names = [s.name for s in physical_specs]
+    lo, hi = fit_space_bounds(list(all_specs))
+    lo = np.where(np.isfinite(lo), lo, center_int - 2.0 * prior_sigma)
+    hi = np.where(np.isfinite(hi), hi, center_int + 2.0 * prior_sigma)
+    seed = stable_seed("global design", names,
+                       [len(actions) for _states, actions in trajectories])
+    unit = qmc.Sobol(d=len(names), scramble=True,
+                     seed=seed % (2**32)).random(config.global_design_points)
+    design = [
+        dict(
+            zip(names, (float(v)
+                        for v in from_fit_space(list(all_specs), lo + row *
+                                                (hi - lo))))) for row in unit
+    ]
+    sses = rollout_sse_by_point(base_env, trajectories, design,
+                                residual_features, physical_names, rules,
+                                latent_init, scaling)
+
+    def started_at(specs: Sequence[ParamSpec],
+                   start: Dict[str, float]) -> List[ParamSpec]:
+        return [
+            dataclasses.replace(s,
+                                init_value=float(
+                                    np.clip(start[s.name],
+                                            -np.inf if s.lo is None else s.lo,
+                                            np.inf if s.hi is None else s.hi)))
+            for s in specs
+        ]
+
+    thetas = [np.asarray(incumbent[0], dtype=float)]
+    jacobians = [incumbent[1]]
+    for index in np.argsort(np.asarray(sses),
+                            kind="stable")[:config.global_starts]:
+        start = design[int(index)]
+        theta, jac = fit_map_lm_rollout(base_env,
+                                        trajectories,
+                                        started_at(physical_specs, start),
+                                        residual_features,
+                                        rules,
+                                        started_at(rule_specs, start),
+                                        latent_init,
+                                        scaling=scaling,
+                                        prior_centers=center_int,
+                                        prior_sigmas=prior_sigma,
+                                        noise_sigma=noise_sigma)
+        thetas.append(np.asarray(theta, dtype=float))
+        jacobians.append(jac)
+    points = [dict(zip(names, (float(v) for v in theta))) for theta in thetas]
+    finals = rollout_sse_by_point(base_env, trajectories, points,
+                                  residual_features, physical_names, rules,
+                                  latent_init, scaling)
+    costs = [
+        sse / (2.0 * noise_sigma**2) + 0.5 * float(
+            np.sum(((to_fit_space(list(all_specs), theta) - center_int) /
+                    prior_sigma)**2)) for sse, theta in zip(finals, thetas)
+    ]
+    ranked = [int(i) for i in np.argsort(np.asarray(costs), kind="stable")]
+    best = ranked[0]
+    misfit = max(finals[best] - noise_sse, sigma_tol)
+    band = 2.0 * misfit
+    width = hi - lo
+    basins: List[Tuple[Dict[str, float], float, float]] = []
+    kept: List[np.ndarray] = []
+    for i in ranked:
+        if finals[i] > finals[best] + band:
+            continue
+        z = to_fit_space(list(all_specs), thetas[i])
+        if any(
+                np.all(np.abs(z - other) <= _SAME_BASIN_FRACTION * width)
+                for other in kept):
+            continue
+        kept.append(z)
+        gap = finals[i] - finals[best]
+        weight = float(np.exp(-gap / (2.0 * misfit))) if misfit > 0 else 1.0
+        basins.append((points[i], float(finals[i]), weight))
+    logger.info(
+        "Rollout sysID global multi-start: %d design points (best SSE %.4g), "
+        "LM from the best %d; SSE %.4g from the guesses, %s from the design "
+        "starts; %d basin(s) within %.4g of the best.", len(design),
+        float(np.min(sses)),
+        len(thetas) - 1, finals[0], [round(float(s), 4) for s in finals[1:]],
+        len(basins), band)
+    return thetas[best], jacobians[best], basins
 
 
 # A MAP within this fit-space distance of its anchor counts as unmoved
