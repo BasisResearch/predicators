@@ -1,4 +1,6 @@
 """Tests for scripts/continual_viewer.py against a real cover run."""
+import csv
+import json
 import os
 import threading
 import urllib.error
@@ -13,6 +15,7 @@ from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
 from predicators.run.continual import ContinualRun
 from predicators.run.level_players import create_level_player
+from predicators.run.scorecard import RunCard
 from scripts import continual_viewer as viewer
 
 
@@ -295,6 +298,71 @@ def test_aggregate_scorecards(tmp_path: Any) -> None:
     with open(paths["summary"], "r", encoding="utf-8") as f:
         summary = f.read()
     assert "## cover" in summary and "| oracle | 1 | 1 |" in summary
+
+
+def _move_to_account(run: ContinualRun, account: str, spend: float) -> None:
+    """Rewrite the run's card as a resume on ``account`` that spent ``spend``
+    would leave it."""
+    card = RunCard.load(run.card_path)
+    card.use_claude_account(account)
+    card.add_sandbox(0, "llm_cost_usd", spend)
+    card.save(run.card_path)
+
+
+def test_aggregate_scorecards_lists_the_claude_accounts(
+        tmp_path: Any, monkeypatch: Any) -> None:
+    """A run that a resume moved to another Claude account is charged to the
+    account it is on now, lists every account in order, and has one
+    accounts.csv row per account with the spend charged there; a card from
+    before the account history has its one account, charged with all of the
+    run's spend."""
+    # pylint: disable-next=import-outside-toplevel
+    from scripts import aggregate_scorecards as agg
+    monkeypatch.setenv("PREDICATORS_CLAUDE_ACCOUNT", "b")
+    run = _run(tmp_path, "oracle", continual_render=False)
+    _move_to_account(run, "c", 1.5)
+    old = RunCard.load(run.card_path).to_dict()
+    del old["claude_accounts"]
+    old.update(run_id="old", claude_account="a")
+    old_dir = os.path.join(os.path.dirname(run.run_dir), "run_20260101_000000")
+    os.makedirs(old_dir)
+    with open(os.path.join(old_dir, "scorecard.json"), "w",
+              encoding="utf-8") as f:
+        json.dump(old, f)
+    paths = agg.aggregate(_runs_root(tmp_path),
+                          os.path.join(str(tmp_path), "analysis"))
+
+    def read(name: str) -> List[Dict[str, str]]:
+        with open(paths[name], "r", encoding="utf-8") as f:
+            return list(csv.DictReader(f))
+
+    runs = {row["run_id"]: row for row in read("runs")}
+    moved = runs[run.card.run_id]
+    assert (moved["claude_account"], moved["claude_accounts"]) == ("c", "b;c")
+    assert (runs["old"]["claude_account"],
+            runs["old"]["claude_accounts"]) == ("a", "a")
+    accounts = [(row["run_id"], row["order"], row["account"],
+                 row["llm_cost_usd"]) for row in read("accounts")]
+    assert sorted(accounts) == sorted([("old", "1", "a", "1.5"),
+                                       (run.card.run_id, "1", "b", "0.0"),
+                                       (run.card.run_id, "2", "c", "1.5")])
+
+
+def test_overview_names_the_claude_accounts(tmp_path: Any,
+                                            monkeypatch: Any) -> None:
+    """The run page names the run's Claude account; once a resume moved the run
+    to another account, it lists every account in order with the spend charged
+    to each."""
+    monkeypatch.setenv("PREDICATORS_CLAUDE_ACCOUNT", "b")
+    run = _run(tmp_path, "oracle", continual_render=False)
+    _no_owners(monkeypatch)
+    _serve(tmp_path)
+    key = viewer.run_key(run.run_dir)
+    assert "<dt>account</dt><dd>b</dd>" in (viewer.overview_fragment(key)
+                                            or "")
+    _move_to_account(run, "c", 1.5)
+    assert "<dt>account</dt><dd>b ($0.00), then c ($1.50)</dd>" in (
+        viewer.overview_fragment(key) or "")
 
 
 def test_agent_sessions_render(tmp_path: Any) -> None:
