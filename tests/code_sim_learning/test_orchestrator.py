@@ -71,6 +71,9 @@ def _trajectory(num_steps=10, gain=2.0):
 def test_run_rollout_sysid_fit_cache_and_report_isolation():
     """The fit core is memoized per (artifact, data) key; adjusters and trust
     selection stay caller-local on deep-copied reports."""
+    # The trust selection runs only without the joint belief, and an
+    # earlier test may leave belief_joint_draws set.
+    utils.reset_config({})
     env = _GainEnv()
     spec = ParamSpec("gain", 1.0, lo=0.1, hi=10.0, scale="log")
     traj = _trajectory()

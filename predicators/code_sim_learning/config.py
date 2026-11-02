@@ -107,6 +107,25 @@ class SysIdConfig:
     # scales (predicators/observation_noise.py); None when observations
     # are exact or the channel is undeclared.
     observation_noise: Optional[ObservationNoise] = None
+    # The fit's starting values are the agent's guesses
+    # (code_sim_learning_prior_spans_bounds), not calibrated baselines.
+    anchors_are_guesses: bool = False
+
+    @property
+    def flat_band_frac(self) -> float:
+        """The relative part of the flat band (``grid_flat_frac``), 0 when the
+        anchors are guesses.
+
+        The band lets a candidate within ``grid_flat_frac`` of the
+        model-bias SSE count as data-equivalent, so the anchor-nearest
+        one wins: a deference to the anchor beyond the prior, which a
+        calibrated baseline earns and a guess does not. With guesses,
+        data-equivalence is the likelihood floor alone
+        (:func:`~predicators.code_sim_learning.grid_seed.flat_tolerance`),
+        the scale the parameter belief scores with, so the fitted point
+        stays inside the belief's high-density region.
+        """
+        return 0.0 if self.anchors_are_guesses else self.grid_flat_frac
 
     @classmethod
     def from_cfg(cls) -> SysIdConfig:
@@ -162,4 +181,5 @@ class SysIdConfig:
             track_frame_yaw=CFG.code_sim_learning_track_frame_yaw,
             track_frame_xy=tuple(CFG.code_sim_learning_track_frame_xy),
             observation_noise=_declared_observation_noise(),
+            anchors_are_guesses=CFG.code_sim_learning_prior_spans_bounds,
         )
