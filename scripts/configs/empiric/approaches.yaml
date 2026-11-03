@@ -84,6 +84,10 @@ APPROACHES:
       # An episode that ends while bodies still move keeps recording until
       # they rest, so the fit sees where a falling body lands.
       continual_record_until_rest: true
+      # A push whose engine contacts show only fingertips on the green
+      # stands without the counterfactual replay, which only re-rolls a
+      # knife-edge link when there is no arm contact to remove.
+      domino_contact_verdict: true
   # EMPIRIC from assets with the agent's own parameter belief: the agent
   # builds its scene as in EMPIRIC from assets, the harness fits nothing,
   # and the agent estimates its parameters by any method and supplies their
