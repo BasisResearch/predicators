@@ -81,6 +81,9 @@ APPROACHES:
       # The belief's temperature is set per recorded segment, so more
       # recordings narrow it.
       belief_segment_temperature: true
+      # An episode that ends while bodies still move keeps recording until
+      # they rest, so the fit sees where a falling body lands.
+      continual_record_until_rest: true
   # EMPIRIC from assets with the agent's own parameter belief: the agent
   # builds its scene as in EMPIRIC from assets, the harness fits nothing,
   # and the agent estimates its parameters by any method and supplies their
