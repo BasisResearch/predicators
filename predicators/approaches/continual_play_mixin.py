@@ -559,6 +559,7 @@ class ContinualPlayMixin:
                         self, "_current_predicates_version", None),
                     _env_reward=ep.get("reward"),
                     _env_terminated=ep.get("terminated"),
+                    _after_end=int(ep.get("after_end") or 0),
                 ))
         return out
 
