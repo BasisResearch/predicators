@@ -14,7 +14,10 @@ script re-parses it::
 Flags after ``--run_dir`` override the log's, so
 ``--continual_video_stride 2`` halves the frame count and
 ``--video_fps 30`` speeds the playback; ``--out`` puts the file
-elsewhere. A run directory without an ``info.log`` (a run that logged
+elsewhere. ``--cycles`` exports the same frames as Blender Cycles scenes
+to ``<run_dir>/cycles`` in place of the PyBullet video, for
+``scripts/cycles_video.py`` to render on a GPU node. A run directory
+without an ``info.log`` (a run that logged
 nowhere) needs the run's own ``main.py`` flags on the command line.
 
 See ``predicators/run/continual_video.py`` for what the frames show.
@@ -36,6 +39,7 @@ from predicators import utils  # noqa: E402
 from predicators.envs import create_new_env  # noqa: E402
 from predicators.run import paths  # noqa: E402
 from predicators.run.continual_video import make_run_video  # noqa: E402
+from predicators.run.cycles_video import export_run_scenes  # noqa: E402
 from predicators.run.scorecard import RunCard  # noqa: E402
 from predicators.settings import CFG  # noqa: E402
 
@@ -62,6 +66,7 @@ def _split_own_args(argv: List[str]) -> Tuple[argparse.Namespace, List[str]]:
     own = argparse.ArgumentParser(add_help=False)
     own.add_argument("--run_dir", required=True)
     own.add_argument("--out", default=None)
+    own.add_argument("--cycles", action="store_true")
     return own.parse_known_args(argv)
 
 
@@ -79,6 +84,10 @@ def main(argv: Optional[List[str]] = None) -> str:
                         format="%(levelname)s: %(message)s",
                         force=True)
     card = RunCard.load(paths.scorecard_path(run_dir))
+    if own.cycles:
+        manifest = str(export_run_scenes(card, run_dir, out_dir=own.out))
+        print(manifest)
+        return manifest
     env = create_new_env(CFG.env, do_cache=False, use_gui=False)
     try:
         path = make_run_video(env, card, run_dir, out_path=own.out)
