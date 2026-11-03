@@ -17,6 +17,7 @@ import numpy as np
 
 from predicators.code_sim_learning.config import DEFAULT_NOISE_SIGMA, \
     SysIdConfig
+from predicators.code_sim_learning.model_state import memory_from_history
 from predicators.code_sim_learning.rollout_env import RolloutTrajectory
 from predicators.observation_noise import ObservationNoise
 from predicators.structs import Action, State, Type
@@ -387,6 +388,7 @@ def split_at_rest_points(
     min_rest_steps: Optional[int] = None,
     margin: Optional[int] = None,
     config: Optional[SysIdConfig] = None,
+    carry_history: bool = False,
 ) -> List[RolloutTrajectory]:
     """Split a recording into independently-scored rest-anchored segments.
 
@@ -417,6 +419,14 @@ def split_at_rest_points(
     detected sigma-relatively and each segment's first frame is the
     mean of its preceding rest window (:func:`_rest_mean_state`), the
     errors-in-variables correction for the rollout's initial condition.
+
+    A rest point does not reset a model's hidden state, so with
+    ``carry_history`` each segment that starts mid-recording carries
+    the recording before it in place of memory
+    (:func:`model_state.memory_from_history`): a replay rebuilds the
+    memory there under its own parameters from the observations, as
+    the execution-time tracker does, and the physical state is
+    re-anchored on the observation as for any segment.
     """
     config = config or SysIdConfig.from_cfg()
     if motion_tol is None:
@@ -448,5 +458,9 @@ def split_at_rest_points(
         if noise is not None and window > 1:
             seg_states = [_rest_mean_state(states, a, window, noise)
                           ] + seg_states[1:]
+        if carry_history and a > 0:
+            start = seg_states[0].copy()
+            start.latent = memory_from_history(actions[:a], states[1:a + 1])
+            seg_states = [start] + seg_states[1:]
         segments.append((seg_states, actions[a:end]))
     return segments
