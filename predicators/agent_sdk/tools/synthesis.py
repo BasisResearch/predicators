@@ -3,7 +3,8 @@ import dataclasses
 import hashlib
 import os
 import time
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, \
+    Union
 
 import numpy as np
 
@@ -219,6 +220,41 @@ def fit_scope(
                        for type_name, features in sorted(scope.items()))
     return scope, (f"inferred (RESIDUAL_FEATURES {why}): "
                    f"{listed or 'no recorded feature changed'}")
+
+
+def _unscored_moving_features(
+        rollouts: Sequence[Tuple[Sequence[Any], Sequence[Any]]],
+        residual_features: Dict[str, List[str]]) -> Dict[str, List[str]]:
+    """Per object type, the observed features that change across the fitted
+    recordings by more than observation noise while the fit does not score
+    them; the robot's own features, which its commands drive, aside."""
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.observation_noise import ObservationNoise
+    noise = ObservationNoise.from_cfg()
+    # (type name, object name, feature) -> the feature's recorded values.
+    series: Dict[Tuple[str, str, str], List[float]] = {}
+    floors: Dict[Tuple[str, str], float] = {}
+    for states, _actions in rollouts:
+        for state in states:
+            for obj in state:
+                type_name = obj.type.name
+                if type_name == "robot":
+                    continue
+                scored = set(residual_features.get(type_name, ()))
+                for feat in obj.type.feature_names:
+                    if feat in scored:
+                        continue
+                    series.setdefault((type_name, obj.name, feat),
+                                      []).append(float(state.get(obj, feat)))
+                    if (type_name, feat) not in floors:
+                        # Noise alone gives a spread of about one sigma.
+                        floors[(type_name, feat)] = max(
+                            2.0 * noise.feature_sigma(obj.type, feat), 1e-6)
+    moving: Dict[str, Set[str]] = {}
+    for (type_name, _name, feat), values in series.items():
+        if float(np.std(values)) > floors[(type_name, feat)]:
+            moving.setdefault(type_name, set()).add(feat)
+    return {t: sorted(fs) for t, fs in sorted(moving.items())}
 
 
 def _scope_listing(scope: Dict[str, List[str]], note: str) -> str:
@@ -718,6 +754,18 @@ def create_synthesis_tools(
             "",
             "Fitted parameters:",
         ]
+        unscored = _unscored_moving_features(rollouts, residual_features)
+        if unscored:
+            listed = "; ".join(f"{type_name}: {', '.join(features)}"
+                               for type_name, features in unscored.items())
+            lines.insert(
+                1, "Not scored by this fit, though they change in the "
+                f"recordings: {listed}. The fit never compares your model's "
+                "predictions of these with the recordings, so a plan that "
+                "relies on them (where an object is when it could hit "
+                "something, what a goal or failure condition reads) relies "
+                "on unchecked predictions: score them in RESIDUAL_FEATURES, "
+                "or compare them with the recordings yourself.")
         # An inert fit must announce itself: every value below is then
         # the declared init, not an estimate, and "fitted" language
         # would launder hand-set constants as calibration. Tolerance,
