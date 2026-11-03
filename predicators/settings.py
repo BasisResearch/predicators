@@ -262,6 +262,16 @@ class GlobalSettings:
     # starts to move (Bayesian online change-point detection over the
     # last continual_belief_window frames).
     continual_belief_motion_hazard = 0.02
+    # Motion in the state factor (observation_belief.with_motion). The
+    # frames record positions only; the true state's body velocities ride
+    # in its simulator state, and the sanitized view kept them, so a draw
+    # carried the exact velocity under a noisy channel, while the
+    # quasi-static settle of a draw zeroed it. On, the noisy view drops
+    # the velocities, a body the belief sees moving gets its velocity
+    # estimated from the frames (the frame carries the mean, each draw a
+    # draw around it), and a draw's settle keeps the velocity the draw
+    # records. Off keeps the legacy handling. EMPIRIC from assets only.
+    continual_belief_velocities = False
     # Slack (in reward units) below a task's ``early_stop_min_reward`` bar
     # that still counts as solved for early stopping. Only tasks that set
     # ``EnvironmentTask.early_stop_min_reward`` are affected (e.g. domino

@@ -31,6 +31,9 @@ APPROACHES:
       # A request whose outcome lies outside its rehearsal's draws widens
       # the fitted program's belief.
       continual_predictive_check: true
+      # A rehearsal staged while a body moves keeps it moving, at the
+      # velocity the state belief estimates from the noisy frames.
+      continual_belief_velocities: true
   # Model-free: the same agent with the model-side machinery switched
   # off, so the two differ only in the model.
   mf_opus:
