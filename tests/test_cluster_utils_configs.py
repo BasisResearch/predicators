@@ -129,6 +129,7 @@ def test_from_assets_arm_runs_only_by_name() -> None:
         "scene_observed_sizes": True,
         "belief_segment_temperature": True,
         "continual_record_until_rest": True,
+        "domino_contact_verdict": True,
     }
 
 
