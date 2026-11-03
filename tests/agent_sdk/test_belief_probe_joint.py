@@ -61,6 +61,11 @@ def test_rehearsal_reports_p_hat_draws_and_the_mean_rollout():
     assert res.p_hat == pytest.approx(0.5)
     assert res.stderr == pytest.approx(np.sqrt(0.25 / 4))
     assert res.from_observation
+    # The rehearsal gate's record: this plan, from this observation.
+    assert len(ctx.live_rehearsals) == 1
+    seen, plan, p_hat = ctx.live_rehearsals[0]
+    assert seen is ctx.current_observation and plan == _PLAN
+    assert p_hat == pytest.approx(0.5)
     # Each draw ran in the fresh scope at its own physical parameters.
     assert scope_overrides[:4] == [{"friction": f} for f in _FRICTIONS]
     assert all(d["solved"] is None for d in res.draws)  # no evaluator
@@ -92,6 +97,7 @@ def test_rehearsal_modes_and_replaced_flags():
     _on_observation(sim, ctx)
     single = sim.run(_PLAN, render=False, draws=0)
     assert isinstance(single, ProbeResult) and not calls
+    assert not ctx.live_rehearsals  # the point estimate is not a rehearsal
     for count in (2, 12):
         with pytest.raises(ValueError, match="fixed at this decision point"):
             sim.run(_PLAN, render=False, draws=count)
@@ -170,6 +176,7 @@ def test_hypothetical_state_varies_only_the_parameters():
     res = sim.run(_PLAN, render=False)
     assert not res.from_observation
     assert "varies the parameters" in res.text
+    assert not ctx.live_rehearsals  # a staged state is not the observation
     utils.reset_config({})
 
 

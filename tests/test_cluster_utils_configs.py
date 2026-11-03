@@ -96,7 +96,8 @@ def test_benchmark_is_seven_arms_on_five_settings() -> None:
 def test_from_assets_arm_runs_only_by_name() -> None:
     """EMPIRIC from assets is parked: the default launch leaves it out, and
     naming it runs EMPIRIC's flags, plus the range-spanning prior its guessed
-    starting values need, under its own approach class."""
+    starting values need and the rehearsal gate on test levels, under its own
+    approach class."""
     assert not any("from_assets" in r.experiment_id
                    for r in _benchmark_runs(round_name="r9"))
     runs = _benchmark_runs(round_name="r9",
@@ -108,8 +109,9 @@ def test_from_assets_arm_runs_only_by_name() -> None:
     from_assets = by_arm["from_assets_opus_r9"]
     assert from_assets.approach == "agent_continual_from_assets"
     assert from_assets.flags == {
-        **by_arm["mb_opus_r9"].flags, "code_sim_learning_prior_spans_bounds":
-        True
+        **by_arm["mb_opus_r9"].flags,
+        "code_sim_learning_prior_spans_bounds": True,
+        "continual_rehearsal_gate": True,
     }
 
 

@@ -5,7 +5,7 @@ import glob
 import json
 import os
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Set, Tuple
 
 import numpy as np
 import pytest
@@ -26,7 +26,7 @@ from predicators.ground_truth_models import get_gt_options
 from predicators.run.continual import ContinualRun, ProtocolSession, RunEnded
 from predicators.run.episode import EpisodeState
 from predicators.settings import CFG
-from predicators.structs import Action
+from predicators.structs import Action, GroundAtom, _Option
 
 
 class _Driver:
@@ -803,6 +803,76 @@ def test_skill_preflight_refuses_without_charging_unless_forced(
 
     driver.body = body
     ContinualRun(env, approach, driver).run()
+
+
+def test_rehearsal_gate_waits_for_a_joint_rehearsal_of_the_request(
+        tmp_path: Any) -> None:
+    """With the rehearsal gate on, a skill request refuses, charging nothing,
+    until a rehearsal on the joint belief from the current observation began
+    with it: one from another observation or of another first step does not
+    count, a matching one lets the request through, and the real step it takes
+    changes the observation, so the next request needs a new one."""
+    env, approach, ctx = _setup(tmp_path)
+    first_task = env.get_train_tasks()[0].task
+    plan = _oracle_plan_text(approach, first_task)
+    line = plan.splitlines()[0]
+    head, params = line.split("[", 1)
+    values = [float(v) for v in params.rstrip("]").split(",")]
+    other = head + "[" + ", ".join(f"{v + 0.01:.6f}" for v in values) + "]"
+    driver = _Driver()
+
+    def body(session: ProtocolSession) -> None:
+        ctx.rehearsal_gate = lambda: True
+        ctx.live_rehearsals.clear()
+        ctx.current_observation = session.observe().frame
+        tools = build_continual_tools(ctx,
+                                      session,
+                                      PlayState(),
+                                      save_render=lambda tag: None)
+
+        def refused(name: str, **args: Any) -> bool:
+            out = _call(tools, name, **args)
+            return (out.startswith("ERROR")
+                    and "rehearse this on the joint belief" in out
+                    and "Nothing was charged" in out)
+
+        assert refused("skills_invoke", skill=line)
+        assert refused("skills_execute_plan", plan=line)
+        elsewhere = ctx.current_observation.copy()
+        obj = next(iter(elsewhere))
+        elsewhere.data[obj] = elsewhere.data[obj] + 0.5
+        ctx.live_rehearsals.append((elsewhere, plan, 0.9))
+        assert refused("skills_invoke", skill=line)
+        ctx.live_rehearsals.append((ctx.current_observation, other, 0.9))
+        assert refused("skills_invoke", skill=line)
+        assert session.observe().ledger.level_steps == 0
+        ctx.live_rehearsals.append((ctx.current_observation, plan, 0.9))
+        out = _call(tools, "skills_invoke", skill=line)
+        assert "rehearse this on the joint belief" not in out
+        assert session.observe().ledger.level_steps > 0
+        assert refused("skills_invoke", skill=line)
+        ctx.rehearsal_gate = lambda: False
+        assert not refused("skills_invoke", skill=line)
+        ctx.rehearsal_gate = None
+
+    driver.body = body
+    ContinualRun(env, approach, driver).run()
+
+
+def test_wait_alone_commands_no_motion() -> None:
+    """Only a request with a line other than Wait waits for the rehearsal
+    gate."""
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.agent_sdk.tools.continual_tools import _commands_motion
+
+    def line(name: str) -> Tuple[_Option, Set[GroundAtom], Set[GroundAtom]]:
+        option = utils.SingletonParameterizedOption(
+            name, lambda s, m, o, p: Action(np.zeros(1, dtype=np.float32)))
+        return option.ground([], np.zeros(0, dtype=np.float32)), set(), set()
+
+    assert not _commands_motion([line("Wait")])
+    assert not _commands_motion([line("Wait"), line("Wait")])
+    assert _commands_motion([line("Wait"), line("Push")])
 
 
 @pytest.mark.parametrize("preflight", [False, True])
