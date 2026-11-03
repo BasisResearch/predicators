@@ -361,12 +361,17 @@ def restore_actions(records: Sequence[Dict[str, Any]], state: State,
 def _sanitize_episode(ep: Dict[str, Any]) -> Dict[str, Any]:
     states: Sequence[State] = ep["states"]
     actions: Sequence[Action] = ep["actions"]
-    return {
+    out = {
         "episode": ep["episode"],
         "end": ep.get("end", "in_progress"),
         "states": [sanitize_state(s) for s in states],
         "actions": serialize_actions(actions),
     }
+    if ep.get("after_end"):
+        # Frames recorded after the episode ended, while its bodies came
+        # to rest (``continual_record_until_rest``): the last ones.
+        out["after_end"] = int(ep["after_end"])
+    return out
 
 
 def _atomic_pickle(path: str, payload: Any) -> None:

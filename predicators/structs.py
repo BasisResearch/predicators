@@ -2136,6 +2136,10 @@ class LowLevelTrajectory:
     _source_predicates_version: Optional[str] = field(default=None)
     _env_reward: Optional[float] = field(default=None)
     _env_terminated: Optional[bool] = field(default=None)
+    # How many of the last actions (and states) were recorded after the
+    # episode ended, with the robot holding still while bodies came to
+    # rest (``continual_record_until_rest``). They were not level steps.
+    _after_end: int = field(default=0)
 
     def __post_init__(self) -> None:
         assert len(self._states) == len(self._actions) + 1
@@ -2163,6 +2167,12 @@ class LowLevelTrajectory:
         assert self._train_task_idx is not None, \
             "This trajectory doesn't contain a train task idx!"
         return self._train_task_idx
+
+    @property
+    def after_end(self) -> int:
+        """How many of the last actions were recorded after the episode ended,
+        with the robot holding still while bodies came to rest."""
+        return self._after_end
 
     @property
     def source_simulator_version(self) -> Optional[str]:
