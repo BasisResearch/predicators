@@ -101,6 +101,23 @@ def _mean(values: np.ndarray, angular: bool) -> float:
     return float(values.mean())
 
 
+def _prefix_sums(values: np.ndarray, angular: bool) -> np.ndarray:
+    """Prefix sums of ``values`` (of their sines and cosines for an angle),
+    with a leading zero row: ``sums[i]`` totals the first ``i`` values."""
+    parts = ([np.sin(values), np.cos(values)] if angular else [values])
+    return np.vstack(
+        [np.concatenate([[0.0], np.cumsum(part)]) for part in parts]).T
+
+
+def _run_means(sums: np.ndarray, end: int, runs: np.ndarray) -> np.ndarray:
+    """For each run length ``r`` in ``runs``, :func:`_mean` of the ``r`` values
+    before index ``end``, from :func:`_prefix_sums` output."""
+    totals = sums[end] - sums[end - runs]
+    if sums.shape[1] == 2:
+        return np.arctan2(totals[:, 0], totals[:, 1])
+    return totals[:, 0] / runs
+
+
 def _rest_window(series: Dict[str, np.ndarray], sigmas_by_feat: Dict[str,
                                                                      float],
                  angular: Set[str], window: int, threshold: float) -> int:
@@ -243,20 +260,23 @@ def _run_length_weights(series: Dict[str, np.ndarray],
     total = len(next(iter(series.values())))
     log_w = np.array([0.0])  # run length 1 after the first frame
     log_h, log_stay = np.log(hazard), np.log1p(-hazard)
+    # Prefix sums make each run's mean one subtraction, so the pass is
+    # quadratic in the frames rather than cubic.
+    sums = {
+        feat: _prefix_sums(values, feat in angular)
+        for feat, values in series.items()
+    }
     for t in range(1, total):
         # Predictive log density of frame t under each current run length.
-        runs = log_w.size
-        pred = np.zeros(runs)
+        runs = np.arange(1, log_w.size + 1)
+        pred = np.zeros(runs.size)
         for feat, values in series.items():
             sigma = sigmas_by_feat[feat]
-            for k in range(runs):
-                r = k + 1
-                window = values[t - r:t]
-                delta = values[t] - _mean(window, feat in angular)
-                if feat in angular:
-                    delta = float(_wrap(np.array([delta]))[0])
-                var = sigma**2 * (1.0 + 1.0 / r)
-                pred[k] += -0.5 * (delta**2 / var + np.log(2.0 * np.pi * var))
+            delta = values[t] - _run_means(sums[feat], t, runs)
+            if feat in angular:
+                delta = _wrap(delta)
+            var = sigma**2 * (1.0 + 1.0 / runs)
+            pred += -0.5 * (delta**2 / var + np.log(2.0 * np.pi * var))
         grow = log_w + log_stay + pred
         change = np.logaddexp.reduce(log_w + log_h) - log_range
         log_w = np.concatenate([[change], grow])
@@ -323,12 +343,12 @@ def change_point_belief(
         total = weights.size
         out.run_weights[obj.name] = weights
         out.frames_used[obj.name] = int(np.argmax(weights)) + 1
+        runs = np.arange(1, total + 1)
         for feat, sigma in noisy.items():
             values = series[feat]
-            means = np.array([
-                _mean(values[total - r:], feat in angular)
-                for r in range(1, total + 1)
-            ])
+            # The mean of each run ending at the latest frame.
+            means = _run_means(_prefix_sums(values, feat in angular), total,
+                               runs)
             key = (obj.name, feat)
             out.run_means[key] = means
             out.sigmas[key] = float(sigma)
@@ -342,7 +362,6 @@ def change_point_belief(
             else:
                 mean = float(np.dot(weights, means))
                 offsets = means - mean
-            runs = np.arange(1, total + 1)
             var = float(np.dot(weights, sigma**2 / runs + offsets**2))
             belief.set(obj, feat, mean)
             out.spread[key] = float(np.sqrt(max(var, 0.0)))
