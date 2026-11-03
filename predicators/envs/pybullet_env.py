@@ -766,6 +766,10 @@ class PyBulletEnv(BaseEnv):
             events.append({"step": step, "a": names[0], "b": names[1]})
         return events
 
+    def _after_physics_substep(self) -> None:
+        """Hook run after each physics substep of a step; contacts live only
+        until the next substep, so a brief one needs reading here."""
+
     def _record_step_contacts(self) -> None:
         """Append this step's deduplicated contact pairs to the log."""
         assert self._contact_log is not None
@@ -1007,6 +1011,7 @@ class PyBulletEnv(BaseEnv):
                 # so continuous actuation is re-applied per substep).
                 self._apply_pending_residual_commands()
                 p.stepSimulation(physicsClientId=self._physics_client_id)
+                self._after_physics_substep()
         # Consumed: commands act for exactly one action and expire
         # unless the residual simulator re-queues them post-step.
         self._pending_residual_commands = []
