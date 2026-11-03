@@ -165,6 +165,15 @@ class GlobalSettings:
     # breaking ties. Round 29's Domino seed 1 pushed at P-hat 0.81 over a
     # plan near 0.93 with one more blue, to save a blue.
     continual_rehearsal_win_first = False
+    # Whether an episode that ends (win or game over) while bodies are
+    # still moving keeps recording until they come to rest, up to
+    # ``continual_record_until_rest_max_steps`` actions, with the robot
+    # holding its last command. The frames are not level steps and do not
+    # change the verdict; they join the recording the fit reads. Round
+    # 30's Domino seed 3 recording ended at the win with its turning
+    # domino mid-fall, so no fit could see where it landed.
+    continual_record_until_rest = False
+    continual_record_until_rest_max_steps = 120
     # Whether a joint rehearsal's report names the scored features its
     # rollout from the belief mean drives past the range the recordings
     # show, by more than twice their declared observation noise: no
