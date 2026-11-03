@@ -9,6 +9,7 @@ adjustment on cache hits.
 
 import numpy as np
 import pybullet as p
+import pytest
 
 import predicators.approaches  # noqa: F401  # pylint: disable=unused-import
 from predicators import utils
@@ -238,7 +239,8 @@ def test_draw_shares_follow_the_weights():
 
 def test_belief_mixes_the_fit_basins():
     """A fit with two basins gets a belief over both, its draws split by
-    weight, and the point estimate stays the best basin's."""
+    weight, and the point estimate stays the best basin's; every basin's factor
+    takes the temperature of the misfit that weighed them."""
     spec = ParamSpec("k", 0.5, lo=0.0, hi=1.0)
 
     def residuals(params):
@@ -256,7 +258,8 @@ def test_belief_mixes_the_fit_basins():
                        }, 10.3, 1.0),
                                ({
                                    "k": 0.2
-                               }, 10.5, float(np.exp(-1.0 / 3.0)))])
+                               }, 10.5, float(np.exp(-1.0 / 3.0)))],
+                       misfit=0.3)
     belief = _build_belief(result, [spec], {"k": 0.5}, residuals,
                            BeliefConfig(num_draws=16, line_max_evals=40), 1)
     assert len(belief.components) == 2
@@ -264,3 +267,6 @@ def test_belief_mixes_the_fit_basins():
     assert belief.map_estimate == {"k": 0.8}
     values = np.sort(belief.draws[:, 0])
     assert values[0] < 0.5 < values[-1]
+    assert [c.noise_scale for c in belief.components] == \
+        pytest.approx([0.3 / 0.05**2] * 2)
+    assert belief.misfit == pytest.approx(0.3)
