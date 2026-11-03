@@ -199,7 +199,7 @@ Loading a model does not itself enable automatic rehearsal; use `sim` to check p
 On a test level, `skills_invoke` and `skills_execute_plan` refuse, charging nothing, until `sim.run(plan)` has rehearsed, on the joint draws of the belief from the current observation, a plan whose first lines are the request.
 Rehearse the whole remaining plan from `sim.reset(current=True)`: its first line is then the next request, and its P-hat says how the plan fares across the parameters and states the data still allow.
 Each real step changes the observation, so rehearse the rest of the plan again before the next step.
-`Wait` lines need no rehearsal; runs at the point estimate (`draws=0`) and runs from staged states do not count.
+A request of `Wait` lines alone needs no rehearsal, and the `Wait` lines that end a request need not match the rehearsed plan's; runs at the point estimate (`draws=0`) and runs from staged states do not count.
 
 <!-- section: predictive_check -->
 ### Each rehearsed step is checked against its rehearsal

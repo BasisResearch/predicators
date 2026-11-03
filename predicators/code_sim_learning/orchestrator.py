@@ -209,7 +209,7 @@ def run_rollout_sysid(
             core = _compute_fit(fit_env, rollouts, physical_specs,
                                 residual_features, rules, rule_specs,
                                 latent_init, anchors, rms_cache, config,
-                                belief_config)
+                                belief_config, fit_cache_key)
         if fit_cache is not None and cache_key is not None:
             fit_cache[cache_key] = core
 
@@ -299,8 +299,13 @@ def _compute_fit(
                                                                  float]]]]],
     config: SysIdConfig,
     belief_config: Optional[BeliefConfig] = None,
+    model_tag: Any = None,
 ) -> _FitComputation:
-    """The cacheable fit core: trim + fit + report on the survivors."""
+    """The cacheable fit core: trim + fit + report on the survivors.
+
+    ``model_tag`` (the fit cache key, e.g. the simulator version) keys
+    the explainability verdicts in ``rms_cache`` too.
+    """
     physical_names = [s.name for s in physical_specs]
     init_params = {
         s.name: s.init_value
@@ -326,7 +331,8 @@ def _compute_fit(
         scaling=scaling,
         anchors=anchors,
         rms_cache=rms_cache,
-        config=config)
+        config=config,
+        rms_cache_tag=model_tag)
     if not survivors:
         # NO fit ran (result is pinned at the declared inits). The
         # report and applied set stay empty so nothing computed on zero

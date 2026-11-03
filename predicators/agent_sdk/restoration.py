@@ -21,12 +21,19 @@ def same_memory(left: Any, right: Any) -> bool:
 
 
 def restoration_report(before: State, after: State) -> Dict[str, Any]:
-    """Report changed features and memory; Euler aliases are not errors."""
+    """Report changed features and memory; Euler aliases are not errors.
+
+    The robot's features are reported apart, as ``robot_deltas``, and do
+    not decide the status: the env sets its joints through inverse
+    kinematics, which restores its pose only approximately by design.
+    """
     errors: Dict[str, float] = {}
+    robot: Dict[str, float] = {}
     for obj in before:
         if obj not in after:
             errors[f"{obj.name}.missing"] = 1.
             continue
+        found = robot if obj.type.name == "robot" else errors
         features = obj.type.feature_names
         angles = ("roll", "pitch", "yaw")
         has_orientation = all(f in features for f in angles)
@@ -37,14 +44,14 @@ def restoration_report(before: State, after: State) -> Dict[str, Any]:
                 p.getQuaternionFromEuler([after.get(obj, f) for f in angles]))
             angle = float(2 * np.arccos(np.clip(abs(qa @ qb), 0., 1.)))
             if angle > 1e-5:
-                errors[f"{obj.name}.orientation_radians"] = angle
+                found[f"{obj.name}.orientation_radians"] = angle
         for feature in features:
             if has_orientation and feature in angles:
                 continue
             delta = abs(
                 float(before.get(obj, feature) - after.get(obj, feature)))
             if not np.isfinite(delta) or delta > 1e-5:
-                errors[f"{obj.name}.{feature}"] = delta
+                found[f"{obj.name}.{feature}"] = delta
     for obj in after:
         if obj not in before:
             errors[f"{obj.name}.unexpected"] = 1.
@@ -52,6 +59,7 @@ def restoration_report(before: State, after: State) -> Dict[str, Any]:
     return {
         "status": "accepted" if not errors and memory_ok else "rejected",
         "feature_errors": errors,
+        "robot_deltas": robot,
         "memory_preserved": memory_ok
     }
 
