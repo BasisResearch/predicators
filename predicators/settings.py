@@ -1214,6 +1214,15 @@ class GlobalSettings:
     # A sysID learner must recover the true value either way. None (default)
     # = planning sim uses domino_true_friction (no mismatch).
     domino_planning_friction: Optional[float] = None
+    # Whether the real env's cascade verdict reads the engine's contacts:
+    # when, from the first push on, the only robot contact with a domino
+    # is a fingertip on the pushed green, the real cascade stands with no
+    # counterfactual replay, since a replay has no arm contact to remove.
+    # Any other contact leaves the verdict to the replay. A knife-edge
+    # link flips on the solver noise the replay's collision masks add:
+    # round 31's seed 4 was rejected as "owed to the robot's body" though
+    # only a fingertip touched the green. Rehearsals always replay.
+    domino_contact_verdict = False
     # Start->target distance (metres) sampled per min-block task, uniformly
     # from [lo, hi]. Choose a range that lands K* in {1, 2} at the true
     # friction (calibrate with the reach probe). Two scalars (not a tuple) so

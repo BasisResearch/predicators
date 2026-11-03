@@ -18,6 +18,7 @@ import logging
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
+import pybullet as p
 
 from predicators.envs.pybullet_domino.cascade_certificate import StepOption, \
     check_cascade_legitimacy, count_movable_blocks_used
@@ -41,7 +42,7 @@ from predicators.envs.pybullet_domino.task_generators.domino_task_generator impo
     DominoTaskGenerator
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
-    ParameterizedOption, Predicate, State, TaskEvaluator
+    Observation, ParameterizedOption, Predicate, State, TaskEvaluator
 
 
 class DominoEvaluator(TaskEvaluator):
@@ -148,11 +149,18 @@ class DominoEvaluator(TaskEvaluator):
             replays.append(detail.split(": ", 1)[0])
             return ok, detail
 
+        def clean_push(first_action: int, greens: Sequence[Object]) -> bool:
+            return bool(
+                CFG.domino_contact_verdict and sim_env is not None
+                and hasattr(sim_env, "clean_push_contacts")
+                and sim_env.clean_push_contacts(states, first_action, greens))
+
         verdict = check_cascade_legitimacy(
             states,
             self.goal,
             step_options,
-            probe=probe_and_note if probe is not None else None)
+            probe=probe_and_note if probe is not None else None,
+            clean_push=clean_push)
         self._certify_memo = (key, verdict, replays[-1] if replays else "")
         return verdict
 
@@ -249,9 +257,60 @@ class PyBulletDominoComposedEnv(PyBulletDominoBaseEnv):
         # Dedicated world for the certificate's counterfactual push probe
         # (see run_counterfactual_cascade_probe); created on first use.
         self._cascade_probe_env: Optional[PyBulletDominoComposedEnv] = None
+        # This episode's robot contacts, as (action index, robot link,
+        # body), under CFG.domino_contact_verdict; the index counts the
+        # actions since the last reset.
+        self._robot_touches: Set[Tuple[int, int, int]] = set()
+        self._episode_actions = 0
         # The real Push skill the probe replays; resolved lazily from
         # the ground-truth options on first probe.
         self._probe_push_option: Optional[ParameterizedOption] = None
+
+    def reset(self,
+              train_or_test: str,
+              task_idx: int,
+              render: bool = False) -> Observation:
+        self._robot_touches = set()
+        self._episode_actions = 0
+        return super().reset(train_or_test, task_idx, render)
+
+    def step(self, action: Action, render_obs: bool = False) -> Observation:
+        observation = super().step(action, render_obs)
+        self._episode_actions += 1
+        return observation
+
+    def _after_physics_substep(self) -> None:
+        if not CFG.domino_contact_verdict or \
+                self._skip_domain_specific_dynamics:
+            return
+        robot_id = self._pybullet_robot.robot_id
+        for contact in p.getContactPoints(
+                bodyA=robot_id, physicsClientId=self._physics_client_id):
+            self._robot_touches.add(
+                (self._episode_actions, contact[3], contact[2]))
+
+    def clean_push_contacts(self, states: Sequence[State], first_action: int,
+                            greens: Sequence[Object]) -> bool:
+        """Whether ``states`` is this episode and, from action ``first_action``
+        on, the robot touched no domino but the pushed ``greens``, and those
+        with its fingertips only."""
+        if len(states) - 1 != self._episode_actions:
+            return False
+        assert self._domino_component is not None
+        dominoes = {d.id for d in self._domino_component.dominos}
+        allowed = {g.name for g in greens}
+        green_ids = {
+            d.id
+            for d in self._domino_component.dominos if d.name in allowed
+        }
+        robot = self._pybullet_robot
+        fingertips = {robot.left_finger_id, robot.right_finger_id}
+        for action, link, body in self._robot_touches:
+            if action < first_action or body not in dominoes:
+                continue
+            if body not in green_ids or link not in fingertips:
+                return False
+        return True
 
     def _configure_instance_physics(self) -> None:
         """Apply this instance's role-specific physical params."""
