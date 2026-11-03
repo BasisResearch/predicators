@@ -397,11 +397,24 @@ class SceneBase(PyBulletEnv):
             if own is not None:
                 self._write_material(body, prop, own)
 
-    def sampled_material_specs(self) -> List[ParamSpec]:
+    def sampled_material_specs(
+        self, objects: Iterable[Object] = ()) -> List[ParamSpec]:
         """The materials of the scene the model does not declare, as the
         parameters rehearsal samples: each ranges over its plausible range
         (``PLAUSIBLE_MATERIALS``) and starts at the scene's own value, moved
-        into that range."""
+        into that range.
+
+        ``objects`` are the observed objects of the scene in play. Each
+        is bound to its body first, so the menu names the materials of
+        every observed type with a body whether or not this world has
+        set a state yet; a world that has bound none offers only the
+        support's.
+        """
+        for obj in objects:
+            self._bind(obj)
+        # The scene's own values of a group the binding named, recorded
+        # before any declared or sampled value is set on it.
+        self._note_material_baselines()
         declared = {spec.name for spec in type(self).AGENT_PARAM_SPECS}
         groups, menu = self._materials()
         specs = []
