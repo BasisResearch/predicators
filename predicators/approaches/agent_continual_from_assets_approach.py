@@ -60,6 +60,8 @@ class AgentContinualFromAssetsApproach(AgentContinualApproach):
         # The domain twin never renders or predicts for this arm: the
         # probe has no world until the agent's simulator loads.
         self._tool_context.env = None
+        self._tool_context.undeclared_param_names_provider = \
+            self._undeclared_param_names
 
     @classmethod
     def get_name(cls) -> str:
@@ -212,10 +214,12 @@ class AgentContinualFromAssetsApproach(AgentContinualApproach):
         return list(sampler(list(task.init) if task is not None else []))
 
     def _physical_param_names(self) -> Set[str]:
-        return super()._physical_param_names() | {
-            spec.name
-            for spec in self._sampled_material_specs()
-        }
+        return super()._physical_param_names() | self._undeclared_param_names()
+
+    def _undeclared_param_names(self) -> Set[str]:
+        """The engine materials the joint draws sample because the model does
+        not declare them."""
+        return {spec.name for spec in self._sampled_material_specs()}
 
     def parameter_belief(self) -> Optional[ParameterBelief]:
         """The model's belief joined with a factor for each engine material it
