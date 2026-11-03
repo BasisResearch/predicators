@@ -551,7 +551,7 @@ def test_check_episode_trajectory_delegates_to_evaluator():
     assert (ok, reason) == (False, "robot knocked the target")
     states_seen, options_seen = evaluator.seen
     assert len(states_seen) == 3
-    assert options_seen == [("Push", (), ()), None]
+    assert options_seen == [("Push", (), (), True), None]
     # The full episode verdict: terminated (goal atoms hold, however
     # reached) but uncertified, so the default reward carries no bonus
     # and the episode is rejected (terminated without a positive reward).

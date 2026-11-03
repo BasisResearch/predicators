@@ -1080,26 +1080,44 @@ class Task:
 DefaultTask = Task(DefaultState, set())
 
 # A per-step option label: (option name, grounded object names, continuous
-# parameters), or None when the action carries no option. Trajectory-level
-# evaluator inputs use these instead of raw options so evaluators stay
-# picklable and comparison-friendly; the parameters let physics-replaying
-# certificates (the domino counterfactual push probe) re-run a step with the
-# plan's own continuous values. Consumers must tolerate legacy
-# (name, objects) 2-tuples, which some tests and agent-authored label lists
-# still produce.
-StepOption = Optional[Tuple[str, Tuple[str, ...], Tuple[float, ...]]]
+# parameters, invocation start), or None when the action carries no option.
+# Trajectory-level evaluator inputs use these instead of raw options so
+# evaluators stay picklable and comparison-friendly; the parameters let
+# physics-replaying certificates (the domino counterfactual push probe)
+# re-run a step with the plan's own continuous values, and the invocation
+# start flag (True on the first step of each skill invocation) keeps two
+# back-to-back invocations of the same grounded skill apart, so the domino
+# certificate can tell a second push of the green from the tail of the
+# first. Consumers must tolerate legacy (name, objects) 2-tuples and
+# (name, objects, params) 3-tuples, which some tests and agent-authored
+# label lists still produce; without the flag, consecutive identical labels
+# read as one invocation.
+StepOption = Optional[Tuple[str, Tuple[str, ...], Tuple[float, ...], bool]]
+
+
+def step_option_label(option: _Option, starts_invocation: bool) -> StepOption:
+    """The label of one step that ``option`` produced."""
+    return (option.name, tuple(o.name for o in option.objects),
+            tuple(float(p) for p in option.params), starts_invocation)
 
 
 def step_option_labels(actions: Sequence[Action]) -> List[StepOption]:
-    """Label each action with its producing option as a ``StepOption``."""
+    """Label each action with its producing option as a ``StepOption``.
+
+    A step starts an invocation when its option object differs from the
+    previous step's, the same boundary the continual recording keeps
+    (``serialize_actions``): a skill invoked twice in a row with the
+    same arguments is two invocations.
+    """
     labels: List[StepOption] = []
+    previous: Optional[_Option] = None
     for act in actions:
-        if act.has_option():
-            option = act.get_option()
-            labels.append((option.name, tuple(o.name for o in option.objects),
-                           tuple(float(p) for p in option.params)))
-        else:
+        option = act.get_option() if act.has_option() else None
+        if option is None:
             labels.append(None)
+        else:
+            labels.append(step_option_label(option, option is not previous))
+        previous = option
     return labels
 
 

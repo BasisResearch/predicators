@@ -12,13 +12,16 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pytest
+from gym.spaces import Box
 
+from predicators import utils
 from predicators.envs.pybullet_domino.cascade_certificate import \
-    _TOPPLE_MIN_STEPS, _topple_onset, check_cascade_legitimacy, \
-    count_movable_blocks_used
+    _TOPPLE_MIN_STEPS, _invocation_spans, _topple_onset, \
+    check_cascade_legitimacy, count_movable_blocks_used
 from predicators.envs.pybullet_domino.components.domino_component import \
     DominoComponent
-from predicators.structs import GroundAtom, Object, Predicate, State, Type
+from predicators.structs import Action, GroundAtom, Object, Predicate, State, \
+    Type, step_option_labels
 
 _DOMINO_TYPE = Type("domino",
                     ["x", "y", "z", "yaw", "roll", "r", "g", "b", "is_held"])
@@ -764,12 +767,12 @@ def test_same_step_tie_attributes_through_knocker():
     assert ok, reason
 
 
-def test_green_toppled_outside_push_probe_decides():
+def test_green_toppled_by_a_later_skill_rejected():
     """Green falling long after its Push (e.g. swept by a later Place).
 
-    There are no onset-in-span forensics anymore - once the goal holds,
-    the probe replays the recorded push from the pre-push scene and
-    decides on the layout.
+    The goal fell while another skill ran, so it is the arm's work
+    whatever the probe says about the layout: rule (e) rejects the
+    episode before the probe runs.
     """
     objs = _make_objects(["green", "target"])
     green_onset = 40
@@ -787,15 +790,14 @@ def test_green_toppled_outside_push_probe_decides():
                              ("Place", ("robot", ), 6, num - 1)], num)
     ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
     assert ok, reason  # goal unreached: no bonus at stake
-    probe = _FakeProbe(ok=False, detail="the push does not topple the green")
+    probe = _FakeProbe(ok=True)
     ok, reason = check_cascade_legitimacy(states,
                                           _real_goal(objs),
                                           step_options,
                                           probe=probe)
     assert not ok
-    assert "the push does not topple the green" in reason
-    # The probe replays from the recorded push, not the later sweep.
-    assert probe.calls[0][0] is states[0]
+    assert "moved on from the push to Place(robot) (step 7)" in reason
+    assert not probe.calls
 
 
 def test_no_topples_passes():
@@ -1094,6 +1096,202 @@ def test_goal_reached_without_probe_fails_closed():
                                           probe=None)
     assert not ok
     assert "no counterfactual push probe is available" in reason
+
+
+def _skill_actions(name: str, objects: Sequence[Object],
+                   params: Tuple[float, ...], num_steps: int) -> List[Action]:
+    """``num_steps`` actions of ONE invocation of a skill: they share one
+    grounded option, as a real controller's actions do."""
+    skill = utils.SingletonParameterizedOption(
+        name,
+        lambda s, m, o, p: Action(np.zeros(1, dtype=np.float32)),
+        types=[o.type for o in objects],
+        params_space=Box(0, 1, (len(params), )))
+    option = skill.ground(list(objects), np.array(params, dtype=np.float32))
+    actions = []
+    for _ in range(num_steps):
+        action = Action(np.zeros(1, dtype=np.float32))
+        action.set_option(option)
+        actions.append(action)
+    return actions
+
+
+@pytest.mark.parametrize("second_push_params", [(0.04, 0.05), (0.06, 0.05)])
+def test_second_push_after_stalled_cascade_rejected(second_push_params):
+    """A goal toppled by pushing the already fallen green again is the arm's.
+
+    run_20261003_073316 (domino_high_friction_turn, seed 1, level 2):
+    the push toppled the green, but the gripper body pinned the first
+    bridge as the green struck it and the chain stalled. The
+    fingertips-only probe still cascaded the layout every time, and
+    Push(domino_0)[*, 0.05] on the prone green then swept the gripper
+    body into the second bridge, which toppled the target - a WIN at
+    reward 0.7. A second invocation with the same parameters is still a
+    second push (the labels carry the invocation-start flag), and the
+    probe, which would vouch for the layout, never runs.
+    """
+    objs = _make_objects(["green", "blue1", "blue2", "target"])
+    # blue1 (the stalled bridge) never falls; blue2 and the target fall
+    # during the second push.
+    states = _build_states(objs, 60, {"green": 12, "blue2": 42, "target": 46})
+    robot = Object("robot", _ROBOT_TYPE)
+    actions = (_skill_actions("Wait", [robot], (), 10) +
+               _skill_actions("Push", [robot, objs["green"]],
+                              (0.04, 0.05), 20) +
+               _skill_actions("Push", [robot, objs["green"]],
+                              second_push_params, 20) +
+               _skill_actions("Wait", [robot], (), 10))
+    probe = _FakeProbe(ok=True)
+    ok, reason = check_cascade_legitimacy(states,
+                                          _real_goal(objs),
+                                          step_option_labels(actions),
+                                          probe=probe)
+    assert not ok
+    assert "target only started falling at step 46" in reason
+    assert "pushing green again (step 31)" in reason
+    assert not probe.calls
+
+
+def test_second_push_in_hand_written_labels_rejected():
+    """Hand-written 3-tuple labels (the form agents pass to
+    evaluate_trajectory) carry no invocation flag, so a second push shows only
+    where its parameters differ from the first push's."""
+    objs = _make_objects(["green", "blue1", "blue2", "target"])
+    states = _build_states(objs, 60, {"green": 12, "blue2": 42, "target": 46})
+    labels: List[Optional[Tuple[Any, ...]]] = [("Wait", ("robot", ), ())] * 60
+    labels[10:30] = [("Push", ("robot", "green"), (0.04, 0.05))] * 20
+    labels[30:50] = [("Push", ["robot", "green"], [0.06, 0.05])] * 20
+    ok, reason = check_cascade_legitimacy(states,
+                                          _real_goal(objs),
+                                          labels,
+                                          probe=_FakeProbe(ok=True))
+    assert not ok
+    assert "pushing green again" in reason
+
+
+@pytest.mark.parametrize("target_onset, certified", [(30, True), (31, False)])
+def test_goal_must_start_falling_before_the_robot_moves_on(
+        target_onset, certified):
+    """After the push the robot may only Wait until the goal falls.
+
+    The goal's topple onset is what is timed: a fall that began before
+    the next skill's first action (onset at its state index or earlier)
+    belongs to the push, one that began with it does not.
+    """
+    objs = _make_objects(["green", "blue1", "target"])
+    states = _build_states(objs, 60, {
+        "green": 12,
+        "blue1": 20,
+        "target": target_onset
+    })
+    step_options = _options([("Push", ("robot", "green"), 10, 29),
+                             ("MoveTo", ("robot", ), 30, 49)], 60)
+    probe = _FakeProbe(ok=True)
+    ok, reason = check_cascade_legitimacy(states,
+                                          _real_goal(objs),
+                                          step_options,
+                                          probe=probe)
+    assert ok is certified, reason
+    if not certified:
+        assert "moved on from the push to MoveTo(robot) (step 31)" in reason
+
+
+@pytest.mark.parametrize("robot, certified",
+                         [("still", True), ("moving", False), (None, False)])
+def test_unlabeled_actions_after_push_count_as_waiting_while_still(
+        robot, certified):
+    """Actions no skill produced (raw control) after the push count as waiting
+    only while they hold the arm still.
+
+    Repeating the stroke's last joint targets leaves the end effector
+    within a few millimeters; a raw sweep moves it centimeters per step.
+    Without a robot in the states, stillness cannot be shown.
+    """
+    objs = _make_objects(["green", "blue1", "target"])
+    held = [(0.7, 0.92, 0.6)] * 61
+    profile = {
+        "still": [(0.7 + 0.002 * (t % 2), 0.92, 0.6) for t in range(61)],
+        "moving":
+        held[:34] + [(0.7, 0.92 + 0.03 * (t - 33), 0.6)
+                     for t in range(34, 61)],
+        None:
+        None,
+    }[robot]
+    states = _build_states(objs,
+                           60, {
+                               "green": 12,
+                               "blue1": 20,
+                               "target": 40
+                           },
+                           robot_profile=profile)
+    step_options: List[Optional[Tuple[Any, ...]]] = list(
+        _options([("Push", ("robot", "green"), 10, 29)], 60))
+    step_options[30:50] = [None] * 20
+    ok, reason = check_cascade_legitimacy(states,
+                                          _real_goal(objs),
+                                          step_options,
+                                          probe=_FakeProbe(ok=True))
+    assert ok is certified, reason
+    if robot == "moving":
+        assert "moving the arm with actions no skill produced (step 34)" \
+            in reason
+    elif robot is None:
+        assert "(step 31)" in reason
+
+
+def test_each_green_may_be_pushed_once_before_the_goal_falls():
+    """Pushing a second green is part of the push; pushing one again is not."""
+    objs = _make_objects(["green", "green2", "blue1", "target"])
+    positions = {
+        "green": (0.7, 1.0),
+        "green2": (0.5, 1.0),
+        "blue1": (0.7, 1.098),
+        "target": (0.7, 1.196)
+    }
+    states = _build_states(objs,
+                           70, {
+                               "green": 12,
+                               "green2": 34,
+                               "blue1": 50,
+                               "target": 55
+                           },
+                           positions=positions)
+    both = _options([("Push", ("robot", "green"), 10, 29),
+                     ("Push", ("robot", "green2"), 30, 44)], 70)
+    probe = _FakeProbe(ok=True)
+    ok, reason = check_cascade_legitimacy(states, _real_goal(objs), both,
+                                          probe)
+    assert ok, reason
+    assert probe.calls[0][1] == ("green", "green2")
+    again = _options([("Push", ("robot", "green"), 10, 29),
+                      ("Push", ("robot", "green2"), 30, 44),
+                      ("Push", ("robot", "green2"), 45, 59)], 70)
+    again = [
+        label + ((0.06, 0.05), )
+        if i >= 45 and label is not None and label[0] == "Push" else label
+        for i, label in enumerate(again)
+    ]
+    ok, reason = check_cascade_legitimacy(states, _real_goal(objs), again,
+                                          _FakeProbe(ok=True))
+    assert not ok
+    assert "pushing green2 again (step 46)" in reason
+
+
+def test_invocation_spans():
+    """Invocation boundaries: the start flag splits identical labels; legacy
+    labels split only where they change; unlabeled runs group."""
+    push = ("Push", ("robot", "green"), (0.04, 0.05))
+    assert _invocation_spans([push + (True, ), push + (False, ),
+                              push + (True, ), push + (False, )]) == \
+        [(0, 1), (2, 3)]
+    assert _invocation_spans([push, push, push]) == [(0, 2)]
+    # Agent-authored labels may use lists; they compare by value.
+    assert _invocation_spans(
+        [push, ("Push", ["robot", "green"], [0.04, 0.05])]) == [(0, 1)]
+    assert _invocation_spans(
+        [push, ("Push", ("robot", "green"),
+                (0.06, 0.05)), None, None, ("Wait", ("robot", ))]) == \
+        [(0, 0), (1, 1), (2, 3), (4, 4)]
 
 
 def test_pre_tilted_non_movable_fails():

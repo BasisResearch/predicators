@@ -84,9 +84,10 @@ def test_evaluate_trajectory_helper(approach_cls):
         "solved": False,
         "note": "",
     }
-    # Labels are (name, objects, params) triples since plan-capture
-    # gating started matching on exact params.
-    assert evaluator.seen_options == [("Push", (), ())]
+    # Labels carry (name, objects, params, invocation start): the params
+    # let replaying certificates re-run the step, the flag tells two
+    # back-to-back invocations of one skill apart.
+    assert evaluator.seen_options == [("Push", (), (), True)]
     # Pre-built labels pass through unchanged.
     fn(states, [("Push", ("robot", ))], task_idx=0)
     assert evaluator.seen_options == [("Push", ("robot", ))]

@@ -26,7 +26,7 @@ from predicators.agent_sdk.sketch_types import SketchStep
 from predicators.option_model import _OptionModelBase
 from predicators.planning import run_backtracking_refinement
 from predicators.structs import GroundAtom, ParameterizedOption, Predicate, \
-    State, Task, _Option
+    State, Task, _Option, step_option_label
 
 # Signature of an info-gain scorer: given a candidate post-state and the
 # atoms whose truth the step is meant to establish, return a scalar where
@@ -577,15 +577,16 @@ def _validate_step(search: _RefinementState, ctx: _RefineContext, idx: int,
         # scored under the current option's label - a silent
         # franken-trajectory); staleness falls back to the coarse
         # option-boundary path.
-        label = (option.name, tuple(o.name for o in option.objects),
-                 tuple(float(p) for p in option.params))
         step_traj = getattr(ctx.option_model, "last_trajectory", None)
         if (step_traj is not None and len(step_traj.states) >= 2
                 and step_traj.states[-1] is post_state):
-            search.step_trajs[idx] = (list(step_traj.states[1:]),
-                                      [label] * len(step_traj.actions), False)
+            search.step_trajs[idx] = (list(step_traj.states[1:]), [
+                step_option_label(option, i == 0)
+                for i in range(len(step_traj.actions))
+            ], False)
         else:
-            search.step_trajs[idx] = ([post_state], [label], True)
+            search.step_trajs[idx] = ([post_state],
+                                      [step_option_label(option, True)], True)
     if ctx.solved_check is not None and idx == n - 1 and \
             ctx.task.goal_holds(post_state):
         eval_states: List[State] = [ctx.task.init]

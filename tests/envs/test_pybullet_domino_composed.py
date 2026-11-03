@@ -167,8 +167,10 @@ def test_plain_task_attaches_domino_evaluator() -> None:
     # Every enforced rule is stated in the goal text, including the
     # counterfactual fingertip verification - without it an arm-assisted
     # layout fails with verdicts the agent cannot explain
-    # (run_20260718_141716).
+    # (run_20260718_141716) - and the rule that the goal must fall before
+    # the robot acts again after the push.
     assert "every robot link except the fingertips" in task.goal_nl
+    assert "After the push the robot may only wait" in task.goal_nl
 
     # A ball/fan-style extra component can topple dominoes without a
     # robot Push, which the certificate would falsely reject - so its
