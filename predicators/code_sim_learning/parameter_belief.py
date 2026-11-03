@@ -277,6 +277,9 @@ class ParameterBelief:
     # when the temperature counts it as one persistent error
     # (build_parameter_belief); 0 when it does not.
     misfit: float = 0.0
+    # The declared noise channel's expected SSE over the fitted
+    # recordings, which the misfit is measured above; 0 when unknown.
+    noise_sse: float = 0.0
 
     @property
     def num_draws(self) -> int:
@@ -384,13 +387,21 @@ class ParameterBelief:
                 "all; the belief mixes them, and each draw comes from one "
                 "of them.")
         if self.noise_scale > 1.0 and self.misfit > 0.0:
+            multiple = ""
+            if self.noise_sse > 0.0:
+                multiple = (
+                    f" ({self.misfit / self.noise_sse:.3g} times the "
+                    f"{self.noise_sse:.3g} the declared noise alone leaves; "
+                    "a model with every mechanism right leaves about the "
+                    "noise's own SSE, so a large multiple points to a "
+                    "missing or wrong mechanism)")
             lines.append(
                 f"The program's best fit leaves an SSE of {self.misfit:.3g} "
-                "above what the declared noise explains, and that error "
-                "persists through each recording, so the posterior counts it "
-                "as one error: parameter values whose SSE is within about "
-                "that much of the best fit's are about as likely "
-                f"(temperature {self.noise_scale:.3g}).")
+                f"above what the declared noise explains{multiple}, and that "
+                "error persists through each recording, so the posterior "
+                "counts it as one error: parameter values whose SSE is "
+                "within about that much of the best fit's are about as "
+                f"likely (temperature {self.noise_scale:.3g}).")
         elif self.noise_scale > 1.0:
             lines.append(
                 f"The program misfits the recordings {self.noise_scale:.3g}x "
@@ -438,6 +449,7 @@ class ParameterBelief:
             "components": [c.to_dict() for c in self.components],
             "weights": list(self.weights),
             "misfit": self.misfit,
+            "noise_sse": self.noise_sse,
         }
 
     @classmethod
@@ -464,7 +476,8 @@ class ParameterBelief:
             },
             components=[cls.from_dict(c) for c in data.get("components", [])],
             weights=[float(w) for w in data.get("weights", [])],
-            misfit=float(data.get("misfit", 0.0)))
+            misfit=float(data.get("misfit", 0.0)),
+            noise_sse=float(data.get("noise_sse", 0.0)))
 
 
 def _mix_lines(lines: Sequence[LinePosterior],
@@ -546,7 +559,8 @@ def mix_beliefs(components: Sequence[ParameterBelief],
                            discrete=discrete,
                            components=list(components),
                            weights=shares,
-                           misfit=first.misfit)
+                           misfit=first.misfit,
+                           noise_sse=first.noise_sse)
 
 
 def join_beliefs(first: ParameterBelief,
@@ -586,7 +600,8 @@ def join_beliefs(first: ParameterBelief,
         },
         components=[join_beliefs(c, second) for c in first.components],
         weights=list(first.weights),
-        misfit=first.misfit)
+        misfit=first.misfit,
+        noise_sse=first.noise_sse)
 
 
 def stable_seed(*parts: Any) -> int:
@@ -606,6 +621,7 @@ def build_parameter_belief(
     seed: int,
     batch_residuals: Optional[BatchResidualsFn] = None,
     misfit: float = 0.0,
+    noise_sse: float = 0.0,
 ) -> ParameterBelief:
     """Build ``q(theta)`` around ``map_params`` and draw from it.
 
@@ -625,7 +641,10 @@ def build_parameter_belief(
     contact that resolves differently, moves many residuals together,
     and a parameter change can trade that error for a lower SSE. SSE
     differences up to the misfit are then no evidence, so the
-    temperature is at least ``misfit / noise_sigma^2``.
+    temperature is at least ``misfit / noise_sigma^2``. ``noise_sse``
+    (SSE units) is the declared noise's expected SSE the misfit is
+    measured above; the description states the misfit as a multiple of
+    it.
     """
     assert noise_sigma > 0.0, noise_sigma
     at_map = np.asarray(residuals(dict(map_params)), dtype=float)
@@ -678,7 +697,8 @@ def build_parameter_belief(
 
     belief = replace(_with_draws(specs, map_params, lines, held, noise_scale,
                                  evaluations, config, seed, discrete),
-                     misfit=max(misfit, 0.0))
+                     misfit=max(misfit, 0.0),
+                     noise_sse=max(noise_sse, 0.0))
     logger.info(
         "Parameter belief: %d draws over %d parameters from %d line "
         "evaluations (temperature %.3g).", belief.num_draws, len(specs),

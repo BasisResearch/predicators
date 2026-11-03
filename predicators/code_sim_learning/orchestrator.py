@@ -511,7 +511,8 @@ def _build_belief(
             seed=stable_seed(CFG.seed, sorted(point.items()), num_survivors,
                              *seed_parts),
             batch_residuals=batch_residuals_fn,
-            misfit=float(result.misfit or 0.0))
+            misfit=float(result.misfit or 0.0),
+            noise_sse=float(result.noise_sse or 0.0))
 
     basins = list(result.basins or [])
     if len(basins) <= 1:

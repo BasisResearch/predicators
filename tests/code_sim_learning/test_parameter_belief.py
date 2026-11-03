@@ -35,7 +35,8 @@ def _build(specs,
            prior_sigma=1e6,
            config=None,
            seed=0,
-           misfit=0.0):
+           misfit=0.0,
+           noise_sse=0.0):
     return build_parameter_belief(
         specs,
         map_params,
@@ -47,7 +48,8 @@ def _build(specs,
                       for s in specs},
         config=config or BeliefConfig(num_draws=64, line_max_evals=40),
         seed=seed,
-        misfit=misfit)
+        misfit=misfit,
+        noise_sse=noise_sse)
 
 
 def test_line_posterior_moments_and_sampling():
@@ -277,13 +279,26 @@ def test_a_persistent_misfit_counts_as_one_error():
     assert ratio == pytest.approx(2.0, rel=0.06)
     assert "persists through each recording" in "\n".join(once.describe())
     assert "persists" not in "\n".join(spread.describe())
-    mixed = mix_beliefs([once, once], [1.0, 1.0])
-    assert ParameterBelief.from_dict(mixed.to_dict()).misfit == once.misfit
+    # With the noise's own SSE known, the report states the misfit as a
+    # multiple of it.
+    assert "times the" not in "\n".join(once.describe())
+    scaled = _build(specs, {"a": 0.3},
+                    residuals,
+                    misfit=27.0 * _SIGMA_N**2,
+                    noise_sse=3.0 * _SIGMA_N**2)
+    assert "(9 times the" in "\n".join(scaled.describe())
+    assert "missing or wrong mechanism" in "\n".join(scaled.describe())
+    mixed = mix_beliefs([scaled, scaled], [1.0, 1.0])
+    restored = ParameterBelief.from_dict(mixed.to_dict())
+    assert restored.misfit == once.misfit
+    assert restored.noise_sse == pytest.approx(3.0 * _SIGMA_N**2)
     extra = prior_belief([ParamSpec("c", 0.5, lo=0.0, hi=1.0)], {"c": 0.0},
                          {"c": 1.0},
                          BeliefConfig(num_draws=128),
                          seed=0)
     assert join_beliefs(mixed, extra).misfit == once.misfit
+    assert join_beliefs(mixed,
+                        extra).noise_sse == pytest.approx(3.0 * _SIGMA_N**2)
     # A misfit within the noise leaves the ordinary posterior.
     fits = _gaussian_residuals(["a"], [0.3], [[20.0]])
     assert _build(specs, {
