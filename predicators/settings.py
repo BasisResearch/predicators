@@ -121,6 +121,13 @@ class GlobalSettings:
     # action space shows each joint's limit as max_change_per_step.
     # Skills plan their own paths and are not checked.
     continual_raw_step_limit = False
+    # Whether a joint rehearsal's report counts the failing draws that end
+    # the episode in GAME_OVER: the task's evaluator ends the episode on
+    # them without counting it solved, as it ends a real episode that is
+    # lost. A step rehearsed alone rarely reaches the goal, so its P-hat
+    # is 0 whether it is safe or loses the level; this count tells the two
+    # apart.
+    continual_rehearsal_game_over = False
     # Whether a model arm checks each skill request that ran in full
     # against the joint-draw rehearsal from the live observation that
     # began with it: when the outcome lies outside the draws (beyond what
