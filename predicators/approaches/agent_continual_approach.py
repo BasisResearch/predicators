@@ -36,6 +36,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, FrozenSet, List, \
 
 from predicators.agent_sdk import journal as journal_mod
 from predicators.agent_sdk.fit_status import format_fit_status
+from predicators.agent_sdk.predictive_check import MAX_INFLATION
 from predicators.agent_sdk.preflight_audit import PreflightAudit
 from predicators.agent_sdk.sandbox_setup import ReferenceFiles
 from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES, \
@@ -52,7 +53,12 @@ from predicators.approaches.agent_sim_predicate_invention_approach import \
     AgentSimPredicateInventionApproach
 from predicators.approaches.continual_play_mixin import ContinualPlayMixin
 from predicators.approaches.scene_package_mixin import ScenePackageMixin
+from predicators.code_sim_learning.config import DEFAULT_NOISE_SIGMA, \
+    SysIdConfig
+from predicators.code_sim_learning.parameter_belief import ParameterBelief
 from predicators.code_sim_learning.rollout_env import dispose_env
+from predicators.code_sim_learning.trajectory_prep import \
+    compute_residual_scaling
 from predicators.code_sim_learning.utils import LearnedSimulator, \
     apply_rules, read_residual_env
 from predicators.envs import create_new_env
@@ -343,6 +349,14 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
             self._make_rehearsal_gate(session)
             if CFG.continual_rehearsal_gate and int(CFG.belief_joint_draws) > 0
             and CFG.continual_uncertainty_decisions else None)
+        # The predictive check scores a request's outcome on the features
+        # the current model scores, against draws whose program and
+        # temperature each rehearsal records.
+        check = CFG.continual_predictive_check
+        ctx.scored_features_provider = self._scored_features if check else None
+        ctx.feature_width_provider = self._feature_widths if check else None
+        ctx.prediction_basis_provider = (self._prediction_basis
+                                         if check else None)
         probe_ns = build_probe_namespace(ctx)
         exec_ns["sim"] = probe_ns["sim"]
         exec_ns["BeliefProbe"] = probe_ns["BeliefProbe"]
@@ -486,6 +500,9 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         ctx.current_observation_provider = None
         ctx.skill_gate = None
         ctx.rehearsal_gate = None
+        ctx.scored_features_provider = None
+        ctx.feature_width_provider = None
+        ctx.prediction_basis_provider = None
         ctx.skill_preflight = None
         ctx.execution_audit = None
         ctx.probe_param_status = None
@@ -529,6 +546,79 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
                 return False
 
         return applies
+
+    def _scored_features(self) -> Optional[Dict[str, List[str]]]:
+        """The features the loaded model's fit scores (its RESIDUAL_FEATURES),
+        or None before a model loads."""
+        declared = getattr(getattr(self, "_residual_env_cls", None),
+                           "RESIDUAL_FEATURES", None)
+        return declared if isinstance(declared, dict) else None
+
+    def parameter_belief(self) -> Optional[ParameterBelief]:
+        """The parameter belief, at no less than the temperature the
+        predictive check has found the fitted program's draws need (see
+        :meth:`ParameterBelief.inflated`); an edit of the program starts
+        over."""
+        belief, fitted = self._sourced_parameter_belief()
+        factor = self._predictive_factor(belief, fitted)
+        if belief is not None and factor > 1.0:
+            return belief.inflated(factor)
+        return belief
+
+    def _predictive_factor(self, belief: Optional[ParameterBelief],
+                           fitted: Optional[str]) -> float:
+        """The factor that brings the belief the program ``fitted`` was fitted
+        to up to the temperature the predictive check found it needs."""
+        ctx = self._tool_context
+        if (belief is None or fitted is None
+                or fitted != ctx.predictive_program):
+            return 1.0
+        return float(
+            min(max(1.0, ctx.predictive_temperature / belief.noise_scale),
+                MAX_INFLATION))
+
+    def _feature_widths(self) -> Optional[Dict[Tuple[str, str], float]]:
+        """The width the fit's likelihood scores each scored feature's error
+        with, in the feature's units: ``noise_sigma`` times the residual scale
+        the fit computes from its recordings (their span, with the declared
+        observation noise folded in).
+
+        The predictive check expects an outcome within this much of each
+        draw, as the fit's own model does. Cached per program and
+        recording count.
+        """
+        features = self._scored_features()
+        if not features:
+            return None
+        key = (self._current_simulator_digest(), len(self._fit_trajectories),
+               tuple(sorted((t, tuple(f)) for t, f in features.items())))
+        cached = getattr(self, "_feature_width_cache", None)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        state = self._probe_fit_state()
+        result = state.get("fit_result")
+        sigma = float(
+            getattr(result, "noise_sigma", None) or DEFAULT_NOISE_SIGMA)
+        scaling = compute_residual_scaling(
+            self._rollout_fit_trajectories(features),
+            features,
+            config=SysIdConfig.from_cfg(),
+            noise_sigma=sigma)
+        widths: Optional[Dict[Tuple[str, str], float]] = None
+        if scaling is not None:
+            widths = {(t, f): sigma * float(scaling.scales.get((t, f), 1.0))
+                      for t, feats in features.items() for f in feats}
+        setattr(self, "_feature_width_cache", (key, widths))
+        return widths
+
+    def _prediction_basis(self) -> Optional[Tuple[str, float]]:
+        """The fitted program the joint draws come from and the temperature
+        they are drawn at, or None while they come from the prior."""
+        belief, fitted = self._sourced_parameter_belief()
+        if belief is None or fitted is None:
+            return None
+        return fitted, belief.noise_scale * self._predictive_factor(
+            belief, fitted)
 
     def _model_readiness(
             self, simulator_file: str,

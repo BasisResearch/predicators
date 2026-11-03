@@ -173,11 +173,46 @@ class LinePosterior:
             return np.full(size, float(self.grid[0]))
         return self._invert(rng.uniform(0.0, 1.0, size))
 
+    def cdf(self, values: npt.ArrayLike) -> np.ndarray:
+        """The mass at or below each of ``values``."""
+        z = np.asarray(values, dtype=float)
+        if self.is_point:
+            return (z >= self.grid[0]).astype(float)
+        a, b, fa, fb, mass = self._pieces()
+        before = np.concatenate([[0.0], np.cumsum(mass)])
+        idx = np.clip(
+            np.searchsorted(self.grid, z, side="right") - 1, 0, a.size - 1)
+        width = b[idx] - a[idx]
+        t = np.clip((z - a[idx]) / width, 0.0, 1.0)
+        inside = width * t * (fa[idx] + (fb[idx] - fa[idx]) * t / 2.0)
+        return np.clip((before[idx] + inside) / before[-1], 0.0, 1.0)
+
+    def transport(self, values: npt.ArrayLike,
+                  target: LinePosterior) -> np.ndarray:
+        """``values`` drawn from this density, each moved to the value that
+        holds the same mass below it under ``target``: draws of ``target`` in
+        the same order."""
+        return target.quantiles(self.cdf(values))
+
+    def tempered(self, factor: float) -> LinePosterior:
+        """This density at ``factor`` times its temperature: raised to the
+        power ``1 / factor`` on the same grid and normalized again."""
+        if self.is_point or factor == 1.0:
+            return self
+        dens = np.power(self.density / np.max(self.density), 1.0 / factor)
+        return LinePosterior(self.grid,
+                             dens / float(np.trapz(dens, self.grid)))
+
+    def quantiles(self, q: npt.ArrayLike) -> np.ndarray:
+        """The quantile at each of ``q``."""
+        u = np.asarray(q, dtype=float)
+        if self.is_point:
+            return np.full(u.shape, float(self.grid[0]))
+        return self._invert(u)
+
     def quantile(self, q: float) -> float:
         """The ``q`` quantile."""
-        if self.is_point:
-            return float(self.grid[0])
-        return float(self._invert(np.array([q]))[0])
+        return float(self.quantiles(np.array([q]))[0])
 
     def mode(self) -> float:
         """The value of highest density."""
@@ -280,6 +315,10 @@ class ParameterBelief:
     # The declared noise channel's expected SSE over the fitted
     # recordings, which the misfit is measured above; 0 when unknown.
     noise_sse: float = 0.0
+    # The factor the temperature is multiplied by beyond the fit's
+    # (inflated): the lines are tempered by it and the draws moved with
+    # them; 1 for the belief as fitted.
+    inflation: float = 1.0
 
     @property
     def num_draws(self) -> int:
@@ -321,6 +360,48 @@ class ParameterBelief:
             for row, value in zip(rows, column):
                 row[name] = float(value)
         return rows
+
+    def inflated(self, factor: float) -> ParameterBelief:
+        """This belief at ``factor`` times its temperature.
+
+        Each parameter's line density is raised to the power ``1 /
+        factor`` on the range its fit traced (a Gaussian factor widens
+        by ``sqrt(factor)``, up to that range), and each draw moves to
+        the value that holds the same cumulative mass under the tempered
+        line, so the draws keep their order and their pairing across
+        parameters. A mixture tempers each component's factors and its
+        draws. Discrete and held parameters keep their values. A factor
+        of 1 or less returns the belief itself.
+        """
+        if factor <= 1.0:
+            return self
+        if not self.components:
+            lines = {
+                name: line.tempered(factor)
+                for name, line in self.lines.items()
+            }
+            return replace(self,
+                           lines=lines,
+                           draws=_transported(self, self.draws, lines),
+                           inflation=self.inflation * factor)
+        parts = [c.inflated(factor) for c in self.components]
+        # The draws run through the components in order (mix_beliefs),
+        # each block moving under its own component's tempered lines.
+        draws = np.array(self.draws, dtype=float, copy=True)
+        start = 0
+        for old, new in zip(self.components, parts):
+            stop = start + old.num_draws
+            draws[start:stop] = _transported(old, draws[start:stop], new.lines)
+            start = stop
+        lines = {
+            name: _mix_lines([c.lines[name] for c in parts], self.weights)
+            for name in self.lines if all(name in c.lines for c in parts)
+        }
+        return replace(self,
+                       components=parts,
+                       lines=lines,
+                       draws=draws,
+                       inflation=self.inflation * factor)
 
     def interval(self,
                  name: str,
@@ -407,6 +488,13 @@ class ParameterBelief:
                 f"The program misfits the recordings {self.noise_scale:.3g}x "
                 "beyond the declared noise, so the posterior uses that "
                 "estimated noise level (widths grow by its square root).")
+        if self.inflation > 1.0:
+            lines.append(
+                "A real step's outcome lay outside the draws its rehearsal "
+                "predicted, so the belief runs at "
+                f"{self.inflation:.3g} times the fit's temperature: each "
+                "parameter's density is flattened over the range its fit "
+                "traced.")
         for name in self.names:
             value = self.map_estimate[name]
             if name in self.held:
@@ -450,6 +538,7 @@ class ParameterBelief:
             "weights": list(self.weights),
             "misfit": self.misfit,
             "noise_sse": self.noise_sse,
+            "inflation": self.inflation,
         }
 
     @classmethod
@@ -477,7 +566,26 @@ class ParameterBelief:
             components=[cls.from_dict(c) for c in data.get("components", [])],
             weights=[float(w) for w in data.get("weights", [])],
             misfit=float(data.get("misfit", 0.0)),
-            noise_sse=float(data.get("noise_sse", 0.0)))
+            noise_sse=float(data.get("noise_sse", 0.0)),
+            inflation=float(data.get("inflation", 1.0)))
+
+
+def _transported(belief: ParameterBelief, rows: np.ndarray,
+                 lines: Dict[str, LinePosterior]) -> np.ndarray:
+    """``rows`` (draws of ``belief`` in external units, one column per
+    parameter), each continuous value moved from ``belief``'s line to ``lines``
+    at the same cumulative mass."""
+    out = np.array(rows, dtype=float, copy=True)
+    for j, name in enumerate(belief.names):
+        line = belief.lines.get(name)
+        if (name in belief.held or name in belief.discrete or line is None
+                or line.is_point or name not in lines):
+            continue
+        log = belief.scales[j] == "log"
+        z = np.log(out[:, j]) if log else out[:, j]
+        moved = line.transport(z, lines[name])
+        out[:, j] = np.exp(moved) if log else moved
+    return out
 
 
 def _mix_lines(lines: Sequence[LinePosterior],
@@ -560,7 +668,8 @@ def mix_beliefs(components: Sequence[ParameterBelief],
                            components=list(components),
                            weights=shares,
                            misfit=first.misfit,
-                           noise_sse=first.noise_sse)
+                           noise_sse=first.noise_sse,
+                           inflation=first.inflation)
 
 
 def join_beliefs(first: ParameterBelief,
@@ -601,7 +710,8 @@ def join_beliefs(first: ParameterBelief,
         components=[join_beliefs(c, second) for c in first.components],
         weights=list(first.weights),
         misfit=first.misfit,
-        noise_sse=first.noise_sse)
+        noise_sse=first.noise_sse,
+        inflation=first.inflation)
 
 
 def stable_seed(*parts: Any) -> int:

@@ -1,0 +1,234 @@
+"""Check an executed request's outcome against the rehearsal that predicted it.
+
+A rehearsal on the joint draws from the live observation predicts where
+each object will be once the request has run. Once the request has run
+in the environment, the observed outcome is scored against that
+prediction feature by feature, in units of the predictive spread: the
+draws' own spread together with the observation noise. A model that fits
+its recordings can still mispredict a new step (a mechanism the
+recordings never exercised); its belief, built from the in-sample fit,
+then understates the error, and this check measures the error out of
+sample.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+import numpy as np
+from scipy.stats import t as student_t
+
+from predicators.observation_noise import ObservationNoise
+from predicators.structs import State
+
+# A prediction the check scores no further than this many predictive
+# spreads away: an outcome a deterministic prediction misses by any margin
+# is already as surprising as an outcome can be.
+_MAX_Z = 1e3
+# The largest factor a surprise multiplies the belief's temperature by.
+MAX_INFLATION = 1e4
+# The chance, over all the scored features together, that a calibrated
+# prediction is called surprising.
+_FALSE_ALARM = 0.01
+
+
+@dataclasses.dataclass(frozen=True)
+class PredictionCheck:
+    """The outcome of one request scored against its rehearsal's draws.
+
+    ``worst`` names the feature (object, feature) whose outcome is the
+    least likely under its predictive distribution, with its observed
+    value, the draws' mean, the predictive spread and ``z_max``, its
+    distance from the mean in predictive spreads. ``critical`` is the
+    distance that feature's prediction stays within, for a calibrated
+    model, over all ``num_features`` features but for ``_FALSE_ALARM``
+    of the time. ``needed`` is the smallest factor on the belief's
+    temperature under which every feature it can reach would lie within
+    two predictive spreads (see :func:`_needed_temperature`);
+    ``out_of_reach`` names the features missed beyond their critical
+    distance that no factor up to ``MAX_INFLATION`` reaches, and
+    ``missed`` every feature missed beyond its critical distance.
+    """
+    num_features: int
+    num_draws: int
+    z_max: float
+    worst: Tuple[str, str]
+    observed: float
+    mean: float
+    spread: float
+    critical: float
+    needed: float
+    out_of_reach: Tuple[Tuple[str, str], ...] = ()
+    missed: Tuple[Tuple[str, str], ...] = ()
+
+    @property
+    def surprising(self) -> bool:
+        """Whether the outcome lies outside what the draws allowed."""
+        return self.z_max > self.critical
+
+    @property
+    def inflation(self) -> float:
+        """The factor a surprise multiplies the belief's temperature by
+        (``needed``); 1 for an unsurprising outcome."""
+        return self.needed if self.surprising else 1.0
+
+
+def _needed_temperature(delta: float, draw_var: float,
+                        noise_var: float) -> Optional[float]:
+    """The smallest factor on the temperature that brings an outcome ``delta``
+    from the draws' mean within two predictive spreads, or None when no factor
+    up to ``MAX_INFLATION`` does.
+
+    Tempering widens the parameter-driven part of the spread, whose
+    variance ``draw_var`` grows in proportion to the temperature, and
+    leaves the observation noise's ``noise_var`` as it is: the factor
+    solves ``delta^2 = 4 (T draw_var + noise_var)``. An outcome the draws
+    barely vary toward is out of reach: the parameters the belief allows
+    do not move the feature there, so the miss is the model's form, and
+    a hotter belief would only blur the parameters it does constrain.
+    """
+    excess = delta**2 / 4.0 - noise_var
+    if excess <= draw_var:
+        return 1.0
+    if draw_var <= 0.0 or excess > MAX_INFLATION * draw_var:
+        return None
+    return float(excess / draw_var)
+
+
+def check_prediction(
+    observed: State,
+    predicted: Sequence[State],
+    features: Dict[str, List[str]],
+    noise: ObservationNoise,
+    widths: Optional[Dict[Tuple[str, str], float]] = None
+) -> Optional[PredictionCheck]:
+    """Score ``observed`` against the predicted states ``predicted`` (one per
+    draw) on the scored ``features`` (type name -> feature names).
+
+    The robot's own features are left out: its commands drive them. An
+    angle is compared on the circle. None when no feature is predicted
+    by at least two draws. ``widths`` gives, per (type name, feature),
+    the width the fit's likelihood scores the feature's error with: the
+    known part of the predictive spread is then that width (the
+    posterior predictive of the fit's own model), else the observation
+    noise.
+    """
+    by_name = [{o.name: o for o in state} for state in predicted]
+    rows: List[Tuple[float, float, str, str, float, float, float, float]] = []
+    needed = 1.0
+    beyond: List[Tuple[float, str, str, float]] = []
+    for obj in observed:
+        type_name = obj.type.name
+        if type_name == "robot":
+            continue
+        angular = set(getattr(obj.type, "angular_features", ()))
+        for feat in features.get(type_name, ()):
+            if feat not in obj.type.feature_names:
+                continue
+            values = []
+            for state, objects in zip(predicted, by_name):
+                twin = objects.get(obj.name)
+                if twin is not None and feat in twin.type.feature_names:
+                    values.append(float(state.get(twin, feat)))
+            if len(values) < 2:
+                continue
+            seen = float(observed.get(obj, feat))
+            draws = np.asarray(values)
+            if feat in angular:
+                mean = float(
+                    np.arctan2(np.mean(np.sin(draws)), np.mean(np.cos(draws))))
+                offsets = (draws - mean + np.pi) % (2.0 * np.pi) - np.pi
+                delta = (seen - mean + np.pi) % (2.0 * np.pi) - np.pi
+                var = float(np.sum(offsets**2) / (draws.size - 1))
+            else:
+                mean = float(np.mean(draws))
+                delta = seen - mean
+                var = float(np.var(draws, ddof=1))
+            known = _known_variance(obj.type, feat, noise, widths)
+            # The draws' variance is estimated from them, with n - 1
+            # degrees of freedom, and a new draw spreads by (1 + 1/n) of
+            # it; the observation noise's is known. The predictive
+            # distribution is then Student's t with the Welch-Satterthwaite
+            # degrees of freedom.
+            draw_part = var * (1.0 + 1.0 / draws.size)
+            total = draw_part + known + 1e-12
+            dof = (total**2 * (draws.size - 1) /
+                   draw_part**2 if draw_part > 0.0 else np.inf)
+            spread = float(np.sqrt(total))
+            z = float(min(abs(delta) / spread, _MAX_Z))
+            tail = float(2.0 * student_t.sf(z, dof))
+            rows.append((tail, -z, obj.name, feat, seen, mean, spread, dof))
+            reach = _needed_temperature(delta, draw_part, known)
+            if reach is None:
+                beyond.append((z, obj.name, feat, dof))
+            else:
+                needed = max(needed, reach)
+    if not rows:
+        return None
+    _tail, neg_z, name, feat, seen, mean, spread, dof = min(rows)
+    z = -neg_z
+    alpha = _FALSE_ALARM / (2.0 * len(rows))
+    critical = float(student_t.isf(alpha, dof))
+    out_of_reach = tuple((n, f) for zf, n, f, df in beyond
+                         if zf > float(student_t.isf(alpha, df)))
+    missed = tuple((row[2], row[3]) for row in rows
+                   if -row[1] > float(student_t.isf(alpha, row[7])))
+    return PredictionCheck(num_features=len(rows),
+                           num_draws=len(predicted),
+                           z_max=z,
+                           worst=(name, feat),
+                           observed=seen,
+                           mean=mean,
+                           spread=spread,
+                           critical=critical,
+                           needed=needed,
+                           out_of_reach=out_of_reach,
+                           missed=missed)
+
+
+def _known_variance(obj_type: Any, feat: str, noise: ObservationNoise,
+                    widths: Optional[Dict[Tuple[str, str], float]]) -> float:
+    """The variance of a feature's outcome about one parameter setting's
+    prediction: the fit's likelihood width squared when ``widths`` names it
+    (it folds a declared noise channel in), else the observation noise."""
+    sigma = noise.feature_sigma(obj_type, feat)
+    width = None if widths is None else widths.get((obj_type.name, feat))
+    if width is None:
+        return sigma**2
+    return width**2 + (0.0 if noise.declared else sigma**2)
+
+
+def point_predicts(
+        observed: State,
+        point: State,
+        keys: Sequence[Tuple[str, str]],
+        noise: ObservationNoise,
+        num_features: int,
+        widths: Optional[Dict[Tuple[str, str], float]] = None) -> bool:
+    """Whether the single predicted state ``point`` puts every feature in
+    ``keys`` (object name, feature) of ``observed`` within the distance a
+    calibrated prediction stays within over ``num_features`` features, with the
+    known spread (``widths``, else the observation noise) alone.
+
+    A rollout at the belief's mean that predicts an outcome its draws
+    missed shows the draws spread the wrong way; it is no sign that the
+    belief is too narrow.
+    """
+    if not keys:
+        return False
+    bound = float(
+        student_t.isf(_FALSE_ALARM / (2.0 * max(num_features, 1)), np.inf))
+    seen = {o.name: o for o in observed}
+    twins = {o.name: o for o in point}
+    for name, feat in keys:
+        obj, twin = seen.get(name), twins.get(name)
+        if obj is None or twin is None or feat not in twin.type.feature_names:
+            return False
+        delta = float(observed.get(obj, feat)) - float(point.get(twin, feat))
+        if feat in set(getattr(obj.type, "angular_features", ())):
+            delta = (delta + np.pi) % (2.0 * np.pi) - np.pi
+        known = _known_variance(obj.type, feat, noise, widths)
+        if abs(delta) > bound * float(np.sqrt(known)):
+            return False
+    return True
