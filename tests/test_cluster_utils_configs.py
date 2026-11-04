@@ -115,6 +115,10 @@ def test_from_assets_arm_runs_only_by_name() -> None:
         "continual_rehearsal_notes_gate": True,
         "continual_rehearsal_mean_verdict": True,
         "continual_rehearsal_win_first": True,
+        "continual_record_until_rest": True,
+        "domino_contact_verdict": True,
+        "continual_practise_after_reset": True,
+        "continual_claim_check": True,
         "continual_predictive_check": True,
         "continual_belief_velocities": True,
         "continual_raw_step_limit": True,
@@ -128,8 +132,6 @@ def test_from_assets_arm_runs_only_by_name() -> None:
         "belief_material_lines": True,
         "scene_observed_sizes": True,
         "belief_segment_temperature": True,
-        "continual_record_until_rest": True,
-        "domino_contact_verdict": True,
     }
 
 
