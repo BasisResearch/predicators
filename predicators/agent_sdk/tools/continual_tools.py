@@ -58,8 +58,11 @@ CONTINUAL_TOOL_NAMES = [
 PRIMITIVE_TOOL_NAMES = [
     "env_observe", "env_step", "env_reset", "give_up", "env_run_policy"
 ]
+# The tools of continual_claim_check.
+CLAIM_TOOL_NAMES = ["claims_record", "claims_resolve"]
 ALL_CONTINUAL_TOOL_NAMES = list(
-    dict.fromkeys(CONTINUAL_TOOL_NAMES + PRIMITIVE_TOOL_NAMES))
+    dict.fromkeys(CONTINUAL_TOOL_NAMES + PRIMITIVE_TOOL_NAMES +
+                  CLAIM_TOOL_NAMES))
 # The tools that drive the robot below the skill library.
 RAW_CONTROL_TOOL_NAMES = ("env_step", "env_run_policy")
 
@@ -71,6 +74,9 @@ def play_tool_names(names: Sequence[str]) -> List[str]:
         return list(names)
     return [n for n in names if n not in RAW_CONTROL_TOOL_NAMES]
 
+
+# How a refusal opens on a reset training level.
+PRACTISE_HEAD = "This training level has been reset without a win:"
 
 GRAMMAR = (
     "One skill per line: `Skill(obj:type, ...)[p1, p2] -> {Atom(obj:type), "
@@ -489,6 +495,16 @@ def build_continual_tools(
             return None
         return _error_result(reason + " Nothing was charged." + _footer())
 
+    def _practising() -> bool:
+        """Whether the level is a reset training level under
+        ``continual_practise_after_reset``."""
+        return ctx.practise_gate is not None and ctx.practise_gate()
+
+    def _raw_gated() -> Optional[Dict[str, Any]]:
+        """Raw control on a reset training level waits for the model too, so it
+        is no way around the skill gate."""
+        return _gated() if _practising() else None
+
     def _matching_rehearsal(
         parsed: List[Tuple[_Option, Set[GroundAtom], Set[GroundAtom]]]
     ) -> Optional[_RehearsalMatch]:
@@ -576,12 +592,15 @@ def build_continual_tools(
 
         A request of Wait lines alone commands no motion and passes.
         """
-        if ctx.rehearsal_gate is None or not ctx.rehearsal_gate():
+        practising = _practising()
+        if not practising and (ctx.rehearsal_gate is None
+                               or not ctx.rehearsal_gate()):
             return None
         if _motion_lines(parsed) == 0 or match is not None:
             return None
         return _error_result(
-            "Test level: rehearse this on the joint belief first. In "
+            f"{PRACTISE_HEAD if practising else 'Test level:'} rehearse "
+            "this on the joint belief first. In "
             "run_python, print(sim.reset(current=True).run(plan)) with a "
             "plan whose first lines are this request, best followed by the "
             "rest of your plan: a rehearsal on the joint draws from the "
@@ -678,8 +697,10 @@ def build_continual_tools(
 
         The refusal shows them, so the request sent again runs.
         """
+        practising = _practising()
         if (not CFG.continual_rehearsal_notes_gate or match is None
-                or ctx.rehearsal_gate is None or not ctx.rehearsal_gate()):
+                or (not practising and
+                    (ctx.rehearsal_gate is None or not ctx.rehearsal_gate()))):
             return None
         rehearsal = match.rehearsal
         unseen = [n for n in rehearsal.notes if n not in ctx.shown_notes]
@@ -688,10 +709,39 @@ def build_continual_tools(
         ctx.shown_notes.update(unseen)
         notes = "\n".join(f"NOTE: {note}" for note in unseen)
         return _error_result(
-            "Test level: the rehearsal that let this request through "
+            f"{PRACTISE_HEAD if practising else 'Test level:'} the "
+            "rehearsal that let this request through "
             f"(P-hat {rehearsal.p_hat:.2f}) ended with notes no output of "
             f"yours has shown:\n{notes}\nWeigh them before this step; send "
             "the request again to run it. Nothing was charged." + _footer())
+
+    def _unclaimed(
+            parsed: List[Tuple[_Option, Set[GroundAtom], Set[GroundAtom]]],
+            match: Optional[_RehearsalMatch]) -> Optional[Dict[str, Any]]:
+        """Under ``continual_claim_check``: a refusal that charges nothing when
+        a record of the belief behind this request is due.
+
+        A request of Wait lines alone commands no motion and passes.
+        """
+        check = ctx.claim_check
+        if check is None or _motion_lines(parsed) == 0:
+            return None
+        obs = session.observe()
+        p_hat = None if match is None else match.rehearsal.p_hat
+        trigger = check.due(obs.level.split, obs.ledger.level_index,
+                            obs.ledger.level_resets, p_hat)
+        if trigger is not None:
+            return _error_result(
+                check.refusal(trigger, obs.ledger.level_resets, p_hat) +
+                " Nothing was charged." + _footer())
+        # A test level has no resets, so a step there comes after the
+        # experiment; a training level's experiment is itself a step.
+        if obs.level.split == "test" and check.open_ids():
+            return _error_result(
+                "Claim check: call claims_resolve for the open records "
+                f"before a step on a test level: {check.open_ids()}. Nothing "
+                "was charged." + _footer())
+        return None
 
     def _prediction_note(match: Optional[_RehearsalMatch],
                          progress: ExecutionProgress) -> str:
@@ -989,6 +1039,9 @@ def build_continual_tools(
         ended = _ended()
         if ended is not None:
             return ended
+        gated = _raw_gated()
+        if gated is not None:
+            return gated
         try:
             action = primitive_action(args.get("action", []),
                                       session.action_space)
@@ -1028,6 +1081,9 @@ def build_continual_tools(
         ended = _ended()
         if ended is not None:
             return ended
+        gated = _raw_gated()
+        if gated is not None:
+            return gated
         progress = ExecutionProgress()
 
         @asynccontextmanager
@@ -1191,6 +1247,9 @@ def build_continual_tools(
         unseen = _unseen_notes(match)
         if unseen is not None:
             return unseen
+        unclaimed = _unclaimed(parsed, match)
+        if unclaimed is not None:
+            return unclaimed
         refused = _preflight(str(args.get("skill", "")), args)
         if refused is not None:
             return refused
@@ -1258,6 +1317,9 @@ def build_continual_tools(
         unseen = _unseen_notes(match)
         if unseen is not None:
             return unseen
+        unclaimed = _unclaimed(parsed, match)
+        if unclaimed is not None:
+            return unclaimed
         refused = _preflight(str(args.get("plan", "")), args)
         if refused is not None:
             return refused
@@ -1297,7 +1359,118 @@ def build_continual_tools(
                 return err
             return _protocol_error(e)
 
+    def _claim_position() -> Dict[str, int]:
+        ledger = session.observe().ledger
+        return {
+            "run_steps": ledger.run_steps,
+            "rehearsals": len(ctx.live_rehearsals),
+        }
+
+    @tool(
+        "claims_record",
+        "Record the belief your next step leans on most, when a claim check "
+        "asks for it. direct_tests lists the recordings that tested it "
+        "directly. Free.", {
+            "type":
+            "object",
+            "properties": {
+                "claim": {
+                    "type": "string",
+                    "description": "the belief"
+                },
+                "rules_out": {
+                    "type": "string",
+                    "description": "the option or warning it sets aside"
+                },
+                "direct_tests": {
+                    "type": "array",
+                    "description": "each {recording: index as in "
+                    "sim.fit(traj_idxs=...), what: what it showed}",
+                    "items": {
+                        "type": "object"
+                    },
+                },
+                "what_varied": {
+                    "type":
+                    "string",
+                    "description":
+                    "what differed between those tests; say nothing "
+                    "varied if so"
+                },
+                "rival": {
+                    "type": "string",
+                    "description": "another explanation of the same evidence"
+                },
+                "next_experiment": {
+                    "type":
+                    "string",
+                    "description":
+                    "the cheapest run that separates the claim from the "
+                    "rival, real or rehearsed"
+                },
+                "predictions": {
+                    "type":
+                    "object",
+                    "description":
+                    "{claim: what it shows if the claim "
+                    "holds, rival: what it shows if the rival does}",
+                },
+            },
+            "required": [
+                "claim", "rules_out", "direct_tests", "what_varied", "rival",
+                "next_experiment", "predictions"
+            ],
+        })
+    async def claims_record(args: Dict[str, Any]) -> Dict[str, Any]:
+        ended = _ended()
+        if ended is not None:
+            return ended
+        if ctx.claim_check is None or ctx.recording_count is None:
+            return _error_result("No claim check runs here." + _footer())
+        ledger = session.observe().ledger
+        accepted, reply = ctx.claim_check.record(
+            args,
+            recordings=ctx.recording_count(),
+            level=ledger.level_index,
+            resets=ledger.level_resets,
+            **_claim_position())
+        return (_text_result if accepted else _error_result)(reply + _footer())
+
+    @tool(
+        "claims_resolve",
+        "Close a claim record with what its experiment showed. Free.", {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "integer",
+                    "description": "the record"
+                },
+                "verdict": {
+                    "type": "string",
+                    "description": "supported, refuted, unresolved or not_run"
+                },
+                "result": {
+                    "type":
+                    "string",
+                    "description":
+                    "what the experiment showed, or why it "
+                    "did not run"
+                },
+            },
+            "required": ["id", "verdict", "result"],
+        })
+    async def claims_resolve(args: Dict[str, Any]) -> Dict[str, Any]:
+        ended = _ended()
+        if ended is not None:
+            return ended
+        if ctx.claim_check is None:
+            return _error_result("No claim check runs here." + _footer())
+        closed, reply = ctx.claim_check.resolve(args, **_claim_position())
+        return (_text_result if closed else _error_result)(reply + _footer())
+
     all_tools = {
+        "claims_record": claims_record,
+        "claims_resolve": claims_resolve,
         "env_run_policy": env_run_policy,
         "env_observe": env_observe,
         "env_step": env_step,

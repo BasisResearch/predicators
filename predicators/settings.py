@@ -165,6 +165,26 @@ class GlobalSettings:
     # breaking ties. Round 29's Domino seed 1 pushed at P-hat 0.81 over a
     # plan near 0.93 with one more blue, to save a blue.
     continual_rehearsal_win_first = False
+    # Whether a skill request on a training level that has been reset and
+    # not won waits as one on a test level does: for a loaded (and, where
+    # the arm asks, fitted) model and for a rehearsal on the joint belief
+    # from the current observation. Raw control waits for the model. The
+    # first attempt stays free, since a model needs a recording; no P-hat
+    # is asked for, so an experiment passes once rehearsed. Round 32's
+    # Bridge seed 2 reset nine times, spent its 20,000 steps on one level
+    # and never wrote a model. Needs continual_require_model_on_test and
+    # continual_rehearsal_gate.
+    continual_practise_after_reset = False
+    # Whether skill requests wait, at set points, for a record of the
+    # belief the next step leans on (predicators/agent_sdk/tools/
+    # claim_check.py): at each reset of a training level from
+    # continual_claim_check_resets on, once a training level when a
+    # rehearsal reaches continual_claim_check_win_p_hat, and once a test
+    # level when the agent acts below continual_claim_check_low_p_hat.
+    continual_claim_check = False
+    continual_claim_check_resets = 2
+    continual_claim_check_win_p_hat = 0.5
+    continual_claim_check_low_p_hat = 0.75
     # Whether an episode that ends (win or game over) while bodies are
     # still moving keeps recording until they come to rest, up to
     # ``continual_record_until_rest_max_steps`` actions, with the robot

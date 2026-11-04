@@ -16,11 +16,13 @@ from predicators import observation_noise, utils
 from predicators.agent_sdk.belief_probe import BeliefProbe
 from predicators.agent_sdk.play_prompts import build_model_contract, \
     build_play_query, build_play_system_prompt, render_data_status
+from predicators.agent_sdk.tools.claim_check import ClaimCheck
 from predicators.agent_sdk.tools.context import LiveRehearsal, ToolContext, \
     mark_notes_shown
-from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES, \
-    PRIMITIVE_TOOL_NAMES, PlayState, build_continual_tools, context_status, \
-    format_observation, parse_plan_lines, play_tool_names
+from predicators.agent_sdk.tools.continual_tools import \
+    ALL_CONTINUAL_TOOL_NAMES, CONTINUAL_TOOL_NAMES, PRIMITIVE_TOOL_NAMES, \
+    PlayState, build_continual_tools, context_status, format_observation, \
+    parse_plan_lines, play_tool_names
 from predicators.approaches import create_approach
 from predicators.approaches.agent_continual_approach import \
     AgentContinualModelFreeApproach
@@ -900,6 +902,119 @@ def test_rehearsal_gate_waits_for_a_joint_rehearsal_of_the_request(
         ctx.rehearsal_gate = lambda: False
         assert not refused("skills_invoke", skill=line)
         ctx.rehearsal_gate = None
+
+    driver.body = body
+    ContinualRun(env, approach, driver).run()
+
+
+def test_a_reset_training_level_waits_as_a_test_level_does(
+        tmp_path: Any) -> None:
+    """Under the practise gate a skill request on a reset training level needs
+    the model and a rehearsal, raw control needs the model, and the refusals
+    charge nothing; the first attempt is free, and a low P-hat passes."""
+    env, approach, ctx = _setup(tmp_path)
+    plan = _oracle_plan_text(approach, env.get_train_tasks()[0].task)
+    line = plan.splitlines()[0]
+    driver = _Driver()
+
+    def body(session: ProtocolSession) -> None:
+        tools = build_continual_tools(ctx,
+                                      session,
+                                      PlayState(),
+                                      save_render=lambda tag: None,
+                                      tool_names=ALL_CONTINUAL_TOOL_NAMES)
+        ready = [False]
+
+        def practising() -> bool:
+            return session.observe().ledger.level_resets >= 1
+
+        def skill_gate() -> Optional[str]:
+            return "Write a model." if practising() and not ready[0] else None
+
+        ctx.practise_gate = practising
+        ctx.skill_gate = skill_gate
+        ctx.live_rehearsals.clear()
+        out = _call(tools, "skills_invoke", skill=line)
+        assert "rehearse this" not in out and "Write a model" not in out
+        assert session.observe().ledger.level_steps > 0
+        _call(tools, "env_reset")
+        steps = session.observe().ledger.run_steps
+        ctx.current_observation = session.observe().frame
+        action = [0.0] * session.action_space.shape[0]
+        for out in (_call(tools, "skills_invoke",
+                          skill=line), _call(tools, "env_step",
+                                             action=action)):
+            assert "Write a model." in out and "Nothing was charged" in out
+        ready[0] = True
+        out = _call(tools, "skills_invoke", skill=line)
+        assert "reset without a win: rehearse this" in out
+        assert session.observe().ledger.run_steps == steps
+        ctx.live_rehearsals.append(
+            LiveRehearsal(ctx.current_observation, plan, 0.0))
+        out = _call(tools, "skills_invoke", skill=line)
+        assert "rehearse this" not in out
+        assert session.observe().ledger.run_steps > steps
+        ctx.practise_gate = None
+        ctx.skill_gate = None
+
+    driver.body = body
+    ContinualRun(env, approach, driver).run()
+
+
+def test_claim_check_holds_a_request_until_a_record_closes(
+        tmp_path: Any) -> None:
+    """A due claim check refuses a skill request for nothing; a record lets it
+    through; on a test level an open record holds the step."""
+    env, approach, ctx = _setup(tmp_path, continual_claim_check_resets=1)
+    line = _oracle_plan_text(approach,
+                             env.get_train_tasks()[0].task).splitlines()[0]
+    driver = _Driver()
+    record = {
+        "claim": "c",
+        "rules_out": "r",
+        "direct_tests": [{
+            "recording": 0,
+            "what": "w"
+        }],
+        "what_varied": "nothing",
+        "rival": "v",
+        "next_experiment": "e",
+        "predictions": {
+            "claim": "a",
+            "rival": "b"
+        },
+    }
+
+    def body(session: ProtocolSession) -> None:
+        tools = build_continual_tools(ctx,
+                                      session,
+                                      PlayState(),
+                                      save_render=lambda tag: None,
+                                      tool_names=ALL_CONTINUAL_TOOL_NAMES)
+        out = _call(tools, "claims_record", **record)
+        assert out.startswith("ERROR") and "No claim check runs" in out
+        ctx.claim_check = ClaimCheck()
+        ctx.recording_count = lambda: 1
+        ctx.live_rehearsals.clear()
+        _call(tools, "env_reset")
+        steps = session.observe().ledger.run_steps
+        out = _call(tools, "skills_invoke", skill=line)
+        assert "Claim check:" in out and "Nothing was charged" in out
+        out = _call(tools, "skills_execute_plan", plan=line)
+        assert "Claim check:" in out
+        assert session.observe().ledger.run_steps == steps
+        assert "Recorded as 0" in _call(tools, "claims_record", **record)
+        out = _call(tools, "skills_invoke", skill=line)
+        assert "Claim check:" not in out
+        assert session.observe().ledger.run_steps > steps
+        out = _call(tools,
+                    "claims_resolve",
+                    id=0,
+                    verdict="refuted",
+                    result="x")
+        assert "resolved" in out
+        ctx.claim_check = None
+        ctx.recording_count = None
 
     driver.body = body
     ContinualRun(env, approach, driver).run()
