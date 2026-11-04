@@ -43,6 +43,10 @@ TOOL_BLURBS = {
     "skills_execute_plan":
     "a plan, one line per skill, executed in order; stops at a failed "
     "skill, a divergence (unless told not to), a WIN or a GAME_OVER.",
+    "claims_record":
+    "the belief a step leans on, when a claim check asks for it. Free.",
+    "claims_resolve":
+    "closes a claim record with what its experiment showed. Free.",
     "run_python":
     "code in the sandbox with the `sim` probe over your model files "
     "(`sim.fit`, `sim.residuals`, `sim.run`, `sim.refine`, ...). Free.",
@@ -275,6 +279,15 @@ def build_play_system_prompt(tool_names: Sequence[str],
                         "play_system",
                         "rehearsal_game_over_gate",
                         share=f"{CFG.continual_rehearsal_game_over_gate:.0%}"))
+        if CFG.continual_practise_after_reset and joint:
+            sections.append(render("play_system", "practise_after_reset"))
+        if CFG.continual_claim_check:
+            sections.append(
+                render("play_system",
+                       "claim_check",
+                       resets=str(CFG.continual_claim_check_resets),
+                       win=f"{CFG.continual_claim_check_win_p_hat:.2f}",
+                       low=f"{CFG.continual_claim_check_low_p_hat:.2f}"))
         if CFG.continual_predictive_check and joint:
             sections.append(
                 render(
