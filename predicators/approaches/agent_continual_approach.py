@@ -39,9 +39,10 @@ from predicators.agent_sdk.fit_status import format_fit_status
 from predicators.agent_sdk.predictive_check import MAX_INFLATION
 from predicators.agent_sdk.preflight_audit import PreflightAudit
 from predicators.agent_sdk.sandbox_setup import ReferenceFiles
+from predicators.agent_sdk.tools.claim_check import ClaimCheck
 from predicators.agent_sdk.tools.context import mark_notes_shown
-from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES, \
-    play_tool_names
+from predicators.agent_sdk.tools.continual_tools import CLAIM_TOOL_NAMES, \
+    CONTINUAL_TOOL_NAMES, PRACTISE_HEAD, play_tool_names
 from predicators.agent_sdk.tools.exploration import ProbeSurface
 from predicators.agent_sdk.tools.sandbox_guard import \
     _screen_text_for_sandbox_escape
@@ -154,7 +155,8 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
     # -- The arm's declarations -------------------------------------------
 
     def _continual_tool_names(self) -> List[str]:
-        return ["run_python"] + play_tool_names(CONTINUAL_TOOL_NAMES)
+        claims = CLAIM_TOOL_NAMES if CFG.continual_claim_check else []
+        return ["run_python"] + play_tool_names(CONTINUAL_TOOL_NAMES) + claims
 
     def _resolve_kept_names(self) -> Optional[FrozenSet[str]]:
         """No env predicate by default under the protocol; the CFG allowlist
@@ -352,6 +354,12 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
                                                 trajectories)
                           if CFG.continual_require_model_on_test else None)
         ctx.live_rehearsals.clear()
+        ctx.practise_gate = (self._make_practise_gate(session)
+                             if CFG.continual_practise_after_reset else None)
+        ctx.claim_check = (ClaimCheck(
+            os.path.join(self._get_log_dir(), "claims.jsonl"))
+                           if CFG.continual_claim_check else None)
+        ctx.recording_count = lambda: len(self._get_all_trajectories())
         # The gate asks for a joint rehearsal, so it needs joint draws.
         ctx.rehearsal_gate = (
             self._make_rehearsal_gate(session)
@@ -533,21 +541,47 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
     def _make_skill_gate(self, session: ProtocolSession, simulator_file: str,
                          trajectories: List[LowLevelTrajectory]) -> Any:
         """The ``ToolContext.skill_gate`` of this round under
-        ``continual_require_model_on_test``: on a test level the skill
-        tools refuse until :meth:`_model_readiness` is satisfied; on a
-        train level (evidence collection) and once the level is over
-        they never refuse."""
+        ``continual_require_model_on_test``: on a test level, and under
+        ``continual_practise_after_reset`` on a reset train level, the
+        skill tools refuse until :meth:`_model_readiness` is satisfied;
+        on another train level (evidence collection) and once the level
+        is over they never refuse."""
+        practising = self._make_practise_gate(session)
 
         def gate() -> Optional[str]:
             try:
                 split = session.observe().level.split
             except EpisodeOver:
                 return None
-            if split != "test":
-                return None
-            return self._model_readiness(simulator_file, trajectories)
+            if split == "test":
+                return self._model_readiness(simulator_file, trajectories)
+            if practising():
+                return self._model_readiness(simulator_file, trajectories,
+                                             PRACTISE_HEAD)
+            return None
 
         return gate
+
+    @staticmethod
+    def _make_practise_gate(session: ProtocolSession) -> Any:
+        """The ``ToolContext.practise_gate`` of this round: under
+        ``continual_practise_after_reset``, whether the level in progress is a
+        train level the agent has reset.
+
+        A won level is over, so a reset level in progress has no win;
+        the first attempt stays free, since a model needs a recording.
+        """
+
+        def applies() -> bool:
+            if not CFG.continual_practise_after_reset:
+                return False
+            try:
+                obs = session.observe()
+            except EpisodeOver:
+                return False
+            return obs.level.split == "train" and obs.ledger.level_resets >= 1
+
+        return applies
 
     @staticmethod
     def _make_rehearsal_gate(session: ProtocolSession) -> Any:
@@ -688,9 +722,10 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         return fitted, belief.noise_scale * self._predictive_factor(
             belief, fitted)
 
-    def _model_readiness(
-            self, simulator_file: str,
-            trajectories: List[LowLevelTrajectory]) -> Optional[str]:
+    def _model_readiness(self,
+                         simulator_file: str,
+                         trajectories: List[LowLevelTrajectory],
+                         level_head: str = "Test level:") -> Optional[str]:
         """Why the sandbox's ``simulator.py`` could not be deployed right now,
         or None when it could.
 
@@ -705,7 +740,7 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         are cached by content digest so a sweep of ``skills_invoke``
         calls execs the file once.
         """
-        head = "Test level: this arm acts through its model. "
+        head = f"{level_head} this arm acts through its model. "
         if not os.path.isfile(simulator_file):
             return (head + "Write `./simulator.py` (RESIDUAL_ENV with "
                     "AGENT_PARAM_SPECS and RESIDUAL_FEATURES) in run_python "
