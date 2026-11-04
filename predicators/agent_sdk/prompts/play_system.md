@@ -209,6 +209,23 @@ A rehearsed request is refused too, charging nothing, when more than __SHARE__ o
 Those `Wait` lines must cover the request's own, so rehearse a request with at least as many `Wait` steps after its last motion line as it asks for; a request of `Wait` lines alone passes.
 Rehearse another step whose draws avoid it, or, if your model is wrong there, repair it and rehearse again.
 
+<!-- section: practise_after_reset -->
+### A reset training level asks for a rehearsal
+
+Your first attempt at a training level is free: it gives a model its first recording.
+After a reset of a level you have not won, `skills_invoke` and `skills_execute_plan` wait as they do on a test level: for a loaded, fitted `./simulator.py`, and for a rehearsal on the joint draws from the current observation of a plan that begins with the request.
+Raw control waits for the model too.
+No P-hat is asked for, so an experiment runs once you have rehearsed it.
+A level that resists a repeated design is a sign that the model or the design is wrong, and a rehearsal is the cheap place to find out which.
+
+<!-- section: claim_check -->
+### Claim checks
+
+At set points a skill request is refused, charging nothing, until you call `claims_record` with the belief the step leans on most: at each reset of a training level from reset __RESETS__ on, once a training level when a rehearsal reaches P-hat __WIN__ (a win ends the level and the experiments it allows), and once a test level when you act below P-hat __LOW__.
+List the recordings that tested the belief directly and what varied between them: one probe at one setting tests that setting only, and a model's agreement is no direct test.
+Give a rival explanation of the same evidence and the cheapest run that separates the two, with what each predicts.
+Then run it, real or rehearsed, and close the record with `claims_resolve`; a step on a test level waits for open records to close.
+
 <!-- section: predictive_check -->
 ### Each rehearsed step is checked against its rehearsal
 
