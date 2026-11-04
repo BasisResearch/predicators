@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, FrozenSet, Iterator, List, Optional, \
     Set, Tuple
 
 from predicators import utils
+from predicators.agent_sdk.tools.claim_check import ClaimCheck
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
 from predicators.structs import CausalProcess, LowLevelTrajectory, \
@@ -125,6 +126,14 @@ class ToolContext:
     # skill requests must first be rehearsed on the joint belief from the
     # current observation (a test level), or None when they never must.
     rehearsal_gate: Optional[Callable[[], bool]] = None
+    # Installed by the model arm under continual_practise_after_reset:
+    # whether the level in progress is a training level with a reset and
+    # no win, where skill requests wait as they do on a test level.
+    practise_gate: Optional[Callable[[], bool]] = None
+    # Installed by the model arm under continual_claim_check, with how
+    # many recordings a record may cite.
+    claim_check: Optional[ClaimCheck] = None
+    recording_count: Optional[Callable[[], int]] = None
     # The joint-belief rehearsals run from the live observation this
     # session, newest last: what the rehearsal gate checks a request
     # against, and what the predictive check scores its outcome on.
