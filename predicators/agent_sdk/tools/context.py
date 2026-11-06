@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, FrozenSet, Iterator, List, Optional, \
     Set, Tuple
 
 from predicators import utils
+from predicators.agent_sdk.speed_support import RecordedSpeeds, SwitchFeatures
 from predicators.agent_sdk.tools.claim_check import ClaimCheck
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
@@ -157,6 +158,11 @@ class ToolContext:
     # recordings.
     recorded_ranges_provider: Optional[Callable[[], Optional[Dict[Tuple[
         str, str], Tuple[float, float]]]]] = None
+    # Installed with it under continual_rehearsal_speed_note: the switch
+    # features the recordings show and each body type's top speed under each
+    # switch pattern, or None without recordings.
+    recorded_speeds_provider: Optional[Callable[[], Optional[Tuple[
+        SwitchFeatures, RecordedSpeeds]]]] = None
     # The canonical fit's reach-check reminder (continual_fit_reach_check):
     # the scored features whose replays at the fitted values stop short of
     # how far they went in the recordings, or None when the fit found none
