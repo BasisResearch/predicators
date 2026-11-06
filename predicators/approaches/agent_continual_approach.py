@@ -39,6 +39,8 @@ from predicators.agent_sdk.fit_status import format_fit_status
 from predicators.agent_sdk.predictive_check import MAX_INFLATION
 from predicators.agent_sdk.preflight_audit import PreflightAudit
 from predicators.agent_sdk.sandbox_setup import ReferenceFiles
+from predicators.agent_sdk.speed_support import RecordedSpeeds, SwitchFeatures, \
+    recorded_speeds, scored_bodies, switch_features
 from predicators.agent_sdk.tools.claim_check import ClaimCheck
 from predicators.agent_sdk.tools.context import mark_notes_shown
 from predicators.agent_sdk.tools.continual_tools import CLAIM_TOOL_NAMES, \
@@ -373,6 +375,9 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         ctx.feature_width_provider = self._feature_widths if check else None
         ctx.recorded_ranges_provider = (self._recorded_ranges
                                         if check else None)
+        ctx.recorded_speeds_provider = (
+            self._recorded_speeds
+            if check and CFG.continual_rehearsal_speed_note else None)
         ctx.prediction_basis_provider = (self._prediction_basis
                                          if check else None)
         ctx.reach_note_provider = (self._reach_note
@@ -526,6 +531,7 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         ctx.scored_features_provider = None
         ctx.feature_width_provider = None
         ctx.recorded_ranges_provider = None
+        ctx.recorded_speeds_provider = None
         ctx.prediction_basis_provider = None
         ctx.reach_note_provider = None
         ctx.bound_note_provider = None
@@ -635,6 +641,27 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
                                                             max(hi, value))
         setattr(self, "_recorded_range_cache", (key, ranges))
         return ranges
+
+    def _recorded_speeds(
+            self) -> Optional[Tuple[SwitchFeatures, RecordedSpeeds]]:
+        """The switch features the recordings show and each scored body type's
+        top speed under each switch pattern.
+
+        Cached per scored set and recording count.
+        """
+        features = self._scored_features()
+        if not features or not self._fit_trajectories:
+            return None
+        key = (tuple(sorted((t, tuple(f)) for t, f in features.items())),
+               sum(len(traj.states) for traj in self._fit_trajectories))
+        cached = getattr(self, "_recorded_speed_cache", None)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        recordings = [traj.states for traj in self._fit_trajectories]
+        switches = switch_features(recordings)
+        speeds = recorded_speeds(recordings, scored_bodies(features), switches)
+        setattr(self, "_recorded_speed_cache", (key, (switches, speeds)))
+        return switches, speeds
 
     def _reach_note(self) -> Optional[str]:
         """The reach check of the canonical fit, when that fit ran on
