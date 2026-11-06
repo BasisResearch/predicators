@@ -201,6 +201,14 @@ class GlobalSettings:
     # draws' spread (a lift law used above any recorded height). Needs
     # continual_predictive_check, which installs the scored features.
     continual_rehearsal_support_note = False
+    # Whether a joint rehearsal's report names the scored bodies its rollout
+    # from the belief mean moves faster than any recording shows them moving
+    # under the same switch pattern. Round fixes_r33's Fan seed 3 braked its
+    # ball at about 0.14 m/s with one fan on, where the recordings with that
+    # fan alone stayed near 0.06 m/s, and every position stayed inside the
+    # recorded range until the ball left the deck. Needs
+    # continual_predictive_check, which installs the scored features.
+    continual_rehearsal_speed_note = False
     # Whether a fit report compares how far each scored body goes in the
     # segments the fit kept with the replays at the fitted values, and
     # names the features whose replays stop short of a recorded highest or
