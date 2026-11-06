@@ -54,6 +54,9 @@ APPROACHES:
       # A rehearsal names the scored features its most likely rollout takes
       # past the range the recordings show.
       continual_rehearsal_support_note: true
+      # It also names the scored bodies that rollout moves faster than any
+      # recording shows under the same switches.
+      continual_rehearsal_speed_note: true
       # A fit report names the scored features whose replays at the fitted
       # values stop short of how far they went in the recordings, and a
       # rehearsal of that model repeats it.
