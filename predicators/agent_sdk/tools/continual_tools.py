@@ -688,6 +688,108 @@ def build_continual_tools(
                 "Nothing was charged." + _footer())
         return None
 
+    def _scene_moving() -> bool:
+        """Whether the belief sees a body moving (the velocities
+        ``observation_belief.with_motion`` records)."""
+        sim_state = getattr(session.observe().frame, "simulator_state", None)
+        if not isinstance(sim_state, dict):
+            return False
+        velocities = sim_state.get("body_velocities")
+        return isinstance(velocities, dict) and any(
+            any(linear) for linear, _ in velocities.values())
+
+    def _lost_draws(match: _RehearsalMatch) -> int:
+        """The draws of the match's rehearsal lost at its next line or
+        later."""
+        return sum(line is not None and line >= match.start
+                   for line in match.rehearsal.lost_lines)
+
+    def _lost_waiting() -> Optional[int]:
+        """The lost draws of the newest rehearsal of Wait lines alone from the
+        current observation, or None without one."""
+        current = session.observe().frame
+        for rehearsal in reversed(ctx.live_rehearsals):
+            if not states_close(rehearsal.observation, current):
+                continue
+            try:
+                rehearsed = parse_plan_lines(rehearsal.plan_text, ctx,
+                                             _level_task())
+            except ValueError:
+                continue
+            if rehearsed and _motion_lines(rehearsed) == 0:
+                return sum(line is not None for line in rehearsal.lost_lines)
+        return None
+
+    def _safer_than_waiting(match: Optional[_RehearsalMatch]) -> bool:
+        """Whether the scene moves and the request loses fewer draws than doing
+        nothing: then acting is the safer choice."""
+        waiting = _lost_waiting()
+        return (match is not None and waiting is not None and _scene_moving()
+                and _lost_draws(match) < waiting)
+
+    def _unsafe_plan(
+            parsed: List[Tuple[_Option, Set[GroundAtom], Set[GroundAtom]]],
+            match: Optional[_RehearsalMatch]) -> Optional[Dict[str, Any]]:
+        """Under ``continual_rehearsal_safe_plan``, while the rehearsal gate
+        applies: a refusal that charges nothing when a draw of the request's
+        rehearsal ends the episode in GAME_OVER at any later line of its plan.
+
+        A request of Wait lines alone commands no motion and passes.
+        """
+        if (not CFG.continual_rehearsal_safe_plan or match is None
+                or ctx.rehearsal_gate is None or not ctx.rehearsal_gate()
+                or _motion_lines(parsed) == 0):
+            return None
+        lost = _lost_draws(match)
+        if lost == 0 or _safer_than_waiting(match):
+            return None
+        return _error_result(
+            f"Test level: {lost} of the {len(match.rehearsal.lost_lines)} "
+            "draws of this plan's rehearsal end the episode in GAME_OVER, "
+            "and a GAME_OVER ends a test level. A lost draw is a world the "
+            "data still allow. Find a plan no draw loses, or settle what "
+            "separates the lost draws: repair the model if it is wrong "
+            "there, or collect data that rules their parameters out. While "
+            "the scene moves, a plan that loses fewer draws than a rehearsal "
+            "of Wait lines alone passes. Nothing was charged." + _footer())
+
+    still_refused: Dict[str, int] = {}
+
+    def _moving_start(
+        parsed: List[Tuple[_Option, Set[GroundAtom], Set[GroundAtom]]],
+        match: Optional[_RehearsalMatch],
+        continuing: Optional[_RehearsalMatch],
+    ) -> Optional[Dict[str, Any]]:
+        """Under ``continual_rehearsal_still_start``, while the rehearsal gate
+        applies: a refusal that charges nothing when a request starts a new
+        plan while the belief sees a body moving.
+
+        A request of Wait lines alone commands no motion and passes.
+        """
+        if (not CFG.continual_rehearsal_still_start
+                or ctx.rehearsal_gate is None or not ctx.rehearsal_gate()
+                or _motion_lines(parsed) == 0):
+            return None
+        if not _scene_moving():
+            still_refused.clear()
+            return None
+        if continuing is not None or _safer_than_waiting(match):
+            return None
+        steps = session.observe().ledger.run_steps
+        first = still_refused.setdefault("first", steps)
+        waited = steps - first
+        if waited >= CFG.continual_rehearsal_still_wait:
+            return None
+        return _error_result(
+            "Test level: a body is moving, so this new plan would start from "
+            "a speed estimated from noisy frames. Send Wait lines until the "
+            "scene rests, and rehearse the whole plan from rest. If waiting "
+            "itself is the danger, rehearse Wait lines alone from here: a "
+            "plan that loses fewer draws than they do passes. After "
+            f"{CFG.continual_rehearsal_still_wait} steps from this first "
+            f"refusal ({waited} so far), any plan passes, for a scene that "
+            "never rests. Nothing was charged." + _footer())
+
     def _unseen_notes(
             match: Optional[_RehearsalMatch]) -> Optional[Dict[str, Any]]:
         """Under ``continual_rehearsal_notes_gate``, while the rehearsal gate
@@ -1238,9 +1340,19 @@ def build_continual_tools(
                                  "skills_execute_plan for several." +
                                  _footer())
         match = _matching_rehearsal(parsed)
-        unrehearsed = _unrehearsed(parsed, match)
+        # Under the still start, the lines of a running plan go on the
+        # rehearsal that started it, from rest.
+        continuing = (_continuing_rehearsal(parsed)
+                      if CFG.continual_rehearsal_still_start else None)
+        unrehearsed = _unrehearsed(parsed, match or continuing)
         if unrehearsed is not None:
             return unrehearsed
+        moving = _moving_start(parsed, match, continuing)
+        if moving is not None:
+            return moving
+        unsafe = _unsafe_plan(parsed, match or continuing)
+        if unsafe is not None:
+            return unsafe
         risky = _risky(parsed, match)
         if risky is not None:
             return risky
@@ -1308,9 +1420,19 @@ def build_continual_tools(
         except ValueError as e:
             return _error_result(f"Could not parse the plan: {e}" + _footer())
         match = _matching_rehearsal(parsed)
-        unrehearsed = _unrehearsed(parsed, match)
+        # Under the still start, the lines of a running plan go on the
+        # rehearsal that started it, from rest.
+        continuing = (_continuing_rehearsal(parsed)
+                      if CFG.continual_rehearsal_still_start else None)
+        unrehearsed = _unrehearsed(parsed, match or continuing)
         if unrehearsed is not None:
             return unrehearsed
+        moving = _moving_start(parsed, match, continuing)
+        if moving is not None:
+            return moving
+        unsafe = _unsafe_plan(parsed, match or continuing)
+        if unsafe is not None:
+            return unsafe
         risky = _risky(parsed, match)
         if risky is not None:
             return risky
