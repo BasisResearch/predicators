@@ -143,6 +143,24 @@ class GlobalSettings:
     # request whose share is larger is refused, charging nothing. 0 lets
     # every rehearsed request through (the default).
     continual_rehearsal_game_over_gate = 0.0
+    # Whether the rehearsal gate on a test level also refuses, charging
+    # nothing, a request whose rehearsal has a draw that ends the episode
+    # in GAME_OVER at any later line of its plan. Unlike
+    # continual_rehearsal_game_over_gate this reads the whole plan: round
+    # fixes_r34's Fan seed 2 ran a plan with a loss in 1 draw of 16, and
+    # the real ball went off the edge. While the scene moves, a plan with
+    # fewer lost draws than a rehearsal of Wait lines alone passes.
+    continual_rehearsal_safe_plan = False
+    # Whether the rehearsal gate on a test level also refuses, charging
+    # nothing, a new plan while the belief sees a body moving: a rehearsal
+    # from rest has an exact start, and one from a moving body starts from
+    # a speed estimated from noisy frames. The lines of a plan already
+    # running pass, as does a plan with fewer lost draws than a rehearsal
+    # of Wait lines alone, and any plan once
+    # continual_rehearsal_still_wait steps have run since the first
+    # refusal, for a scene that never rests.
+    continual_rehearsal_still_start = False
+    continual_rehearsal_still_wait = 120
     # Whether a joint rehearsal's report also scores its rollout from the
     # belief mean, at the fit's point estimate (the values the planning
     # model runs at), with the task's evaluator as it scores a draw, and
@@ -408,6 +426,10 @@ class GlobalSettings:
     # draw around it), and a draw's settle keeps the velocity the draw
     # records. Off keeps the legacy handling. EMPIRIC from assets only.
     continual_belief_velocities = False
+    # Stage each body's recorded velocity again after a state restore's
+    # domain hook, which can clear it by repositioning the body. Off
+    # keeps the velocity the hook leaves. EMPIRIC from assets only.
+    continual_restage_velocities = False
     # The frames a moving body's velocity line is fitted over (all of
     # them, else their latest half; observation_belief.with_motion). A
     # count of its own, so the longer continual_belief_window a resting
