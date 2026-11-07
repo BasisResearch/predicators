@@ -2000,6 +2000,8 @@ class PyBulletEnv(BaseEnv):
         # 5) Subclass-specific state always runs (idempotent and cheap).
         self._set_domain_specific_state(state)
         self.restore_model_state()
+        if CFG.continual_restage_velocities:
+            self._restage_velocities(state)
 
         # 6) Reconstruction check - only when we actually wrote something
         # kinematic. React by mismatch magnitude (see the threshold
@@ -2361,6 +2363,29 @@ class PyBulletEnv(BaseEnv):
             return p.getQuaternionFromEuler([roll, pitch, yaw])
         qx, qy, qz, qw = self._default_orn  # e.g. (0,0,0,1)
         return (qx, qy, qz, qw)
+
+    def _restage_velocities(self, state: State) -> None:
+        """Give each body the velocity ``state`` records again.
+
+        A ``_set_domain_specific_state`` that repositions a body clears
+        its velocity (``resetBasePositionAndOrientation`` does), so a
+        moving body would start at rest. A state that records no
+        velocities leaves the live ones alone.
+        """
+        sim_state = getattr(state, "simulator_state", None)
+        if not isinstance(sim_state, dict) or \
+                not isinstance(sim_state.get("body_velocities"), dict):
+            return
+        for obj in self._objects:
+            if obj.type.name == "robot" or \
+                    obj.type.name in self._VIRTUAL_OBJECT_TYPES or \
+                    obj.id is None:
+                continue
+            linear, angular = self._staged_velocity(obj, state)
+            p.resetBaseVelocity(obj.id,
+                                linear,
+                                angular,
+                                physicsClientId=self._physics_client_id)
 
     def _staged_velocity(
         self, obj: Object, state: State
