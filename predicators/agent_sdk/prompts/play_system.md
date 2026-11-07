@@ -209,6 +209,18 @@ A rehearsed request is refused too, charging nothing, when more than __SHARE__ o
 Those `Wait` lines must cover the request's own, so rehearse a request with at least as many `Wait` steps after its last motion line as it asks for; a request of `Wait` lines alone passes.
 Rehearse another step whose draws avoid it, or, if your model is wrong there, repair it and rehearse again.
 
+<!-- section: rehearsal_safe_plan -->
+A rehearsed request is refused too, charging nothing, when any draw of its rehearsal ends the episode in GAME_OVER at any line of the plan: a lost draw is a world the data still allow, and a GAME_OVER ends a test level.
+Find a plan no draw loses, or settle what separates the lost draws: repair the model if it is wrong there, or collect data that rules their parameters out.
+While the scene moves, a plan that loses fewer draws than a rehearsal of `Wait` lines alone from the same observation passes, since doing nothing is then the larger risk.
+
+<!-- section: rehearsal_still_start -->
+Start a new plan only from rest: while the belief sees a body moving, a request that starts a new plan is refused, charging nothing, because a rehearsal from there starts from a speed estimated from noisy frames.
+Send `Wait` lines until the scene rests, and rehearse the whole plan from rest.
+Then send its lines in order with nothing in between: they run on that rehearsal, so they need no new one while the scene moves.
+If waiting itself is the danger, rehearse `Wait` lines alone from the current observation; a plan that loses fewer draws than they do passes.
+After __WAIT__ steps from the first refusal any plan passes, for a scene that never rests.
+
 <!-- section: practise_after_reset -->
 ### A reset training level asks for a rehearsal
 

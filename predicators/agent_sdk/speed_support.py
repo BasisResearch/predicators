@@ -1,9 +1,9 @@
 """How fast the recordings show each body move under each switch pattern.
 
 A body can go faster in a rollout than any recording shows it going
-under the same switches, even when it stays inside the recorded range
-of positions: a model's speed terms are then tested only by the
-recordings that had other switches on.
+under the same switches, even when it stays inside the recorded range of
+positions: a model's speed terms are then tested only by the recordings
+that had other switches on.
 """
 import math
 from typing import Dict, FrozenSet, Iterator, List, Sequence, Set, Tuple
@@ -51,10 +51,10 @@ def switch_features(trajectories: Sequence[Sequence[State]]) -> SwitchFeatures:
 
 def switch_pattern(state: State, switches: SwitchFeatures) -> Pattern:
     """The ``object.feature`` switches that are on in ``state``."""
-    return frozenset(f"{obj.name}.{feature}" for obj in state
-                     for type_name, feature in switches
-                     if type_name == obj.type.name
-                     and float(state.get(obj, feature)) > 0.5)
+    return frozenset(
+        f"{obj.name}.{feature}" for obj in state
+        for type_name, feature in switches
+        if type_name == obj.type.name and float(state.get(obj, feature)) > 0.5)
 
 
 def window_speeds(
