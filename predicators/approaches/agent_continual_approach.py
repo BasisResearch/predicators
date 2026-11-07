@@ -39,8 +39,8 @@ from predicators.agent_sdk.fit_status import format_fit_status
 from predicators.agent_sdk.predictive_check import MAX_INFLATION
 from predicators.agent_sdk.preflight_audit import PreflightAudit
 from predicators.agent_sdk.sandbox_setup import ReferenceFiles
-from predicators.agent_sdk.speed_support import RecordedSpeeds, SwitchFeatures, \
-    recorded_speeds, scored_bodies, switch_features
+from predicators.agent_sdk.speed_support import RecordedSpeeds, \
+    SwitchFeatures, recorded_speeds, scored_bodies, switch_features
 from predicators.agent_sdk.tools.claim_check import ClaimCheck
 from predicators.agent_sdk.tools.context import mark_notes_shown
 from predicators.agent_sdk.tools.continual_tools import CLAIM_TOOL_NAMES, \
@@ -375,9 +375,9 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         ctx.feature_width_provider = self._feature_widths if check else None
         ctx.recorded_ranges_provider = (self._recorded_ranges
                                         if check else None)
-        ctx.recorded_speeds_provider = (
-            self._recorded_speeds
-            if check and CFG.continual_rehearsal_speed_note else None)
+        ctx.recorded_speeds_provider = (self._recorded_speeds if check
+                                        and CFG.continual_rehearsal_speed_note
+                                        else None)
         ctx.prediction_basis_provider = (self._prediction_basis
                                          if check else None)
         ctx.reach_note_provider = (self._reach_note
