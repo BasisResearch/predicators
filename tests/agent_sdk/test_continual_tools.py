@@ -1,6 +1,7 @@
 """Tests for the continual-protocol play tools over a real session on the cover
 env, driven directly (no SDK)."""
 import asyncio
+import dataclasses
 import glob
 import json
 import logging
@@ -1064,6 +1065,130 @@ def test_rehearsal_gate_lets_the_wait_lines_that_end_a_request_through(
         assert session.observe().ledger.level_steps == 0
         assert not refused(line + "\nWait()[25]\nWait()[5]")
         assert session.observe().ledger.level_steps > 0
+        ctx.rehearsal_gate = None
+
+    driver.body = body
+    ContinualRun(env, approach, driver).run()
+
+
+def _moving(frame: Any) -> Any:
+    """``frame`` with a body the belief sees moving."""
+    state = frame.copy()
+    state.simulator_state = {
+        "body_velocities": {
+            "block0": ((0.1, 0.0, 0.0), (0.0, 0.0, 0.0))
+        }
+    }
+    return state
+
+
+def test_the_safe_plan_gate_reads_the_whole_plan(tmp_path: Any) -> None:
+    """Under continual_rehearsal_safe_plan, a draw lost at any line of the plan
+    refuses the request, charging nothing; a plan no draw loses passes, and so
+    does a Wait request."""
+    env, approach, ctx = _setup(tmp_path)
+    ctx.options = set(ctx.options) | {_wait_option()}
+    lines = _oracle_plan_text(approach,
+                              env.get_train_tasks()[0].task).splitlines()
+    assert len(lines) >= 2
+    plan = lines[0] + "\n" + lines[1]
+    driver = _Driver()
+
+    def body(session: ProtocolSession) -> None:
+        utils.update_config({"continual_rehearsal_safe_plan": True})
+        ctx.rehearsal_gate = lambda: True
+        ctx.live_rehearsals.clear()
+        ctx.current_observation = session.observe().frame
+        tools = build_continual_tools(ctx,
+                                      session,
+                                      PlayState(),
+                                      save_render=lambda tag: None)
+
+        def refused(lost_lines: List[Optional[int]]) -> bool:
+            ctx.live_rehearsals.append(
+                LiveRehearsal(ctx.current_observation,
+                              plan,
+                              0.5,
+                              lost_lines=lost_lines))
+            out = _call(tools, "skills_invoke", skill=lines[0])
+            return ("draws of this plan's rehearsal end the episode" in out
+                    and "Nothing was charged" in out)
+
+        # One lost draw, on a line the request does not reach yet.
+        assert refused([1, None, None, None])
+        assert session.observe().ledger.level_steps == 0
+        assert "GAME_OVER" not in _call(tools,
+                                        "skills_execute_plan",
+                                        plan="Wait()[1]")
+        assert not refused([None] * 4)
+        assert session.observe().ledger.level_steps > 0
+        utils.update_config({"continual_rehearsal_safe_plan": False})
+        ctx.rehearsal_gate = None
+
+    driver.body = body
+    ContinualRun(env, approach, driver).run()
+
+
+def test_the_still_start_gate_waits_for_rest(tmp_path: Any,
+                                             monkeypatch: Any) -> None:
+    """Under continual_rehearsal_still_start, a new plan is refused while the
+    belief sees a body moving, unless Wait lines alone lose more draws, and any
+    plan passes after continual_rehearsal_still_wait steps."""
+    env, approach, ctx = _setup(tmp_path)
+    ctx.options = set(ctx.options) | {_wait_option()}
+    line = _oracle_plan_text(approach,
+                             env.get_train_tasks()[0].task).splitlines()[0]
+    driver = _Driver()
+
+    def body(session: ProtocolSession) -> None:
+        utils.update_config({
+            "continual_rehearsal_still_start": True,
+            "continual_rehearsal_safe_plan": True,
+            "continual_rehearsal_still_wait": 3,
+        })
+        ctx.rehearsal_gate = lambda: True
+        ctx.live_rehearsals.clear()
+        real_observe = session.observe
+
+        def observe() -> Any:
+            obs = real_observe()
+            return dataclasses.replace(obs, frame=_moving(obs.frame))
+
+        monkeypatch.setattr(session, "observe", observe)
+        ctx.current_observation = session.observe().frame
+        tools = build_continual_tools(ctx,
+                                      session,
+                                      PlayState(),
+                                      save_render=lambda tag: None)
+        ctx.live_rehearsals.append(
+            LiveRehearsal(ctx.current_observation,
+                          line,
+                          0.5,
+                          lost_lines=[None, 0]))
+
+        def request() -> str:
+            return _call(tools, "skills_invoke", skill=line)
+
+        out = request()
+        assert "a body is moving" in out and "Nothing was charged" in out
+        # Waiting loses every draw, this plan only one: it is the safer
+        # choice, under both gates.
+        ctx.live_rehearsals.insert(
+            0,
+            LiveRehearsal(ctx.current_observation,
+                          "Wait()[5]",
+                          0.0,
+                          lost_lines=[0, 0]))
+        assert session.observe().ledger.level_steps == 0
+        out = request()
+        assert "a body is moving" not in out
+        assert "draws of this plan's rehearsal" not in out
+        assert session.observe().ledger.level_steps > 0
+        utils.update_config({
+            "continual_rehearsal_still_start": False,
+            "continual_rehearsal_safe_plan": False,
+            "continual_rehearsal_still_wait": 120,
+        })
         ctx.rehearsal_gate = None
 
     driver.body = body

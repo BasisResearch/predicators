@@ -15,12 +15,11 @@ import numpy as np
 import pytest
 
 from predicators import utils
-from predicators.agent_sdk.speed_support import SPEED_WINDOW
 from predicators.agent_sdk.belief_probe import BeliefProbe, ProbeJointResult, \
     ProbeResult, _beyond_recordings, _faster_than_recorded, _line_states, \
-    _outcome_leads, \
-    _separating_ranges
+    _outcome_leads, _separating_ranges
 from predicators.agent_sdk.plan_execution import StepOutcome
+from predicators.agent_sdk.speed_support import SPEED_WINDOW
 from predicators.agent_sdk.tools.verdicts import task_evaluator
 from predicators.structs import Action, GroundAtom, LowLevelTrajectory, \
     Object, State, Task, TaskEvaluator, Type
