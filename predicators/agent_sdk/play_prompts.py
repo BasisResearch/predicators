@@ -279,6 +279,13 @@ def build_play_system_prompt(tool_names: Sequence[str],
                         "play_system",
                         "rehearsal_game_over_gate",
                         share=f"{CFG.continual_rehearsal_game_over_gate:.0%}"))
+            if CFG.continual_rehearsal_safe_plan:
+                sections.append(render("play_system", "rehearsal_safe_plan"))
+            if CFG.continual_rehearsal_still_start:
+                sections.append(
+                    render("play_system",
+                           "rehearsal_still_start",
+                           wait=str(CFG.continual_rehearsal_still_wait)))
         if CFG.continual_practise_after_reset and joint:
             sections.append(render("play_system", "practise_after_reset"))
         if CFG.continual_claim_check:
