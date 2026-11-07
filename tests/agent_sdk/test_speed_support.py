@@ -42,8 +42,7 @@ def test_scored_bodies_keeps_position_features():
 def test_switch_features_need_both_values_on_one_object():
     """A switch reads only 0 and 1, and some object shows both: a slot number
     that differs between objects is not one, nor is the robot's flag."""
-    assert switch_features([[_state(0.0, 0.0),
-                             _state(0.0, 1.0)]]) == _SWITCHES
+    assert switch_features([[_state(0.0, 0.0), _state(0.0, 1.0)]]) == _SWITCHES
     assert switch_features([[_state(0.0), _state(0.5)]]) == set()
 
 
@@ -73,5 +72,5 @@ def test_recorded_speeds_keep_the_top_speed_of_each_pattern():
     faster = [_state(0.02 * i) for i in range(length)]
     top = recorded_speeds([slow, fast, faster], _BODIES, _SWITCHES)
     assert top[("ball", frozenset())] == pytest.approx(0.02, abs=1e-5)
-    assert top[("ball",
-                frozenset({"fan_0.is_on"}))] == pytest.approx(0.05, abs=1e-5)
+    assert top[("ball", frozenset({"fan_0.is_on"}))] == pytest.approx(0.05,
+                                                                      abs=1e-5)
