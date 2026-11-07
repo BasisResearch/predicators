@@ -33,8 +33,8 @@ import logging
 import os
 import re
 import time
-from typing import TYPE_CHECKING, Any, Callable, Dict, FrozenSet, List, Optional, \
-    Sequence, Set, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, FrozenSet, List, \
+    Optional, Sequence, Set, Tuple, Union
 
 from predicators import utils
 from predicators.agent_sdk.config import RefinementConfig, ToolSurfaceConfig
@@ -688,8 +688,8 @@ def _faster_than_recorded(ctx: "ToolContext",
     for (name, pattern), (_gap, speed, record) in named:
         switched = ", ".join(sorted(pattern)) or "no switch"
         type_name = next(o.type.name for o in states[0] if o.name == name)
-        seen = (f"the top recorded speed is {record:.4g}"
-                if (type_name, pattern) in top else "no recording has this")
+        seen = (f"the top recorded speed is {record:.4g}" if
+                (type_name, pattern) in top else "no recording has this")
         parts.append(f"{name} at {speed:.4g} per step with {switched} on "
                      f"({seen})")
     return ("The rollout from the belief mean moves " + "; ".join(parts) +
