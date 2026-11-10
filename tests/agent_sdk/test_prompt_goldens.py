@@ -256,6 +256,27 @@ def test_rehearsal_gate_section_follows_the_flag(gate):
     utils.reset_config({})
 
 
+def test_game_over_gate_section_follows_the_flag():
+    """The rehearsal gate's section names the GAME_OVER share a test-level step
+    may risk exactly when that gate is on."""
+    base = {
+        "continual_rehearsal_gate": True,
+        "belief_joint_draws": 16,
+        "continual_uncertainty_decisions": True,
+    }
+    utils.reset_config(base)
+    text = play_prompts.build_play_system_prompt(["run_python"] +
+                                                 list(CONTINUAL_TOOL_NAMES))
+    assert "end the episode in GAME_OVER during the request" not in text
+    utils.reset_config({**base, "continual_rehearsal_game_over_gate": 0.25})
+    text = play_prompts.build_play_system_prompt(["run_python"] +
+                                                 list(CONTINUAL_TOOL_NAMES))
+    assert ("when more than 25% of its rehearsal's scored draws end the "
+            "episode in GAME_OVER during the request") in text
+    assert "Those `Wait` lines must cover the request's own" in text
+    utils.reset_config({})
+
+
 @pytest.mark.parametrize("check", [False, True])
 def test_predictive_check_section_follows_the_flag(check):
     """The system prompt describes the predictive check exactly when it is on

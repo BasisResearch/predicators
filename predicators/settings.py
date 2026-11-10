@@ -129,6 +129,13 @@ class GlobalSettings:
     # apart. The report also counts the draws that stopped at a failed
     # skill, so a step that runs in every draw reads as such.
     continual_rehearsal_game_over = False
+    # Under the rehearsal gate on a test level, the largest share of a
+    # request's rehearsal draws that may end the episode in GAME_OVER during
+    # the request, or during the Wait lines that directly follow it in the
+    # rehearsed plan (the scene keeps moving while the robot waits); a
+    # request whose share is larger is refused, charging nothing. 0 lets
+    # every rehearsed request through (the default).
+    continual_rehearsal_game_over_gate = 0.0
     # Whether a joint rehearsal's report names the scored features its
     # rollout from the belief mean drives past the range the recordings
     # show, by more than twice their declared observation noise: no
