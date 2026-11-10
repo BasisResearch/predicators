@@ -47,6 +47,8 @@ APPROACHES:
       # values stop short of how far they went in the recordings, and a
       # rehearsal of that model repeats it.
       continual_fit_reach_check: true
+      # give_up is refused on a training level, which can always be reset.
+      continual_refuse_training_give_up: true
   # Model-free: the same agent with the model-side machinery switched
   # off, so the two differ only in the model.
   mf_opus:
