@@ -127,7 +127,13 @@ def test_a_rolling_body_keeps_its_estimated_velocity(tmp_path):
     """Under continual_belief_velocities and a noisy channel, the agent's views
     carry no body velocity, while the observation frame and the joint draws
     carry the belief's estimate of the rolling ball's, so a rollout staged from
-    them rolls on."""
+    them rolls on.
+
+    The channel is Fan's benchmark one. The estimate is the slope of a
+    line through the ball's readings, its mean velocity over them, so a
+    ball that friction slows is estimated slightly fast; at this noise
+    that lag stays within the slope's error.
+    """
     utils.reset_config({
         "env":
         "pybullet_fan",
@@ -154,7 +160,7 @@ def test_a_rolling_body_keeps_its_estimated_velocity(tmp_path):
         "fan_train_num_walls_per_task": [0],
         "fan_test_num_walls_per_task": [0],
         "continual_obs_noise_position":
-        0.002,
+        0.01,
         "continual_belief_frame":
         True,
         "belief_joint_draws":

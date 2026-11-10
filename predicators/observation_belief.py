@@ -40,6 +40,7 @@ import numpy as np
 # SciPy exports ndtr and ndtri through compiled ufuncs.
 # pylint: disable=no-name-in-module
 from scipy.special import ndtr, ndtri
+from scipy.stats import chi2
 
 # pylint: enable=no-name-in-module
 from predicators import utils
@@ -373,34 +374,39 @@ def change_point_belief(
     return out
 
 
-# A body moves at the frame when the slope of its readings along some axis
-# is at least this many standard errors from zero (see with_motion).
+# A body moves at the frame when a line through its recent readings has a
+# slope at least this many standard errors from zero along some axis, and
+# its readings stray from that line no more than the declared noise allows
+# at this significance (see with_motion).
 _MOTION_Z = 2.5
+_LINE_FIT_P = 0.01
 _POSITION = ("x", "y", "z")
 
 
-def _velocity_fit(values: np.ndarray,
-                  sigmas: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+def _line_velocity(
+        values: np.ndarray,
+        sigmas: np.ndarray) -> Optional[Tuple[np.ndarray, np.ndarray]]:
     """Per column of ``values`` (one reading per step, oldest first), the
-    velocity at the latest step in units per step and its standard error under
-    the declared ``sigmas``: the derivative there of a least- squares
-    quadratic, which a body speeding up or slowing down at a steady rate leaves
-    unbiased (a line's slope is the window's mean velocity, behind the latest
-    one by half the window's speed-up, and choosing between the two by a test
-    of the curvature leaves the estimate's error well above the one either fit
-    states).
-
-    Fewer than four readings get the line's slope.
-    """
-    steps = np.arange(len(values), dtype=float)
-    degree = 2 if len(values) >= 4 else 1
-    design = np.stack([steps**k for k in range(degree + 1)], axis=1)
-    cov = np.linalg.inv(design.T @ design)
-    latest = np.array(
-        [k * steps[-1]**(k - 1) if k else 0.0 for k in range(degree + 1)])
-    velocity = latest @ cov @ design.T @ values
-    error = sigmas * np.sqrt(latest @ cov @ latest)
-    return velocity, error
+    slope of the least-squares line and its standard error under the
+    declared ``sigmas``, in units per step; None when no slope is
+    ``_MOTION_Z`` standard errors from zero or the readings stray from the
+    line by more than the noise explains (a chi-square test at
+    ``_LINE_FIT_P``): the body is at rest, or moves in a way no constant
+    velocity describes, such as bobbing or stopping."""
+    count = len(values)
+    if count < 3:
+        return None
+    centred = np.arange(count) - (count - 1) / 2.0
+    spread = float(np.sum(centred**2))
+    slope = centred @ (values - values.mean(axis=0)) / spread
+    error = sigmas / np.sqrt(spread)
+    if np.max(np.abs(slope) / error) < _MOTION_Z:
+        return None
+    residuals = values - values.mean(axis=0) - np.outer(centred, slope)
+    misfit = float(np.sum((residuals / sigmas)**2))
+    if chi2.sf(misfit, values.shape[1] * (count - 2)) <= _LINE_FIT_P:
+        return None
+    return slope, error
 
 
 def with_motion(belief: BeliefFrame, frames: Sequence[State],
@@ -409,15 +415,17 @@ def with_motion(belief: BeliefFrame, frames: Sequence[State],
 
     The frames record positions only, so a rollout staged from them
     starts every body at rest, and a body rolling or sliding at the
-    frame stops dead in the rehearsal. Along each of x, y and z, a fit
-    to a body's readings over ``frames`` (oldest first, one per step)
-    estimates its velocity at the latest frame, with the estimate's
-    standard error under the declared noise (:func:`_velocity_fit`). A
-    body whose window slope is ``_MOTION_Z`` standard errors from zero
-    along some axis is moving: the frame carries its estimate in
-    ``simulator_state["body_velocities"]`` (no angular velocity, since
-    no reading shows it, so a rolling body starts sliding), and
-    :func:`belief_draw` draws around it. Every other body stays at rest.
+    frame stops dead in the rehearsal. A body moves when a line through
+    its readings of x, y and z explains them within the declared noise
+    and has a slope away from zero (:func:`_line_velocity`): first over
+    all of ``frames`` (oldest first, one per step), else over their
+    latest half, for a body whose motion changed earlier. Its velocity
+    is that slope, with the slope's standard error. The frame carries
+    the estimate in ``simulator_state["body_velocities"]`` (no angular
+    velocity, since no reading shows it, so a rolling body starts
+    sliding), and :func:`belief_draw` draws around it. Every other body
+    stays at rest, including one that bobs or has just stopped, whose
+    velocity at the frame no line through its readings gives.
     """
     if not frames or seconds_per_step <= 0.0 or not isinstance(
             getattr(belief.frame, "simulator_state", None), dict):
@@ -437,14 +445,13 @@ def with_motion(belief: BeliefFrame, frames: Sequence[State],
             continue
         values = np.asarray(series)
         sigmas = np.array([belief.sigmas[k] for k in keys])
-        centred = np.arange(len(values)) - (len(values) - 1) / 2.0
-        slope = centred @ (values - values.mean(axis=0)) / np.sum(centred**2)
-        if np.max(np.abs(slope) * np.sqrt(np.sum(centred**2)) /
-                  sigmas) < _MOTION_Z:
-            continue
-        velocity, error = _velocity_fit(values, sigmas)
-        velocities[obj.name] = (velocity / seconds_per_step,
-                                error / seconds_per_step)
+        for span in (len(values), len(values) // 2):
+            fit = _line_velocity(values[-span:], sigmas)
+            if fit is not None:
+                velocity, error = fit
+                velocities[obj.name] = (velocity / seconds_per_step,
+                                        error / seconds_per_step)
+                break
     if not velocities:
         return belief
     frame = belief.frame.copy()
