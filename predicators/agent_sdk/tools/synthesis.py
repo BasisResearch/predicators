@@ -147,6 +147,33 @@ def _departure_lines(approach: Any, rollouts: Sequence[Any],
     return describe_departures(departures, num_dropped, origins)
 
 
+def _reach_lines(approach: Any, kept: Sequence[Any],
+                 traj_idxs: Optional[Sequence[int]],
+                 gaps: Sequence[Any]) -> List[str]:
+    """The fit report's reach check on ``gaps``, found on the ``kept``
+    segments, with each segment's recorded episode and steps."""
+    # pylint: disable=import-outside-toplevel
+    from predicators.code_sim_learning.reach import describe_reach
+    from predicators.code_sim_learning.trajectory_prep import segment_origins
+
+    # pylint: enable=import-outside-toplevel
+    if not gaps:
+        return []
+    recorded = approach._fit_trajectories  # pylint: disable=protected-access
+    indices = (list(traj_idxs) if traj_idxs is not None else list(
+        range(len(recorded))))
+    where = []
+    for segment, origin in zip(
+            kept, segment_origins([recorded[i].states for i in indices],
+                                  kept)):
+        if origin is None:
+            where.append("")
+        else:
+            where.append(f"recording {indices[origin[0]]}, steps "
+                         f"{origin[1] + 1}-{origin[1] + len(segment[1])}")
+    return describe_reach(gaps, where)
+
+
 @dataclasses.dataclass(frozen=True)
 class SynthesisToolkit:
     """What ``create_synthesis_tools`` builds for one synthesis session.
@@ -422,6 +449,7 @@ def create_synthesis_tools(
     from predicators.code_sim_learning.orchestrator import run_rollout_sysid
     from predicators.code_sim_learning.physical_sysid import \
         DEFAULT_NOISE_SIGMA
+    from predicators.code_sim_learning.reach import reach_gaps, reach_reminder
     from predicators.code_sim_learning.rollout_objective import \
         compute_rollout_sse, per_trajectory_rms
     from predicators.code_sim_learning.trajectory_prep import \
@@ -707,6 +735,25 @@ def create_synthesis_tools(
         applied = inference.selected_parameters
         ident_report = inference.parameter_diagnostics
         pre_sse, post_sse = outcome.pre_sse, outcome.post_sse
+        # How far each scored body goes in the segments the fit kept,
+        # against the replays at the fitted values.
+        reach_kept: List[Any] = []
+        reach_found: List[Any] = []
+        if CFG.continual_fit_reach_check:
+            kept_threshold = (CFG.code_sim_learning_rollout_trim_rms_factor *
+                              DEFAULT_NOISE_SIGMA)
+            reach_kept = ([
+                segment for segment, rms in zip(rollouts, outcome.traj_rms)
+                if rms <= kept_threshold
+            ] if outcome.traj_rms else list(rollouts))
+            reach_found = reach_gaps(fit_env,
+                                     reach_kept,
+                                     dict(fitted),
+                                     residual_features,
+                                     physical_names,
+                                     rules,
+                                     latent_init,
+                                     config=fit_config)
         if not exploratory:
             approach._apply_identified_physical_params(applied)  # pylint: disable=protected-access
             approach.note_carried_posterior(applied, ident_report)
@@ -734,7 +781,8 @@ def create_synthesis_tools(
                     physical_specs,
                     num_points=CFG.agent_plan_validation_physics_margin_points)
                               if outcome.belief is None else []),
-                belief=outcome.belief)
+                belief=outcome.belief,
+                reach=reach_reminder(reach_found))
         kept_at_init = sorted(n for n in physical_names
                               if applied[n] != fitted[n])
         # Like-for-like SSE headline: the % reduction is measured on the
@@ -836,6 +884,9 @@ def create_synthesis_tools(
             kind = "physical" if name in physical_names else "rule"
             lines.append(f"  {name:<28} [{kind:<8}] {init_val:.4f} -> "
                          f"{fit_val:.4f}  (delta={delta:+.4f}, {ppct:+.1f}%)")
+        reach = _reach_lines(approach, reach_kept, traj_idxs, reach_found)
+        if reach:
+            lines.extend(["", *reach])
 
         if outcome.belief is not None:
             lines.extend(["", *_format_parameter_belief(outcome.belief), ""])
