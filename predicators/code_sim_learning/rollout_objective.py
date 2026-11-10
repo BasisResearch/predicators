@@ -12,8 +12,8 @@ from __future__ import annotations
 import dataclasses
 import functools
 import logging
-from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, \
-    Tuple
+from typing import Any, Callable, Dict, Iterator, List, NamedTuple, Optional, \
+    Sequence, Tuple
 
 import numpy as np
 
@@ -158,17 +158,36 @@ def _huberize(residual: float, delta: float) -> float:
     return float(np.sign(residual) * np.sqrt(2.0 * delta * a - delta * delta))
 
 
+class StepResidual(NamedTuple):
+    """One scored feature at one step of a replay, as the per-step objective
+    compares it: the model's value, the recording's, and their residual (scaled
+    when the fit scales residuals, before the Huber cap).
+
+    ``step`` counts from 0: the state after the trajectory's first
+    action.
+    """
+    step: int
+    obj_name: str
+    feature: str
+    model: float
+    recorded: float
+    residual: float
+
+
 @dataclasses.dataclass(frozen=True)
 class _PointScorer:
     """How the objective scores one parameter point on a trajectory set.
 
     ``per_step_terms`` scores one trajectory on its own: its rollout,
-    per-step residuals and endpoint and onset summaries. Under interval
-    scoring (``tracks`` non-empty) the trajectories of one episode are
-    scored together from their ``rollout``s instead.
+    per-step residuals and endpoint and onset summaries, the residuals
+    taken from ``per_step_values``. Under interval scoring (``tracks``
+    non-empty) the trajectories of one episode are scored together from
+    their ``rollout``s instead.
     """
     rollout: Callable[[List[State], List[Action]],
                       Tuple[List[State], List[Dict[Any, Dict[str, Any]]]]]
+    per_step_values: Callable[[List[State], List[Action]],
+                              Tuple[List[State], List[StepResidual]]]
     per_step_terms: Callable[[List[State], List[Action]], List[float]]
     tracks: List[Any]
     id_maps: List[Any]
@@ -274,24 +293,18 @@ def _point_scorer(
             post_step=_run_rules_post_step if rules_list else None)
         return sim_states, updates_per_step
 
-    def _per_step_terms(states: List[State],
-                        actions: List[Action]) -> List[float]:
-        """All residual terms of ONE trajectory under per-step scoring.
-
-        Self-contained per trajectory (rollout, per-step residuals,
-        endpoint and onset summaries), which is what lets the parallel
-        path hand whole trajectories to forked children and get back
-        exactly the serial path's terms.
-        """
+    def _per_step_values(
+            states: List[State],
+            actions: List[Action]) -> Tuple[List[State], List[StepResidual]]:
+        """ONE trajectory's rollout and every scored feature's residual at
+        every step of it, in the objective's order."""
         sim_states, updates_per_step = _rollout_with_rules(states, actions)
-        terms: List[float] = []
-        endpoint_residuals: List[float] = []
+        values: List[StepResidual] = []
         for i, sim_state in enumerate(sim_states):
             obs_state = states[i + 1]
             updates: Dict[Any, Dict[str, Any]] = (updates_per_step[i]
                                                   if rules_list else {})
             obs_by_name = {o.name: o for o in obs_state}
-            is_last = i == len(sim_states) - 1
             for obj in sim_state:
                 feats = residual_features.get(obj.type.name, [])
                 if not feats:
@@ -310,12 +323,27 @@ def _point_scorer(
                                                obs_val)
                     else:
                         res = pred_val - obs_val
-                    if is_last and summary_w > 0:
-                        endpoint_residuals.append(res)
-                    terms.append(_huberize(res, delta))
+                    values.append(
+                        StepResidual(i, obj.name, feat, pred_val, obs_val,
+                                     float(res)))
+        return sim_states, values
+
+    def _per_step_terms(states: List[State],
+                        actions: List[Action]) -> List[float]:
+        """All residual terms of ONE trajectory under per-step scoring.
+
+        Self-contained per trajectory (rollout, per-step residuals,
+        endpoint and onset summaries), which is what lets the parallel
+        path hand whole trajectories to forked children and get back
+        exactly the serial path's terms.
+        """
+        sim_states, values = _per_step_values(states, actions)
+        terms = [_huberize(v.residual, delta) for v in values]
         if summary_w > 0 and sim_states:
-            for res in endpoint_residuals:
-                terms.append(summary_w * _huberize(res, delta))
+            last = len(sim_states) - 1
+            for value in values:
+                if value.step == last:
+                    terms.append(summary_w * _huberize(value.residual, delta))
             # Under a declared noise channel every object "moves" on the
             # first observed frame by more than settle_tol, in the
             # recording and in the replay alike, so the onset term carries
@@ -330,6 +358,7 @@ def _point_scorer(
         return terms
 
     return _PointScorer(rollout=_rollout_with_rules,
+                        per_step_values=_per_step_values,
                         per_step_terms=_per_step_terms,
                         tracks=tracks,
                         id_maps=id_maps,
@@ -1215,3 +1244,32 @@ def per_trajectory_rms(
         out.append(
             float(np.sqrt(np.mean(res**2))) if res.size else float("inf"))
     return out
+
+
+def step_residuals(
+    base_env: Any,
+    trajectory: RolloutTrajectory,
+    params: Dict[str, float],
+    residual_features: Dict[str, List[str]],
+    physical_names: Sequence[str],
+    rules: Sequence[Any] = (),
+    latent_init: Any = None,
+    scaling: Optional[ResidualScaling] = None,
+    config: Optional[SysIdConfig] = None,
+    episode_count: Optional[int] = None,
+) -> Optional[List[StepResidual]]:
+    """Every scored feature at every step of ONE trajectory's replay at
+    ``params``, compared with the recording as the per-step objective compares
+    them.
+
+    None under interval scoring, which compares a replay with its
+    recording's track at events rather than at every step.
+    ``episode_count`` is as for :func:`compute_rollout_residuals`.
+    """
+    scorer = _point_scorer(base_env, [trajectory], params, residual_features,
+                           physical_names, rules, latent_init, scaling, config,
+                           episode_count)
+    if scorer.tracks:
+        return None
+    states, actions = trajectory
+    return scorer.per_step_values(list(states), list(actions))[1]

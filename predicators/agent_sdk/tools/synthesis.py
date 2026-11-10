@@ -122,6 +122,31 @@ def _trim_cause_note(traj_rms: Sequence[float], threshold: float) -> List[str]:
     return notes
 
 
+def _departure_lines(approach: Any, rollouts: Sequence[Any],
+                     traj_idxs: Optional[Sequence[int]], fit_result: Any,
+                     num_dropped: int) -> List[str]:
+    """The fit report's lines on where the model leaves each segment the
+    trimming dropped (``fit_result.departures``), with each segment's recorded
+    episode and steps."""
+    # pylint: disable=import-outside-toplevel
+    from predicators.code_sim_learning.departures import describe_departures
+    from predicators.code_sim_learning.trajectory_prep import segment_origins
+
+    # pylint: enable=import-outside-toplevel
+    departures = getattr(fit_result, "departures", ())
+    if not departures:
+        return []
+    recorded = approach._fit_trajectories  # pylint: disable=protected-access
+    indices = (list(traj_idxs) if traj_idxs is not None else list(
+        range(len(recorded))))
+    origins = [
+        None if origin is None else (indices[origin[0]], origin[1])
+        for origin in segment_origins([recorded[i].states
+                                       for i in indices], rollouts)
+    ]
+    return describe_departures(departures, num_dropped, origins)
+
+
 @dataclasses.dataclass(frozen=True)
 class SynthesisToolkit:
     """What ``create_synthesis_tools`` builds for one synthesis session.
@@ -673,7 +698,10 @@ def create_synthesis_tools(
                  "declared rule values and unchanged planning physics." if
                  not exploratory else "Exploratory call: nothing recorded."),
                 "",
-            ] + _trim_cause_note(outcome.traj_rms, trim_threshold))
+            ] + _trim_cause_note(
+                outcome.traj_rms, trim_threshold) + _departure_lines(
+                    approach, rollouts, traj_idxs, outcome.fit_result,
+                    sum(r > trim_threshold for r in outcome.traj_rms)))
         inference = outcome.inference
         fitted = inference.point_estimate
         applied = inference.selected_parameters
@@ -797,6 +825,9 @@ def create_synthesis_tools(
                 "were dropped before fitting; the fit below used only the "
                 "explainable ones. " +
                 " ".join(_trim_cause_note(outcome.traj_rms, trim_threshold)))
+            lines[2:2] = _departure_lines(
+                approach, rollouts, traj_idxs, outcome.fit_result,
+                sum(r > trim_threshold for r in outcome.traj_rms))
         for name in sorted(fitted):
             init_val = init_params[name]
             fit_val = fitted[name]
