@@ -142,10 +142,8 @@ class AgentContinualFromAssetsApproach(AgentContinualApproach):
         return {"scene_built": True, "fit_gate": self._belief_over_guesses}
 
     def _play_model_contract(self, **options: Any) -> str:
-        return super()._play_model_contract(
-            scene_built=True,
-            sampled_materials=self._belief_over_guesses,
-            **options)
+        options.setdefault("sampled_materials", self._belief_over_guesses)
+        return super()._play_model_contract(scene_built=True, **options)
 
     def _physical_params_prompt_section(self) -> str:
         # No supplied base, no supplied parameter menu.
