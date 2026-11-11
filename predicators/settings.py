@@ -251,6 +251,27 @@ class GlobalSettings:
     # contradict what the recordings show (a ball drawn with a rolling
     # friction that would have stopped it in every recording).
     belief_material_lines = False
+    # Whether a from-assets model's engine materials that the model does
+    # not declare keep the scene's own values in every joint draw: the
+    # belief covers the declared parameters only, and the agent declares
+    # each material a plan can turn on. Takes precedence over
+    # belief_material_lines. Off, each undeclared material is drawn from
+    # its plausible range, and a draw far from the scene's value can
+    # change what the model does altogether (round fixes_r37's Fan seed 2
+    # drew a rolling friction of the ball that froze it in all 16 draws
+    # of a rehearsal, so the rehearsal could not see the ball run off the
+    # table).
+    belief_keep_undeclared_materials = False
+    # Under belief_keep_undeclared_materials, whether the harness screens
+    # the undeclared materials before a real step: it reruns the plan a
+    # rehearsal let through at each end of each one's plausible range,
+    # every other value at the fit, and a request whose outcome changes
+    # with one is refused once, at no charge, with a note that names the
+    # material and asks the agent to declare it. No draw varies an
+    # undeclared material, so without the screen a wrong scene value in a
+    # material the plan turns on gives a rehearsal that is confident and
+    # wrong. P-hat is not changed.
+    belief_undeclared_material_screen = False
     # Whether a from-assets scene model gives each body it built as one box
     # or sphere the size its object's observation gives (x_len, y_len and
     # z_len, half_x, half_y and half_z, or radius), rebuilding the body when
@@ -258,6 +279,21 @@ class GlobalSettings:
     # with, so a model built for one level's sizes cannot replay another
     # level's recordings, and the fit drops them.
     scene_observed_sizes = False
+    # Whether the harness loads the scene of a from-assets model: every
+    # body of each level's scene manifest, built as the deployment builds
+    # it, with the scene of the level a state belongs to swapped in when
+    # the state is set. The model then adds only what a manifest leaves
+    # out: masses, contact materials, the features no body pose carries
+    # and the mechanisms. Off, the model's own initialize_pybullet builds
+    # every body.
+    scene_manifest_loader = False
+    # Under scene_manifest_loader, whether an object with a static base
+    # stands, in every state, at the pose its level's own scene has it at
+    # (the level's clean initial state, the source of the manifest's sizes
+    # and of the poses of the bodies no observation names), unless a state
+    # shows it moved by more than the declared observation noise explains.
+    # Off, each state's own noisy reading places it.
+    scene_loader_static_poses = True
     # Whether a fit's parameter belief sets its temperature per recorded
     # segment: each segment's error above its declared noise counts as one
     # error that persists through that segment, and separate segments'

@@ -235,17 +235,46 @@ def test_model_gate_does_not_imply_preflight(preflight):
 
 
 @pytest.mark.parametrize("lined", [False, True])
-def test_undeclared_materials_section_follows_the_flag(lined):
+@pytest.mark.parametrize("kept", [False, True])
+def test_undeclared_materials_section_follows_the_flag(lined, kept):
     """EMPIRIC from assets's scene contract says how the joint draws treat a
-    material the model leaves undeclared: over its plausible range, or under
-    belief_material_lines only as far as the recordings allow."""
-    utils.reset_config({"belief_material_lines": lined})
+    material the model leaves undeclared: over its plausible range, under
+    belief_material_lines only as far as the recordings allow, and under
+    belief_keep_undeclared_materials (which takes precedence) not at all."""
+    utils.reset_config({
+        "belief_material_lines": lined,
+        "belief_keep_undeclared_materials": kept
+    })
     contract = play_prompts.build_model_contract(partially_observable=False,
                                                  scene_built=True,
                                                  sampled_materials=True)
     assert ("moves it only as far as the recordings allow" in contract) is \
-        lined
-    assert ("samples it over its plausible range" in contract) is not lined
+        (lined and not kept)
+    assert ("samples it over its plausible range" in contract) is \
+        (not lined and not kept)
+    assert ("No draw varies it" in contract) is kept
+    # A declared material keeps its plausible floor in every mode.
+    assert "A declared material's range covers at least its plausible " \
+        "range" in contract
+    assert "__PLAUSIBLE_RANGES__" not in contract
+    utils.reset_config({})
+
+
+@pytest.mark.parametrize("kept", [False, True])
+@pytest.mark.parametrize("screened", [False, True])
+def test_material_screen_section_follows_the_flags(kept, screened):
+    """The scene contract tells the agent about the screen of the undeclared
+    materials only where it runs: under belief_undeclared_material_screen with
+    belief_keep_undeclared_materials."""
+    utils.reset_config({
+        "belief_keep_undeclared_materials": kept,
+        "belief_undeclared_material_screen": screened
+    })
+    contract = play_prompts.build_model_contract(partially_observable=False,
+                                                 scene_built=True,
+                                                 sampled_materials=True)
+    assert ("the harness tests the plan of its rehearsal against each "
+            "undeclared material" in contract) is (kept and screened)
     utils.reset_config({})
 
 

@@ -906,6 +906,8 @@ class PyBulletFanEnv(PyBulletFanBaseEnv):
                             float(switch_obj.side_idx),
                             "is_on":
                             0.0,
+                            "travel":
+                            0.0,
                         }
 
                     # Note: the loc/side grid helper objects are NOT baked
