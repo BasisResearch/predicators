@@ -12,13 +12,16 @@ from predicators.agent_sdk.prompt_templates import render
 from predicators.agent_sdk.sandbox_setup import ReferenceFiles
 from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES
 from predicators.agent_sdk.tools.program_synthesis import \
-    STANDALONE_PROBE_DISABLED, STANDALONE_RUN_PYTHON_DESCRIPTION, \
-    CandidateLoader
+    STANDALONE_PROBE_DISABLED, STANDALONE_REWARD_MODEL_DESCRIPTION, \
+    STANDALONE_RUN_PYTHON_DESCRIPTION, CandidateLoader
+from predicators.agent_sdk.tools.reward_model import \
+    make_engine_free_evaluate_trajectory_fn, with_features
 from predicators.approaches.agent_program_world_model_approach import \
     AgentProgramWorldModelApproach
 from predicators.approaches.agent_sim_learning_approach import \
     resolve_kept_predicate_names
 from predicators.approaches.continual_play_mixin import ContinualPlayMixin
+from predicators.approaches.scene_package_mixin import ScenePackageMixin
 from predicators.code_sim_learning.program_world_model import \
     ProgramOptionModel
 from predicators.observation_noise import ObservationNoise
@@ -30,6 +33,7 @@ if TYPE_CHECKING:
 
 
 class AgentContinualProgramWorldModelApproach(ContinualPlayMixin,
+                                              ScenePackageMixin,
                                               AgentProgramWorldModelApproach):
     """Learn skill transitions without a supplied physics simulator."""
 
@@ -57,7 +61,10 @@ class AgentContinualProgramWorldModelApproach(ContinualPlayMixin,
         return self._rounds_played
 
     def _program_tool_overrides(self) -> Dict[str, Any]:
-        return {"run_python_description": STANDALONE_RUN_PYTHON_DESCRIPTION}
+        description = STANDALONE_RUN_PYTHON_DESCRIPTION
+        if CFG.continual_provide_reward_model:
+            description += STANDALONE_REWARD_MODEL_DESCRIPTION
+        return {"run_python_description": description}
 
     def _program_probe_disabled(self) -> FrozenSet[str]:
         # Close to WorldCoder: score the program on the data and roll a
@@ -66,11 +73,14 @@ class AgentContinualProgramWorldModelApproach(ContinualPlayMixin,
         return STANDALONE_PROBE_DISABLED
 
     def _get_sandbox_reference_files(self) -> ReferenceFiles:
-        return {
+        files = {
             key: value
             for key, value in super()._get_sandbox_reference_files().items()
             if not key.startswith("base_sim/")
         }
+        if CFG.continual_provide_scene_package:
+            files.update(self._scene_asset_files())
+        return files
 
     def _play_system_prompt(self) -> str:
         sections = [
@@ -84,8 +94,14 @@ class AgentContinualProgramWorldModelApproach(ContinualPlayMixin,
                 render("play_system",
                        "observation_noise",
                        noise_line=noise.describe() + "."))
+        scene = CFG.continual_provide_scene_package
         sections += [
-            render("play_program", "workflow"),
+            render(
+                "play_program",
+                "workflow",
+                supplied_line=render(
+                    "play_program",
+                    "supplied_scene_assets" if scene else "supplied_nothing")),
             render("play_system",
                    "tools",
                    tool_list=render_tool_list(CONTINUAL_TOOL_NAMES)),
@@ -98,6 +114,15 @@ class AgentContinualProgramWorldModelApproach(ContinualPlayMixin,
             render("play_system", "context"),
             render("play_program", "contract"),
         ]
+        if CFG.continual_provide_reward_model:
+            sections.append(render("play_program", "reward_model"))
+        if scene:
+            sections.append(
+                render("play_system",
+                       "scene_refs_model_free",
+                       ref_listing="\n".join(
+                           f"- `{r}`"
+                           for r in self._scene_asset_paths())).strip())
         return "\n\n".join(sections)
 
     def _get_agent_system_prompt(self) -> str:
@@ -127,6 +152,12 @@ class AgentContinualProgramWorldModelApproach(ContinualPlayMixin,
         # The inherited evaluator can replay engine dynamics. Do not offer
         # that side channel in the standalone-model comparison.
         namespace.pop("evaluate_trajectory", None)
+        if CFG.continual_provide_reward_model:
+            # The same public helper with no engine behind it: a rule that
+            # replays physics is not checked, and the note says so.
+            namespace["evaluate_trajectory"] = \
+                make_engine_free_evaluate_trajectory_fn(self._level_task)
+            namespace["with_features"] = with_features
         self._attach_program_session_state(namespace,
                                            self._program_trajectories, paths,
                                            wm_paths, extra_paths)

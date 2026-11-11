@@ -118,27 +118,31 @@ def test_from_assets_arm_runs_only_by_name() -> None:
         "continual_restage_velocities": True,
         "continual_rehearsal_mean_verdict": True,
         "continual_rehearsal_win_first": True,
-        "continual_record_until_rest": True,
-        "domino_contact_verdict": True,
         "continual_practise_after_reset": True,
         "continual_claim_check": True,
         "continual_predictive_check": True,
         "continual_belief_velocities": True,
-        "continual_raw_step_limit": True,
+        "belief_material_lines": True,
         "continual_rehearsal_game_over": True,
         "continual_rehearsal_support_note": True,
         "continual_rehearsal_speed_note": True,
         "continual_fit_reach_check": True,
         "continual_fit_bound_note": True,
-        "continual_refuse_training_give_up": True,
-        "continual_belief_window": 64,
-        "continual_pooled_level_init": True,
-        "belief_material_lines": True,
         "scene_observed_sizes": True,
         "belief_segment_temperature": True,
+        "continual_belief_window": 64,
+        "continual_pooled_level_init": True,
         "belief_keep_undeclared_materials": True,
         "scene_manifest_loader": True,
     }
+    # The rules of the world and the harness are shared: every arm runs
+    # under the same ones.
+    for run in runs:
+        assert run.flags["continual_raw_step_limit"] is True
+        assert run.flags["continual_refuse_training_give_up"] is True
+        assert run.flags["continual_record_until_rest"] is True
+        assert run.flags["domino_contact_verdict"] is True
+        assert run.flags["pybullet_solver_residual_threshold"] == 0.0
 
 
 def test_agent_belief_arm_runs_only_by_name() -> None:
@@ -161,10 +165,8 @@ def test_agent_belief_arm_runs_only_by_name() -> None:
         "continual_rehearsal_gate": True,
         "continual_predictive_check": True,
         "continual_belief_velocities": True,
-        "continual_raw_step_limit": True,
         "continual_rehearsal_game_over": True,
         "continual_rehearsal_support_note": True,
-        "continual_refuse_training_give_up": True,
         "scene_observed_sizes": True,
         "continual_belief_window": 64,
         "continual_pooled_level_init": True,

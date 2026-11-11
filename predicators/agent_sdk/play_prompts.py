@@ -50,6 +50,9 @@ TOOL_BLURBS = {
     "run_python":
     "code in the sandbox with the `sim` probe over your model files "
     "(`sim.fit`, `sim.residuals`, `sim.run`, `sim.refine`, ...). Free.",
+    "evaluate_trajectory":
+    "a level's reward model on a state sequence you predict: `reward`, "
+    "`solved` and a `note`. No simulator backs it. Free.",
 }
 # The run_python blurb of the arms whose probe never fits (frozen
 # dynamics, no harness fitting).
@@ -133,7 +136,8 @@ def build_play_system_prompt(tool_names: Sequence[str],
                              scene_built: bool = False,
                              scene_package: bool = False,
                              fit_gate: bool = False,
-                             agent_belief: bool = False) -> str:
+                             agent_belief: bool = False,
+                             frozen_scene: bool = False) -> str:
     """The system prompt of the run's conversation.
 
     The tool surface selects the variant: an arm with ``run_python``
@@ -163,13 +167,18 @@ def build_play_system_prompt(tool_names: Sequence[str],
     that. ``scene_package`` (a twin-backed arm that also receives the
     engine, the manifest and the assets) describes that reference
     listing instead; for the model-free arm it adds that listing as
-    plain files to use however the agent likes, with no simulator.
+    plain files to use however the agent likes, with no simulator. A
+    model-free arm whose tools include ``evaluate_trajectory``
+    (``continual_provide_reward_model``) gets the section on scoring
+    predicted states with the level's reward model.
     ``fit_gate`` (EMPIRIC from assets) says the test-level gate also
     waits for a fit of the current ``simulator.py``. ``agent_belief`` (EMPIRIC
     from assets with the agent's own parameter belief) gives a scene-built
     arm with no harness fit the from-assets arm statement for an agent that
     estimates its parameters and supplies their draws, and the predictive
-    check's statement for draws the harness never tempers.
+    check's statement for draws the harness never tempers. ``frozen_scene``
+    (the no-learning arm) says a frozen arm's written model stays open to
+    edits of its scene, with no seal at the first real action.
     """
     names = set(tool_names)
     model = "run_python" in names
@@ -200,7 +209,7 @@ def build_play_system_prompt(tool_names: Sequence[str],
                    noise_line=noise.describe() + "."))
     if frozen:
         sections.append(frozen_section)
-    if scene_built:
+    if scene_built and not frozen_scene:
         sections.append(
             render("play_system",
                    "arm_from_assets",
@@ -282,8 +291,9 @@ def build_play_system_prompt(tool_names: Sequence[str],
             sections.append(render("play_system", "oracle_discrepancies"))
         if CFG.continual_require_model_on_test:
             sections.append(
-                render("play_system",
-                       "model_gate_fit" if fit_gate else "model_gate"))
+                render(
+                    "play_system", "model_gate_fit" if fit_gate else
+                    "model_gate_scene" if frozen_scene else "model_gate"))
         if CFG.continual_rehearsal_gate and joint:
             sections.append(render("play_system", "rehearsal_gate"))
             if CFG.continual_rehearsal_win_first:
@@ -347,6 +357,11 @@ def build_play_system_prompt(tool_names: Sequence[str],
         render("play_system",
                "sandbox",
                model_files=render("play_system", files)),
+    ]
+    if not model and "evaluate_trajectory" in names:
+        # The direct agent under continual_provide_reward_model.
+        sections.append(render("play_system", "reward_model_model_free"))
+    sections += [
         render("play_system", "journal" + variant),
         render("play_system", "context"),
     ]
@@ -378,7 +393,8 @@ def build_play_system_prompt(tool_names: Sequence[str],
                     if joint else "robustness_oracle")
                 sweep_verdict = ""
             fixed = render(
-                "play_system", "frozen_line_supplied"
+                "play_system",
+                "frozen_line_scene" if frozen_scene else "frozen_line_supplied"
                 if frozen_model_supplied else "frozen_line_written")
             sections.append(
                 render("play_system",
@@ -449,6 +465,7 @@ def build_model_contract(
     scene_built: bool = False,
     sampled_materials: bool = False,
     agent_belief: bool = False,
+    scene_only: bool = False,
 ) -> str:
     """The contract of the model files, for the model arm's system prompt
     (``play_model_contract.md``).
@@ -472,8 +489,23 @@ def build_model_contract(
     at least its plausible range; otherwise undeclared materials keep the
     scene's values. ``agent_belief`` (with ``declared_params_only``)
     replaces the no-harness-fitting section with the contract of
-    ``PARAM_DRAWS``, the agent's own parameter draws.
+    ``PARAM_DRAWS``, the agent's own parameter draws. ``scene_only`` (the
+    no-learning arm) keeps the contract of a scene that loads its bodies,
+    and the predicates.
     """
+    if scene_only:
+        return _join_contract([
+            render("play_model_contract",
+                   _loaded("intro_scene_only", "intro_scene_only_loaded")),
+            render(
+                "subclass_model",
+                _loaded("simulator_scene_only", "simulator_scene_only_loaded"),
+                level_scenes=render(
+                    "subclass_model", "level_scenes_loaded_no_fit" if
+                    CFG.scene_manifest_loader else "level_scenes_sized_no_fit"
+                    if CFG.scene_observed_sizes else "level_scenes_fixed")),
+            render("play_model_contract", "predicates"),
+        ])
     if supplied_model:
         parts = [
             render("play_model_contract", "intro_supplied"),
