@@ -46,6 +46,9 @@ class LiveRehearsal:
     moving_lines: List[List[int]] = field(default_factory=list)
     # The notes its report ended with, without their "NOTE: " lead.
     notes: List[str] = field(default_factory=list)
+    # Whether the screen of the undeclared materials has run on its plan
+    # (see ``ToolContext.material_screen``): it runs once per rehearsal.
+    screened: bool = False
 
 
 def mark_notes_shown(rehearsals: List[LiveRehearsal], shown: Set[str],
@@ -123,6 +126,12 @@ class ToolContext:
     # skill fails there, or None when the request may run. Nothing is
     # charged for a refusal; force=true on the request skips it.
     skill_preflight: Optional[Callable[[str], Optional[str]]] = None
+    # Installed by the from-assets arm under
+    # belief_undeclared_material_screen: given the plan of a rehearsal
+    # from the last real observation, reruns it at the ends of each
+    # undeclared material's plausible range and returns the note that
+    # names the materials its outcome changes with, or None.
+    material_screen: Optional[Callable[[str], Optional[str]]] = None
     # Installed by the model arm under continual_rehearsal_gate: whether
     # skill requests must first be rehearsed on the joint belief from the
     # current observation (a test level), or None when they never must.

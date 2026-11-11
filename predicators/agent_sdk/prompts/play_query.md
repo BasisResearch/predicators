@@ -132,6 +132,12 @@ No model yet: `sim` has no world until `./simulator.py` loads.
 Build the scene in `./simulator.py` from `reference/scene/scene_manifest.json` and `reference/assets/` (and `./predicates.py` if useful) in `run_python`, check that `sim.reset(current=True)` reconstructs the observation, and call `sim.fit()` before you act on a test level.
 Recorded episodes so far: __N_EPISODES__ (__N_STEPS__ steps).
 
+<!-- section: no_model_assets_loaded -->
+No model yet: `sim` has no world until `./simulator.py` loads.
+Write `./simulator.py` (and `./predicates.py` if useful) in `run_python`: the base loads the scene's bodies from `reference/scene/scene_manifest.json` and `reference/assets/`, and your model adds the masses, materials, readings and mechanisms.
+Check that `sim.reset(current=True)` reconstructs the observation, and call `sim.fit()` before you act on a test level.
+Recorded episodes so far: __N_EPISODES__ (__N_STEPS__ steps).
+
 <!-- section: no_model_agent_belief -->
 No model yet: `sim` has no world until `./simulator.py` loads.
 Build the scene in `./simulator.py` from `reference/scene/scene_manifest.json` and `reference/assets/` (and `./predicates.py` if useful) in `run_python`, check that `sim.reset(current=True)` reconstructs the observation, and set its declared values and `PARAM_DRAWS` from the recordings before you act on a test level; the harness fits nothing.
