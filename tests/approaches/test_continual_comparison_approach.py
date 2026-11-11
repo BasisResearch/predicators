@@ -48,6 +48,25 @@ def _arm_config(domain: str, approach: str) -> SingleSeedRunConfig:
     return cfg
 
 
+def _scripted_flags(cfg: SingleSeedRunConfig, tmp_path: Any) -> Dict[str, Any]:
+    """The benchmark flags of ``cfg`` for a scripted session with local
+    outputs.
+
+    The scripts step raw actions further than the robot moves in one
+    step and end with give_up on a training level, so the two shared
+    rules that refuse those are off here; they have their own tests.
+    """
+    flags = {k: v for k, v in cfg.flags.items() if k != "log"}
+    flags.update(continual_render=False,
+                 continual_make_video=False,
+                 continual_runs_dir=str(tmp_path / "runs"),
+                 continual_raw_step_limit=False,
+                 continual_refuse_training_give_up=False,
+                 env=cfg.env,
+                 approach=cfg.approach)
+    return flags
+
+
 @pytest.fixture(autouse=True)
 def _dispose_test_physics_clients(monkeypatch: Any) -> Iterator[None]:
     """Release worlds created by a case, including evicted skill simulators."""
@@ -141,16 +160,7 @@ def test_ablation_play_tools(tmp_path: Any, monkeypatch: Any, arm: str,
                              domain: str) -> None:
     """No-uncertainty uses raw observations; tools enforce arm restrictions."""
     cfg = _arm_config(domain, f"agent_continual_{arm}")
-    _config(
-        tmp_path, **{
-            **{k: v
-               for k, v in cfg.flags.items() if k != "log"}, "continual_render":
-            False,
-            "continual_make_video": False,
-            "continual_runs_dir": str(tmp_path / "runs"),
-            "env": cfg.env,
-            "approach": cfg.approach
-        })
+    _config(tmp_path, **_scripted_flags(cfg, tmp_path))
     env = create_new_env(cfg.env, do_cache=False, use_gui=False)
     agent: Any = create_approach(cfg.approach, env.predicates,
                                  get_gt_options(env.get_name()), env.types,
@@ -303,16 +313,7 @@ def _configure_domain_comparison(tmp_path: Any, domain: str,
                                  approach: str) -> str:
     """Use the benchmark's real domain settings with local test outputs."""
     cfg = _arm_config(domain, approach)
-    _config(
-        tmp_path, **{
-            **{k: v
-               for k, v in cfg.flags.items() if k != "log"}, "continual_render":
-            False,
-            "continual_make_video": False,
-            "continual_runs_dir": str(tmp_path / "runs"),
-            "env": cfg.env,
-            "approach": cfg.approach
-        })
+    _config(tmp_path, **_scripted_flags(cfg, tmp_path))
     return cfg.env
 
 
