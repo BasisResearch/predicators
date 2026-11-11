@@ -120,7 +120,7 @@ Before acting on a test level, have a `simulator.py` whose declared values expla
    Update and validate the model when new evidence challenges a mechanism you intend to rely on.
    __MODEL_READY__
    With no informative data yet, choose a small real experiment with a predicted, observable outcome.
-3. Rehearse candidate actions in `sim` before spending real steps, model or not.
+3. Rehearse candidate actions in `sim` before spending real steps, __REHEARSAL_CLAUSE__.
    __SIM_FIRST_ROUND__
    A skill that fails in `sim` reports the controller's diagnostic; the real environment withholds it.
    __REHEARSE_LINE__
@@ -666,6 +666,51 @@ So make a measurement step only with parts some winning plan uses, and before yo
 A training level ends the moment its goal holds, and a test level allows no resets: before you complete a training level, run on it the experiments your model needs for the tests, above all actions started from states that earlier actions produced, which a test level may chain. A reset on a training level costs one step.
 A skill call that fails can still move what it touched.
 Before you repeat a failed call, compare where its target rests now with where it rested before the first attempt: a target that each failure pushes away can end where no skill reaches it, and on a test level that loses the level.
+`sim` has no world until your scene model loads; collect small informative real experiments when the model is not yet adequate.
+
+<!-- section: arm_from_assets_point_estimate -->
+## EMPIRIC from assets
+
+No domain simulator, domain-specific observation mapping, or mechanism implementation is supplied.
+__SCENE_OWNERSHIP__
+A scalar surviving a reset does not mean its dynamics or joint mapping are implemented.
+The manifest is supplied reconstructed geometry, not a calibrated dynamics model.
+Asset files can contain nominal physical constants; treat them as assumptions to validate, not identified values.
+An engine material you do not declare is not fitted: every rollout runs it at the scene's own value, so a plan that works only near that value fails when the real material differs.
+Declare the materials your tasks' contacts depend on, so the recordings can fit them.
+The fit searches the whole declared range of each parameter, and a parameter the recordings do not constrain keeps the value you declared: declare ranges and values you can defend.
+A declared material's range never stays narrower than its plausible range; the scene contract lists those ranges.
+
+Declare the constants you do not know with `AGENT_PARAM_SPECS`; the harness fits them, and every rollout runs one value for each.
+Use `sim.fit()` and `sim.validate()` on recorded experience, and compare held-out action outcomes where available.
+Fitting parameter values cannot repair missing geometry, incorrect observation mappings or missing mechanisms.
+Store learned memory in `MODEL_STATE_INIT`/`model_state`, infer it from observation history, and restore its engine effects with `restore_model_state`.
+Never initialize model memory from hidden real-world simulator state.
+Check observation round trips, parameter effects, independent replay, and `sim.reset(current=True).check_restore()` before trusting predictions.
+Build a task-relevant predictive model, not a source-code replica: it must predict both successful and failed action outcomes.
+Write each mechanism as the force, torque or constraint it applies as a function of the current state, and let the engine produce the motion: rest positions, displacements and timings then follow from the model.
+A model that sets a rest position, a rise or a delay it measured reproduces the recordings it was fitted on, but it predicts nothing for a combination they did not show, and test levels can combine what the training levels showed in new ways.
+Give each parameter to the part that owns it: a balloon's pull, a fan's push and a spring's stiffness belong to that balloon, fan or spring and stay the same whatever it acts on, and each body has its own mass.
+Then what one level measured carries over to a level that combines the parts in a new way.
+A pull written as the acceleration it gives the body it moves fits the recordings just as well, but it gives every body that same acceleration, so it fails when a test level puts the part on a lighter or heavier body.
+When training showed each part on one body only, the recordings may fix only the ratio of the part's force to that body's mass: declare each body's mass with the range its material and size allow, and give it the value you judge most likely, since the fit cannot tell the two apart.
+When two forms of a mechanism fit the recordings about equally well and predict differently for a plan you need (a force that stays constant with height, or one that fades with it), keep both: declare a parameter that blends the forms, so the fit weighs them.
+A small difference in how well the forms fit is no evidence for either; a recorded effect that only one form predicts is, such as how an oscillation's frequency changes when a load is added.
+Before you give each part a shape of its own or add a parameter to fit a misfit, test the structure the misfit may come from: whose state a force depends on (the body it acts on, or a body it holds or pulls) and where it acts are choices the recordings can decide, so fit each choice and compare their evidence.
+Recordings that differ only in the order or the place of the same parts test that structure directly: when they end alike and your model makes them end differently, its structure is wrong, however well it fits the rest.
+A prediction of your model that would block a plan is a hypothesis: test it on the real system or keep the plan robust to it, and remove it from the model only on evidence against it.
+An argument from how the task seems to have been designed (that a centred or tidy answer must be the intended one, say) is no evidence about the world, and it never outweighs a failure your model predicts.
+A prediction that a step stays clear of a failure a test level cannot undo (a spill, a burst, a fall) is a hypothesis as well: the recordings support it only as far as they went, so before a test plan relies on it, run that step on a training level at least as far as the plan will take it, or keep the plan short of it.
+Recordings that never reached such a failure show only that its onset lies beyond them: write it in the model as a declared threshold (a duration, a load, a height) whose range starts where the recordings stopped, never as absent, so a rollout that goes past it meets the failure.
+Your model was fitted on the levels played so far, and on a new level, with its own geometry and parts, its error stays unknown until a step there has been compared with its rollout.
+So make your first step on a new level one whose rollout stays clear of every failure the level cannot undo.
+Choose it to exercise what this level combines that no training level showed, such as a part on a body it never moved, and compare its outcome with the rollout to see how your model errs there before any step comes closer.
+A step can lose a level without any failure event: on a level without resets, a step after which no plan your model allows can still win (a balloon freed that no winning set contains, a block glued where no design uses it) loses it as surely as a burst.
+So make a measurement step only with parts some winning plan uses, and before you take it, check that the outcome its rollout predicts still leaves a plan that can win.
+A training level ends the moment its goal holds, and a test level allows no resets: before you complete a training level, run on it the experiments your model needs for the tests, above all actions started from states that earlier actions produced, which a test level may chain. A reset on a training level costs one step.
+A skill call that fails can still move what it touched.
+Before you repeat a failed call, compare where its target rests now with where it rested before the first attempt: a target that each failure pushes away can end where no skill reaches it, and on a test level that loses the level.
+An observation gives poses and readings, and no speeds: a rollout from `sim.reset(current=True)` starts every body at rest, so rehearse from a scene at rest.
 `sim` has no world until your scene model loads; collect small informative real experiments when the model is not yet adequate.
 
 <!-- section: scene_ownership_built -->
