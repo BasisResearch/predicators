@@ -41,7 +41,9 @@ class AgentContinualFromAssetsApproach(AgentContinualApproach):
     # The model's physics starts from the agent's guesses: the fit's prior
     # spans each declared range (code_sim_learning_prior_spans_bounds), a
     # declared material's range covers at least its plausible range, and
-    # rehearsal samples the engine materials the model does not declare.
+    # rehearsal samples the engine materials the model does not declare
+    # (unless belief_keep_undeclared_materials keeps them at the scene's
+    # values).
     # The real-to-sim comparison fits nothing, samples nothing and keeps
     # the declared ranges.
     _belief_over_guesses = True
@@ -150,7 +152,8 @@ class AgentContinualFromAssetsApproach(AgentContinualApproach):
         return ""
 
     def _no_model_section(self) -> str:
-        return "no_model_assets"
+        return ("no_model_assets_loaded"
+                if CFG.scene_manifest_loader else "no_model_assets")
 
     def _fit_status_text(self) -> str:
         """The fit status, then every declared range the plausible floor
@@ -203,8 +206,12 @@ class AgentContinualFromAssetsApproach(AgentContinualApproach):
         version, which has set no state yet, offers the same materials
         as one a rollout has used, and the belief's draws stay fixed at
         a decision point.
+
+        None under ``belief_keep_undeclared_materials``: every draw then
+        keeps the scene's own value of each.
         """
         if not self._belief_over_guesses or \
+                CFG.belief_keep_undeclared_materials or \
                 getattr(self, "_residual_env_cls", None) is None:
             return []
         sampler = getattr(self._base_env, "sampled_material_specs", None)
@@ -223,6 +230,25 @@ class AgentContinualFromAssetsApproach(AgentContinualApproach):
         :meth:`_sampled_material_specs`.
         """
         if not CFG.belief_material_lines or not self._belief_over_guesses or \
+                CFG.belief_keep_undeclared_materials or \
+                getattr(self, "_residual_env_cls", None) is None:
+            return []
+        own = getattr(self._base_env, "own_material_specs", None)
+        if not callable(own):
+            return []
+        task = self._tool_context.current_task
+        return list(own(list(task.init) if task is not None else []))
+
+    def _material_screen_specs(self) -> List[ParamSpec]:
+        """Under ``belief_keep_undeclared_materials``, the engine materials the
+        model does not declare, each at the scene's own value with its
+        plausible range.
+
+        The current level's objects are bound first, as for
+        :meth:`_sampled_material_specs`.
+        """
+        if not CFG.belief_keep_undeclared_materials or \
+                not self._belief_over_guesses or \
                 getattr(self, "_residual_env_cls", None) is None:
             return []
         own = getattr(self._base_env, "own_material_specs", None)
@@ -278,6 +304,12 @@ class AgentContinualFromAssetsApproach(AgentContinualApproach):
     # -- No domain twin behind the probe -------------------------------------
 
     def _base_physics_probe_model(self) -> Any:
+        if CFG.scene_manifest_loader:
+            raise RuntimeError(
+                "run_python probe: `sim` has no world yet. Write "
+                "./simulator.py (RESIDUAL_ENV, a SceneBase subclass; the "
+                "base loads the scene's bodies) first; every rollout, reset "
+                "and render runs inside it.")
         raise RuntimeError(
             "run_python probe: `sim` has no world yet. Write ./simulator.py "
             "(RESIDUAL_ENV, a SceneBase subclass whose initialize_pybullet "

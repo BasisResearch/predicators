@@ -138,6 +138,9 @@ Rehearsal cannot replace model validation, and an imperfect model must not preve
 <!-- section: sim_first_round_scene -->
 `sim` has no world until your `simulator.py` loads; build the scene first, then rehearse in it: whether a grasp pose is reachable, a path is collision-free or a lift holds is only as reliable as the geometry and contacts you constructed.
 
+<!-- section: sim_first_round_scene_loaded -->
+`sim` has no world until your `simulator.py` loads; write it first, then rehearse in it: the harness loads the scene's geometry, and whether a contact holds or a body moves as predicted is only as reliable as the masses, materials and mechanisms you gave the model.
+
 <!-- section: rehearse_fitted -->
 Rehearse at the current state estimate and the fitted parameter values.
 
@@ -511,6 +514,15 @@ These read-only files are the engine wrapper and the scene base your simulator s
 `SceneBase` is injected when `./simulator.py` loads; do not import the reference copy there.
 Load assets through `cls.asset("urdf/...")`, which resolves under `reference/assets/`.
 
+<!-- section: scene_refs_loaded -->
+### Engine, scene manifest and assets
+
+__REF_LISTING__
+
+These read-only files are the engine wrapper and the scene base your simulator subclasses, the manifest of the scene's bodies, and the files the base loads them from.
+`SceneBase` is injected when `./simulator.py` loads; do not import the reference copy there.
+The base loads every body of the manifest itself; read the manifest to learn the bodies' names, shapes, joints and limits.
+
 <!-- section: scene_refs_model_free -->
 ## Scene files
 
@@ -595,9 +607,7 @@ Object poses in the observation remain noisy, and hidden execution state is not 
 ## EMPIRIC from assets
 
 No domain simulator, domain-specific observation mapping, or mechanism implementation is supplied.
-Build `./simulator.py` as a `SceneBase` subclass using the scene manifest and assets.
-The generic base supplies the robot, its controller and grasp conventions, observable body poses, and a passive scalar feature store.
-You own scene construction, joint/readout mappings, mechanisms, parameters and inferred memory.
+__SCENE_OWNERSHIP__
 A scalar surviving a reset does not mean its dynamics or joint mapping are implemented.
 The manifest is supplied reconstructed geometry, not a calibrated dynamics model.
 Asset files can contain nominal physical constants; treat them as assumptions to validate, not identified values.
@@ -634,6 +644,16 @@ A training level ends the moment its goal holds, and a test level allows no rese
 A skill call that fails can still move what it touched.
 Before you repeat a failed call, compare where its target rests now with where it rested before the first attempt: a target that each failure pushes away can end where no skill reaches it, and on a test level that loses the level.
 `sim` has no world until your scene model loads; collect small informative real experiments when the model is not yet adequate.
+
+<!-- section: scene_ownership_built -->
+Build `./simulator.py` as a `SceneBase` subclass using the scene manifest and assets.
+The generic base supplies the robot, its controller and grasp conventions, observable body poses, and a passive scalar feature store.
+You own scene construction, joint/readout mappings, mechanisms, parameters and inferred memory.
+
+<!-- section: scene_ownership_loaded -->
+Write `./simulator.py` as a `SceneBase` subclass.
+The generic base supplies the robot, its controller and grasp conventions, the scene's bodies loaded from the scene manifest and assets, observable body poses, and a passive scalar feature store.
+You own the masses and materials, joint/readout mappings, mechanisms, parameters and inferred memory.
 
 <!-- section: arm_from_assets_agent_belief -->
 ## EMPIRIC from assets, with your own parameter belief
