@@ -1276,6 +1276,74 @@ def test_the_game_over_gate_refuses_a_request_its_draws_lose(
     ContinualRun(env, approach, driver).run()
 
 
+def test_the_material_screen_refuses_a_rehearsed_request_once(
+        tmp_path: Any) -> None:
+    """With a material screen installed, a request that begins a rehearsal's
+    plan has that plan screened once: a note refuses the request once, charging
+    nothing, and joins the rehearsal's notes as one the agent has seen, so the
+    request sent again runs; a screen that finds nothing lets its request
+    through at once."""
+    env, approach, ctx = _setup(tmp_path)
+    lines = _oracle_plan_text(approach,
+                              env.get_train_tasks()[0].task).splitlines()
+    assert len(lines) >= 2
+    driver = _Driver()
+
+    def body(session: ProtocolSession) -> None:
+        utils.update_config({"continual_rehearsal_notes_gate": True})
+        ctx.rehearsal_gate = lambda: True
+        ctx.live_rehearsals.clear()
+        ctx.shown_notes.clear()
+        tools = build_continual_tools(ctx,
+                                      session,
+                                      PlayState(),
+                                      save_render=lambda tag: None)
+        screened: List[str] = []
+        found: List[Optional[str]] = [
+            "The outcome changes with 1 of them: `block_mass`."
+        ]
+
+        def screen(plan: str) -> Optional[str]:
+            screened.append(plan)
+            return found[0]
+
+        def rehearse(plan: str) -> None:
+            ctx.current_observation = session.observe().frame
+            ctx.live_rehearsals.append(
+                LiveRehearsal(ctx.current_observation, plan, 0.9))
+
+        ctx.material_screen = screen
+        plan = "\n".join(lines)
+        rehearse(plan)
+        out = _call(tools, "skills_invoke", skill=lines[0])
+        assert out.startswith("ERROR") and "(P-hat 0.90)" in out
+        assert f"NOTE: {found[0]}" in out and "Nothing was charged" in out
+        assert screened == [plan]
+        assert session.observe().ledger.level_steps == 0
+        # The note is the rehearsal's now, and shown: neither gate refuses
+        # the request sent again.
+        assert ctx.live_rehearsals[-1].notes == [found[0]]
+        out = _call(tools, "skills_invoke", skill=lines[0])
+        assert "Nothing was charged" not in out
+        assert screened == [plan]
+        steps = session.observe().ledger.level_steps
+        assert steps > 0
+        # A screen that finds nothing: the request runs at once.
+        found[0] = None
+        rehearse(lines[1])
+        out = _call(tools, "skills_execute_plan", plan=lines[1])
+        assert "Nothing was charged" not in out
+        assert screened == [plan, lines[1]]
+        assert session.observe().ledger.level_steps > steps
+        assert not ctx.live_rehearsals[-1].notes
+        ctx.material_screen = None
+        ctx.rehearsal_gate = None
+        utils.update_config({"continual_rehearsal_notes_gate": False})
+
+    driver.body = body
+    ContinualRun(env, approach, driver).run()
+
+
 def test_the_notes_gate_shows_a_rehearsal_s_unseen_notes_once(
         tmp_path: Any) -> None:
     """Under continual_rehearsal_notes_gate, a rehearsed request whose
