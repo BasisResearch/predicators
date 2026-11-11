@@ -114,6 +114,10 @@ class SysIdConfig:
     # code_sim_learning_rollout_global_design_points / _global_starts).
     global_design_points: int = 0
     global_starts: int = 0
+    # Whether the basins of the global search are weighed per recorded
+    # segment (belief_segment_temperature), as the parameter belief's lines
+    # are.
+    segment_temperature: bool = False
     # The time.monotonic() time by which the fit call must have returned
     # (the sim.fit tool's budget), or None for no limit. Not a flag: the
     # caller that owns the budget sets it (run_rollout_sysid).
@@ -193,4 +197,5 @@ class SysIdConfig:
             global_design_points=(
                 CFG.code_sim_learning_rollout_global_design_points),
             global_starts=CFG.code_sim_learning_rollout_global_starts,
+            segment_temperature=CFG.belief_segment_temperature,
         )

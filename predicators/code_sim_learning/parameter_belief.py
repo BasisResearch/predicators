@@ -337,6 +337,10 @@ class ParameterBelief:
     # How many of the fit's basins the deadline left untraced: the mixture
     # holds the others, and their draws make up the shares of these.
     untraced_basins: int = 0
+    # Under a temperature per recorded segment (build_parameter_belief's
+    # segment_sizes), each segment's temperature, in the fit's order;
+    # empty when one temperature tempers every residual.
+    segment_temperatures: Tuple[float, ...] = ()
 
     @property
     def num_draws(self) -> int:
@@ -485,7 +489,20 @@ class ParameterBelief:
                 "parameter sets about as well as the model fits them at "
                 "all; the belief mixes them, and each draw comes from one "
                 "of them.")
-        if self.noise_scale > 1.0 and self.misfit > 0.0:
+        if self.segment_temperatures:
+            hot = sum(t > 1.0 for t in self.segment_temperatures)
+            lines.append(
+                "Each recorded segment's error above what the declared noise "
+                "explains persists through that segment, so the posterior "
+                "counts it as one error per segment: within a segment, "
+                "parameter values whose SSE is within about that segment's "
+                "error of the best fit's are about as likely, and the "
+                "evidence of separate segments adds up. "
+                f"{hot} of {len(self.segment_temperatures)} segments run "
+                "hotter than the declared noise (temperatures "
+                f"{min(self.segment_temperatures):.3g} to "
+                f"{max(self.segment_temperatures):.3g}).")
+        elif self.noise_scale > 1.0 and self.misfit > 0.0:
             multiple = ""
             if self.noise_sse > 0.0:
                 multiple = (
@@ -571,6 +588,7 @@ class ParameterBelief:
             "inflation": self.inflation,
             "cut_short": list(self.cut_short),
             "untraced_basins": self.untraced_basins,
+            "segment_temperatures": list(self.segment_temperatures),
         }
 
     @classmethod
@@ -601,7 +619,9 @@ class ParameterBelief:
             noise_sse=float(data.get("noise_sse", 0.0)),
             inflation=float(data.get("inflation", 1.0)),
             cut_short=tuple(data.get("cut_short", ())),
-            untraced_basins=int(data.get("untraced_basins", 0)))
+            untraced_basins=int(data.get("untraced_basins", 0)),
+            segment_temperatures=tuple(
+                float(t) for t in data.get("segment_temperatures", ())))
 
 
 def _transported(belief: ParameterBelief, rows: np.ndarray,
@@ -707,7 +727,8 @@ def mix_beliefs(components: Sequence[ParameterBelief],
         inflation=first.inflation,
         cut_short=tuple(
             sorted({name
-                    for c in components for name in c.cut_short})))
+                    for c in components for name in c.cut_short})),
+        segment_temperatures=first.segment_temperatures)
 
 
 def join_beliefs(first: ParameterBelief,
@@ -751,7 +772,8 @@ def join_beliefs(first: ParameterBelief,
         noise_sse=first.noise_sse,
         inflation=first.inflation,
         cut_short=tuple(first.cut_short) + tuple(second.cut_short),
-        untraced_basins=first.untraced_basins)
+        untraced_basins=first.untraced_basins,
+        segment_temperatures=first.segment_temperatures)
 
 
 def redrawn(belief: ParameterBelief, num_draws: int,
@@ -771,19 +793,21 @@ def stable_seed(*parts: Any) -> int:
 
 
 def build_parameter_belief(
-    specs: Sequence[ParamSpec],
-    map_params: Dict[str, float],
-    residuals: ResidualsFn,
-    noise_sigma: float,
-    prior_centers: Dict[str, float],
-    prior_sigmas: Dict[str, float],
-    config: BeliefConfig,
-    seed: int,
-    batch_residuals: Optional[BatchResidualsFn] = None,
-    misfit: float = 0.0,
-    noise_sse: float = 0.0,
-    free_names: Collection[str] = (),
-    deadline: Optional[float] = None,
+        specs: Sequence[ParamSpec],
+        map_params: Dict[str, float],
+        residuals: ResidualsFn,
+        noise_sigma: float,
+        prior_centers: Dict[str, float],
+        prior_sigmas: Dict[str, float],
+        config: BeliefConfig,
+        seed: int,
+        batch_residuals: Optional[BatchResidualsFn] = None,
+        misfit: float = 0.0,
+        noise_sse: float = 0.0,
+        free_names: Collection[str] = (),
+        deadline: Optional[float] = None,
+        segment_sizes: Sequence[int] = (),
+        segment_noise_sse: Sequence[float] = (),
 ) -> ParameterBelief:
     """Build ``q(theta)`` around ``map_params`` and draw from it.
 
@@ -819,6 +843,17 @@ def build_parameter_belief(
     passed the cutoff would lose the rest of its mass, and a grid too
     coarse would misstate the width, either way leaving the draws too
     narrow or lopsided. The belief names them (``cut_short``).
+
+    ``segment_sizes``, when given, splits the residuals into the recorded
+    segments they come from (in order, summing to their count), and the
+    temperature is set per segment: each segment's own error above its
+    declared noise's expected SSE (``segment_noise_sse``, SSE units)
+    counts as one error that persists through that segment, so SSE
+    differences up to it are no evidence there, while the evidence of
+    separate segments adds up. A misfit counted once over all the
+    recordings grows with their number, so more recordings would widen
+    the belief; counted per segment, they narrow it. ``misfit`` then
+    only weighs the basins (``mix_beliefs``).
     """
     assert noise_sigma > 0.0, noise_sigma
     at_map = np.asarray(residuals(dict(map_params)), dtype=float)
@@ -830,6 +865,19 @@ def build_parameter_belief(
     # Negative log likelihood per unit of summed squared residual, at the
     # estimated noise level.
     k = 1.0 / (2.0 * noise_scale * noise_sigma**2)
+    weights: Optional[np.ndarray] = None
+    temperatures: Tuple[float, ...] = ()
+    if segment_sizes and int(np.sum(segment_sizes)) == at_map.size:
+        weights, temperatures = _segment_weights(at_map, segment_sizes,
+                                                 segment_noise_sse,
+                                                 noise_sigma)
+        # The weights carry each segment's temperature; the temperature
+        # reported is the one that tempers the residuals as much on
+        # average.
+        k = 1.0
+        sse_min = float(np.dot(weights, at_map * at_map))
+        noise_scale = float(at_map.size /
+                            (2.0 * noise_sigma**2 * float(np.sum(weights))))
     evaluations = 0
     lines: Dict[str, LinePosterior] = {}
     discrete: Dict[str, DiscretePosterior] = {}
@@ -842,7 +890,8 @@ def build_parameter_belief(
         if (center is not None and sigma_p is not None and np.isfinite(sigma_p)
                 and sigma_p > 0):
             prior = (float(center), float(sigma_p))
-        line = _LineEvaluator(spec, map_params, residuals, sse_min, k, prior)
+        line = _LineEvaluator(spec, map_params, residuals, sse_min, k, prior,
+                              weights)
         if spec.discrete:
             values = _discrete_values(spec, config.line_max_evals)
             if values is None:
@@ -888,12 +937,55 @@ def build_parameter_belief(
                                  evaluations, config, seed, discrete),
                      misfit=max(misfit, 0.0),
                      noise_sse=max(noise_sse, 0.0),
-                     cut_short=tuple(cut_short))
+                     cut_short=tuple(cut_short),
+                     segment_temperatures=temperatures)
     logger.info(
         "Parameter belief: %d draws over %d parameters from %d line "
         "evaluations (temperature %.3g).", belief.num_draws, len(specs),
         evaluations, noise_scale)
     return belief
+
+
+def segment_temperatures(sses: Sequence[float], sizes: Sequence[int],
+                         noise_sse: Sequence[float],
+                         noise_sigma: float) -> List[float]:
+    """Each recorded segment's temperature from its SSE at the point estimate:
+
+    its estimated noise level, at least 1, ``SSE_j / (N_j
+    noise_sigma^2)``, and at least its error above the declared noise's
+    expected SSE over ``noise_sigma^2`` (one error that persists through
+    the segment).
+    """
+    temperatures = []
+    for j, (sse, size) in enumerate(zip(sses, sizes)):
+        temperature = 1.0
+        if size:
+            temperature = max(temperature, sse / (size * noise_sigma**2))
+        if j < len(noise_sse) and noise_sse[j] > 0.0:
+            temperature = max(temperature,
+                              (sse - float(noise_sse[j])) / noise_sigma**2)
+        temperatures.append(temperature)
+    return temperatures
+
+
+def _segment_weights(
+        at_map: np.ndarray, sizes: Sequence[int], noise_sse: Sequence[float],
+        noise_sigma: float) -> Tuple[np.ndarray, Tuple[float, ...]]:
+    """Per residual, the negative log likelihood per unit of its square, and
+    per segment, the temperature it comes from
+    (:func:`segment_temperatures`)."""
+    bounds = np.concatenate([[0], np.cumsum(np.asarray(sizes, dtype=int))])
+    sses = [
+        float(
+            np.dot(at_map[bounds[j]:bounds[j + 1]],
+                   at_map[bounds[j]:bounds[j + 1]])) for j in range(len(sizes))
+    ]
+    temperatures = segment_temperatures(sses, sizes, noise_sse, noise_sigma)
+    weights = np.empty(at_map.size, dtype=float)
+    for j, temperature in enumerate(temperatures):
+        weights[bounds[j]:bounds[j + 1]] = 1.0 / (2.0 * temperature *
+                                                  noise_sigma**2)
+    return weights, tuple(temperatures)
 
 
 def prior_belief(
@@ -998,10 +1090,18 @@ class _LineEvaluator:
     pass with only this parameter moved.
     """
 
-    def __init__(self, spec: ParamSpec, map_params: Dict[str, float],
-                 residuals: ResidualsFn, sse_min: float, k: float,
-                 prior: Optional[Tuple[float, float]]) -> None:
+    def __init__(self,
+                 spec: ParamSpec,
+                 map_params: Dict[str, float],
+                 residuals: ResidualsFn,
+                 sse_min: float,
+                 k: float,
+                 prior: Optional[Tuple[float, float]],
+                 weights: Optional[np.ndarray] = None) -> None:
         self.spec = spec
+        # Per residual, its share of the negative log likelihood per unit
+        # of its square; None weighs every residual by ``k``.
+        self.weights = weights
         self.map_params = map_params
         self.residuals = residuals
         self.sse_min = sse_min
@@ -1032,7 +1132,21 @@ class _LineEvaluator:
         """Store the objective's residuals at ``z``, however they were
         scored."""
         res = np.asarray(residuals, dtype=float)
-        self.sse[float(z)] = float(np.dot(res, res))
+        if self.weights is None:
+            self.sse[float(z)] = float(np.dot(res, res))
+        elif self.weights.size != res.size:
+            # The objective scored other terms here than at the MAP, so
+            # the segments' weights do not line up with them: weigh them
+            # all by the mean weight, which tempers them as much on
+            # average.
+            logger.warning(
+                "Parameter belief: %s scored %d terms at %.4g against %d at "
+                "the MAP; weighing them by the mean segment weight.",
+                self.spec.name, res.size, z, self.weights.size)
+            self.sse[float(z)] = float(
+                np.mean(self.weights) * np.dot(res, res))
+        else:
+            self.sse[float(z)] = float(np.dot(self.weights, res * res))
         self.count += 1
 
     def __call__(self, z: float) -> float:
