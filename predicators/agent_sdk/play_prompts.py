@@ -172,13 +172,17 @@ def build_play_system_prompt(tool_names: Sequence[str],
     (``continual_provide_reward_model``) gets the section on scoring
     predicted states with the level's reward model.
     ``fit_gate`` (EMPIRIC from assets) says the test-level gate also
-    waits for a fit of the current ``simulator.py``. ``agent_belief`` (EMPIRIC
-    from assets with the agent's own parameter belief) gives a scene-built
-    arm with no harness fit the from-assets arm statement for an agent that
-    estimates its parameters and supplies their draws, and the predictive
-    check's statement for draws the harness never tempers. ``frozen_scene``
-    (the no-learning arm) says a frozen arm's written model stays open to
-    edits of its scene, with no seal at the first real action.
+    waits for a fit of the current ``simulator.py``. A scene-built arm with
+    a harness fit and no uncertainty decisions (EMPIRIC from assets without
+    explicit uncertainty) gets the from-assets arm statement for point
+    estimates, which names no belief, draw or harness rehearsal.
+    ``agent_belief`` (EMPIRIC from assets with the agent's own parameter
+    belief) gives a scene-built arm with no harness fit the from-assets
+    arm statement for an agent that estimates its parameters and supplies
+    their draws, and the predictive check's statement for draws the
+    harness never tempers. ``frozen_scene`` (the no-learning arm) says a
+    frozen arm's written model stays open to edits of its scene, with no
+    seal at the first real action.
     """
     names = set(tool_names)
     model = "run_python" in names
@@ -212,7 +216,8 @@ def build_play_system_prompt(tool_names: Sequence[str],
     if scene_built and not frozen_scene:
         sections.append(
             render("play_system",
-                   "arm_from_assets",
+                   "arm_from_assets_point_estimate"
+                   if point_estimate else "arm_from_assets",
                    scene_ownership=render(
                        "play_system",
                        _loaded("scene_ownership_built",
@@ -254,6 +259,10 @@ def build_play_system_prompt(tool_names: Sequence[str],
                 model_ready=render(
                     "play_system", "model_ready_declared"
                     if declared else "model_ready_fitted"),
+                # A from-assets `sim` has no world before the model loads;
+                # the real-to-sim arm keeps the wording it has run with.
+                rehearsal_clause="once your scene model is loaded"
+                if scene_built and fit_available else "model or not",
                 sim_first_round=render(
                     "play_system",
                     _loaded("sim_first_round_scene",
@@ -464,6 +473,7 @@ def build_model_contract(
     supplied_model: bool = False,
     scene_built: bool = False,
     sampled_materials: bool = False,
+    fitted_materials: bool = False,
     agent_belief: bool = False,
     scene_only: bool = False,
 ) -> str:
@@ -487,12 +497,17 @@ def build_model_contract(
     ``belief_material_lines``; not at all, under
     ``belief_keep_undeclared_materials``) and a declared material keeps
     at least its plausible range; otherwise undeclared materials keep the
-    scene's values. ``agent_belief`` (with ``declared_params_only``)
-    replaces the no-harness-fitting section with the contract of
-    ``PARAM_DRAWS``, the agent's own parameter draws. ``scene_only`` (the
-    no-learning arm) keeps the contract of a scene that loads its bodies,
-    and the predicates.
+    scene's values. ``fitted_materials`` (EMPIRIC from assets without
+    explicit uncertainty) describes a fit that no draw follows: the fit
+    and every rollout keep the scene's value of an undeclared material,
+    and a declared material keeps at least its plausible range.
+    ``agent_belief`` (with ``declared_params_only``) replaces the
+    no-harness-fitting section with the contract of ``PARAM_DRAWS``, the
+    agent's own parameter draws. ``scene_only`` (the no-learning arm)
+    keeps the contract of a scene that loads its bodies, and the
+    predicates.
     """
+    noise = ObservationNoise.from_cfg()
     if scene_only:
         return _join_contract([
             render("play_model_contract",
@@ -518,7 +533,11 @@ def build_model_contract(
         # Under belief_material_lines the draws of an undeclared material
         # follow the recordings instead of its plausible range alone;
         # under belief_keep_undeclared_materials no draw moves it.
-        if CFG.belief_keep_undeclared_materials:
+        # With a fit that no draw follows, the fit and every rollout keep
+        # the scene's value of it.
+        if fitted_materials:
+            section = "undeclared_materials_fitted"
+        elif CFG.belief_keep_undeclared_materials:
             section = "undeclared_materials_declared_only"
         elif CFG.belief_material_lines:
             section = "undeclared_materials_lined"
@@ -527,7 +546,7 @@ def build_model_contract(
         undeclared = (render("subclass_model",
                              section,
                              plausible_ranges=plausible_materials_text())
-                      if sampled_materials else render(
+                      if sampled_materials or fitted_materials else render(
                           "subclass_model", "undeclared_materials_kept"))
         # Under belief_undeclared_material_screen the harness tests a
         # rehearsed plan against the materials no draw varies.
@@ -541,11 +560,15 @@ def build_model_contract(
             "subclass_model", "level_scenes_loaded"
             if CFG.scene_manifest_loader else "level_scenes_sized"
             if CFG.scene_observed_sizes else "level_scenes_fixed")
-        simulator = render("subclass_model",
-                           _loaded("simulator_scene",
-                                   "simulator_scene_loaded"),
-                           undeclared_materials=undeclared,
-                           level_scenes=levels)
+        scene = {"undeclared_materials": undeclared, "level_scenes": levels}
+        if CFG.scene_manifest_loader:
+            # With undeclared noise the prompt never mentions noise.
+            scene["static_poses"] = render(
+                "subclass_model", "static_poses_plain"
+                if noise.enabled and not noise.declared else "static_poses")
+        simulator = render(
+            "subclass_model",
+            _loaded("simulator_scene", "simulator_scene_loaded"), **scene)
     else:
         simulator = render("subclass_model", "simulator")
     parts = [
@@ -553,7 +576,6 @@ def build_model_contract(
         simulator,
         render("subclass_model", "dynamics"),
     ]
-    noise = ObservationNoise.from_cfg()
     if partially_observable:
         # With undeclared noise the prompt never mentions noise at all.
         parts.append(
