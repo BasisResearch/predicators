@@ -486,6 +486,23 @@ def _log_rehearsal(ctx: "ToolContext", plan_text: str,
         logging.warning("Could not log the rehearsal: %s", e)
 
 
+def _grounded_steps(sketch_steps: Any) -> List[Any]:
+    """Each step of a parsed sketch grounded at its own parameters."""
+    # pylint: disable-next=import-outside-toplevel
+    import numpy as np
+
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.agent_sdk import bilevel_sketch
+    grounded: List[Any] = []
+    for st in sketch_steps:
+        params = (st.initial_params if st.initial_params is not None else
+                  np.array([], dtype=np.float32))
+        grounded.append(
+            bilevel_sketch.ground_step(st, np.asarray(params,
+                                                      dtype=np.float32)))
+    return grounded
+
+
 def _mean_disagreement_note(result: "ProbeJointResult") -> str:
     """Under ``continual_rehearsal_mean_verdict``, the note for a mean rollout
     whose verdict no scored draw shares: it ends the episode in GAME_OVER and
@@ -2101,18 +2118,21 @@ class BeliefProbe:
                              "frame", None)
         return mean_frame.copy() if mean_frame is not None else None
 
-    def _run_joint_draws(self,
-                         probe_task: Task,
-                         grounded: List[Any],
-                         sketch_steps: Any,
-                         all_predicates: Any,
-                         num_draws: int,
-                         seed: Optional[int],
-                         notices: List[str],
-                         fresh: bool = False,
-                         from_observation: Optional[bool] = None,
-                         return_final: bool = False,
-                         score: bool = True) -> ProbeJointResult:
+    def _run_joint_draws(
+        self,
+        probe_task: Task,
+        grounded: List[Any],
+        sketch_steps: Any,
+        all_predicates: Any,
+        num_draws: int,
+        seed: Optional[int],
+        notices: List[str],
+        fresh: bool = False,
+        from_observation: Optional[bool] = None,
+        return_final: bool = False,
+        score: bool = True,
+        points: Optional[Sequence[Dict[str,
+                                       float]]] = None) -> ProbeJointResult:
         """Rehearse the plan on ``num_draws`` joint draws of the belief.
 
         Each draw runs on a fresh env at its own physical parameters,
@@ -2128,6 +2148,11 @@ class BeliefProbe:
         current state). ``return_final`` adds each draw's final state,
         sanitized, as ``final``; ``score`` False skips the task
         evaluator.
+
+        ``points`` replaces the belief's draws with given physical
+        parameter values (see :meth:`run_points`): each runs from the
+        probe's own state at the same planner seed, so two points differ
+        in their parameters alone.
         """
         # pylint: disable=import-outside-toplevel
         import contextlib
@@ -2146,11 +2171,14 @@ class BeliefProbe:
         # So a missing or broken simulator.py refuses once, before any draw
         # or child, and the draws follow the latest edit of the file.
         self._option_model()
-        provider = ctx.joint_draws_provider
-        assert provider is not None
         if from_observation is None:
             from_observation = self._on_current_observation(probe_task.init)
-        draws = list(provider(num_draws, fresh=fresh))
+        if points is None:
+            provider = ctx.joint_draws_provider
+            assert provider is not None
+            draws = list(provider(num_draws, fresh=fresh))
+        else:
+            draws = [(dict(theta), probe_task.init.copy()) for theta in points]
         # A draw of the state belief under a noisy channel starts after a
         # quasi-static settle in its own engine (_settled).
         settle = from_observation and ObservationNoise.from_cfg().enabled
@@ -2167,6 +2195,8 @@ class BeliefProbe:
                 "sim.run(plan, draws=0).")
         names_provider = ctx.physical_param_names_provider
         physical = set(names_provider() if names_provider else ())
+        if points is not None:
+            physical.update(name for theta in points for name in theta)
         evaluator: Any = None
         if score and ctx.probe_engine_available:
             evaluator = task_evaluator(self._base_task)
@@ -2177,6 +2207,7 @@ class BeliefProbe:
 
         def _one_draw(k: int) -> Dict[str, Any]:
             theta, start = draws[k]
+            seed_index = k if points is None else 0
             phys = {n: v for n, v in theta.items() if n in physical}
             rule = {n: v for n, v in theta.items() if n not in physical}
             solved: Optional[bool] = None
@@ -2191,7 +2222,7 @@ class BeliefProbe:
                     (fresh_scope(physical_overrides=phys)
                      if phys else fresh_scope()), \
                     absolute_rollout_seed(seed), \
-                    decorrelated_rollout_seed(k):
+                    decorrelated_rollout_seed(seed_index):
                 model = self._option_model()
                 if settle:
                     start = _settled(getattr(model, "sim_env", None), start)
@@ -2288,14 +2319,14 @@ class BeliefProbe:
                 "success": success,
                 "num_actions": sum(st.num_actions for st in r.steps),
                 "failure": failure,
-                "planner_seed": base_seed + k,
+                "planner_seed": base_seed + seed_index,
                 "unreconstructed": sorted(set(unreconstructed)),
                 "memory_written": memory_written,
             }
 
         prefetched = prefetch_parallel(
             [functools.partial(_one_draw, k) for k in range(len(draws))],
-            "probe joint draws")
+            "probe joint draws" if points is None else "probe points")
         results: List[Dict[str, Any]] = []
         try:
             for k in range(len(draws)):
@@ -2354,8 +2385,8 @@ class BeliefProbe:
                 notices.append(motion)
         undeclared_provider = ctx.undeclared_param_names_provider
         undeclared = set(undeclared_provider() if undeclared_provider else ())
-        leads = ([] if _separating_ranges(results) else _outcome_leads(
-            results, undeclared))
+        leads = ([] if points is not None or _separating_ranges(results) else
+                 _outcome_leads(results, undeclared))
         return ProbeJointResult(results,
                                 p_hat,
                                 stderr,
@@ -2497,15 +2528,36 @@ class BeliefProbe:
             "lost": bool(verdict["terminated"]) and not solved
         }
 
+    def run_points(self,
+                   plan_text: str,
+                   points: Sequence[Dict[str, float]],
+                   seed: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Run ``plan_text`` from the current state once per point of physical
+        parameter values, each on a fresh env at those values with every other
+        value at the fit.
+
+        The runs share the start state and the planner seed, so two of
+        them differ in their parameters alone. Returns one record per
+        point, a joint draw's (``params``, ``success``, ``solved``,
+        ``lost``, ``lost_line``, ``failure``); fewer when the time
+        budget ends the runs early.
+        """
+        _check_time_budget(self._ctx)
+        probe_task, sketch_steps, all_predicates, _ = \
+            self._parse_sketch(plan_text)
+        result = self._run_joint_draws(probe_task,
+                                       _grounded_steps(sketch_steps),
+                                       sketch_steps,
+                                       all_predicates,
+                                       len(points),
+                                       seed, [],
+                                       points=points)
+        return list(result.draws)
+
     def _run_rehearsal(self, plan_text: str, render: bool,
                        seed: Optional[int]) -> ProbeJointResult:
         """``run(plan)`` under the joint belief: the K joint draws, then the
         rollout from the belief mean (see :meth:`run`)."""
-        # pylint: disable-next=import-outside-toplevel
-        import numpy as np
-
-        # pylint: disable-next=import-outside-toplevel
-        from predicators.agent_sdk import bilevel_sketch
         # pylint: disable-next=import-outside-toplevel
         from predicators.settings import CFG
         ctx = self._ctx
@@ -2513,15 +2565,9 @@ class BeliefProbe:
         ctx.test_call_id += 1
         probe_task, sketch_steps, all_predicates, notices = \
             self._parse_sketch(plan_text)
-        grounded: List[Any] = []
-        for st in sketch_steps:
-            params = (st.initial_params if st.initial_params is not None else
-                      np.array([], dtype=np.float32))
-            grounded.append(
-                bilevel_sketch.ground_step(
-                    st, np.asarray(params, dtype=np.float32)))
-        result = self._run_joint_draws(probe_task, grounded, sketch_steps,
-                                       all_predicates,
+        result = self._run_joint_draws(probe_task,
+                                       _grounded_steps(sketch_steps),
+                                       sketch_steps, all_predicates,
                                        int(CFG.belief_joint_draws), seed,
                                        notices)
         # The step-by-step rollout starts from the belief mean when the
