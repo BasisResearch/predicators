@@ -4,7 +4,7 @@
 ## Modeling and acting
 
 Learn a standalone executable world model from your recorded interaction and use it to rehearse candidate skill sequences.
-No prepared physical scene or base simulator is supplied underneath this model; there is no phased learning or execution gate.
+__SUPPLIED_LINE__
 You may use PyBullet or other available simulation libraries to build your own predictive model from observations and recorded interactions.
 Within this conversation you can collect evidence, edit the model, score it on recordings, rehearse plans, and act.
 Use `run_python` to access `trajectories`, `describe_trajectory`, and the `sim` probe.
@@ -17,6 +17,24 @@ Retain programs and your journal across levels and revise them as new evidence a
 `sim.reset(current=True)` reconstructs memory by replaying this episode's recorded skill invocations under your latest program, starting each prediction from its observed pre-state.
 Model edits and resets therefore discard stale inferred memory.
 The skill-level model cannot replay raw `env_step` actions; after such actions, current-state memory reconstruction reports this limitation instead of assuming fresh memory.
+
+<!-- section: supplied_nothing -->
+No prepared physical scene or base simulator is supplied underneath this model; there is no phased learning or execution gate.
+
+<!-- section: supplied_scene_assets -->
+The scene files listed below are supplied, but no base simulator is supplied underneath this model; there is no phased learning or execution gate.
+
+<!-- section: reward_model -->
+## Interpreting task verdicts
+
+`is_goal_state(state, task_idx=None)` and `evaluate_trajectory(states, actions=None, task_idx=None)` expose a level's reward model, the current level's by default.
+`evaluate_trajectory` returns only `reward`, `solved`, and `note`.
+`sim.run(...).states` supplies your model's predicted trajectory to score.
+`with_features(state, {"object": {"feature": value}})` returns a copy of a state with those feature values changed, for a sequence you assemble yourself.
+No simulator backs the reward model, so a verdict is only as good as the states you predict.
+Where evaluation includes a physical replay, that rule is not checked: the verdict then reports `solved` False with no success bonus, and its `note` says so.
+Pass action labels for tasks whose evaluator reads the actions: one `("Skill", ("obj", ...), (param, ...))` per transition, or `None` for an unlabeled transition.
+Only the live environment's `WIN` certifies completion.
 
 <!-- section: contract -->
 ## Model files

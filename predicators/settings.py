@@ -2969,6 +2969,16 @@ class GlobalSettings:
     # no simulator, no model files, no gate; the agent only solves levels.
     continual_provide_scene_package = False
 
+    # The baseline arms with no supplied simulator receive each level's
+    # reward model, the public helper the EMPIRIC arms have: the direct
+    # agent (agent_continual_model_free) as the evaluate_trajectory tool,
+    # the standalone arm (agent_continual_program_world_model) as
+    # evaluate_trajectory in run_python. It returns only reward, solved
+    # and a note. No engine backs it, so a rule that replays physics (the
+    # domino push) is not checked, and the note says so. The other arms
+    # ignore the flag.
+    continual_provide_reward_model = False
+
     # Realistic sim gap (predicators/pybullet_helpers/world_gap.py): the
     # live world differs from its nominal description in hidden ways
     # drawn once per run from seed + sim_gap_seed_offset. Movable bodies

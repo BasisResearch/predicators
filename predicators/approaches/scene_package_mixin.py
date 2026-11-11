@@ -1,10 +1,11 @@
 """The scene package: the engine wrapper, the scene manifest and the asset
 files the scene's bodies were loaded from, as read-only sandbox references.
 
-The agentic real-to-sim arm builds its scene from them, EMPIRIC can
-receive them beside its twin (``continual_provide_scene_package``), and
-so can the direct agent, which gets no simulator of any kind and may use
-them however it likes.
+The agentic real-to-sim arm builds its scene from them, and EMPIRIC can
+receive them beside its twin (``continual_provide_scene_package``). The
+direct agent and the standalone model get the manifest and the asset
+files alone (the scene assets): neither has a simulator of any kind, and
+each may use them however it likes.
 """
 from __future__ import annotations
 
@@ -84,18 +85,24 @@ class ScenePackageMixin:
             text, f"{origin}, its imports pointed at reference/base_sim")
 
     def _scene_package_files(self) -> ReferenceFiles:
-        """Sandbox reference path -> the engine wrapper, the scene manifest of
-        the level being played and the asset files its bodies were loaded from.
-
-        During continual play the manifest is also kept in the level's
-        recording directory, so the run records what each level showed.
-        """
+        """Sandbox reference path -> the engine wrapper and the scene
+        assets."""
         package = Path(__file__).resolve().parents[1]
         files: ReferenceFiles = {
             "base_sim/base_env.py": str(package / "envs" / "base_env.py"),
             "base_sim/pybullet_env.py":
             self._standalone_source("pybullet_env.py"),
         }
+        files.update(self._scene_asset_files())
+        return files
+
+    def _scene_asset_files(self) -> ReferenceFiles:
+        """Sandbox reference path -> the scene manifest of the level being
+        played and the asset files its bodies were loaded from.
+
+        During continual play the manifest is also kept in the level's
+        recording directory, so the run records what each level showed.
+        """
         env, owned = self._scene_manifest_env()
         state = self._scene_state()
         try:
@@ -104,8 +111,10 @@ class ScenePackageMixin:
             if owned:
                 dispose_env(env)
         text = scene_manifest_text(manifest)
-        files["scene/scene_manifest.json"] = GeneratedReference(
-            text, "the scene of the level being played")
+        files: ReferenceFiles = {
+            "scene/scene_manifest.json":
+            GeneratedReference(text, "the scene of the level being played")
+        }
         files.update({
             path: (GeneratedReference(source.text, source.origin)
                    if isinstance(source, GeneratedAsset) else source)
@@ -197,7 +206,14 @@ class ScenePackageMixin:
             f.write(text)
 
     def _scene_package_paths(self) -> List[str]:
-        """Agent-visible paths of :meth:`_scene_package_files`, with the
+        """Agent-visible paths of :meth:`_scene_package_files`."""
+        return [
+            "./reference/base_sim/pybullet_env.py",
+            "./reference/base_sim/base_env.py",
+        ] + self._scene_asset_paths()
+
+    def _scene_asset_paths(self) -> List[str]:
+        """Agent-visible paths of :meth:`_scene_asset_files`, with the
         manifest's body and file counts once one has been built."""
         manifest = "./reference/scene/scene_manifest.json"
         assets = "./reference/assets/"
@@ -205,9 +221,4 @@ class ScenePackageMixin:
             bodies, files = self._scene_package_summary
             manifest += f" ({bodies} bodies)"
             assets += f" ({files} URDF and mesh files, named in the manifest)"
-        return [
-            "./reference/base_sim/pybullet_env.py",
-            "./reference/base_sim/base_env.py",
-            manifest,
-            assets,
-        ]
+        return [manifest, assets]
