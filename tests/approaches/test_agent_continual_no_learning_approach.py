@@ -191,7 +191,10 @@ def test_standalone_run_reads_the_scene_assets(tmp_path: Any,
                                                monkeypatch: Any) -> None:
     """In a run the assets reach the sandbox before the first query, the prompt
     counts the manifest, and the level's recording keeps it."""
-    env, approach = _make(tmp_path, "standalone_opus")
+    # The scripted session ends with give_up on its training level.
+    env, approach = _make(tmp_path,
+                          "standalone_opus",
+                          continual_refuse_training_give_up=False)
     seen: List[str] = []
 
     def query(message: str, *_args: Any, **_kwargs: Any) -> Any:
