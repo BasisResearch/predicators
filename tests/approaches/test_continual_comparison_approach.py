@@ -426,9 +426,22 @@ def transition(obs, latent, option, rng):
         tools = {t.name: t for t in ctx.extra_mcp_tools}
         desc = tools["run_python"].description
         for absent in ("sim.refine", "trials=", "sim.predicates", "sim.render",
-                       "evaluate_trajectory"):
+                       "physics_sweep"):
             assert absent not in desc, absent
         assert "sim.score" in desc and "sim.run(plan_text)" in desc
+        # The level's reward model scores the model's own rollout with no
+        # engine behind it, and only the three public keys come back.
+        assert "evaluate_trajectory(states, actions=None, task_idx=None)" \
+            in desc
+        assert "## Interpreting task verdicts" in prompt
+        scored = _call(agent,
+                       "run_python",
+                       code=f"rollout = sim.reset(current=True).run({plan!r})"
+                       "\nverdict = evaluate_trajectory(rollout.states)\n"
+                       "print(len(rollout.states) > 1, sorted(verdict), "
+                       "verdict['solved'], repr(verdict['note']))")
+        assert "True ['note', 'reward', 'solved'] False ''" in scored, scored
+        assert live_bodies() == before
         assert "sim.refine" not in prompt
         assert "first rehearses" not in prompt
         for kwargs in ({
@@ -456,6 +469,91 @@ def transition(obs, latent, option, rng):
     card = ContinualRun(env, agent, create_level_player(env, agent)).run()
     assert card.total_steps == 1
     assert isinstance(agent._option_model, ProgramOptionModel)  # pylint: disable=protected-access
+
+
+_SCORE_A_BOILED_JUG = '''
+start = train_tasks[0].init
+boiled = {}
+for obj in start:
+    wanted = {}
+    if obj.type.name == "jug":
+        wanted = {"water_volume": 100.0, "heat_level": 1.0,
+                  "bubbling_level": 1.0}
+    elif obj.type.name == "burner":
+        wanted = {"is_on": 0.0}
+    elif obj.type.name == "faucet":
+        wanted = {"is_on": 0.0, "spilled_level": 0.0}
+    boiled[obj.name] = {
+        f: v for f, v in wanted.items() if f in obj.type.feature_names}
+done = with_features(start, boiled)
+print("A", evaluate_trajectory([start, done]))
+print("B", evaluate_trajectory([start, start],
+                               [("Wait", ("robot",), (1.0,))]))
+print("C", is_goal_state(done), is_goal_state(start))
+try:
+    evaluate_trajectory([start, done], physics_sweep=True)
+except TypeError:
+    print("D no sweep")
+'''
+
+_NAME_THE_HELPERS = '''
+for name in ("evaluate_trajectory", "with_features", "is_goal_state"):
+    print(name, name in dir())
+'''
+
+
+@pytest.mark.parametrize("provided", [True, False])
+def test_standalone_reward_model_has_no_engine(tmp_path: Any, monkeypatch: Any,
+                                               provided: bool) -> None:
+    """Under its flag the standalone arm scores states with the level's reward
+    model through the public helper in ``run_python``: three keys, a goal state
+    scored solved, no physics sweep.
+
+    Without the flag the helper is absent.
+    """
+    _config(tmp_path,
+            approach="agent_continual_program_world_model",
+            continual_provide_reward_model=provided)
+    env = create_new_env("pybullet_boil", do_cache=False, use_gui=False)
+    agent: Any = create_approach("agent_continual_program_world_model",
+                                 env.predicates,
+                                 get_gt_options(env.get_name()), env.types,
+                                 env.action_space,
+                                 [t.task for t in env.get_train_tasks()])
+    outputs: List[str] = []
+
+    def query(*_args: Any, **_kwargs: Any) -> Any:
+        ctx = agent._tool_context  # pylint: disable=protected-access
+        prompt = agent._play_system_prompt()  # pylint: disable=protected-access
+        tools = {t.name: t for t in ctx.extra_mcp_tools}
+        desc = tools["run_python"].description
+        assert ("## Interpreting task verdicts" in prompt) is provided
+        assert ("evaluate_trajectory" in prompt) is provided
+        assert ("evaluate_trajectory" in desc) is provided
+        assert ("with_features" in desc) is provided
+        # Nothing else of EMPIRIC's came with it.
+        assert "engine-based evaluator replays are unavailable" in prompt
+        for absent in ("physics_sweep", "sim.fit", "sim.refine"):
+            assert absent not in desc and absent not in prompt, absent
+        outputs.append(
+            _call(agent,
+                  "run_python",
+                  code=_SCORE_A_BOILED_JUG if provided else _NAME_THE_HELPERS))
+        assert "Give-up recorded" in _call(agent, "give_up", note="audit")
+        return _result()
+
+    monkeypatch.setattr(agent, "_query_agent_sync", query)
+    agent.prepare_for_continual(Dataset([]))
+    ContinualRun(env, agent, create_level_player(env, agent)).run()
+    assert len(outputs) == 1
+    if provided:
+        assert "A {'reward': 1.0, 'solved': True, 'note': ''}" in outputs[0]
+        assert "B {'reward': 0.0, 'solved': False, 'note': ''}" in outputs[0]
+        assert "C True False" in outputs[0] and "D no sweep" in outputs[0]
+    else:
+        assert "evaluate_trajectory False" in outputs[0], outputs[0]
+        assert "with_features False" in outputs[0]
+        assert "is_goal_state True" in outputs[0]
 
 
 @pytest.mark.parametrize("domain",
