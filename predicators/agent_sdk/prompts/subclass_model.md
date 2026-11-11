@@ -93,7 +93,7 @@ It supplies the robot, its home pose and gripper conventions, the observation ty
 The base loads the scene: every body the scene manifest lists, as the deployment builds it, with its shapes, mesh files, joints, joint limits, hard stops and contact margins, and each observed object's body under its observed name.
 Do not build bodies and do not override `initialize_pybullet`.
 A body no observation names stands at the pose the manifest lists; an observed body takes its pose from each state.
-An observed body with a static base (a platform, a wall, a fixed switch housing) stands at the pose the level's scene has it at, whatever noise one observation of it carries; only a state that shows it moved by more than that noise moves it.
+__STATIC_POSES__
 The manifest records no masses, frictions, restitution or damping, so the loaded bodies do not have the deployment's: a body loaded from a URDF file has the file's masses, a moving body built from shapes has the mass of its volume at 1000 kg/m^3, and every material is PyBullet's default.
 Your model adds what the manifest leaves out: the masses and materials, as declared parameters; the features that no body pose carries; and the mechanisms.
 Get a body's id from `self.body(name)` or from its object's `id` each time you use it; do not keep a copy, because the base loads another level's scene when a state of that level is set.
@@ -221,6 +221,12 @@ So get a body's id from `self.body(name)` or from its object's `id` when you use
 A body of another kind keeps the size you build it with, and a rehearsal names the size features that it cannot take.
 When a level adds objects that your scene does not load, edit `initialize_pybullet` to load them too; the harness rebuilds your world when the file changes.
 
+<!-- section: static_poses -->
+An observed body with a static base (a platform, a wall, a fixed switch housing) stands at the pose the level's scene has it at, whatever noise one observation of it carries; only a state that shows it moved by more than that noise moves it.
+
+<!-- section: static_poses_plain -->
+An observed body with a static base (a platform, a wall, a fixed switch housing) stands at the pose the level's scene has it at; only a state that shows it clearly moved moves it.
+
 <!-- section: undeclared_materials_kept -->
 Undeclared, a material keeps the value your scene gives it, or PyBullet's default: lateral friction 0.5, spinning and rolling friction 0, restitution 0 and damping 0.04.
 
@@ -247,6 +253,13 @@ Declare each material that a plan's outcome can turn on: the fit then measures i
 The plausible ranges are __PLAUSIBLE_RANGES__.
 A declared material's range covers at least its plausible range: a narrower declared range is widened to it, and the model status lists each one widened.
 The recordings narrow the range only where they test the material, so put your best value in `init_value`.
+
+<!-- section: undeclared_materials_fitted -->
+Undeclared, a material is not fitted: the fit and every rollout keep the value your scene gives it, or PyBullet's default (lateral friction 0.5, spinning and rolling friction 0, restitution 0 and damping 0.04).
+Declare each material that a plan's outcome can turn on, so the fit measures it.
+The plausible ranges are __PLAUSIBLE_RANGES__.
+A declared material's range covers at least its plausible range: a narrower declared range is widened to it, and the model status lists each one widened.
+The fit moves a value only where the recordings test the material, so put your best value in `init_value`.
 
 <!-- section: undeclared_materials_screen -->
 Before a real step runs, the harness tests the plan of its rehearsal against each undeclared material: it runs the plan again at each end of the material's plausible range, with every other value at the fit.
