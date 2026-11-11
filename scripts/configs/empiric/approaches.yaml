@@ -58,6 +58,9 @@ APPROACHES:
       # the pooled belief over every episode's opening frames, not episode
       # zero's first noisy frame.
       continual_pooled_level_init: true
+      # A fit traces lines for the materials the model leaves undeclared,
+      # so the joint draws of them follow the recordings.
+      belief_material_lines: true
   # Model-free: the same agent with the model-side machinery switched
   # off, so the two differ only in the model.
   mf_opus:

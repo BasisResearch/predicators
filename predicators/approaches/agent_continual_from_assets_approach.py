@@ -213,6 +213,24 @@ class AgentContinualFromAssetsApproach(AgentContinualApproach):
         task = self._tool_context.current_task
         return list(sampler(list(task.init) if task is not None else []))
 
+    def belief_free_specs(self) -> List[ParamSpec]:
+        """Under ``belief_material_lines``, the engine materials the model does
+        not declare, each at the scene's own value: a fit's belief traces their
+        lines through its MAP, so the joint draws of them follow what the
+        recordings show instead of the plausible range alone.
+
+        The current level's objects are bound first, as for
+        :meth:`_sampled_material_specs`.
+        """
+        if not CFG.belief_material_lines or not self._belief_over_guesses or \
+                getattr(self, "_residual_env_cls", None) is None:
+            return []
+        own = getattr(self._base_env, "own_material_specs", None)
+        if not callable(own):
+            return []
+        task = self._tool_context.current_task
+        return list(own(list(task.init) if task is not None else []))
+
     def _physical_param_names(self) -> Set[str]:
         return super()._physical_param_names() | self._undeclared_param_names()
 
@@ -223,14 +241,22 @@ class AgentContinualFromAssetsApproach(AgentContinualApproach):
 
     def parameter_belief(self) -> Optional[ParameterBelief]:
         """The model's belief joined with a factor for each engine material it
-        does not declare: never fitted, its prior over a plausible range.
+        does not declare and the fit did not trace a line for: never fitted,
+        its prior over a plausible range.
 
         A plan whose success hangs on such a material then fails on some
         joint draws, and a physics sweep tests the ends of its range.
         """
         belief = super().parameter_belief()
-        sampled = self._sampled_material_specs()
-        if belief is None or not sampled:
+        if belief is None:
+            return belief
+        # Materials the fit traced lines for (``belief_material_lines``)
+        # are in the belief already.
+        sampled = [
+            spec for spec in self._sampled_material_specs()
+            if spec.name not in belief.names
+        ]
+        if not sampled:
             return belief
         ranges = tuple(
             (spec.name, spec.init_value, spec.lo, spec.hi) for spec in sampled)
