@@ -817,6 +817,42 @@ def build_continual_tools(
             f"yours has shown:\n{notes}\nWeigh them before this step; send "
             "the request again to run it. Nothing was charged." + _footer())
 
+    def _undeclared_materials(
+            parsed: List[Tuple[_Option, Set[GroundAtom], Set[GroundAtom]]],
+            match: Optional[_RehearsalMatch]) -> Optional[Dict[str, Any]]:
+        """Under ``belief_undeclared_material_screen``, while the rehearsal
+        gate applies: a refusal that charges nothing when the outcome of the
+        rehearsed plan changes with a material the model does not declare,
+        which no draw of the rehearsal varied.
+
+        The screen (``ctx.material_screen``) runs once per rehearsal, on
+        a request that begins the rehearsal's plan from its observation.
+        Its note joins the rehearsal's notes as one the agent has seen,
+        so the request sent again runs.
+        """
+        practising = _practising()
+        if (ctx.material_screen is None or match is None or match.start
+                or not _motion_lines(parsed)
+                or (not practising and
+                    (ctx.rehearsal_gate is None or not ctx.rehearsal_gate()))):
+            return None
+        rehearsal = match.rehearsal
+        if rehearsal.screened:
+            return None
+        rehearsal.screened = True
+        note = ctx.material_screen(rehearsal.plan_text)
+        if note is None:
+            return None
+        rehearsal.notes.append(note)
+        ctx.shown_notes.add(note)
+        return _error_result(
+            f"{PRACTISE_HEAD if practising else 'Test level:'} the "
+            "rehearsal that let this request through "
+            f"(P-hat {rehearsal.p_hat:.2f}) does not cover every value the "
+            f"plan depends on.\nNOTE: {note}\nWeigh this before the step; "
+            "send the request again to run it as it is. Nothing was "
+            "charged." + _footer())
+
     def _unclaimed(
             parsed: List[Tuple[_Option, Set[GroundAtom], Set[GroundAtom]]],
             match: Optional[_RehearsalMatch]) -> Optional[Dict[str, Any]]:
@@ -1356,6 +1392,9 @@ def build_continual_tools(
         risky = _risky(parsed, match)
         if risky is not None:
             return risky
+        materials = _undeclared_materials(parsed, match)
+        if materials is not None:
+            return materials
         unseen = _unseen_notes(match)
         if unseen is not None:
             return unseen
@@ -1436,6 +1475,9 @@ def build_continual_tools(
         risky = _risky(parsed, match)
         if risky is not None:
             return risky
+        materials = _undeclared_materials(parsed, match)
+        if materials is not None:
+            return materials
         unseen = _unseen_notes(match)
         if unseen is not None:
             return unseen
