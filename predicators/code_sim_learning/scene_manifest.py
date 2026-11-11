@@ -68,8 +68,14 @@ LEGEND = {
                   "comes as an OBJ file under assets/generated/, in its "
                   "shape frame; concave: true means it is loaded as a "
                   "triangle mesh (p.GEOM_FORCE_CONCAVE_TRIMESH), else as "
-                  "the convex hull of its vertices; collision_margin is "
-                  "the contact margin it is built with"),
+                  "the convex hull of its vertices"),
+    "collision_margin": ("the contact margin the deployment builds a "
+                         "shape's link with; the engine rounds a convex "
+                         "shape's edges by it, so where two flat surfaces "
+                         "meet edge to edge it can make a curb a slow body "
+                         "cannot climb; give your scene the same margin "
+                         "with p.changeDynamics(body, link, "
+                         "collisionMargin=...)"),
 }
 
 
@@ -142,6 +148,8 @@ def _shape_entries(body_id: int, link: int, client: int, files: Set[str],
                    built: _BuiltShapes) -> List[Dict[str, Any]]:
     entries = []
     shapes = p.getCollisionShapeData(body_id, link, physicsClientId=client)
+    margin = float(
+        p.getDynamicsInfo(body_id, link, physicsClientId=client)[11])
     for index, shape in enumerate(shapes):
         geometry = _GEOMETRY_NAMES.get(shape[2], str(shape[2]))
         entry: Dict[str, Any] = {
@@ -149,6 +157,7 @@ def _shape_entries(body_id: int, link: int, client: int, files: Set[str],
             "dimensions": [float(v) for v in shape[3]],
             "local_position": [float(v) for v in shape[5]],
             "local_orientation": [float(v) for v in shape[6]],
+            "collision_margin": margin,
         }
         filename = _decode(shape[4])
         mesh = built.meshes.get((body_id, link))
@@ -163,8 +172,6 @@ def _shape_entries(body_id: int, link: int, client: int, files: Set[str],
                 f"for {built.label}")
             entry["file"] = path
             entry["concave"] = mesh.concave
-            entry["collision_margin"] = float(
-                p.getDynamicsInfo(body_id, link, physicsClientId=client)[11])
         elif filename:
             files.add(filename)
             entry["file"] = _relative_asset(filename) or os.path.basename(
