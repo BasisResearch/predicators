@@ -152,10 +152,16 @@ def _benchmark_flags(env_name: str) -> Dict[str, Any]:
     cfg = next(c for c in generate_run_configs(
         "empiric/benchmark.yaml", False, approaches=["mb_opus"])
                if c.env == env_name)
-    return {
+    flags = {
         k: v
         for k, v in cfg.flags.items() if k not in ("log", "continual_runs_dir")
     }
+    # The scripted sessions step raw actions further than the robot moves
+    # in one step and end with give_up on a training level, so the two
+    # shared rules that refuse those are off unless a test turns them on.
+    flags.update(continual_raw_step_limit=False,
+                 continual_refuse_training_give_up=False)
+    return flags
 
 
 def _arm_flags() -> Dict[str, Any]:
