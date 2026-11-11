@@ -33,9 +33,10 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import time
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Collection, Dict, Generator, Iterator, \
-    List, Optional, Sequence, Tuple
+    List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 import numpy.typing as npt
@@ -51,6 +52,12 @@ _MAX_SHRINKS = 6
 # Refinement stops once no grid interval holds more than this fraction
 # of the line's mass.
 _MAX_INTERVAL_MASS = 0.1
+# A line the fit's deadline cut short keeps what it traced only when no
+# interval of its grid holds more than this share of the mass. Measured on
+# Gaussian lines cut round by round: with one interval holding 96% to 100%
+# of the mass the traced width was 7% to 32% off the full line's, at 64%
+# or less within 3%.
+_CUT_LINE_MAX_INTERVAL_MASS = 0.75
 # Points per evaluated interval on which a line's density is stored.
 _SUBDIVISIONS = 16
 # A free parameter's line (see build_parameter_belief) stops after its
@@ -323,6 +330,13 @@ class ParameterBelief:
     # (inflated): the lines are tempered by it and the draws moved with
     # them; 1 for the belief as fitted.
     inflation: float = 1.0
+    # The parameters whose lines the fit's deadline cut short
+    # (build_parameter_belief's deadline): each keeps its prior, or a
+    # declared parameter the part of its line that was traced.
+    cut_short: Tuple[str, ...] = ()
+    # How many of the fit's basins the deadline left untraced: the mixture
+    # holds the others, and their draws make up the shares of these.
+    untraced_basins: int = 0
 
     @property
     def num_draws(self) -> int:
@@ -492,6 +506,18 @@ class ParameterBelief:
                 f"The program misfits the recordings {self.noise_scale:.3g}x "
                 "beyond the declared noise, so the posterior uses that "
                 "estimated noise level (widths grow by its square root).")
+        if self.untraced_basins:
+            lines.append(
+                "The fit's time ran out before it traced the lines around "
+                f"{self.untraced_basins} more of the parameter sets that fit "
+                "the recordings about as well; the belief mixes the "
+                f"{len(self.components)} it traced.")
+        if self.cut_short:
+            lines.append(
+                "The fit's time ran out before it finished the lines of "
+                f"{', '.join(self.cut_short)}: each keeps its prior, or the "
+                "part of its line that was traced when it had reached the "
+                "cutoff or a bound on both sides of the point estimate.")
         if self.inflation > 1.0:
             lines.append(
                 "A real step's outcome lay outside the draws its rehearsal "
@@ -543,6 +569,8 @@ class ParameterBelief:
             "misfit": self.misfit,
             "noise_sse": self.noise_sse,
             "inflation": self.inflation,
+            "cut_short": list(self.cut_short),
+            "untraced_basins": self.untraced_basins,
         }
 
     @classmethod
@@ -571,7 +599,9 @@ class ParameterBelief:
             weights=[float(w) for w in data.get("weights", [])],
             misfit=float(data.get("misfit", 0.0)),
             noise_sse=float(data.get("noise_sse", 0.0)),
-            inflation=float(data.get("inflation", 1.0)))
+            inflation=float(data.get("inflation", 1.0)),
+            cut_short=tuple(data.get("cut_short", ())),
+            untraced_basins=int(data.get("untraced_basins", 0)))
 
 
 def _transported(belief: ParameterBelief, rows: np.ndarray,
@@ -660,20 +690,24 @@ def mix_beliefs(components: Sequence[ParameterBelief],
                 DiscretePosterior(np.array([v]), np.array([1.0]))
                 for v in values
             ], shares)
-    return ParameterBelief(names=list(first.names),
-                           scales=list(first.scales),
-                           map_estimate=dict(first.map_estimate),
-                           lines=lines,
-                           noise_scale=first.noise_scale,
-                           draws=np.vstack([c.draws for c in components]),
-                           held=held,
-                           evaluations=sum(c.evaluations for c in components),
-                           discrete=discrete,
-                           components=list(components),
-                           weights=shares,
-                           misfit=first.misfit,
-                           noise_sse=first.noise_sse,
-                           inflation=first.inflation)
+    return ParameterBelief(
+        names=list(first.names),
+        scales=list(first.scales),
+        map_estimate=dict(first.map_estimate),
+        lines=lines,
+        noise_scale=first.noise_scale,
+        draws=np.vstack([c.draws for c in components]),
+        held=held,
+        evaluations=sum(c.evaluations for c in components),
+        discrete=discrete,
+        components=list(components),
+        weights=shares,
+        misfit=first.misfit,
+        noise_sse=first.noise_sse,
+        inflation=first.inflation,
+        cut_short=tuple(
+            sorted({name
+                    for c in components for name in c.cut_short})))
 
 
 def join_beliefs(first: ParameterBelief,
@@ -715,7 +749,19 @@ def join_beliefs(first: ParameterBelief,
         weights=list(first.weights),
         misfit=first.misfit,
         noise_sse=first.noise_sse,
-        inflation=first.inflation)
+        inflation=first.inflation,
+        cut_short=tuple(first.cut_short) + tuple(second.cut_short),
+        untraced_basins=first.untraced_basins)
+
+
+def redrawn(belief: ParameterBelief, num_draws: int,
+            rng: np.random.Generator) -> ParameterBelief:
+    """``belief`` with ``num_draws`` fresh joint draws in place of its own
+    (:meth:`ParameterBelief.sample`)."""
+    rows = belief.sample(rng, num_draws)
+    draws = np.array([[row[name] for name in belief.names] for row in rows],
+                     dtype=float).reshape(-1, len(belief.names))
+    return replace(belief, draws=draws)
 
 
 def stable_seed(*parts: Any) -> int:
@@ -725,18 +771,19 @@ def stable_seed(*parts: Any) -> int:
 
 
 def build_parameter_belief(
-        specs: Sequence[ParamSpec],
-        map_params: Dict[str, float],
-        residuals: ResidualsFn,
-        noise_sigma: float,
-        prior_centers: Dict[str, float],
-        prior_sigmas: Dict[str, float],
-        config: BeliefConfig,
-        seed: int,
-        batch_residuals: Optional[BatchResidualsFn] = None,
-        misfit: float = 0.0,
-        noise_sse: float = 0.0,
-        free_names: Collection[str] = (),
+    specs: Sequence[ParamSpec],
+    map_params: Dict[str, float],
+    residuals: ResidualsFn,
+    noise_sigma: float,
+    prior_centers: Dict[str, float],
+    prior_sigmas: Dict[str, float],
+    config: BeliefConfig,
+    seed: int,
+    batch_residuals: Optional[BatchResidualsFn] = None,
+    misfit: float = 0.0,
+    noise_sse: float = 0.0,
+    free_names: Collection[str] = (),
+    deadline: Optional[float] = None,
 ) -> ParameterBelief:
     """Build ``q(theta)`` around ``map_params`` and draw from it.
 
@@ -762,6 +809,16 @@ def build_parameter_belief(
     it. ``free_names`` are parameters the fit held at ``map_params``
     rather than estimated: a line of theirs that the recordings leave
     flat stops after its outward probes (``_line_points``).
+
+    ``deadline`` (``time.monotonic()``) is when the fit call must have
+    returned: tracing stops before a round of replays that would end
+    after it, judged by the longest round so far. A free parameter whose
+    line was cut short keeps its prior; a declared one keeps the part of
+    its line that was traced when that part resolves its mass
+    (:func:`_resolved`), else its prior: a side cut before its probes
+    passed the cutoff would lose the rest of its mass, and a grid too
+    coarse would misstate the width, either way leaving the draws too
+    narrow or lopsided. The belief names them (``cut_short``).
     """
     assert noise_sigma > 0.0, noise_sigma
     at_map = np.asarray(residuals(dict(map_params)), dtype=float)
@@ -802,22 +859,36 @@ def build_parameter_belief(
         traced.append((spec, line, float(lo_arr[0]), float(hi_arr[0])))
     free = set(free_names)
     if batch_residuals is not None:
-        _trace_lines([(line, lo, hi, spec.name in free)
-                      for spec, line, lo, hi in traced], config,
-                     batch_residuals)
+        unfinished = _trace_lines([(line, lo, hi, spec.name in free)
+                                   for spec, line, lo, hi in traced], config,
+                                  batch_residuals, deadline)
     else:
-        for spec, line, lo, hi in traced:
-            _trace_line(line, lo, hi, config, spec.name in free)
-    for spec, line, _lo, _hi in traced:
+        unfinished = set()
+        for index, (spec, line, lo, hi) in enumerate(traced):
+            if not _trace_line(line, lo, hi, config, spec.name in free,
+                               deadline):
+                unfinished.add(index)
+    cut_short: List[str] = []
+    for index, (spec, line, lo, hi) in enumerate(traced):
         evaluations += line.count
         grid = line.points()
+        if index in unfinished:
+            cut_short.append(spec.name)
+            if spec.name in free or not _resolved(line):
+                lines[spec.name] = _prior_line(line, lo, hi)
+                continue
         lines[spec.name] = LinePosterior.from_neg_log(grid,
                                                       [line(z) for z in grid])
+    if cut_short:
+        logger.warning(
+            "Parameter belief: the fit's deadline cut short the lines of "
+            "%s.", cut_short)
 
     belief = replace(_with_draws(specs, map_params, lines, held, noise_scale,
                                  evaluations, config, seed, discrete),
                      misfit=max(misfit, 0.0),
-                     noise_sse=max(noise_sse, 0.0))
+                     noise_sse=max(noise_sse, 0.0),
+                     cut_short=tuple(cut_short))
     logger.info(
         "Parameter belief: %d draws over %d parameters from %d line "
         "evaluations (temperature %.3g).", belief.num_draws, len(specs),
@@ -940,6 +1011,10 @@ class _LineEvaluator:
         self.sigma_p = prior[1] if prior is not None else None
         self.sse: Dict[float, float] = {self.z0: sse_min}
         self.count = 0
+        # Set by _line_points once its outward probes on both sides are
+        # done: the line then spans its mass, and later points only
+        # refine it.
+        self.outward_done = False
 
     def _prior(self, z: float) -> float:
         if self.prior is None:
@@ -1032,16 +1107,12 @@ def _line_points(line: _LineEvaluator,
         while g <= cutoff and z != edge and line.count < budget:
             step *= 2.0
             z, g = yield from probe(step)
+    line.outward_done = True
     if flat_stop and all((sse - line.sse_min) * line.k <= _FLAT_LIKELIHOOD
                          for sse in line.sse.values()):
         return
     while line.count < budget:
-        grid = np.array(line.points())
-        if grid.size < 2:
-            return
-        neg_log = np.array([line(z) for z in grid])
-        dens = np.exp(-(neg_log - np.min(neg_log)))
-        mass = np.diff(grid) * np.maximum(dens[:-1], dens[1:])
+        grid, mass = _interval_masses(line)
         total = float(np.sum(mass))
         if total <= 0.0:
             return
@@ -1054,26 +1125,82 @@ def _line_points(line: _LineEvaluator,
         yield from value(float(mid))
 
 
+def _interval_masses(line: _LineEvaluator) -> Tuple[np.ndarray, np.ndarray]:
+    """The line's evaluated grid and an upper bound on the posterior mass of
+    each interval between its points (the larger end's density times the
+    interval's width); no intervals with fewer than two points."""
+    grid = np.array(line.points())
+    if grid.size < 2:
+        return grid, np.zeros(0)
+    neg_log = np.array([line(z) for z in grid])
+    dens = np.exp(-(neg_log - np.min(neg_log)))
+    return grid, np.diff(grid) * np.maximum(dens[:-1], dens[1:])
+
+
+def _resolved(line: _LineEvaluator) -> bool:
+    """Whether a line cut short already resolves its mass: its outward probes
+    passed the cutoff or reached a bound on both sides of the point estimate,
+    and no interval of its grid holds more than ``_CUT_LINE_MAX_INTERVAL_MASS``
+    of the mass, so the refinement it missed would change its width little."""
+    if not line.outward_done:
+        return False
+    _, mass = _interval_masses(line)
+    total = float(np.sum(mass))
+    return total > 0.0 and float(np.max(mass)) / total <= \
+        _CUT_LINE_MAX_INTERVAL_MASS
+
+
+def _prior_line(line: _LineEvaluator, lo: float, hi: float) -> LinePosterior:
+    """A parameter's prior alone, on its bounds (fit space): the Gaussian the
+    fit folded in, within six of its widths, as :func:`prior_belief` builds it;
+    uniform on finite bounds without one; the point estimate without either."""
+    if line.prior is None:
+        if np.isfinite(lo) and np.isfinite(hi) and hi > lo:
+            return LinePosterior.from_neg_log(np.linspace(lo, hi, 129),
+                                              np.zeros(129))
+        return LinePosterior(np.array([line.z0]), np.ones(1))
+    center, sigma = line.prior
+    low = max(lo, center - 6.0 * sigma)
+    high = min(hi, center + 6.0 * sigma)
+    if not high > low:
+        return LinePosterior(np.array([min(max(center, lo), hi)]), np.ones(1))
+    grid = np.linspace(low, high, 129)
+    return LinePosterior.from_neg_log(grid, 0.5 * ((grid - center) / sigma)**2)
+
+
 def _trace_line(line: _LineEvaluator,
                 lo: float,
                 hi: float,
                 config: BeliefConfig,
-                flat_stop: bool = False) -> None:
+                flat_stop: bool = False,
+                deadline: Optional[float] = None) -> bool:
     """Evaluate a parameter's line until its posterior mass is resolved
-    (:func:`_line_points`), one point at a time."""
+    (:func:`_line_points`), one point at a time; False when ``deadline``
+    stopped it first (before a point that, by the slowest point so far, would
+    end after it)."""
+    slowest = 0.0
     for z in _line_points(line, lo, hi, config, flat_stop):
+        if deadline is not None and time.monotonic() + slowest > deadline:
+            return False
+        start = time.monotonic()
         line(z)
+        slowest = max(slowest, time.monotonic() - start)
+    return True
 
 
-def _trace_lines(traced: Sequence[Tuple[_LineEvaluator, float, float,
-                                        bool]], config: BeliefConfig,
-                 batch_residuals: BatchResidualsFn) -> None:
+def _trace_lines(traced: Sequence[Tuple[_LineEvaluator, float, float, bool]],
+                 config: BeliefConfig,
+                 batch_residuals: BatchResidualsFn,
+                 deadline: Optional[float] = None) -> Set[int]:
     """Trace several lines in lockstep: each round scores every unfinished
     line's next point in one ``batch_residuals`` call.
 
     The lines are independent (each moves one parameter off the MAP), so
     each evaluates exactly the points it would alone, while a round
     costs one batch where tracing line by line costs a call per point.
+    Returns the indices of the lines ``deadline`` stopped before they
+    finished: no round starts that, by the slowest round so far, would
+    end after it.
     """
     generators = [
         _line_points(line, lo, hi, config, flat_stop)
@@ -1084,12 +1211,18 @@ def _trace_lines(traced: Sequence[Tuple[_LineEvaluator, float, float,
         z = next(generator, None)
         if z is not None:
             pending[i] = z
+    slowest = 0.0
     while pending:
+        if deadline is not None and time.monotonic() + slowest > deadline:
+            return set(pending)
         order = list(pending)
+        start = time.monotonic()
         results = batch_residuals(
             [traced[i][0].params_at(pending[i]) for i in order])
+        slowest = max(slowest, time.monotonic() - start)
         for i, residuals in zip(order, results):
             traced[i][0].record(pending.pop(i), residuals)
             z = next(generators[i], None)
             if z is not None:
                 pending[i] = z
+    return set()
