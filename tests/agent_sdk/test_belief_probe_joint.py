@@ -112,6 +112,30 @@ def test_rehearsal_reports_p_hat_draws_and_the_mean_rollout():
     utils.reset_config({})
 
 
+def test_run_points_runs_each_point_from_the_same_start_and_seed():
+    """run_points runs the plan once per given point of physical parameter
+    values, each in the fresh scope at those values alone, from the probe's
+    state and at one planner seed; it draws nothing from the belief, records no
+    rehearsal and leaves the probe's state where it was."""
+    ctx, _, scope_overrides, calls = _joint_ctx()
+    # The model does not declare the material: its name is physical here
+    # because the point gives it.
+    ctx.physical_param_names_provider = set
+    sim = BeliefProbe(ctx)
+    _on_observation(sim, ctx)
+    points = [{}, {"friction": 0.5}, {"friction": 0.3}]
+    runs = sim.run_points(_PLAN, points)
+    assert not calls
+    # The base point overrides nothing: its scope is the model's own.
+    assert scope_overrides == [None, {"friction": 0.5}, {"friction": 0.3}]
+    assert [d["params"] for d in runs] == points
+    assert [d["success"] for d in runs] == [True, False, True]
+    assert {d["planner_seed"] for d in runs} == {utils.CFG.seed}
+    assert not ctx.live_rehearsals
+    assert sim._require_state().get(_block, "x") == pytest.approx(0.0)
+    utils.reset_config({})
+
+
 def test_line_states_skip_lines_a_draw_did_not_run():
     """A line a draw ran cleanly leaves its state; one whose controller failed
     there, or that was not initiable, leaves none: the draw did not rehearse

@@ -1,5 +1,5 @@
 """predicatorsbullet_helpers.objects module."""
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 import pybullet as p
@@ -28,6 +28,11 @@ _CURRENT_BUILD = 0
 # reads these to give an agent's scene the travel the deployment enforces.
 ENGINE_JOINT_LIMITS: Dict[Tuple[int, int, int], Tuple[float, float]] = {}
 _JOINT_LIMITS_BUILD: Dict[Tuple[int, int, int], int] = {}
+# Engine-limited joints whose limits are hard stops (switch sliders), held
+# after each physics substep by hold_hard_stop_joints. A key counts only
+# while ENGINE_JOINT_LIMITS still holds it; the cleanup functions below
+# drop both together.
+HARD_STOP_JOINTS: Set[Tuple[int, int, int]] = set()
 
 
 def begin_asset_build() -> int:
@@ -50,6 +55,7 @@ def drop_stale_assets(physics_client_id: int, build: int) -> None:
         if _JOINT_LIMITS_BUILD.get(joint_key, 0) < build:
             ENGINE_JOINT_LIMITS.pop(joint_key, None)
             _JOINT_LIMITS_BUILD.pop(joint_key, None)
+            HARD_STOP_JOINTS.discard(joint_key)
 
 
 def forget_client_assets(physics_client_id: int) -> None:
@@ -62,6 +68,7 @@ def forget_client_assets(physics_client_id: int) -> None:
     ]:
         ENGINE_JOINT_LIMITS.pop(joint_key, None)
         _JOINT_LIMITS_BUILD.pop(joint_key, None)
+        HARD_STOP_JOINTS.discard(joint_key)
 
 
 def forget_body_asset(physics_client_id: int, obj_id: int) -> None:
@@ -74,6 +81,7 @@ def forget_body_asset(physics_client_id: int, obj_id: int) -> None:
     ]:
         ENGINE_JOINT_LIMITS.pop(joint_key, None)
         _JOINT_LIMITS_BUILD.pop(joint_key, None)
+        HARD_STOP_JOINTS.discard(joint_key)
 
 
 def loaded_asset(physics_client_id: int,
@@ -94,6 +102,9 @@ def set_engine_joint_limits(body_id: int, joint_id: int, lower: float,
                      physicsClientId=physics_client_id)
     key = (physics_client_id, body_id, joint_id)
     ENGINE_JOINT_LIMITS[key] = (float(lower), float(upper))
+    # A hard stop only while cap_switch_joint_travel says so (a reused id
+    # may now hold another kind of joint).
+    HARD_STOP_JOINTS.discard(key)
     _JOINT_LIMITS_BUILD[key] = _CURRENT_BUILD
 
 
@@ -172,6 +183,10 @@ def cap_switch_joint_travel(body_id: int, joint_id: int, joint_scale: float,
     over-extension headroom is removed. This is a no-op for switches that are
     only toggled programmatically (the joint never leaves
     ``[j_min, joint_scale * j_max]`` anyway).
+
+    The engine limit is soft: an arm that keeps pressing still drives the
+    slider past it. So the joint is also registered as a hard stop, which
+    ``PyBulletEnv`` puts back inside its limits after each physics substep.
     """
     if joint_id < 0:
         return
@@ -180,8 +195,64 @@ def cap_switch_joint_travel(body_id: int, joint_id: int, joint_scale: float,
                                joint_id,
                                physicsClientId=physics_client_id)
     j_min, j_max = info[8], info[9]
-    set_engine_joint_limits(body_id, joint_id, j_min, joint_scale * j_max,
-                            physics_client_id)
+    set_hard_stop_joint_limits(body_id, joint_id, j_min, joint_scale * j_max,
+                               physics_client_id)
+
+
+def set_hard_stop_joint_limits(body_id: int, joint_id: int, lower: float,
+                               upper: float, physics_client_id: int) -> None:
+    """Set a joint's limits in the engine and register them as a hard stop,
+    which ``PyBulletEnv`` puts the joint back inside after each physics substep
+    (an engine limit alone is soft)."""
+    set_engine_joint_limits(body_id, joint_id, lower, upper, physics_client_id)
+    HARD_STOP_JOINTS.add((physics_client_id, body_id, joint_id))
+
+
+def is_hard_stop_joint(physics_client_id: int, body_id: int,
+                       joint_id: int) -> bool:
+    """Whether a world holds this joint inside its engine limits."""
+    return (physics_client_id, body_id, joint_id) in HARD_STOP_JOINTS
+
+
+def hold_joint_in_engine_limits(body_id: int, joint_id: int,
+                                physics_client_id: int) -> bool:
+    """Put a joint back inside the limits :func:`set_engine_joint_limits` gave
+    it, at rest, when it has passed them.
+
+    PyBullet enforces joint limits softly: a gripper that keeps pushing
+    a free slider drives it past its limit (a Fan switch button moved
+    7.7 cm on its 3 cm travel). Calling this after each physics substep
+    makes the limit a hard stop. Returns True when the joint was moved.
+    """
+    if joint_id < 0:
+        return False
+    limits = engine_joint_limits(physics_client_id, body_id, joint_id)
+    if limits is None:
+        return False
+    lower, upper = limits
+    j_pos = p.getJointState(body_id,
+                            joint_id,
+                            physicsClientId=physics_client_id)[0]
+    if lower <= j_pos <= upper:
+        return False
+    p.resetJointState(body_id,
+                      joint_id,
+                      min(max(j_pos, lower), upper),
+                      targetVelocity=0.0,
+                      physicsClientId=physics_client_id)
+    return True
+
+
+def hold_hard_stop_joints(physics_client_id: int) -> None:
+    """Hold every hard-stop joint of this world inside its limits (see
+    :func:`hold_joint_in_engine_limits`)."""
+    for key in [k for k in HARD_STOP_JOINTS if k[0] == physics_client_id]:
+        # A world's own code may have removed the body (p.removeBody).
+        if key not in ENGINE_JOINT_LIMITS or key[2] >= p.getNumJoints(
+                key[1], physicsClientId=physics_client_id):
+            HARD_STOP_JOINTS.discard(key)
+            continue
+        hold_joint_in_engine_limits(key[1], key[2], physics_client_id)
 
 
 def update_object(obj_id: int,
