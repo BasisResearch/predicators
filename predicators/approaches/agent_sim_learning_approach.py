@@ -33,6 +33,8 @@ from predicators.agent_sdk.tools import SYNTHESIS_TOOL_NAMES, \
     _SnapshotTarget, evaluate_states_with, finalize_versioned_snapshot, \
     make_write_snapshot_hook, restored_version
 from predicators.agent_sdk.tools.digests import render_trajectory_digest
+from predicators.agent_sdk.tools.reward_model import level_task, \
+    score_trajectory, trajectory_step_options
 from predicators.agent_sdk.tools.verdicts import task_evaluator
 from predicators.approaches.agent_base_approach import AgentBaseApproach
 from predicators.approaches.synthesis_validation import \
@@ -68,8 +70,7 @@ from predicators.observation_noise import ObservationNoise
 from predicators.option_model import _OptionModelBase, _OracleOptionModel
 from predicators.settings import CFG
 from predicators.structs import Action, DerivedPredicate, GroundAtom, \
-    LowLevelTrajectory, ParameterizedOption, Predicate, State, Task, Type, \
-    step_option_labels
+    LowLevelTrajectory, ParameterizedOption, Predicate, State, Task, Type
 
 logger = logging.getLogger(__name__)
 
@@ -1119,10 +1120,7 @@ class AgentSimLearningApproach(AgentBaseApproach):
             rules, specs, _, ns = self._load_simulator_from_module_file(
                 simulator_file, trajectories)
             if rules is None or specs is None:
-                raise RuntimeError(
-                    "run_python probe: ./simulator.py failed to load "
-                    "(exec error or missing simulator exports) - "
-                    "fix the file and probe again.")
+                raise RuntimeError(self._simulator_load_failure())
             # The candidate's rule parameters, which the joint belief
             # covers beside AGENT_PARAM_SPECS (see parameter_belief). As
             # for the subclass form (_choose_starting_values), the fitted
@@ -2301,17 +2299,8 @@ class AgentSimLearningApproach(AgentBaseApproach):
         bound). Defaulting to index 0 scored test-level plans against
         the first training level's goal.
         """
-        if task_idx is None:
-            current = self._tool_context.current_task
-            if current is not None:
-                return current
-            task_idx = 0
-        tasks = self._train_tasks
-        if not 0 <= task_idx < len(tasks):
-            raise ValueError(f"task_idx {task_idx} out of range "
-                             f"(0-{len(tasks) - 1}, the levels reached so "
-                             "far; omit it for the current level).")
-        return tasks[task_idx]
+        return level_task(self._train_tasks, self._tool_context.current_task,
+                          task_idx)
 
     def _make_evaluate_trajectory_fn(self) -> Any:
         """Build the ``evaluate_trajectory`` helper exposed in the synthesis
@@ -2370,33 +2359,19 @@ class AgentSimLearningApproach(AgentBaseApproach):
             """
             if physics_sweep and not CFG.continual_uncertainty_decisions:
                 raise ValueError("Explicit uncertainty sweeps are disabled.")
-            evaluator = task_evaluator(self._level_task(task_idx))
-            if evaluator is None:
-                which = "(current level)" if task_idx is None else task_idx
-                raise ValueError(f"Task {which} has no goal atoms to judge.")
-            if not states:
-                raise ValueError("`states` must be a non-empty sequence.")
-            step_options: Optional[Sequence[Any]] = None
-            if actions is not None:
-                acts = list(actions)
-                if acts and isinstance(acts[0], Action):
-                    step_options = step_option_labels(acts)
-                else:
-                    step_options = acts
-            verdict = evaluate_states_with(evaluator,
-                                           list(states),
-                                           step_options,
-                                           sim_env=getattr(
-                                               self._option_model, "sim_env",
-                                               None))
-            result = {
-                "reward": verdict["reward"],
-                "solved": verdict["solved"],
-                "note": verdict.get("note", ""),
-            }
+            task = self._level_task(task_idx)
+            # The one scoring path of every arm's helper; the baselines
+            # call it with no engine (tools/reward_model.py).
+            result = score_trajectory(
+                task,
+                states,
+                actions,
+                sim_env=getattr(self._option_model, "sim_env", None),
+                which="(current level)" if task_idx is None else task_idx)
             if physics_sweep:
                 result["sweep"] = self._sweep_evaluation(
-                    evaluator, list(states), step_options)
+                    task_evaluator(task), list(states),
+                    trajectory_step_options(actions))
             return result
 
         return evaluate_trajectory
@@ -2458,6 +2433,13 @@ class AgentSimLearningApproach(AgentBaseApproach):
             "ParamSpec": ParamSpec,
             "BaseSimulator": base_simulator_class(getattr(CFG, "env", "")),
         }
+
+    def _simulator_load_failure(self) -> str:
+        """What the probe tells the agent when ``./simulator.py`` did not
+        load."""
+        return ("run_python probe: ./simulator.py failed to load "
+                "(exec error or missing simulator exports) - "
+                "fix the file and probe again.")
 
     def _load_simulator_from_module_file(
         self,

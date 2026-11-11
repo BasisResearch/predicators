@@ -1221,6 +1221,21 @@ class TaskEvaluator:
         del states, step_options, sim_env  # unused in the default
         return ""
 
+    def replay_unchecked(self,
+                         states: Sequence[State],
+                         step_options: Optional[Sequence[StepOption]],
+                         sim_env: Optional[Any] = None) -> bool:
+        """Whether the verdict left a physics-replay rule unchecked because the
+        caller supplied no ``sim_env``; False for a pure certificate.
+
+        True means that the goal atoms hold and no rule that needs no
+        physics was broken, and that the certificate then failed closed
+        for want of a replay. An agent-facing surface with no simulator
+        reads this bit to say so in its note. It never names a rule.
+        """
+        del states, step_options, sim_env  # unused in the default
+        return False
+
     def offline_metrics(
             self, states: Sequence[State],
             step_options: Optional[Sequence[StepOption]]) -> Dict[str, float]:
