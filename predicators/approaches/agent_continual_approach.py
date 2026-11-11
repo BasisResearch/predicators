@@ -47,7 +47,8 @@ from predicators.agent_sdk.speed_support import RecordedSpeeds, \
 from predicators.agent_sdk.tools.claim_check import ClaimCheck
 from predicators.agent_sdk.tools.context import mark_notes_shown
 from predicators.agent_sdk.tools.continual_tools import CLAIM_TOOL_NAMES, \
-    CONTINUAL_TOOL_NAMES, PRACTISE_HEAD, play_tool_names
+    CONTINUAL_TOOL_NAMES, PRACTISE_HEAD, REWARD_MODEL_TOOL_NAMES, \
+    play_tool_names
 from predicators.agent_sdk.tools.exploration import ProbeSurface
 from predicators.agent_sdk.tools.sandbox_guard import \
     _screen_text_for_sandbox_escape
@@ -1154,7 +1155,10 @@ class AgentContinualModelFreeApproach(ContinualPlayMixin, ScenePackageMixin,
     No belief model, no ``sim``, no ``run_python`` and no learning
     session; the agent's own code in the sandbox reads the recorded
     data. No simulator is built at all (see
-    :meth:`_create_planner_option_model`).
+    :meth:`_create_planner_option_model`). Under
+    ``continual_provide_reward_model`` it also has the
+    ``evaluate_trajectory`` tool: the level's reward model on states the
+    agent predicts, with no engine behind it.
     """
 
     _save_suffix = "AgentContinualModelFree"
@@ -1166,7 +1170,11 @@ class AgentContinualModelFreeApproach(ContinualPlayMixin, ScenePackageMixin,
     # -- The arm's declarations -------------------------------------------
 
     def _continual_tool_names(self) -> List[str]:
-        return play_tool_names(CONTINUAL_TOOL_NAMES)
+        names = play_tool_names(CONTINUAL_TOOL_NAMES)
+        if CFG.continual_provide_reward_model:
+            # The level's reward model, with no engine behind it.
+            names += REWARD_MODEL_TOOL_NAMES
+        return names
 
     def _get_all_predicates(self) -> Set[Predicate]:
         """The arm's fixed vocabulary: the env predicates the allowlist keeps,
@@ -1186,7 +1194,7 @@ class AgentContinualModelFreeApproach(ContinualPlayMixin, ScenePackageMixin,
     def _get_sandbox_reference_files(self) -> ReferenceFiles:
         files = super()._get_sandbox_reference_files()
         if CFG.continual_provide_scene_package:
-            files.update(self._scene_package_files())
+            files.update(self._scene_asset_files())
         return files
 
     def _play_system_prompt(self) -> str:
@@ -1196,7 +1204,7 @@ class AgentContinualModelFreeApproach(ContinualPlayMixin, ScenePackageMixin,
         from predicators.agent_sdk.play_prompts import build_play_system_prompt
         return build_play_system_prompt(
             self._continual_tool_names(),
-            base_sim_refs=self._scene_package_paths(),
+            base_sim_refs=self._scene_asset_paths(),
             scene_package=True)
 
     # -- Parent-specific overrides ---------------------------------------
