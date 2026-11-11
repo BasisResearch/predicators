@@ -192,6 +192,8 @@ class PyBulletFanBaseEnv(PyBulletEnv):
     switch_scale: ClassVar[float] = 1.0
     switch_joint_scale: ClassVar[float] = 0.1
     switch_on_threshold: ClassVar[float] = 0.5  # Fraction of joint range
+    # A state's switch travel this close to the button's is where it is.
+    _SWITCH_TRAVEL_TOL: ClassVar[float] = 1e-3
     switch_x_len: ClassVar[float] = 0.10  # Length of switch
     switch_height: ClassVar[float] = 0.08
 
@@ -303,9 +305,18 @@ class PyBulletFanBaseEnv(PyBulletEnv):
             "rot",  # switch orientation
             "controls_fan",  # matches fan side
             "is_on",  # is this switch on
+            # How far the button sits along its travel: 0 at the off
+            # end, 1 at the on end; ``is_on`` is ``travel`` above
+            # ``switch_on_threshold``. A press can leave the button
+            # anywhere between the ends, and a scene rebuilt from
+            # ``is_on`` alone has to snap it to an end, which can put
+            # the button centimetres into a gripper that is still
+            # resting on it.
+            "travel",
         ],
         sim_features=["id", "joint_id", "side_idx"],
-        angular_features=["rot"])
+        angular_features=["rot"],
+        sensor_features=["travel"])
     # Blockers. ``x_len``/``y_len``/``z_len`` are the side lengths of the
     # body's WORLD-AXIS-ALIGNED bounding box (not the body frame), so they
     # always pair with the ``x``/``y``/``z`` pose features: a collision rule
@@ -735,7 +746,21 @@ class PyBulletFanBaseEnv(PyBulletEnv):
             # features the engine also holds, so State.allclose misses),
             # which let a jammed SwitchOn converge in the belief sim
             # while it stalled for real.
-            if self._is_switch_on(switch_obj.id) != want_on:
+            # A state that carries the button's travel puts it exactly
+            # there, unless the travel and the reading disagree (a
+            # learned rule that flips ``is_on`` leaves ``travel`` as it
+            # was): then the reading wins and the button goes to that
+            # end, whatever the env held before.
+            travel = None
+            if "travel" in switch_obj.type.feature_names:
+                travel = float(state.get(switch_obj, "travel"))
+                if (travel > self.switch_on_threshold) != want_on:
+                    travel = 1.0 if want_on else 0.0
+            if travel is not None:
+                if abs(self._switch_travel(switch_obj.id) -
+                       travel) > self._SWITCH_TRAVEL_TOL:
+                    self._set_switch_travel(switch_obj.id, travel)
+            elif self._is_switch_on(switch_obj.id) != want_on:
                 self._set_switch_on(switch_obj.id, want_on)
 
         # Position all fans correctly based on their side
@@ -1024,6 +1049,8 @@ class PyBulletFanBaseEnv(PyBulletEnv):
                 return float(obj.side_idx)
             if feature == "is_on":
                 return float(self._is_switch_on(obj.id))
+            if feature == "travel":
+                return self._switch_travel(obj.id)
         # target.is_hit is computed by the concrete subclass: its
         # proximity threshold is goal semantics, which this module's
         # visibility contract keeps out of the base sim.
@@ -1032,12 +1059,13 @@ class PyBulletFanBaseEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     # Helpers
     # -------------------------------------------------------------------------
-    def _is_switch_on(self, switch_id: int) -> bool:
-        """Check if a switch's joint is above the threshold."""
+    def _switch_travel(self, switch_id: int) -> float:
+        """How far a switch's button sits along its travel, 0 (off end) to 1
+        (on end); 0 for a switch without a joint."""
         joint_id = self._get_joint_id(switch_id, "joint_0",
                                       self._physics_client_id)
         if joint_id < 0:
-            return False
+            return 0.0
         j_pos, _, _, _ = p.getJointState(
             switch_id, joint_id, physicsClientId=self._physics_client_id)
         info = p.getJointInfo(switch_id,
@@ -1045,7 +1073,27 @@ class PyBulletFanBaseEnv(PyBulletEnv):
                               physicsClientId=self._physics_client_id)
         j_min, j_max = info[8], info[9]
         frac = (j_pos / self.switch_joint_scale - j_min) / (j_max - j_min)
-        return bool(frac > self.switch_on_threshold)
+        return float(np.clip(frac, 0.0, 1.0))
+
+    def _is_switch_on(self, switch_id: int) -> bool:
+        """Check if a switch's joint is above the threshold."""
+        return self._switch_travel(switch_id) > self.switch_on_threshold
+
+    def _set_switch_travel(self, switch_id: int, travel: float) -> None:
+        """Put a switch's button at ``travel`` (0 off end, 1 on end)."""
+        joint_id = self._get_joint_id(switch_id, "joint_0",
+                                      self._physics_client_id)
+        if joint_id < 0:
+            return
+        info = p.getJointInfo(switch_id,
+                              joint_id,
+                              physicsClientId=self._physics_client_id)
+        j_min, j_max = info[8], info[9]
+        value = j_min + float(np.clip(travel, 0.0, 1.0)) * (j_max - j_min)
+        p.resetJointState(switch_id,
+                          joint_id,
+                          value * self.switch_joint_scale,
+                          physicsClientId=self._physics_client_id)
 
     def _set_switch_on(self, switch_id: int, power_on: bool) -> None:
         """Programmatically toggle a switch on/off."""

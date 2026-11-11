@@ -59,7 +59,8 @@ from predicators.pybullet_helpers.geometry import Pose, Pose3D, Quaternion
 from predicators.pybullet_helpers.joint import JointPositions
 from predicators.pybullet_helpers.link import get_link_state
 from predicators.pybullet_helpers.objects import begin_asset_build, \
-    drop_stale_assets, forget_client_assets, update_object
+    drop_stale_assets, forget_client_assets, hold_hard_stop_joints, \
+    update_object
 from predicators.pybullet_helpers.real_robot_bridge import \
     GripperJointLayout, gripper_joint_layout_from_robot
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot, \
@@ -1011,6 +1012,9 @@ class PyBulletEnv(BaseEnv):
                 # so continuous actuation is re-applied per substep).
                 self._apply_pending_residual_commands()
                 p.stepSimulation(physicsClientId=self._physics_client_id)
+                # Here, not in the overridable hook below: a subclass (an
+                # agent's scene model too) must not lose the hard stops.
+                hold_hard_stop_joints(self._physics_client_id)
                 self._after_physics_substep()
         # Consumed: commands act for exactly one action and expire
         # unless the residual simulator re-queues them post-step.
