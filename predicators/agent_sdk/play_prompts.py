@@ -96,6 +96,12 @@ _PREFLIGHT_BLURB = (" Rehearsed in `sim` from the last observation first; "
                     "rehearsal.")
 
 
+def _loaded(built: str, loaded: str) -> str:
+    """The prompt section for a scene the harness loads
+    (``scene_manifest_loader``), else the one for a scene the agent builds."""
+    return loaded if CFG.scene_manifest_loader else built
+
+
 def render_tool_list(tool_names: Iterable[str],
                      fit_available: bool = True) -> str:
     """One bullet per tool the session exposes.
@@ -196,10 +202,15 @@ def build_play_system_prompt(tool_names: Sequence[str],
         sections.append(frozen_section)
     if scene_built:
         sections.append(
-            render(
-                "play_system", "arm_from_assets"
-                if fit_available else "arm_from_assets_agent_belief"
-                if agent_belief else "arm_real_to_sim"))
+            render("play_system",
+                   "arm_from_assets",
+                   scene_ownership=render(
+                       "play_system",
+                       _loaded("scene_ownership_built",
+                               "scene_ownership_loaded"))
+                   ) if fit_available else render(
+                       "play_system", "arm_from_assets_agent_belief"
+                       if agent_belief else "arm_real_to_sim"))
     # The joint belief replaces trials / solved / belief_draws with one
     # rehearsal over its K joint draws (paper Section 3.3).
     joint = (int(CFG.belief_joint_draws) > 0 and not point_estimate
@@ -235,7 +246,9 @@ def build_play_system_prompt(tool_names: Sequence[str],
                     "play_system", "model_ready_declared"
                     if declared else "model_ready_fitted"),
                 sim_first_round=render(
-                    "play_system", "sim_first_round_scene"
+                    "play_system",
+                    _loaded("sim_first_round_scene",
+                            "sim_first_round_scene_loaded")
                     if scene_built else "sim_first_round_twin"),
                 rehearse_line=render(
                     "play_system",
@@ -252,7 +265,9 @@ def build_play_system_prompt(tool_names: Sequence[str],
                    rehearsal_clause="once your scene model is loaded"
                    if scene_built else "model or not",
                    sim_first_round=render(
-                       "play_system", "sim_first_round_scene"
+                       "play_system",
+                       _loaded("sim_first_round_scene",
+                               "sim_first_round_scene_loaded")
                        if scene_built else "sim_first_round_twin"),
                    model_ready=render("play_system", ready)))
     if model:
@@ -343,7 +358,7 @@ def build_play_system_prompt(tool_names: Sequence[str],
     if model:
         refs = ("" if not base_sim_refs else render(
             "play_system",
-            "scene_refs" if scene_built else
+            _loaded("scene_refs", "scene_refs_loaded") if scene_built else
             "twin_scene_refs" if scene_package else "base_sim_refs",
             ref_listing="\n".join(f"- `{r}`" for r in base_sim_refs)))
         robustness = render(
@@ -452,11 +467,12 @@ def build_model_contract(
     one: the agent loads the scene itself. ``sampled_materials`` (EMPIRIC
     from assets) says rehearsal samples the materials the scene leaves
     undeclared (as far as the recordings allow, under
-    ``belief_material_lines``) and a declared material keeps at least its
-    plausible range; otherwise undeclared materials keep the scene's
-    values. ``agent_belief`` (with ``declared_params_only``) replaces the
-    no-harness-fitting section with the contract of ``PARAM_DRAWS``, the
-    agent's own parameter draws.
+    ``belief_material_lines``; not at all, under
+    ``belief_keep_undeclared_materials``) and a declared material keeps
+    at least its plausible range; otherwise undeclared materials keep the
+    scene's values. ``agent_belief`` (with ``declared_params_only``)
+    replaces the no-harness-fitting section with the contract of
+    ``PARAM_DRAWS``, the agent's own parameter draws.
     """
     if supplied_model:
         parts = [
@@ -468,21 +484,34 @@ def build_model_contract(
         return _join_contract(parts)
     if scene_built:
         # Under belief_material_lines the draws of an undeclared material
-        # follow the recordings instead of its plausible range alone.
-        section = ("undeclared_materials_lined" if CFG.belief_material_lines
-                   else "undeclared_materials_sampled")
+        # follow the recordings instead of its plausible range alone;
+        # under belief_keep_undeclared_materials no draw moves it.
+        if CFG.belief_keep_undeclared_materials:
+            section = "undeclared_materials_declared_only"
+        elif CFG.belief_material_lines:
+            section = "undeclared_materials_lined"
+        else:
+            section = "undeclared_materials_sampled"
         undeclared = (render("subclass_model",
                              section,
                              plausible_ranges=plausible_materials_text())
                       if sampled_materials else render(
                           "subclass_model", "undeclared_materials_kept"))
+        # Under belief_undeclared_material_screen the harness tests a
+        # rehearsed plan against the materials no draw varies.
+        if sampled_materials and CFG.belief_keep_undeclared_materials and \
+                CFG.belief_undeclared_material_screen:
+            undeclared += "\n" + render("subclass_model",
+                                        "undeclared_materials_screen")
         # Under scene_observed_sizes the base gives box and sphere bodies
         # each level's observed sizes.
         levels = render(
-            "subclass_model", "level_scenes_sized"
+            "subclass_model", "level_scenes_loaded"
+            if CFG.scene_manifest_loader else "level_scenes_sized"
             if CFG.scene_observed_sizes else "level_scenes_fixed")
         simulator = render("subclass_model",
-                           "simulator_scene",
+                           _loaded("simulator_scene",
+                                   "simulator_scene_loaded"),
                            undeclared_materials=undeclared,
                            level_scenes=levels)
     else:
