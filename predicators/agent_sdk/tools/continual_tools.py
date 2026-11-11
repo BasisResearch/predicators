@@ -29,7 +29,10 @@ from predicators.agent_sdk.primitive_policy import open_primitive_policy, \
 from predicators.agent_sdk.sketch_parsing import parse_sketch_from_text
 from predicators.agent_sdk.tools.context import LiveRehearsal, ToolContext
 from predicators.agent_sdk.tools.digests import render_options_digest
+from predicators.agent_sdk.tools.python_exec import _resolve_sandbox_file
 from predicators.agent_sdk.tools.results import _error_result, _text_result
+from predicators.agent_sdk.tools.reward_model import PREDICTION_STARTS, \
+    level_task, load_prediction_file, score_prediction
 from predicators.observation_belief import atom_fractions, \
     describe_fractions, uncertain_atoms
 from predicators.observation_noise import ObservationNoise
@@ -40,7 +43,7 @@ from predicators.run.interaction import ActionSelector, ExecutePlan, \
 from predicators.run.recording import states_close
 from predicators.settings import CFG
 from predicators.structs import Action, GroundAtom, Predicate, State, Task, \
-    _Option, excluded_object_type_names
+    _Option, excluded_object_type_names, step_option_labels
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle through approaches
     from predicators.run.continual import InvocationResult, \
@@ -60,9 +63,11 @@ PRIMITIVE_TOOL_NAMES = [
 ]
 # The tools of continual_claim_check.
 CLAIM_TOOL_NAMES = ["claims_record", "claims_resolve"]
+# The tool of continual_provide_reward_model on an arm with no run_python.
+REWARD_MODEL_TOOL_NAMES = ["evaluate_trajectory"]
 ALL_CONTINUAL_TOOL_NAMES = list(
     dict.fromkeys(CONTINUAL_TOOL_NAMES + PRIMITIVE_TOOL_NAMES +
-                  CLAIM_TOOL_NAMES))
+                  CLAIM_TOOL_NAMES + REWARD_MODEL_TOOL_NAMES))
 # The tools that drive the robot below the skill library.
 RAW_CONTROL_TOOL_NAMES = ("env_step", "env_run_policy")
 
@@ -1632,7 +1637,122 @@ def build_continual_tools(
         closed, reply = ctx.claim_check.resolve(args, **_claim_position())
         return (_text_result if closed else _error_result)(reply + _footer())
 
+    def _prediction_start(start: str) -> Tuple[List[State], List[Any]]:
+        """The recorded states a prediction continues, with their labels; none
+        for the level's initial state."""
+        if start == "initial":
+            return [], []
+        if start == "episode":
+            episodes = session.level_episodes()
+            if episodes:
+                episode = episodes[-1]
+                return (list(episode["states"]),
+                        list(step_option_labels(episode["actions"])))
+        return [session.observe().frame], []
+
+    @tool(
+        "evaluate_trajectory",
+        "Score a state sequence that you predict with a level's reward "
+        "model. Free. The sequence is a start state followed by your "
+        "predicted states. `states` holds one entry per predicted state: "
+        "{object_name: {feature: value}} for the features that change from "
+        "the state before it, {} for no change. `start` picks the start "
+        "state: `observation` (the default) is the latest observation, "
+        "`episode` is the current episode's recorded states and skill "
+        "labels up to that observation, `initial` is the level's initial "
+        "state. `actions` is optional: one label per predicted state, "
+        "[\"Skill\", [\"object\", ...], [param, ...]], or null for a "
+        "transition you do not attribute to a skill. `path` names a JSON "
+        "file in the sandbox holding {\"states\": [...], \"actions\": "
+        "[...]} in place of the two arguments. `task_idx` indexes the "
+        "levels reached so far and scores from that level's initial state; "
+        "omit it for the current level. Returns {\"reward\", \"solved\", "
+        "\"note\"}. No simulator backs this tool. A rule that replays "
+        "physics is not checked: the verdict then has solved false and no "
+        "success bonus, and `note` says so.", {
+            "type": "object",
+            "properties": {
+                "states": {
+                    "type":
+                    "array",
+                    "description":
+                    "one {object_name: {feature: value}} entry per "
+                    "predicted state",
+                    "items": {
+                        "type": "object"
+                    },
+                },
+                "actions": {
+                    "type": "array",
+                    "description": "one label or null per predicted state",
+                },
+                "path": {
+                    "type":
+                    "string",
+                    "description":
+                    "a JSON file in the sandbox with `states` and, "
+                    "optionally, `actions`",
+                },
+                "start": {
+                    "type": "string",
+                    "description": "observation (default), episode or initial"
+                },
+                "task_idx": {
+                    "type":
+                    "integer",
+                    "description":
+                    "a level reached so far; omit for the "
+                    "current level"
+                },
+            },
+        })
+    async def evaluate_trajectory(args: Dict[str, Any]) -> Dict[str, Any]:
+        ended = _ended()
+        if ended is not None:
+            return ended
+        try:
+            changes, labels = args.get("states"), args.get("actions")
+            path = args.get("path") or ""
+            if path:
+                if changes is not None or labels is not None:
+                    raise ValueError("Pass `path`, or `states` with optional "
+                                     "`actions`.")
+                if not ctx.sandbox_dir:
+                    raise ValueError("`path` requires a sandbox.")
+                resolved, err = _resolve_sandbox_file(path, ctx.sandbox_dir)
+                if err is not None:
+                    raise ValueError(err)
+                changes, labels = load_prediction_file(resolved)
+            task_idx = args.get("task_idx")
+            if task_idx is not None:
+                task_idx = int(task_idx)
+            start = args.get("start") or ("observation"
+                                          if task_idx is None else "initial")
+            if start not in PREDICTION_STARTS:
+                raise ValueError("`start` must be one of " +
+                                 ", ".join(PREDICTION_STARTS) + ".")
+            task = level_task(ctx.train_tasks, ctx.current_task, task_idx)
+            if (start != "initial" and ctx.current_task is not None
+                    and task is not ctx.current_task):
+                raise ValueError("Another level is scored from its initial "
+                                 "state: omit `start` or pass `initial`.")
+            states, recorded = _prediction_start(start)
+            verdict = score_prediction(
+                task,
+                states or [task.init],
+                recorded,
+                changes if changes is not None else [],
+                labels,
+                which="(current level)" if task_idx is None else task_idx)
+        except ValueError as e:
+            # The request was malformed: the message is about its input.
+            return _error_result(f"{e}" + _footer())
+        except Exception as e:  # pylint: disable=broad-except
+            return _protocol_error(e)
+        return _text_result(json.dumps(verdict) + _footer())
+
     all_tools = {
+        "evaluate_trajectory": evaluate_trajectory,
         "claims_record": claims_record,
         "claims_resolve": claims_resolve,
         "env_run_policy": env_run_policy,
