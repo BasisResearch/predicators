@@ -152,6 +152,56 @@ APPROACHES:
       continual_practise_after_reset: true
       belief_keep_undeclared_materials: true
       scene_manifest_loader: true
+  # No uncertainty, from assets: EMPIRIC from assets with no explicit
+  # uncertainty. The agent writes its model as in EMPIRIC from assets and
+  # the harness fits its parameters, to the raw noisy observations; every
+  # rollout runs one value for each parameter from the latest observation.
+  # There is no state smoothing, no belief and no joint draw, so the
+  # harness runs no rehearsal: every switch of EMPIRIC from assets that
+  # gates on one, adds a note to one or checks a step against one is left
+  # out, and the approach class refuses a config that turns one on. The
+  # agent still rolls plans out in its fitted model with `sim`. Parked
+  # like EMPIRIC from assets.
+  from_assets_no_uncertainty_opus:
+    NAME: agent_continual_from_assets_no_uncertainty
+    SKIP: true
+    FLAGS:
+      agent_sdk_model_name: claude-opus-5
+      # A test-level step waits for a model that loads and, since its
+      # starting values are the agent's guesses, for a fit of the current
+      # file. No rehearsal is asked for.
+      continual_require_model_on_test: true
+      # No uncertainty's switches: they turn off what common.yaml turns on.
+      code_sim_learning_rollout_noise_filter: false
+      continual_belief_frame: false
+      continual_uncertainty_decisions: false
+      agent_sim_learn_param_uncertainty: false
+      agent_explorer_info_seeking: false
+      agent_explorer_info_seeking_adaptive: false
+      agent_explorer_info_seeking_noise_aware: false
+      code_sim_learning_interval_belief: false
+      code_sim_learning_carry_posterior: false
+      belief_joint_draws: 0
+      # Nothing about the observation noise is declared to this arm: no
+      # noise section, no [noise] line, and the harness fit models none
+      # of it.
+      continual_obs_noise_declared: false
+      # From EMPIRIC from assets, the switches that act on the fit and the
+      # scene. The fit starts from the agent's guesses: its prior spans
+      # each declared range and its search covers the whole range, so a
+      # guess does not hold the fitted value near itself.
+      code_sim_learning_prior_spans_bounds: true
+      # A box or sphere body takes each level's observed size, and the
+      # harness loads every level's bodies from its scene manifest.
+      scene_observed_sizes: true
+      scene_manifest_loader: true
+      # A state restored in the model keeps its bodies' speeds.
+      continual_restage_velocities: true
+      # An observation carries no body speed, as for EMPIRIC from assets.
+      # Off, each noisy frame would carry the true speeds. No belief
+      # estimates a speed here, so a rollout from an observation starts at
+      # rest.
+      continual_belief_velocities: true
   # Model-free: the same agent with the model-side machinery switched
   # off, so the two differ only in the model.
   mf_opus:
