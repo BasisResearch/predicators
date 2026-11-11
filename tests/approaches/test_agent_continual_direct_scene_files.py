@@ -68,7 +68,8 @@ def test_boil_gets_the_files_and_only_a_task_prompt(tmp_path: Any,
                                                     monkeypatch: Any) -> None:
     """The files reach the sandbox and the prompt lists them, while the prompt
     asks for no simulator, model, fit or gate and the tools have no probe."""
-    env, approach = _make(tmp_path)
+    # The scripted session ends with give_up on its training level.
+    env, approach = _make(tmp_path, continual_refuse_training_give_up=False)
     seen: List[str] = []
 
     def query(message: str, *_args: Any, **_kwargs: Any) -> Any:
