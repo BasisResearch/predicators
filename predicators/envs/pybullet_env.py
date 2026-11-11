@@ -540,6 +540,11 @@ class PyBulletEnv(BaseEnv):
             physics_client_id = p.connect(p.DIRECT)
 
         p.resetSimulation(physicsClientId=physics_client_id)
+        if CFG.pybullet_solver_residual_threshold is not None:
+            # After resetSimulation, so the reset cannot undo it.
+            p.setPhysicsEngineParameter(
+                solverResidualThreshold=CFG.pybullet_solver_residual_threshold,
+                physicsClientId=physics_client_id)
 
         # Load plane and apply the studio floor recolor.
         plane_id = p.loadURDF(utils.get_env_asset_path("urdf/plane.urdf"),
