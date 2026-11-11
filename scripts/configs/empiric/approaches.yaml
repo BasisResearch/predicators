@@ -51,9 +51,9 @@ APPROACHES:
       # A rehearsal staged while a body moves keeps it moving, at the
       # velocity the state belief estimates from the noisy frames.
       continual_belief_velocities: true
-      # A raw action may move an arm joint only as far as the robot can
-      # in one step.
-      continual_raw_step_limit: true
+      # A fit traces lines for the materials the model leaves undeclared,
+      # so the joint draws of them follow the recordings.
+      belief_material_lines: true
       # A rehearsal counts the failing draws that end the episode in
       # GAME_OVER, and the draws that stopped at a failed skill.
       continual_rehearsal_game_over: true
@@ -70,8 +70,12 @@ APPROACHES:
       # A fit report names the parameters held at an end of their declared
       # range, and a rehearsal of that model repeats it.
       continual_fit_bound_note: true
-      # give_up is refused on a training level, which can always be reset.
-      continual_refuse_training_give_up: true
+      # A box or sphere body takes each level's observed size, so the fit
+      # can replay every level's recordings with one model.
+      scene_observed_sizes: true
+      # The belief's temperature is set per recorded segment, so more
+      # recordings narrow it.
+      belief_segment_temperature: true
       # A resting body's position averages every frame since it last
       # moved, up to 64, so a rehearsal draws it about as tightly as the
       # frames allow; under the 8-frame default its spread stays at a third
@@ -81,22 +85,6 @@ APPROACHES:
       # the pooled belief over every episode's opening frames, not episode
       # zero's first noisy frame.
       continual_pooled_level_init: true
-      # A fit traces lines for the materials the model leaves undeclared,
-      # so the joint draws of them follow the recordings.
-      belief_material_lines: true
-      # A box or sphere body takes each level's observed size, so the fit
-      # can replay every level's recordings with one model.
-      scene_observed_sizes: true
-      # The belief's temperature is set per recorded segment, so more
-      # recordings narrow it.
-      belief_segment_temperature: true
-      # An episode that ends while bodies still move keeps recording until
-      # they rest, so the fit sees where a falling body lands.
-      continual_record_until_rest: true
-      # A push whose engine contacts show only fingertips on the green
-      # stands without the counterfactual replay, which only re-rolls a
-      # knife-edge link when there is no arm contact to remove.
-      domino_contact_verdict: true
       # After a reset of a training level it has not won, a skill request
       # waits for the model and a rehearsal, as on a test level.
       continual_practise_after_reset: true
@@ -130,13 +118,40 @@ APPROACHES:
       continual_rehearsal_gate: true
       continual_predictive_check: true
       continual_belief_velocities: true
-      continual_raw_step_limit: true
       continual_rehearsal_game_over: true
       continual_rehearsal_support_note: true
-      continual_refuse_training_give_up: true
       scene_observed_sizes: true
       continual_belief_window: 64
       continual_pooled_level_init: true
+  # No learning: EMPIRIC from assets with no learning of the physics. The
+  # harness loads the scene, as for EMPIRIC from assets; the agent's file
+  # may hold no mechanisms or parameters, and the harness fits nothing. The rest is
+  # EMPIRIC from assets' menu, less the switches that act on a fit or ask
+  # the agent to revise its model. Parked like EMPIRIC from assets.
+  no_learning_opus:
+    NAME: agent_continual_no_learning
+    SKIP: true
+    FLAGS:
+      agent_sdk_model_name: claude-opus-5
+      continual_require_model_on_test: true
+      agent_sim_learn_declared_params_only: true
+      continual_rehearsal_gate: true
+      continual_rehearsal_notes_gate: true
+      continual_rehearsal_safe_plan: true
+      continual_rehearsal_still_start: true
+      continual_restage_velocities: true
+      continual_rehearsal_mean_verdict: true
+      continual_rehearsal_win_first: true
+      continual_belief_velocities: true
+      continual_rehearsal_game_over: true
+      continual_rehearsal_support_note: true
+      continual_rehearsal_speed_note: true
+      scene_observed_sizes: true
+      continual_belief_window: 64
+      continual_pooled_level_init: true
+      continual_practise_after_reset: true
+      belief_keep_undeclared_materials: true
+      scene_manifest_loader: true
   # Model-free: the same agent with the model-side machinery switched
   # off, so the two differ only in the model.
   mf_opus:
@@ -152,21 +167,30 @@ APPROACHES:
       agent_model_repair: false
       agent_planner_use_simulator: false
       continual_uncertainty_decisions: false
-  # Model-free with the scene files an agentic real-to-sim agent would
-  # build from: the engine wrapper, the scene manifest and the URDF and
-  # mesh files as read-only references. Its prompt only asks it to solve
-  # the levels; nothing asks for a simulator or model.
+      # The level's reward model on states the agent predicts, as the
+      # evaluate_trajectory tool. No engine backs it: a rule that replays
+      # physics (the domino push) is not checked, and the note says so.
+      continual_provide_reward_model: true
+  # Model-free with the scene assets EMPIRIC from assets builds from: the
+  # scene manifest and the URDF and mesh files as read-only references. Its
+  # prompt only asks it to solve the levels; nothing asks for a simulator
+  # or model.
   mf_scene_package_opus:
     NAME: agent_continual_model_free
     FLAGS:
       <<: *mf_flags
       continual_provide_scene_package: true
   # Standalone: the agent writes and owns a program world model, with no
-  # harness fitting.
+  # harness fitting. It receives the scene assets Direct + scene receives,
+  # and no base simulator. It scores the states its model predicts with the
+  # level's reward model (evaluate_trajectory in run_python), with no
+  # engine behind it, as the two direct arms do.
   standalone_opus:
     NAME: agent_continual_program_world_model
     FLAGS:
       agent_sdk_model_name: claude-opus-5
+      continual_provide_scene_package: true
+      continual_provide_reward_model: true
   # Oracle dynamics: the ground-truth simulator stands in for the learned
   # model, with no automatic execution gate or shadow audit (see
   # docs/comparisons/oracle-repair-notes.md).

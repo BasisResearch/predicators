@@ -117,6 +117,10 @@ ENVS:
       pybullet_birrt_extend_num_interp: 20
       pybullet_birrt_path_subsample_ratio: 2
       domino_min_block_tasks: true
+      # The real cascade verdict reads the engine's contacts, for every
+      # arm: a push that only a fingertip on the green makes stands
+      # without the counterfactual replay.
+      domino_contact_verdict: true
       domino_true_friction: 0.5
       domino_planning_friction: 0.1
       domino_min_block_span_lo: 0.29

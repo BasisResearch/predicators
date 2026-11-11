@@ -187,6 +187,14 @@ The refusal says which condition is unmet.
 Train levels are not gated: collect evidence there first.
 Loading a model does not itself enable automatic rehearsal; use `sim` to check plans before execution.
 
+<!-- section: model_gate_scene -->
+### Test levels require a loaded model
+
+On a test level, `skills_invoke` and `skills_execute_plan` refuse, charging nothing, until `./simulator.py` loads and declares `RESIDUAL_FEATURES`.
+The refusal says which condition is unmet.
+Train levels are not gated: collect evidence there first.
+Loading a model does not itself enable automatic rehearsal; use `sim` to check plans before execution.
+
 <!-- section: model_gate_fit -->
 ### Test levels require a fitted model
 
@@ -386,6 +394,18 @@ __MODEL_FILES__
 Use sandbox `python3` with `pickle` and `numpy` to analyze the recorded data and your own files.
 No simulator is supplied.
 
+<!-- section: reward_model_model_free -->
+## Interpreting task verdicts
+
+The `evaluate_trajectory` tool exposes a level's reward model, the current level's by default.
+It scores a state sequence that you predict and returns only `reward`, `solved`, and `note`.
+The sequence is a start state followed by your predicted states; give each predicted state as the feature values that change from the state before it, `{"object": {"feature": value}}`.
+`start` selects the latest observation, the current episode's recording up to it, or the level's initial state.
+No simulator backs this tool, so a verdict is only as good as the states you predict.
+Where evaluation includes a physical replay, that rule is not checked: the verdict then reports `solved` false with no success bonus, and its `note` says so.
+Pass action labels for tasks whose evaluator reads the actions: one `["Skill", ["obj", ...], [param, ...]]` per predicted state, or `null` for an unlabeled transition.
+Only the live environment's `WIN` certifies completion.
+
 <!-- section: model -->
 ## Model workbench
 
@@ -458,6 +478,9 @@ The supplied model is fixed for the run and not exposed as source: rollouts run 
 <!-- section: frozen_line_written -->
 Your model is sealed at the first real action: until then, edits load on the next probe call; afterwards rollouts run the real skill controllers on the sealed code and values, and no call fits or changes its parameters.
 
+<!-- section: frozen_line_scene -->
+Your model holds the scene and no mechanisms: edits that fix the scene load on the next probe call, rollouts run the real skill controllers on it, and no call fits its values.
+
 <!-- section: model_frozen -->
 ## Model workbench
 
@@ -528,7 +551,7 @@ The base loads every body of the manifest itself; read the manifest to learn the
 
 __REF_LISTING__
 
-These read-only files are the PyBullet environment wrapper the robot runs in, a manifest of the scene's bodies (shapes, meshes, joints, colours, and which observed object each body is) and the URDF and mesh files those bodies were loaded from.
+These read-only files are a manifest of the scene's bodies (shapes, meshes, joints, colours, and which observed object each body is) and the URDF and mesh files those bodies were loaded from.
 The manifest records no masses, frictions or damping, and the files omit hidden dynamics, task generation and goal semantics.
 `pybullet` is importable in sandbox `python3`; use these files however you find useful.
 

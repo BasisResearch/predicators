@@ -93,6 +93,14 @@ CascadeProbe = Callable[
 # the pushed greens) -> whether the engine's contacts show a clean push.
 CleanPush = Callable[[int, Sequence[Object]], bool]
 
+# The reason of a goal-reaching episode that passed every rule needing no
+# physics and had no probe to replay its push. The evaluator compares
+# against it to tell this case from a broken rule.
+NO_PROBE_REASON = (
+    "the goal atoms hold, but no counterfactual push probe is "
+    "available to verify the cascade - an unverifiable success "
+    "cannot be certified (bind sim_env at the evaluator call site)")
+
 
 def count_movable_blocks_used(states: Sequence[State]) -> int:
     """Count movable (blue) dominoes the episode consumed.
@@ -472,10 +480,7 @@ def check_cascade_legitimacy(
     if clean_push is not None and clean_push(pre_push_idx, pushed_greens):
         return True, ""
     if probe is None:
-        return False, (
-            "the goal atoms hold, but no counterfactual push probe is "
-            "available to verify the cascade - an unverifiable success "
-            "cannot be certified (bind sim_env at the evaluator call site)")
+        return False, NO_PROBE_REASON
     ok, detail = probe(states[pre_push_idx], pushed_greens, goal, push_params)
     if not ok:
         return False, (
