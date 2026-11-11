@@ -55,6 +55,8 @@ def _setup(tmp_path: Path,
         "agent_planner_use_simulator": True,
         "agent_sim_learn_kept_predicates_names": ["Holding"],
         "use_gt_helpers": True,
+        # The reward model goes to the skill-level baselines only.
+        "continual_provide_reward_model": True,
         **overrides,
     })
     env = create_new_env(env_name, do_cache=False, use_gui=False)
@@ -99,6 +101,7 @@ def test_minimal_agent_plays_raw_actions(tmp_path: Path, name: str) -> None:
     prompt = approach._get_agent_system_prompt()
     assert "skills_invoke" not in prompt and "Skill grammar" not in prompt
     assert "env_run_policy" in prompt
+    assert "evaluate_trajectory" not in prompt
     assert ("from reference.base_sim.pybullet_env"
             in prompt) == (name == ARMS[1])
 
