@@ -11,6 +11,13 @@ is sent to a model.
     python -m scripts.dump_continual_arm_prompts \
         --config empiric/benchmark.yaml \
         --domain balloons --out docs/prompt-review/2026-09-18-balloons
+
+``--approaches`` names config entries, as the launcher's flag does, so a
+parked arm (one the config SKIPs) can be rendered too:
+
+    python -m scripts.dump_continual_arm_prompts \
+        --config empiric/benchmark.yaml --domain boil \
+        --approaches from_assets_no_uncertainty_opus --out /tmp/review
 """
 import argparse
 import asyncio
@@ -189,10 +196,17 @@ def main() -> None:
     parser.add_argument("--domain", required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--approaches",
+        default=None,
+        help="Comma-separated approach keys of the config; a named key is "
+        "rendered even when the config parks it. Defaults to every "
+        "approach the config does not SKIP.")
     args = parser.parse_args()
     env_name = f"pybullet_{args.domain}"
+    approaches = args.approaches.split(",") if args.approaches else None
     arms: Dict[str, RunConfig] = {}
-    for cfg in generate_run_configs(args.config, False):
+    for cfg in generate_run_configs(args.config, False, approaches=approaches):
         if cfg.env == env_name and cfg.approach not in arms:
             arms[cfg.approach] = cfg
     os.makedirs(args.out, exist_ok=True)
