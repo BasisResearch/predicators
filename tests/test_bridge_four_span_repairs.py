@@ -236,6 +236,26 @@ def test_solver_residual_threshold_reaches_the_engine(monkeypatch):
         })
 
 
+def _counting_step(client, counter, real_step):
+    """A ``stepSimulation`` stand-in that counts the steps of one client."""
+
+    def spy(*args, **kwargs):
+        if kwargs.get("physicsClientId") == client:
+            counter.append(1)
+        return real_step(*args, **kwargs)
+
+    return spy
+
+
+def _counting_call(counter):
+    """A stand-in that counts its calls."""
+
+    def spy():
+        counter.append(1)
+
+    return spy
+
+
 def test_certificate_settles_for_the_configured_substeps(monkeypatch, caplog):
     """The certificate steps the scene ``bridge_goal_settle_substeps`` times
     before it judges, re-anchoring the resting welds once per action's worth.
@@ -261,20 +281,10 @@ def test_certificate_settles_for_the_configured_substeps(monkeypatch, caplog):
                 stepped, relaxed = [], []
                 real_step = p.stepSimulation
 
-                def spy_step(*args,
-                             _client=client,
-                             _stepped=stepped,
-                             _real=real_step,
-                             **kwargs):
-                    if kwargs.get("physicsClientId") == _client:
-                        _stepped.append(1)
-                    return _real(*args, **kwargs)
-
-                monkeypatch.setattr(p, "stepSimulation", spy_step)
-                monkeypatch.setattr(
-                    env,
-                    "_relax_resting_welds",
-                    lambda _relaxed=relaxed: _relaxed.append(1))
+                monkeypatch.setattr(p, "stepSimulation",
+                                    _counting_step(client, stepped, real_step))
+                monkeypatch.setattr(env, "_relax_resting_welds",
+                                    _counting_call(relaxed))
                 caplog.clear()
                 with caplog.at_level(logging.INFO):
                     ok, reason = env.check_episode_trajectory([obs], [])
