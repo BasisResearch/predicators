@@ -23,7 +23,8 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, \
+    Tuple
 
 import imageio
 import numpy as np
@@ -35,7 +36,7 @@ from predicators.run.episode import EpisodeRunner, EpisodeState
 from predicators.run.recording import ACTIONS_FILENAME, INDEX_FILENAME
 from predicators.run.scorecard import LevelCard, RunCard
 from predicators.settings import CFG
-from predicators.structs import Action
+from predicators.structs import Action, State
 
 # Panel geometry. The panel is as tall as the render; its width keeps
 # the whole frame a multiple of 16 for a 900 px render.
@@ -537,6 +538,111 @@ def iter_level_frames(env: BaseEnv, card: RunCard, level: LevelCard,
         runner.finish()
         if fresh is not None:
             fresh.dispose()
+
+
+def iter_recorded_level_frames(
+        env: BaseEnv, card: RunCard, level: LevelCard,
+        episodes: Sequence[EpisodeRecord], recorded: Dict[int, Dict[str, Any]],
+        show: Callable[[State, State], Any], stride: int,
+        hold: int) -> Iterator[Tuple[Any, FrameLabel, int]]:
+    """Yield ``(shown, label, repeat)`` for one level from its recorded states,
+    choosing frames and labels as ``iter_level_frames`` does.
+
+    ``recorded`` maps each episode index to its ``episodes.pkl`` entry,
+    whose ``states`` hold one noise-free state per step. ``show(state,
+    initial)`` turns each chosen state into what the caller keeps: an
+    image, or a Blender Cycles scene (``cycles_video.py``); ``initial``
+    is the level's freshly reset state, for callers that move recorded
+    states into a newer scene layout.
+    """
+    run_steps_before = sum(lv.steps for lv in card.levels[:level.index])
+    run_resets_before = sum(lv.resets for lv in card.levels[:level.index])
+    reset_cost = reset_cost_of(level)
+    resets_allowed = level.split == "train" or bool(
+        CFG.continual_allow_test_resets)
+    initial = env.reset(level.split, level.task_idx)
+    level_steps = 0
+    level_resets = 0
+    for ep in episodes:
+        states: List[State] = recorded[ep.index]["states"]
+        end = str(recorded[ep.index]["end"])
+        assert len(states) == len(ep.actions) + 1, (level.index, ep.index)
+        if ep.opened_by == "agent":
+            level_resets += 1
+            level_steps += reset_cost
+
+        def label(step: int,
+                  outcome: EpisodeState = EpisodeState.NOT_FINISHED,
+                  reason: str = "",
+                  banner: str = "",
+                  color: Tuple[int, int, int] = PANEL_ACCENT,
+                  ep: EpisodeRecord = ep) -> FrameLabel:
+            inv = ep.invocation_at(step)
+            ended = None
+            if inv is None and step > 0:
+                ended = ep.invocation_at(step - 1)
+            cur = inv if inv is not None else ended
+            return FrameLabel(
+                env=card.env,
+                arm=card.arm,
+                seed=card.seed,
+                level_index=level.index,
+                levels_total=card.levels_total,
+                split=level.split,
+                task_idx=level.task_idx,
+                goal_nl=level.goal_nl,
+                goal=list(level.goal),
+                episode=ep.index,
+                opened_by=ep.opened_by,
+                skill=cur.skill if cur is not None else "",
+                note=cur.note if cur is not None else "",
+                skill_status=(ended.status if ended is not None else ""),
+                level_steps=level_steps,
+                run_steps=run_steps_before + level_steps,
+                step_cap=card.step_cap,
+                level_resets=level_resets,
+                run_resets=run_resets_before + level_resets,
+                reset_cost=reset_cost,
+                resets_allowed=resets_allowed,
+                state=outcome.value,
+                reason=reason,
+                banner=banner,
+                banner_color=color,
+            )
+
+        first = show(states[0], initial)
+        if ep.opened_by == "level_start":
+            banner = f"Level {level.index + 1}: {level.split} task " \
+                f"{level.task_idx}"
+            yield first, label(0, banner=banner), hold
+        elif ep.opened_by == "agent":
+            yield first, label(0, banner="RESET by agent",
+                               color=PANEL_WARN), hold
+        else:
+            yield first, label(0, banner="RESET by harness",
+                               color=PANEL_WARN), hold
+        n = len(ep.actions)
+        for i in range(n):
+            level_steps += 1
+            last = i + 1 == n
+            boundary = any(inv.end == i + 1 for inv in ep.invocations)
+            if not (last or boundary or (i + 1) % stride == 0):
+                continue
+            render = show(states[i + 1], initial)
+            if last and end == "win":
+                yield render, label(i,
+                                    EpisodeState.WIN,
+                                    banner="LEVEL WON",
+                                    color=PANEL_GOOD), 2 * hold
+            elif last and end.startswith("game_over"):
+                reason = end.split(":", 1)[1] if ":" in end else ""
+                yield render, label(i,
+                                    EpisodeState.GAME_OVER,
+                                    reason,
+                                    banner=f"GAME OVER: {reason}",
+                                    color=PANEL_BAD), 2 * hold
+            else:
+                yield render, label(i), 1
 
 
 def make_run_video(env: BaseEnv,

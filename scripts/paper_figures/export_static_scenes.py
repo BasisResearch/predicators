@@ -39,6 +39,9 @@ from render_scene_support import export_visual_scene, raised_flat_markers, \
 from predicators import utils
 from predicators.envs import create_new_env
 from predicators.envs.pybullet_fan import PyBulletFanEnv
+from predicators.run.cycles_video import \
+    cap_liquid_at_rim as _cap_liquid_at_rim
+from predicators.run.cycles_video import restore_spill as _restore_spill
 from predicators.settings import CFG
 from predicators.structs import State
 
@@ -197,33 +200,6 @@ def _load_run_config(run: Path) -> None:
         utils.reset_config(utils.parse_args())
     finally:
         sys.argv = argv
-
-
-def _cap_liquid_at_rim(env: Any, state: State) -> State:
-    """Draw Boil liquid no higher than the jug rim."""
-    # The liquid starts at the jug's inner bottom, _LIQUID_OFFSET_BELOW_JUG
-    # below the jug origin; the rim is half the jug height above it.
-    rim = (
-        env.jug_height / 2 + env._LIQUID_OFFSET_BELOW_JUG  # pylint: disable=protected-access
-    ) * env.water_height_to_level_ratio
-    for jug in state.get_objects(env._jug_type):  # pylint: disable=protected-access
-        state.set(jug, "water_volume", min(state.get(jug, "water_volume"),
-                                           rim))
-    return state
-
-
-def _restore_spill(env: Any, state: State) -> None:
-    """Draw the recorded spill puddle, which restoring a state omits.
-
-    The environment builds its puddle only while stepping, so a restored
-    state with spilled water would otherwise render a dry table.
-    """
-    faucet = env._faucet  # pylint: disable=protected-access
-    spilled = state.get(faucet, "spilled_level")
-    if spilled > 0:
-        faucet._spilled_level = spilled  # pylint: disable=protected-access
-        env._spilled_water_id = env._create_spilled_water_block(  # pylint: disable=protected-access
-            spilled, state)
 
 
 def _show_recorded_heat(env: Any, state: State) -> bool:
