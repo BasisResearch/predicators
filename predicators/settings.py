@@ -800,6 +800,18 @@ class GlobalSettings:
     # enforced at 10000 and pinned partners follow the held root
     # rigidly, so the grasp was the one compliant link of the carry.
     pybullet_grasp_max_force: Optional[float] = None
+    # PyBullet ends a substep's solver loop early once its residual
+    # estimate falls below this threshold; None keeps PyBullet's default
+    # of 1e-7. The estimate can read near zero while the solve is
+    # unfinished. When free bodies came inside the padded bounding boxes
+    # of a carried assembly, the gripper-to-object constraint, the finger
+    # contacts and the arm motors got almost no force for runs of
+    # substeps: a welded span carried down toward two free-standing legs
+    # turned 4 to 14 deg in the grasp with a 4 cm gap and no contact
+    # (Bridge four-span test level, 2026-11-11). Thresholds of 1e-9 and
+    # 1e-12 left the fault in place. 0 makes every substep run all of its
+    # iterations, at no measured cost in step time.
+    pybullet_solver_residual_threshold: Optional[float] = None
 
     # IKFast parameters
     ikfast_max_time = 0.05
@@ -2218,6 +2230,15 @@ class GlobalSettings:
     # this far from every block (0 = certify at the release step), so
     # the settle check never runs against a gripper still on the row.
     bridge_goal_robot_clearance = 0.0
+    # Physics substeps a candidate bridge settles for before the
+    # certificate judges its geometry (60 is three actions' worth,
+    # 0.25 s). A welded row released with one end pressed onto a leg
+    # rebounds for longer than that: a bridge whose goal held from
+    # 0.33 s to the end of its 10 s recording was judged at 0.25 s, in
+    # the rebound, and scored as lost (2026-11-11). 240 gives it one
+    # second. A finished bridge keeps creeping in idle play, so the
+    # settle is a fixed time and never a wait for rest.
+    bridge_goal_settle_substeps = 60
 
     # bridge policy parameters
     bridge_policy = "learned_ldl"  # default bridge policy

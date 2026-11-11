@@ -14,6 +14,7 @@ FLAGS:
   llm_openai_max_response_tokens: 1e6
   terminate_on_goal_reached: false
   pybullet_ik_validate: false
+  pybullet_solver_residual_threshold: 0.0
   num_train_tasks: 1
   num_test_tasks: 1
   video_fps: 20
