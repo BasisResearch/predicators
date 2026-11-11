@@ -30,11 +30,14 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Dict, FrozenSet, List, \
     Optional, Set, Tuple
 
 from predicators.agent_sdk import journal as journal_mod
+from predicators.agent_sdk import material_screen
+from predicators.agent_sdk.belief_probe import ProbeBudgetExceeded
 from predicators.agent_sdk.fit_status import format_fit_status
 from predicators.agent_sdk.predictive_check import MAX_INFLATION
 from predicators.agent_sdk.preflight_audit import PreflightAudit
@@ -59,6 +62,7 @@ from predicators.approaches.continual_play_mixin import ContinualPlayMixin
 from predicators.approaches.scene_package_mixin import ScenePackageMixin
 from predicators.code_sim_learning.config import DEFAULT_NOISE_SIGMA, \
     SysIdConfig
+from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.code_sim_learning.parameter_belief import ParameterBelief
 from predicators.code_sim_learning.rollout_env import dispose_env
 from predicators.code_sim_learning.trajectory_prep import \
@@ -390,6 +394,9 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         ctx.skill_preflight = (self._make_skill_preflight(
             session, probe_ns["BeliefProbe"], paths.simulator_file)
                                if CFG.continual_skill_preflight else None)
+        ctx.material_screen = (self._make_material_screen(
+            probe_ns["BeliefProbe"]) if CFG.belief_undeclared_material_screen
+                               else None)
         ctx.execution_audit = (PreflightAudit(
             ctx, session, paths.simulator_file,
             os.path.join(self._get_log_dir(), "validation_audit.jsonl"))
@@ -536,6 +543,7 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         ctx.reach_note_provider = None
         ctx.bound_note_provider = None
         ctx.skill_preflight = None
+        ctx.material_screen = None
         ctx.execution_audit = None
         ctx.probe_param_status = None
         ctx.probe_artifact_loaders.clear()
@@ -909,6 +917,63 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
             return None
 
         return preflight
+
+    def _material_screen_specs(self) -> List[ParamSpec]:
+        """The engine materials the model does not declare and no joint draw
+        varies, each with the scene's own value and its plausible range: what
+        ``belief_undeclared_material_screen`` tests.
+
+        None here.
+        """
+        return []
+
+    def _make_material_screen(
+            self,
+            probe_factory: Callable[[],
+                                    Any]) -> Callable[[str], Optional[str]]:
+        """The ``ToolContext.material_screen`` of this round under
+        ``belief_undeclared_material_screen`` (see
+        :mod:`predicators.agent_sdk.material_screen`).
+
+        The runs are the harness's: they do not count in the agent's
+        rollout meter. A screen that cannot run (no observation, a broken
+        model, a spent budget) never blocks a request: the failure is
+        logged and the screen finds nothing.
+        """
+        ctx = self._tool_context
+
+        def screen(plan_text: str) -> Optional[str]:
+            specs = self._material_screen_specs()
+            if not specs:
+                return None
+            points = material_screen.screen_points(specs)
+            rollouts = ctx.attempt_rollout_count
+            start = time.monotonic()
+            try:
+                probe = probe_factory()
+                probe.reset(current=True)
+                runs = probe.run_points(plan_text, points)
+            # pylint: disable-next=broad-except
+            except (Exception, ProbeBudgetExceeded) as e:
+                logging.warning(
+                    "[Continual agent] material screen skipped: %s: %s",
+                    type(e).__name__, e)
+                return None
+            finally:
+                ctx.attempt_rollout_count = rollouts
+            seconds = time.monotonic() - start
+            note = material_screen.screen_note(specs, points, runs)
+            changed = material_screen.changed_materials(specs, points, runs)
+            logging.info(
+                "[Continual agent] material screen: %d materials, %d of %d "
+                "points run in %.0f s, outcome changes with %s", len(specs),
+                len(runs), len(points), seconds,
+                [spec.name for spec, _ in changed] or "none")
+            material_screen.log_screen(ctx.log_dir, plan_text, points, runs,
+                                       seconds, note)
+            return note
+
+        return screen
 
     def _append_model_journal(self, paths: Any, outcome: str) -> None:
         journal_mod.append_entry(
