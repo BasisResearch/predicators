@@ -1,5 +1,6 @@
 """Continual comparison contracts exercised through real play tools."""
 import dataclasses
+import json
 import os
 import re
 import shlex
@@ -424,6 +425,37 @@ def transition(obs, latent, option, rng):
             assert absent not in dir(probe), absent
             with pytest.raises(AttributeError, match=f"'{absent}'"):
                 getattr(probe, absent)
+        # That was the probe core. The agent holds a ``sim`` that defines
+        # the arm's calls alone, and no name for a probe class: a withheld
+        # call is no attribute of it and a withheld keyword no argument.
+        held = _call(agent,
+                     "run_python",
+                     code="import json\nprint(json.dumps([type(sim).__name__, "
+                     "sorted(n for n in dir(sim) if not n.startswith('_')), "
+                     "sorted(n for n in ('BeliefProbe', 'ParamSpec') "
+                     "if n in dir())]))")
+        listed = next(line for line in held.splitlines()
+                      if line.startswith('["'))
+        assert json.loads(listed) == [
+            "WorldModelProbe",
+            ["reset", "restore", "run", "score", "snapshot", "state", "task"],
+            []
+        ], held
+        for absent in sorted(STANDALONE_PROBE_ABSENT):
+            refused = _call(agent, "run_python", code=f"sim.{absent}")
+            assert ("AttributeError: 'WorldModelProbe' object has no "
+                    f"attribute '{absent}'") in refused, refused
+        for keyword in ("trials=2", "solved=True", "contacts=True",
+                        "physics_sweep=True", "draws=0", "belief_draws=2"):
+            refused = _call(agent,
+                            "run_python",
+                            code=f"sim.run({plan!r}, {keyword})")
+            name = keyword.split("=", maxsplit=1)[0]
+            assert f"got an unexpected keyword argument '{name}'" in refused, \
+                refused
+            # The agent's own frame, and no file or wording of the harness.
+            assert refused.count("File ") == 1, refused
+            assert "session" not in refused and "predicators" not in refused
         tools = {t.name: t for t in ctx.extra_mcp_tools}
         desc = tools["run_python"].description
         for absent in ("sim.refine", "trials=", "sim.predicates", "sim.render",

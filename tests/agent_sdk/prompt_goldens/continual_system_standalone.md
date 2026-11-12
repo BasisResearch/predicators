@@ -26,6 +26,7 @@ Learn a standalone executable world model from your recorded interaction and use
 
 ## Tools
 
+- `run_python`: code in the sandbox with the `sim` probe over your world_model.py (`sim.score`, `sim.reset`, `sim.run`, ...). Free.
 - `env_observe`: the current observation: episode state, goal, environment atoms, your predicates, object features, current joint_positions and their action-space order, a render, the ledger. Free.
 - `env_step`: one primitive action (a low-level action vector). One step.
 - `env_reset`: restart the current level from its initial state. One step and one reset, and a last resort. The only valid action after GAME_OVER on a level with resets.
