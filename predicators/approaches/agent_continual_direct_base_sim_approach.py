@@ -27,8 +27,7 @@ from predicators.agent_sdk.base_simulator_probe import \
     build_base_simulator_tool, supplied_scene_class
 from predicators.agent_sdk.sandbox_setup import GeneratedReference, \
     ReferenceFiles, find_repo_root
-from predicators.agent_sdk.scene_simulator_prompts import \
-    scene_manifest_legend
+from predicators.agent_sdk.scene_simulator_prompts import scene_manifest_legend
 from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES, \
     play_tool_names
 from predicators.approaches.agent_continual_approach import \

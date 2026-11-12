@@ -15,8 +15,8 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, \
-    Tuple, Union
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple, \
+    Union
 
 import pybullet as p
 
