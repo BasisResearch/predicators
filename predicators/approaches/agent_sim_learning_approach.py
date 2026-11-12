@@ -1163,7 +1163,10 @@ class AgentSimLearningApproach(AgentBaseApproach):
             # back as an empty "param fitting failed:").
             model, params = build_candidate_option_model(
                 self, rules, specs, latent_init=latent_init)
-            if CFG.agent_sim_learn_declared_params_only:
+            if CFG.agent_sim_learn_fit_invisible:
+                status = ("at the declared values of the current "
+                          "simulator.py")
+            elif CFG.agent_sim_learn_declared_params_only:
                 status = ("at the DECLARED values of the current "
                           "simulator.py (harness parameter estimation is "
                           "disabled in this run)")

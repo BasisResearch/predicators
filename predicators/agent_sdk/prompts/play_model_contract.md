@@ -80,6 +80,17 @@ Set and revise those declarations yourself from recorded experience.
 You may estimate values in your own sandbox code by any method, from qualitative checks against recordings and model rollouts to fits you write against `trajectories`; the result only takes effect once you write it into the declaration.
 Plans are rehearsed at the declared values; there are no belief draws or parameter sweeps.
 
+<!-- section: declared_values -->
+### Declared values and ranges
+
+The deployed model runs each declaration's `init_value` exactly as written.
+Each rehearsal draw takes every declared parameter from a bell curve centred on its `init_value` and cut to its `[lo, hi]`.
+The curve's standard deviation is 0.75 times the `init_value` (for `scale="log"`, 0.75 in log units; for an `init_value` of zero, half the range), so a wide range alone does not spread the draws.
+`sim.run(plan, physics_sweep=True)` tests each parameter at the ends of the 95% interval of those draws.
+Set and revise the declarations from recorded experience.
+Estimate values in your own sandbox code by any method, from qualitative checks against recordings and model rollouts to estimators you write against `trajectories` or with `sim.validate(params=...)`; a result takes effect once you write it into the declaration.
+Put your best value in `init_value`, and narrow `[lo, hi]` where the recordings pin the parameter down more tightly than that curve: no draw, and so no P-hat, reaches past a declared range.
+
 <!-- section: agent_belief_draws -->
 ### Your parameter belief: `PARAM_DRAWS`
 
