@@ -74,6 +74,9 @@ APPROACH_DIR = {
     "real_to_sim": "agent_continual_real_to_sim",
     # No learning: its run folder names only what the arm has.
     "from_assets_scene": "agent_continual_from_assets_scene",
+    # The Direct agent and Direct + scene of the rebuttal cohort.
+    "direct": "agent_continual_direct",
+    "direct_scene": "agent_continual_direct",
     "from_assets_point": "agent_continual_from_assets_point",
     "from_assets_declared": "agent_continual_from_assets_declared",
     "direct_base_sim": "agent_continual_direct_base_sim",
