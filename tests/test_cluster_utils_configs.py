@@ -340,7 +340,7 @@ def test_direct_arms_run_under_a_neutral_name() -> None:
                                "mf_opus", "mf_scene_package_opus",
                                "direct_opus", "direct_scene_opus"
                            ],
-                           seeds=(0, ))
+                           seeds=(0, 1))
     by_arm = {r.experiment_id.split("-", 1)[1]: r for r in runs}
     for new, old in (("direct_opus_r1", "mf_opus_r1"),
                      ("direct_scene_opus_r1", "mf_scene_package_opus_r1")):
