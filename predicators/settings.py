@@ -285,7 +285,9 @@ class GlobalSettings:
     # the state is set. The model then adds only what a manifest leaves
     # out: masses, contact materials, the features no body pose carries
     # and the mechanisms. Off, the model's own initialize_pybullet builds
-    # every body.
+    # every body. Direct + base simulator
+    # (agent_continual_direct_base_sim) needs it on: the simulator the
+    # harness supplies is this loaded scene with no model on it.
     scene_manifest_loader = False
     # Under scene_manifest_loader, whether an object with a static base
     # stands, in every state, at the pose its level's own scene has it at
@@ -2984,8 +2986,10 @@ class GlobalSettings:
     # the standalone arm (agent_continual_program_world_model) as
     # evaluate_trajectory in run_python. It returns only reward, solved
     # and a note. No engine backs it, so a rule that replays physics (the
-    # domino push) is not checked, and the note says so. The other arms
-    # ignore the flag.
+    # domino push) is not checked, and the note says so. Direct + base
+    # simulator (agent_continual_direct_base_sim) receives it as
+    # evaluate_trajectory in run_python, where such a rule replays in the
+    # supplied simulator. The other arms ignore the flag.
     continual_provide_reward_model = False
 
     # Realistic sim gap (predicators/pybullet_helpers/world_gap.py): the

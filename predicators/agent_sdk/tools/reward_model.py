@@ -2,9 +2,11 @@
 
 One implementation scores a state sequence for all arms. The EMPIRIC
 family passes its belief simulator, so a rule that replays physics runs
-on that model. The baseline arms have no supplied simulator. They pass
-none, a replay rule is then not checked, and the verdict's note says so.
-Only the public triple (reward, solved, note) leaves this module.
+on that model, and Direct + base simulator passes the simulator the
+harness supplies. The other baseline arms have no supplied simulator.
+They pass none, a replay rule is then not checked, and the verdict's
+note says so. Only the public triple (reward, solved, note) leaves this
+module.
 """
 import json
 import weakref
