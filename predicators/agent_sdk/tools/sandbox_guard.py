@@ -181,10 +181,13 @@ def agent_traceback() -> str:
     left out, since their file and function names and source lines name
     what that arm's agent must not read. The agent's frames, the
     libraries' and the error itself stay.
+
+    ``continual_point_values_only`` leaves the harness's frames out too.
     """
     # pylint: disable-next=import-outside-toplevel
     from predicators.settings import CFG
-    if not CFG.agent_sim_learn_fit_invisible:
+    if not (CFG.agent_sim_learn_fit_invisible
+            or CFG.continual_point_values_only):
         return _scrub_host_paths(traceback.format_exc())
     # _HOST_REPO_ROOT is the harness's package directory.
     package = _HOST_REPO_ROOT + os.sep

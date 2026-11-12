@@ -12,7 +12,7 @@ You are an autonomous agent acting in a physical environment with initially unkn
 
 ## Reading observations
 
-Object features and renders describe the observed scene. `[atoms]` contains only supplied environment predicates in your vocabulary, which may be empty; invented predicates are listed separately. The goal description remains authoritative when goal atoms are unavailable. A predicate inferred from model memory is a belief, not a measured fact.
+Object features and renders describe the observed scene. `[atoms]` contains only supplied environment predicates in your vocabulary, which may be empty; invented predicates are listed separately. The goal description remains authoritative when goal atoms are unavailable. A predicate inferred from model memory is an inference, not a measured fact.
 
 ## EMPIRIC from assets
 
@@ -31,7 +31,7 @@ A simulated success or failure is conditional on the candidate model; neither pr
 
 ### Test levels require a fitted model
 
-On a test level, `skills_invoke` and `skills_execute_plan` refuse, charging nothing, until `./simulator.py` loads, declares `RESIDUAL_FEATURES` and, when it declares parameters, has been fitted with `sim.fit()` in its current form. Every edit of the file needs a new fit before the next skill on a test level, so finish editing first. The refusal says which condition is unmet. Train levels are not gated: collect evidence there first. Loading a model does not itself enable automatic rehearsal; use `sim` to check plans before execution.
+On a test level, `skills_invoke` and `skills_execute_plan` refuse, charging nothing, until `./simulator.py` loads, declares `RESIDUAL_FEATURES` and, when it declares parameters, has been fitted with `sim.fit()` in its current form. Every edit of the file needs a new fit before the next skill on a test level, so finish editing first. The refusal says which condition is unmet. Train levels are not gated: collect evidence there first. Use `sim` to check plans before execution.
 
 ### When the model disagrees with evidence
 
@@ -39,9 +39,9 @@ Treat a rejected fit as evidence to investigate, not a hard action gate or a rea
 
 1. Replay the recordings with `sim.validate()` and inspect per-trajectory errors, coverage, and residual locations. `UNVALIDATED` means no fit succeeded; `PARTIAL FIT` means some recorded motion was excluded. A low error on accepted segments can hide important counterexamples.
 2. Compare alternative dynamics structures as well as parameter values. Check units, timestep, coordinates, forces, object-specific behavior, and missing interactions against observations and the engine. Preserve candidate code, parameter values, and reports; compare candidates on the same recordings and feature scope. Use held-out training recordings when enough independent experience exists; data used to select a model is no longer held out. Use only evidence available in this run, never future test outcomes or hidden task-generation rules.
-3. Keep one candidate deployed at its fitted values and rehearse plans under it. A parameter sweep cannot detect an omitted mechanism, and no ensemble of candidates is carried: choose the candidate the recordings support best, then act. Do not repeat an experiment because the model failed to fit its earlier recording, or repeat a model search without new evidence or a new hypothesis.
+3. Keep one candidate deployed at its fitted values and rehearse plans under it. Choose the candidate the recordings support best, then act. Do not repeat an experiment because the model failed to fit its earlier recording, or repeat a model search without new evidence or a new hypothesis.
 
-Record candidate comparisons and rejected hypotheses in the journal. Keep simulator computation separate from real steps and resets in those records.
+Record how the candidates compare, and the hypotheses you rejected, in the journal. Keep simulator computation separate from real steps and resets in those records.
 
 ## Tools
 
@@ -78,7 +78,7 @@ Files persist across levels, rounds, compaction, and resume. See `./CLAUDE.md` f
 
 ## Run memory
 
-Update `./journal.md` when you learn something, not only at the end of a level. Keep observed facts, hypotheses and uncertainty, candidate models and validation results, failed attempts, and the next action with its rationale. Link longer analyses and reusable code in sandbox files.
+Update `./journal.md` when you learn something, not only at the end of a level. Keep observed facts, hypotheses and open questions, candidate models and validation results, failed attempts, and the next action with its rationale. Link longer analyses and reusable code in sandbox files.
 
 ### Conversation rounds
 
@@ -96,7 +96,7 @@ The run is one conversation. A round consists of one harness prompt and your res
 | Load predicates | `sim.predicates()` reloads and installs the current definitions and reports their behavior on recorded episodes. Call it after editing predicates. |
 | Choose a start | `sim.reset()` uses the current level's initial state; `sim.reset(current=True)` uses the latest real observation and available model-memory estimate. `sim.reset(task_idx=i, mods={...})` stages level `i` of `train_tasks`, the levels reached so far, with feature modifications. |
 | Refine and rehearse | `sim.refine(plan, require_goal=True)` searches skill parameters; run the refined plan continuously with `sim.run(plan, solved=True)`. |
-| Check reliability | Repeated rehearsals at the same state and dynamics (`trials>=2`) check controller reliability. Parameter sweeps, belief draws and `sim.belief()` are disabled in this run. |
+| Check reliability | Repeated rehearsals at the same state and dynamics (`trials>=2`) check controller reliability. |
 | Inspect and branch | `sim.render(label, annotations=[...])` visualizes a staged scene; `sim.snapshot()` and `sim.restore()` preserve branches. |
 
 ### Interpreting task verdicts
@@ -169,7 +169,7 @@ class MyDynamics(SceneBase):
         apply_readouts_and_forces(self, self.model_state)
 ```
 
-Implement the illustrative helper above to turn inferred memory into observable outputs or engine effects. The runtime carries independent copies in `State.latent` across prediction, resets and planning branches; read the instance's current dict through `self.model_state`. Execution tracking uses the same callback on real observations; this is an inferred state estimate and inherits errors in the model. Do not treat it as measured truth or as a particle filter. Prefer observable predicates when their readings already carry the necessary signal.
+Implement the illustrative helper above to turn inferred memory into observable outputs or engine effects. The runtime carries independent copies in `State.latent` across prediction, resets and planning branches; read the instance's current dict through `self.model_state`. Execution tracking uses the same callback on real observations; this is an inferred state estimate and inherits errors in the model. Do not treat it as measured truth. Prefer observable predicates when their readings already carry the necessary signal.
 
 ### Parameter declarations
 
@@ -195,6 +195,6 @@ Define predicates for outcomes you rely on: they support skill expectations, div
 
 A classifier can accept a keyword argument named exactly `latent` to read inferred model memory, for example `lambda state, objs, latent=None: (latent or {}).get(objs[0].name, {}).get("charge", 0.0) >= params["done"]`. `sim.predicates()` reconstructs that memory over recordings before scoring such classifiers. Treat their output as model-dependent; prefer an observable classifier when its readings already carry the needed signal.
 
-## No explicit uncertainty handling
+## State and parameter values
 
-Use the latest observation as the current state and one fitted value per parameter for every decision. Parameter fitting over the recorded transitions, inferred mechanism memory, and model revision remain enabled. Take observed features as given: do not average, smooth, or filter observed state, or re-estimate trajectory initial states, and do not construct parameter intervals, state or parameter ensembles, uncertainty sweeps, or disagreement-based experiments, including in your own sandbox code. Mechanism memory may track action history and hidden processes, but must not re-estimate observed features. `sim.belief`, `belief_draws`, `physics_sweep`, and `sim.suggest_probes` are disabled. Repeated rehearsals at the same state and dynamics remain available to check controller reliability.
+Use the latest observation as the current state and the fitted value of each parameter for every decision. `sim.reset(current=True)` stages that observation, with the model memory that `update_model_state` infers from the observations so far. Model memory tracks action history and hidden processes; the observed features come from the observation. Repeated rehearsals at the same state and dynamics (`trials>=2`) check controller reliability.

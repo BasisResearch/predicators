@@ -438,6 +438,7 @@ def create_synthesis_tools(
     from claude_agent_sdk import tool as _sdk_tool
     tool = _make_coercing_tool(_sdk_tool)
 
+    from predicators.agent_sdk.tools import point_fit_report
     from predicators.code_sim_learning.base_simulator import \
         base_simulator_class
     from predicators.code_sim_learning.config import SysIdConfig
@@ -727,6 +728,17 @@ def create_synthesis_tools(
             rms_str = ", ".join(f"{r:.4g}" for r in outcome.traj_rms)
             trim_threshold = (CFG.code_sim_learning_rollout_trim_rms_factor *
                               DEFAULT_NOISE_SIGMA)
+            if CFG.continual_point_values_only:
+                # The arm at one value per parameter has its own report.
+                return point_fit_report.no_fit_report(
+                    version_tag=version_tag,
+                    scope=_scope_listing(residual_features, scope_note),
+                    traj_rms=outcome.traj_rms,
+                    limit=trim_threshold,
+                    exploratory=exploratory,
+                    departures=_departure_lines(
+                        approach, rollouts, traj_idxs, outcome.fit_result,
+                        sum(r > trim_threshold for r in outcome.traj_rms)))
             return "\n".join([
                 f"[{version_tag}] NO FIT RAN: all {len(rollouts)} "
                 "recorded motion segments were unexplainable at every "
@@ -834,10 +846,42 @@ def create_synthesis_tools(
                       if physical_specs else "command-emitting rules")
         evidence_lines: List[str] = []
         if CFG.code_sim_learning_fit_evidence:
-            evidence_lines = format_evidence_lines(
-                outcome.evidence, approach.previous_fit_evidence(version_tag))
+            evidence_lines = (point_fit_report.evidence_lines
+                              if CFG.continual_point_values_only else
+                              format_evidence_lines)(
+                                  outcome.evidence,
+                                  approach.previous_fit_evidence(version_tag))
             if not exploratory and outcome.evidence is not None:
                 approach.note_fit_evidence(version_tag, outcome.evidence)
+        if CFG.continual_point_values_only:
+            # The arm at one value per parameter has its own report: the
+            # residual error, the fitted values and the parameters the
+            # recordings do not constrain.
+            trim_threshold = (CFG.code_sim_learning_rollout_trim_rms_factor *
+                              DEFAULT_NOISE_SIGMA)
+            return point_fit_report.fit_report(
+                version_tag=version_tag,
+                exploratory=exploratory,
+                traj_idxs=traj_idxs,
+                scope=_scope_listing(residual_features, scope_note),
+                num_segments=len(rollouts),
+                num_used=n_surv,
+                sse_declared=pre_sse,
+                sse_declared_used=pre_surv,
+                sse_fitted=post_sse,
+                declared=init_params,
+                fitted=fitted,
+                runs=applied,
+                constraints=ident_report,
+                traj_rms=outcome.traj_rms,
+                limit=trim_threshold,
+                unscored=_unscored_moving_features(rollouts,
+                                                   residual_features),
+                evidence=evidence_lines,
+                departures=(_departure_lines(
+                    approach, rollouts, traj_idxs, outcome.fit_result,
+                    sum(r > trim_threshold for r in outcome.traj_rms))
+                            if n_surv < len(rollouts) else []))
         lines = [
             f"[{version_tag}] JOINT ROLLOUT SYSTEM-ID FIT ({fit_reason}; "
             f"{mode_note}) on {len(rollouts)} motion segments "
@@ -1086,7 +1130,8 @@ def create_synthesis_tools(
             "and (when the env defines task evaluators) " + eval_signature +
             " - the task's reward model over a state sequence: the "
             "environment's scoring rules, on a simulator rollout or a "
-            "hand-built sequence run against your belief simulator " +
+            "hand-built sequence run against your " +
+            ("simulator " if surface.point_values else "belief simulator ") +
             values_phrase + " (`note` says what a replaying rule simulated "
             "and on what; label transitions with (option, objects, params) "
             "so it replays your action, not its canonical one" + sweep_phrase +
@@ -1539,6 +1584,10 @@ def create_synthesis_tools(
                         f"SSE ratio baseline/point = {better:.2f}, within "
                         f"the {ratio_bar:g}x consistency bar - this data "
                         "cannot distinguish the two points.")
+        # What declaring a parameter the data cannot constrain would do; the
+        # arm at one value per parameter is told of no noise.
+        no_gain = ("fit a value the recordings do not fix"
+                   if CFG.continual_point_values_only else "fit noise")
         if selected:
             lines.append("")
             lines.append(
@@ -1590,7 +1639,7 @@ def create_synthesis_tools(
                         # not evidence.
                         verdict = ("flat across the range - this data "
                                    "cannot constrain it (declaring it "
-                                   "would fit noise)")
+                                   f"would {no_gain})")
                     elif base_ratio >= ratio_bar:
                         verdict = (f"the data is {base_ratio:.1f}x better "
                                    f"explained at {cands[best_i]:.4g} than "
@@ -1600,7 +1649,7 @@ def create_synthesis_tools(
                     elif spread < ratio_bar:
                         verdict = ("flat across the range - this data "
                                    "cannot constrain it (declaring it "
-                                   "would fit noise)")
+                                   f"would {no_gain})")
                     else:
                         verdict = (f"best at {cands[best_i]:.4g} "
                                    f"({base_ratio:.1f}x vs baseline) - weak "
