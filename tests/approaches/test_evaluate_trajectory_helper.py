@@ -113,6 +113,9 @@ def test_evaluate_trajectory_physics_sweep(approach_cls):
 
     from predicators.structs import TaskEvaluator
 
+    # The sweep needs uncertainty decisions, whatever config the test
+    # before this one left.
+    utils.reset_config({"continual_uncertainty_decisions": True})
     physics = {"friction": 0.5}
 
     class _FrictionEvaluator(TaskEvaluator):
