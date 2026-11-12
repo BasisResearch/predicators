@@ -39,11 +39,14 @@ SANDBOX_INTROSPECTION = ("getsource", "inspect.getfile", "site-packages")
 # counters off ``s.privileged``; run_20260819_183252 seed2 did
 # ``sim._ctx.env`` to read ``cure_threshold`` and flipped
 # ``_skip_domain_specific_dynamics`` to run true dynamics in its belief
-# sim. A ``sim`` that is a facade keeps the full probe in ``_probe``,
-# with every call the facade leaves out, so that name is screened too.
-# Word-boundary regexes so e.g. ``budget_ctx`` never matches.
-_SANDBOX_HIDDEN_STATE_RE = re.compile(r"\bprivileged\b|\b_ctx\b|\b_probe\b|"
-                                      r"\b_skip_domain_specific_dynamics\b")
+# sim. A ``sim`` that is a facade keeps the full probe, with every call
+# the facade leaves out, in ``_probe`` or in its module's ``_PROBES``
+# table, and a function's ``__globals__`` reach that module; those
+# names are screened too. Word-boundary regexes so e.g. ``budget_ctx``
+# never matches.
+_SANDBOX_HIDDEN_STATE_RE = re.compile(
+    r"\bprivileged\b|\b_ctx\b|\b_probe\b|\b_PROBES\b|__globals__|"
+    r"\b_skip_domain_specific_dynamics\b")
 # Hidden-implementation predicators imports inside agent-executed
 # Python: the exec runs in-process, so ``from predicators.envs... import
 # ...`` would hand the agent the real env classes and ground-truth
