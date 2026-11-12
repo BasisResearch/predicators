@@ -623,7 +623,7 @@ def test_agent_plans_in_the_supplied_simulator_on_a_test_level(
         assert listed[1:] == [[], "Simulator"]
         assert _python(
             approach, "print(json.dumps([hasattr(sim, n) for n in "
-            f"{ABSENT_CALLS + ['_probe']!r}]))") == [False] * (
+            f"{ABSENT_CALLS!r} + ['_' + 'probe']]))") == [False] * (
                 len(ABSENT_CALLS) + 1)
         manual = _python(
             approach, "import pydoc\n"
