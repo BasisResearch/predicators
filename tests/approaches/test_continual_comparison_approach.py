@@ -4,13 +4,15 @@ import os
 import re
 import shlex
 import sys
-from typing import Any, Callable, Dict, Iterator, List, Set, Tuple
+from typing import Any, Dict, Iterator, List, Set, Tuple
 
 import pybullet as p
 import pytest
 
 from predicators import utils
 from predicators.agent_sdk.belief_probe import BeliefProbe
+from predicators.agent_sdk.tools.program_synthesis import \
+    STANDALONE_PROBE_ABSENT
 from predicators.approaches import create_approach
 from predicators.approaches.agent_continual_ablation_approach import \
     AgentContinualNoUncertaintyApproach
@@ -414,16 +416,14 @@ def transition(obs, latent, option, rng):
         assert live_bodies() == before
         # Close to WorldCoder: score and one rollout at a time; plan
         # search, repeated trials, predicate scoring and engine renders
-        # are refused, and the descriptions do not offer them.
+        # are not there, and the descriptions do not offer them.
         assert probe.run(plan) is not None  # text-only rollout
-        refusals: List[Callable[[], Any]] = [
-            lambda: probe.refine(plan), lambda: probe.run(plan, trials=2),
-            probe.predicates, lambda: probe.render("x"),
-            lambda: probe.suggest_probes(plan), probe.belief
-        ]
-        for refused in refusals:
-            with pytest.raises(RuntimeError, match="unavailable"):
-                refused()
+        with pytest.raises(RuntimeError, match="runs a plan once per call"):
+            probe.run(plan, trials=2)
+        for absent in sorted(STANDALONE_PROBE_ABSENT):
+            assert absent not in dir(probe), absent
+            with pytest.raises(AttributeError, match=f"'{absent}'"):
+                getattr(probe, absent)
         tools = {t.name: t for t in ctx.extra_mcp_tools}
         desc = tools["run_python"].description
         for absent in ("sim.refine", "trials=", "sim.predicates", "sim.render",
@@ -452,7 +452,7 @@ def transition(obs, latent, option, rng):
         }, {
                 "physics_sweep": True
         }):
-            with pytest.raises(ValueError, match="Engine diagnostics"):
+            with pytest.raises(ValueError, match="takes no `solved`"):
                 probe.run(plan, **kwargs)
 
         assert ctx.probe_fit_provider is None
@@ -532,9 +532,9 @@ def test_standalone_reward_model_has_no_engine(tmp_path: Any, monkeypatch: Any,
         assert ("evaluate_trajectory" in prompt) is provided
         assert ("evaluate_trajectory" in desc) is provided
         assert ("with_features" in desc) is provided
-        # Nothing else of EMPIRIC's came with it.
-        assert "engine-based evaluator replays are unavailable" in prompt
-        for absent in ("physics_sweep", "sim.fit", "sim.refine"):
+        # Nothing else of EMPIRIC's came with it, by call or by name.
+        for absent in ("physics_sweep", "sim.fit", "sim.refine",
+                       "evaluator replays", "residual-fitting"):
             assert absent not in desc and absent not in prompt, absent
         outputs.append(
             _call(agent,

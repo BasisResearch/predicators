@@ -1690,9 +1690,10 @@ def build_continual_tools(
         "[...]} in place of the two arguments. `task_idx` indexes the "
         "levels reached so far and scores from that level's initial state; "
         "omit it for the current level. Returns {\"reward\", \"solved\", "
-        "\"note\"}. No simulator backs this tool. A rule that replays "
-        "physics is not checked: the verdict then has solved false and no "
-        "success bonus, and `note` says so.", {
+        "\"note\"}. The tool reads only the states you give it. A rule "
+        "that depends on how the physics plays out from a state is not "
+        "checked: the verdict then has solved false and no success bonus, "
+        "and `note` says so.", {
             "type": "object",
             "properties": {
                 "states": {
