@@ -288,7 +288,7 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         """
         # pylint: disable-next=import-outside-toplevel
         from predicators.agent_sdk.belief_probe import _check_time_budget, \
-            build_probe_namespace
+            build_probe_namespace, probe_class_name
         bench = self._workbench
         self._refresh_workbench()
         trajectories = bench.trajectories
@@ -398,14 +398,16 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         ctx.bound_note_provider = (self._bound_note
                                    if CFG.continual_fit_bound_note else None)
         probe_ns = build_probe_namespace(ctx)
+        # The name the arm's agent knows its probe class by.
+        probe_name = probe_class_name()
         exec_ns["sim"] = probe_ns["sim"]
-        exec_ns["BeliefProbe"] = probe_ns["BeliefProbe"]
+        exec_ns[probe_name] = probe_ns[probe_name]
         ctx.skill_preflight = (self._make_skill_preflight(
-            session, probe_ns["BeliefProbe"], paths.simulator_file)
+            session, probe_ns[probe_name], paths.simulator_file)
                                if CFG.continual_skill_preflight else None)
-        ctx.material_screen = (self._make_material_screen(
-            probe_ns["BeliefProbe"]) if CFG.belief_undeclared_material_screen
-                               else None)
+        ctx.material_screen = (self._make_material_screen(probe_ns[probe_name])
+                               if CFG.belief_undeclared_material_screen else
+                               None)
         ctx.execution_audit = (PreflightAudit(
             ctx, session, paths.simulator_file,
             os.path.join(self._get_log_dir(), "validation_audit.jsonl"))
@@ -784,7 +786,10 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         are cached by content digest so a sweep of ``skills_invoke``
         calls execs the file once.
         """
-        head = f"{level_head} this arm acts through its model. "
+        # The arm whose text names no arm says what the request waits for.
+        head = (f"{level_head} a skill request waits for your model. "
+                if CFG.continual_point_values_only else
+                f"{level_head} this arm acts through its model. ")
         if not os.path.isfile(simulator_file):
             return (head + "Write `./simulator.py` (RESIDUAL_ENV with "
                     "AGENT_PARAM_SPECS and RESIDUAL_FEATURES) in run_python "
@@ -1134,6 +1139,9 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         except (AttributeError, TypeError, ValueError, IndexError):
             return str(result)[:300]
         params = ", ".join(f"{k}={v:.4g}" for k, v in estimate.items())
+        if CFG.continual_point_values_only:
+            # This arm's line gives the fitted values alone.
+            return f"fitted {len(estimate)} parameter(s): {params}"[:600]
         return (f"fitted {len(estimate)} parameter(s) from {n_samples} "
                 f"posterior sample(s): {params}")[:600]
 
