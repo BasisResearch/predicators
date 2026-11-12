@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, FrozenSet, List, \
 
 import numpy as np
 
+from predicators.agent_sdk.belief_probe import _ProbeCore
 from predicators.agent_sdk.play_prompts import render_tool_list
 from predicators.agent_sdk.prompt_templates import render
 from predicators.agent_sdk.sandbox_setup import ReferenceFiles
@@ -14,9 +15,11 @@ from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES
 from predicators.agent_sdk.tools.program_synthesis import \
     STANDALONE_NO_RECORDINGS_HINT, STANDALONE_PROBE_ABSENT, \
     STANDALONE_PROBE_DISABLED, STANDALONE_REWARD_MODEL_DESCRIPTION, \
-    STANDALONE_RUN_PYTHON_DESCRIPTION, CandidateLoader
+    STANDALONE_RUN_PYTHON_BLURB, STANDALONE_RUN_PYTHON_DESCRIPTION, \
+    CandidateLoader
 from predicators.agent_sdk.tools.reward_model import \
     make_engine_free_evaluate_trajectory_fn, with_features
+from predicators.agent_sdk.world_model_probe import WorldModelProbe
 from predicators.approaches.agent_program_world_model_approach import \
     AgentProgramWorldModelApproach
 from predicators.approaches.agent_sim_learning_approach import \
@@ -69,16 +72,26 @@ class AgentContinualProgramWorldModelApproach(ContinualPlayMixin,
         return {
             "run_python_description": description,
             "no_recordings_hint": STANDALONE_NO_RECORDINGS_HINT,
+            # A traceback names the harness's files, functions and source
+            # lines, and with them calls the arm does not have.
+            "hide_harness_frames": True,
         }
 
     def _program_probe_disabled(self) -> FrozenSet[str]:
         # Close to WorldCoder: score the program on the data and roll a
         # plan through it once; plan search, repeated trials, predicate
         # scoring and engine renders of predicted states are withheld.
-        # The withheld calls are also absent from ``sim``
-        # (STANDALONE_PROBE_ABSENT), so the agent meets no refusal that
-        # names one.
+        # The agent's ``sim`` defines the arm's calls alone
+        # (_program_probe_names), so it meets no refusal that names a
+        # withheld one; this set and STANDALONE_PROBE_ABSENT keep the
+        # probe core behind ``sim`` as narrow.
         return STANDALONE_PROBE_DISABLED
+
+    def _program_probe_names(self) -> Dict[str, Any]:
+        # The agent holds a probe with this arm's calls alone, whose
+        # documentation, class name and module name say nothing else, and
+        # no name for a probe class.
+        return {"sim": WorldModelProbe(_ProbeCore(self._tool_context))}
 
     def _get_sandbox_reference_files(self) -> ReferenceFiles:
         files = {
@@ -110,9 +123,11 @@ class AgentContinualProgramWorldModelApproach(ContinualPlayMixin,
                 supplied_line=render(
                     "play_program",
                     "supplied_scene_assets" if scene else "supplied_nothing")),
-            render("play_system",
-                   "tools",
-                   tool_list=render_tool_list(CONTINUAL_TOOL_NAMES)),
+            render(
+                "play_system",
+                "tools",
+                tool_list=f"- `run_python`: {STANDALONE_RUN_PYTHON_BLURB}\n" +
+                render_tool_list(CONTINUAL_TOOL_NAMES)),
             render("play_system", "grammar"),
             render("play_system",
                    "sandbox",
@@ -160,11 +175,18 @@ class AgentContinualProgramWorldModelApproach(ContinualPlayMixin,
         # The inherited evaluator can replay engine dynamics. Do not offer
         # that side channel in the standalone-model comparison.
         namespace.pop("evaluate_trajectory", None)
+        # The declaration of a parameter for a harness fit: this arm's
+        # model has none, and the class documents the fit.
+        namespace.pop("ParamSpec", None)
         if CFG.continual_provide_reward_model:
             # The same public helper with no engine behind it: a rule that
             # replays physics is not checked, and the note says so.
-            namespace["evaluate_trajectory"] = \
-                make_engine_free_evaluate_trajectory_fn(self._level_task)
+            evaluate = make_engine_free_evaluate_trajectory_fn(
+                self._level_task)
+            # The agent can print the helper: its name alone, not the
+            # name of the function that built it.
+            evaluate.__qualname__ = evaluate.__name__
+            namespace["evaluate_trajectory"] = evaluate
             namespace["with_features"] = with_features
         self._attach_program_session_state(namespace,
                                            self._program_trajectories, paths,

@@ -95,9 +95,11 @@ STANDALONE_PROBE_DISABLED = frozenset({
     "refine", "predicates", "samplers", "render", "belief", "run_policy",
     "run_async", "gather", "suggest_probes", "trials"
 })
-# The probe calls that arm's ``sim`` does not have: the disabled calls
-# above, and the reports of a harness fit, which the arm never has. A call
-# to one finds no such attribute, so no refusal names it.
+# The calls the probe core behind that arm's ``sim`` does not have: the
+# disabled calls above, and the reports of a harness fit, which the arm
+# never has. The agent holds a ``WorldModelProbe`` (see
+# ``agent_sdk.world_model_probe``) that defines the arm's calls alone, so
+# it never reaches the core; these two sets keep the core as narrow.
 STANDALONE_PROBE_ABSENT = frozenset({
     "refine", "predicates", "render", "belief", "run_policy", "run_async",
     "gather", "suggest_probes", "fit", "validate", "residuals"
@@ -136,6 +138,11 @@ STANDALONE_RUN_PYTHON_DESCRIPTION = (
     "the recorded `trajectories`. This tool does NOT define the model: "
     "write `world_model.py` for that.")
 
+# That arm's ``run_python`` line in the system prompt's tool list.
+STANDALONE_RUN_PYTHON_BLURB = (
+    "code in the sandbox with the `sim` probe over your world_model.py "
+    "(`sim.score`, `sim.reset`, `sim.run`, ...). Free.")
+
 # What that arm's ``sim.score`` advises while nothing is recorded: the
 # one rollout call its probe has.
 STANDALONE_NO_RECORDINGS_HINT = \
@@ -169,6 +176,7 @@ def create_program_synthesis_tools(
     rng: Optional[np.random.Generator] = None,
     run_python_description: str = _RUN_PYTHON_DESCRIPTION,
     no_recordings_hint: str = _NO_RECORDINGS_HINT,
+    hide_harness_frames: bool = False,
 ) -> ProgramSynthesisToolkit:
     """Build the program-synthesis session's tools and probe backends.
 
@@ -191,6 +199,8 @@ def create_program_synthesis_tools(
             arm with a narrower probe passes its own.
         no_recordings_hint: What ``sim.score`` advises while nothing is
             recorded; an arm with a narrower probe passes its own.
+        hide_harness_frames: Leave the harness's own frames out of the
+            traceback ``run_python`` shows for an error in the code.
     """
     # pylint: disable=import-outside-toplevel
     from claude_agent_sdk import tool as _sdk_tool
@@ -276,6 +286,7 @@ def create_program_synthesis_tools(
         sandbox_dir_for_agent=sandbox_dir_for_agent,
         text_result=_text,
         call_timeout_s=CFG.agent_sdk_synthesis_python_call_timeout,
+        hide_harness_frames=hide_harness_frames,
     )
     return ProgramSynthesisToolkit(tools=[run_python],
                                    score_runner=run_score,
