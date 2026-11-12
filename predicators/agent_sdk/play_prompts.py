@@ -59,6 +59,11 @@ TOOL_BLURBS = {
 _RUN_PYTHON_NO_FIT_BLURB = (
     "code in the sandbox with the `sim` probe over your model files "
     "(`sim.residuals`, `sim.run`, `sim.refine`, ...). Free.")
+# The run_python blurb of the direct agent with the supplied base
+# simulator.
+_RUN_PYTHON_BASE_SIMULATOR_BLURB = (
+    "code in the sandbox with `sim`, the supplied base simulator "
+    "(`sim.reset`, `sim.run`, `sim.state`, ...). Free.")
 
 
 def build_minimal_play_system_prompt(*, model_based: bool) -> str:
@@ -106,20 +111,26 @@ def _loaded(built: str, loaded: str) -> str:
 
 
 def render_tool_list(tool_names: Iterable[str],
-                     fit_available: bool = True) -> str:
+                     fit_available: bool = True,
+                     base_simulator: bool = False) -> str:
     """One bullet per tool the session exposes.
 
     ``fit_available`` False drops ``sim.fit`` from the ``run_python``
-    blurb, for the arms whose probe refuses to fit.
+    blurb, for the arms whose probe refuses to fit. ``base_simulator``
+    gives ``run_python`` the blurb of the direct agent with the supplied
+    base simulator, whose skill requests are never rehearsed first.
     """
     names = list(tool_names)
-    preflight = "run_python" in names and CFG.continual_skill_preflight
+    preflight = ("run_python" in names and CFG.continual_skill_preflight
+                 and not base_simulator)
     lines = []
     for name in names:
         blurb = TOOL_BLURBS.get(name)
         if blurb is None:
             continue
-        if name == "run_python" and not fit_available:
+        if name == "run_python" and base_simulator:
+            blurb = _RUN_PYTHON_BASE_SIMULATOR_BLURB
+        elif name == "run_python" and not fit_available:
             blurb = _RUN_PYTHON_NO_FIT_BLURB
         if preflight and name in ("skills_invoke", "skills_execute_plan"):
             blurb += _PREFLIGHT_BLURB
@@ -137,7 +148,8 @@ def build_play_system_prompt(tool_names: Sequence[str],
                              scene_package: bool = False,
                              fit_gate: bool = False,
                              agent_belief: bool = False,
-                             frozen_scene: bool = False) -> str:
+                             frozen_scene: bool = False,
+                             base_simulator: bool = False) -> str:
     """The system prompt of the run's conversation.
 
     The tool surface selects the variant: an arm with ``run_python``
@@ -183,13 +195,19 @@ def build_play_system_prompt(tool_names: Sequence[str],
     harness never tempers. ``frozen_scene`` (the no-learning arm) says a
     frozen arm's written model stays open to edits of its scene, with no
     seal at the first real action.
+    ``base_simulator`` (Direct + base simulator) is the model-free arm
+    whose ``run_python`` binds a simulator that the harness supplies: it
+    keeps the model-free prompt, with no model workflow, and adds the
+    section on that simulator and, under
+    ``continual_provide_reward_model``, the one on the reward model in
+    ``run_python``.
 
     Under ``agent_sim_learn_fit_invisible`` (EMPIRIC from assets without
     harness fitting) every section that names a harness fit gives way to
     one that says what the model runs at: its declared values and ranges.
     """
     names = set(tool_names)
-    model = "run_python" in names
+    model = "run_python" in names and not base_simulator
     variant = "" if model else "_model_free"
     frozen = model and bool(frozen_section)
     supplied = frozen and frozen_model_supplied
@@ -377,18 +395,25 @@ def build_play_system_prompt(tool_names: Sequence[str],
                            if scene_built else "the visible base"))
     else:
         sections.append(render("play_system", "workflow_model_free"))
-    files = ("sandbox_frozen_files" if supplied else "sandbox" + variant +
-             "_files")
+    files = ("sandbox_frozen_files" if supplied else
+             "sandbox_base_simulator_files" if base_simulator else "sandbox" +
+             variant + "_files")
     sections += [
         render("play_system",
                "tools",
                tool_list=render_tool_list(tool_names,
-                                          fit_available=fit_available)),
+                                          fit_available=fit_available,
+                                          base_simulator=base_simulator)),
         render("play_system", "grammar"),
         render("play_system",
                "sandbox",
                model_files=render("play_system", files)),
     ]
+    if base_simulator:
+        sections.append(render("play_system", "base_simulator"))
+        if CFG.continual_provide_reward_model:
+            sections.append(
+                render("play_system", "reward_model_base_simulator"))
     if not model and "evaluate_trajectory" in names:
         # The direct agent under continual_provide_reward_model.
         sections.append(render("play_system", "reward_model_model_free"))
