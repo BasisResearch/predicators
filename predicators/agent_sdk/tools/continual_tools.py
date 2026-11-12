@@ -970,6 +970,26 @@ def build_continual_tools(
             f"over these {check.num_features} features).")
         point = (rehearsal.mean_states[line - 1]
                  if len(rehearsal.mean_states) >= line else None)
+        if CFG.agent_sim_learn_fit_invisible:
+            # This arm's draws follow the agent's declarations alone.
+            if point is not None and point_predicts(frame, point, check.missed,
+                                                    noise, check.num_features,
+                                                    widths):
+                return text + (
+                    " The rehearsal's rollout at the declared values "
+                    "predicted it, so the draws spread the wrong way: a "
+                    "declared range lets a parameter go where this outcome "
+                    "rules it out.")
+            if check.out_of_reach:
+                missed = ", ".join(f"{n}.{f}" for n, f in check.out_of_reach)
+                text += (f" The parameters your declared ranges allow barely "
+                         f"move {missed} toward the outcome: the model's "
+                         "form, not its parameters' uncertainty, misses it "
+                         "there.")
+            return text + (
+                " The draws follow your declared values and ranges, so "
+                "they stay as they are: widen a range or repair the model "
+                "before you rely on the next rehearsal.")
         if point is not None and point_predicts(
                 frame, point, check.missed, noise, check.num_features, widths):
             sampled = ("" if CFG.belief_material_lines else
@@ -1552,9 +1572,12 @@ def build_continual_tools(
                     "description": "the option or warning it sets aside"
                 },
                 "direct_tests": {
-                    "type": "array",
-                    "description": "each {recording: index as in "
-                    "sim.fit(traj_idxs=...), what: what it showed}",
+                    "type":
+                    "array",
+                    "description":
+                    "each {recording: index as in " +
+                    ("`trajectories`" if CFG.agent_sim_learn_fit_invisible else
+                     "sim.fit(traj_idxs=...)") + ", what: what it showed}",
                     "items": {
                         "type": "object"
                     },
