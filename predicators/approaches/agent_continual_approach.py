@@ -236,21 +236,28 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
                             n_episodes=str(n_eps),
                             n_steps=str(n_steps))
         else:
-            new = max(0, n_eps - self._episodes_at_last_fit)
-            refit_note = (" Refit with `sim.fit()` before you rely on the "
-                          "model." if new and self._fit_available() else "")
-            status = render("play_query",
-                            "model_status",
-                            simulator_version=self._current_simulator_version,
-                            predicates_version=self._current_predicates_version
-                            or "none",
-                            fit_status=self._fit_status_text(),
-                            n_episodes=str(n_eps),
-                            n_steps=str(n_steps),
-                            new_episodes=str(new),
-                            refit_note=refit_note)
+            status = self._loaded_model_status(n_eps, n_steps)
         return status + (f" {self._probe_ext_status}"
                          if self._probe_ext_status else "")
+
+    def _loaded_model_status(self, n_eps: int, n_steps: int) -> str:
+        """The play_query section shown once a model file exists."""
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.prompt_templates import render
+        new = max(0, n_eps - self._episodes_at_last_fit)
+        refit_note = (" Refit with `sim.fit()` before you rely on the "
+                      "model." if new and self._fit_available() else "")
+        return render("play_query",
+                      "model_status",
+                      simulator_version=self._current_simulator_version
+                      or "none",
+                      predicates_version=self._current_predicates_version
+                      or "none",
+                      fit_status=self._fit_status_text(),
+                      n_episodes=str(n_eps),
+                      n_steps=str(n_steps),
+                      new_episodes=str(new),
+                      refit_note=refit_note)
 
     def _round_was_productive(self, session: ProtocolSession, state: Any,
                               steps_before: int, steps_after: int) -> bool:
@@ -804,9 +811,11 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
                     "`sim.reset(current=True)` in run_python to see the "
                     "error); fix it first.")
         if not cache["features"]:
+            scorer = ("the harness"
+                      if CFG.agent_sim_learn_fit_invisible else "the fit")
             return (head + "`./simulator.py` declares no RESIDUAL_FEATURES, "
                     "so it cannot be deployed. Declare RESIDUAL_FEATURES on "
-                    "the subclass first: the observed features the fit "
+                    f"the subclass first: the observed features {scorer} "
                     "scores your model on, such as the poses forces move "
                     "and the readings your mechanisms change.")
         if cache["params"]:
