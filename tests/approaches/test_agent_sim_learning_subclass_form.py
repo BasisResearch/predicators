@@ -30,28 +30,73 @@ from predicators.ground_truth_models.balloons.gt_simulator_env import \
 from predicators.structs import State
 
 # A candidate simulator.py that re-exports the balloons subclass as its
-# RESIDUAL_ENV - the minimal well-formed subclass-form artifact.
-_REEXPORT_SIMULATOR_PY = (
-    "from predicators.ground_truth_models.balloons.gt_simulator_env "
-    "import BalloonsResidualEnv as RESIDUAL_ENV\n")
+# RESIDUAL_ENV - the minimal well-formed subclass-form artifact. The
+# loader supplies the class (_SuppliedSubclassApproach): a model file may
+# not import it, since the sandbox hides the module that holds it.
+_REEXPORT_SIMULATOR_PY = "RESIDUAL_ENV = BalloonsResidualEnv\n"
 
 # A candidate that DEFINES a fresh concrete subclass inline, so every
 # exec makes a distinct BaseEnv subclass sharing one sentinel get_name -
 # the duplicate-registration case.
-_INLINE_SUBCLASS_SIMULATOR_PY = (
-    "from predicators.ground_truth_models.balloons.gt_simulator_env "
-    "import BalloonsResidualEnv\n"
-    "\n"
-    "class _AgentModel(BalloonsResidualEnv):\n"
-    "    pass\n"
-    "\n"
-    "RESIDUAL_ENV = _AgentModel\n")
+_INLINE_SUBCLASS_SIMULATOR_PY = ("class _AgentModel(BalloonsResidualEnv):\n"
+                                 "    pass\n"
+                                 "\n"
+                                 "RESIDUAL_ENV = _AgentModel\n")
 
 
-def _load_simulator(path):
+class _SuppliedSubclassApproach(AgentSimLearningApproach):
+    """An arm whose loader also supplies the balloons subclass by name."""
+
+    def _simulator_load_namespace(self):
+        namespace = super()._simulator_load_namespace()
+        namespace["BalloonsResidualEnv"] = BalloonsResidualEnv
+        return namespace
+
+
+def _load_simulator(path, approach_cls=AgentSimLearningApproach):
     """Load through an instance so the arm's namespace hook is exercised."""
-    approach = AgentSimLearningApproach.__new__(AgentSimLearningApproach)
+    approach = approach_cls.__new__(approach_cls)
     return approach._load_simulator_from_module_file(path)
+
+
+def test_loader_refuses_a_model_that_imports_a_withheld_module(tmp_path):
+    """A model file loads in the harness process, past the sandbox's import
+    guard, so the loader screens its text: the two modules the agent is shown
+    import, and no other module of the package."""
+    utils.reset_config({"env": "pybullet_balloons", "seed": 0})
+    path = tmp_path / "simulator.py"
+    body = ("class Model(BaseSimulator):\n"
+            "    AGENT_PARAM_SPECS = []\n"
+            "    RESIDUAL_FEATURES = {}\n"
+            "RESIDUAL_ENV = Model\n")
+    path.write_text(
+        "from predicators.code_sim_learning.commands import ApplyForce\n"
+        "from predicators.code_sim_learning.fit_space import ParamSpec\n"
+        "from predicators.structs import State\n" + body)
+    approach = AgentSimLearningApproach.__new__(AgentSimLearningApproach)
+    _, _, _, ns = approach._load_simulator_from_module_file(str(path))
+    assert ns is not None and read_residual_env(ns) is not None
+    assert "failed to load" in approach._simulator_load_failure()
+    for line, named in [
+        ("from predicators.code_sim_learning.physical_sysid import "
+         "fit_params_rollout\n",
+         "predicators.code_sim_learning.physical_sysid"),
+        ("from predicators.code_sim_learning import parameter_belief\n",
+         "predicators.code_sim_learning.parameter_belief"),
+        ("import predicators.pybullet_helpers.motion_planning as mp\n",
+         "predicators.pybullet_helpers.motion_planning"),
+    ]:
+        path.write_text(line + body)
+        assert approach._load_simulator_from_module_file(
+            str(path)) == (None, None, None, None), line
+        failure = approach._simulator_load_failure()
+        assert f"{named} is not available in the sandbox" in failure
+    # The hidden modules keep their own message.
+    path.write_text("from predicators.envs.pybullet_balloons import "
+                    "PyBulletBalloonsEnv\n" + body)
+    assert approach._load_simulator_from_module_file(str(path)) == (None, None,
+                                                                    None, None)
+    assert "the sandbox hides" in approach._simulator_load_failure()
 
 
 def test_balloons_artifact_cannot_call_hidden_base_helpers(tmp_path):
@@ -151,7 +196,8 @@ def test_loader_reads_subclass_form(tmp_path):
     the class, and a readable RESIDUAL_ENV export."""
     path = tmp_path / "simulator.py"
     path.write_text(_REEXPORT_SIMULATOR_PY)
-    rules, specs, features, ns = (_load_simulator(str(path)))
+    rules, specs, features, ns = (_load_simulator(str(path),
+                                                  _SuppliedSubclassApproach))
     # No RESIDUAL_RULES/PARAM_SPECS, yet the file is loadable (not None).
     assert rules == []
     assert specs == []
@@ -298,8 +344,8 @@ def test_loading_subclass_file_twice_does_not_raise(reset_balloons, tmp_path):
     path = tmp_path / "simulator.py"
     path.write_text(_INLINE_SUBCLASS_SIMULATOR_PY)
 
-    _, _, _, ns1 = (_load_simulator(str(path)))
-    _, _, _, ns2 = (_load_simulator(str(path)))
+    _, _, _, ns1 = (_load_simulator(str(path), _SuppliedSubclassApproach))
+    _, _, _, ns2 = (_load_simulator(str(path), _SuppliedSubclassApproach))
     cls1 = read_residual_env(ns1)
     cls2 = read_residual_env(ns2)
     # Two distinct concrete subclasses, both a valid RESIDUAL_ENV, both
