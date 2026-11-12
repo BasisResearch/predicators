@@ -451,6 +451,38 @@ Where evaluation includes a physical replay, that rule is not checked: the verdi
 Pass action labels for tasks whose evaluator reads the actions: one `["Skill", ["obj", ...], [param, ...]]` per predicted state, or `null` for an unlabeled transition.
 Only the live environment's `WIN` certifies completion.
 
+<!-- section: sandbox_base_simulator_files -->
+Use sandbox `python3` with `pickle` and `numpy` to analyze the recorded data and your own files.
+`run_python` runs code beside the supplied base simulator, which the section below describes.
+
+<!-- section: base_simulator -->
+## Supplied base simulator
+
+`run_python` binds `sim`, a physics simulator that the harness builds for each level.
+It contains the robot, the skills with their real controllers, and the scene's bodies as the harness loads them from the scene manifest and the asset files.
+The manifest records no masses, frictions, restitution or damping: a body loaded from a URDF file has the file's masses, a moving body built from shapes has the mass of its volume at 1000 kg/m^3, and the other material values are the engine's defaults where no file sets one.
+It contains no hidden mechanism.
+It reads each body's pose, colour and held flag from the engine, so a colour reads as the loaded body's; every other feature (a switch reading, a level, a flag) keeps the value of the state that a rollout starts from.
+It loads no file of yours, and no call adds forces, attachments, state or step code to it.
+
+- `sim.reset(current=True)` starts from the latest observation, `sim.reset()` from the level's initial observation, and `sim.reset(state=s)` from a recorded state such as `trajectories[i].states[t]`.
+- `sim.run(plan_text)` runs a skill plan from the current state and returns the predicted states (`states`, `line_states`, `final_state`).
+- `sim.params()` lists the physical values of the loaded bodies, and `sim.run(plan_text, phys_params={name: value})` runs one rollout at other values.
+- `sim.state()`, `sim.render(label)`, `sim.snapshot()` and `sim.restore(id)` read, draw, save and restore the current state; `sim.run_async(...)` and `sim.gather(handles)` run rollouts in parallel.
+
+The `run_python` tool description gives every argument.
+A rollout is this simulator's prediction and costs no environment steps.
+
+<!-- section: reward_model_base_simulator -->
+## Interpreting task verdicts
+
+`evaluate_trajectory(states, actions=None, task_idx=None, phys_params=None)` in `run_python` exposes a level's reward model, the current level's by default.
+It scores a state sequence and returns only `reward`, `solved`, and `note`.
+The sequence can be a rollout's `states` with its `labels` as `actions`, recorded states, or states that you build with `with_features(state, {"object": {"feature": value}})`.
+A verdict is only as good as the states you give it.
+Where evaluation includes a physical replay, the replay runs in the supplied base simulator, and `note` says what it replayed.
+Only the live environment's `WIN` certifies completion.
+
 <!-- section: model -->
 ## Model workbench
 
