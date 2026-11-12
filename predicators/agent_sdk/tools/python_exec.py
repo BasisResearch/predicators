@@ -8,7 +8,7 @@ from predicators.agent_sdk.tools.budget import _arm_budget_watchdog, \
     _budget_footer
 from predicators.agent_sdk.tools.context import ToolContext
 from predicators.agent_sdk.tools.sandbox_guard import \
-    _screen_text_for_sandbox_escape, _scrub_host_paths
+    _screen_text_for_sandbox_escape, agent_traceback
 
 
 def _resolve_sandbox_file(
@@ -80,7 +80,6 @@ def _make_python_exec_tool(
     # pylint: disable=import-outside-toplevel
     import io
     import sys
-    import traceback  # pylint: disable=redefined-outer-name,reimported
 
     # pylint: enable=import-outside-toplevel
 
@@ -224,7 +223,7 @@ def _make_python_exec_tool(
                 "results so partial progress survives a stop.")
             return _given(f"{prefix}TIME BUDGET: {msg}{_footer()}")
         except Exception:  # pylint: disable=broad-except
-            tb = _scrub_host_paths(traceback.format_exc())
+            tb = agent_traceback()
             partial = captured.getvalue()
             prefix = f"{partial}\n" if partial else ""
             return _given(f"{prefix}Error:\n{tb}{_footer()}")
