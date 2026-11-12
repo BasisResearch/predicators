@@ -128,6 +128,34 @@ def test_flag_off_keeps_the_direct_agent_unchanged(tmp_path: Any) -> None:
     assert "## Scene files" not in approach._play_system_prompt()
 
 
+def test_direct_scene_arm_has_level_scenes_and_no_skills_file(
+        tmp_path: Any) -> None:
+    """Direct + scene of the rebuttal cohort (``direct_scene_opus``) has the
+    scene of each level played so far, with the scene manifest's legend, and no
+    skill reference file; the prompt lists the level files."""
+    _, approach = _make(tmp_path,
+                        continual_provide_skills_reference=False,
+                        continual_provide_level_scenes=True)
+    files = approach._get_sandbox_reference_files()
+    assert "skills.md" not in files
+    assert not any(path.startswith("base_sim/") for path in files)
+    level = json.loads(files["scene/levels/level_01.json"].text)
+    manifest = json.loads(files["scene/scene_manifest.json"].text)
+    assert set(level) == {"manifest", "signature"}
+    assert level["manifest"] == manifest
+    # The signature holds the observed objects whose body has a static
+    # base, at the level's initial features.
+    static = {
+        body["object"]
+        for body in manifest["bodies"]
+        if body["object"] is not None and body["static"]
+    }
+    assert set(level["signature"]) <= static
+    prompt = approach._play_system_prompt()
+    assert prompt.count("./reference/scene/levels/level_NN.json") == 1
+    assert "SceneBase" not in prompt and "base_sim" not in prompt
+
+
 def test_reward_model_flag_off_keeps_the_arm_unchanged(tmp_path: Any) -> None:
     """Without the reward-model flag the arm has no ``evaluate_trajectory``
     tool and its prompt does not mention one."""

@@ -60,6 +60,8 @@ Return the same observed objects and features; keep hidden quantities in memory.
 Do not import the task environment or ground-truth mechanisms, or invoke a real skill inside a prediction.
 If you use a physics engine, create and manage your own simulation world, explicitly address its client on every call, and release its resources.
 Predictions must not inspect or change the live environment; preserve all model memory needed for reproducible replay in the returned latent state.
+
+<!-- section: contract_predicates -->
 Write `predicates.py` exporting `LEARNED_PREDICATES`, a list of your invented `Predicate` objects.
 The loader provides `State`, `Predicate`, `np`, and types named `<name>_type`.
 Predicates may read `state.latent` when it is present and must tolerate its absence in observations.

@@ -128,11 +128,15 @@ def _tool_list(tool_names: Sequence[str]) -> str:
     return "\n".join(lines)
 
 
-def build_scene_simulator_system_prompt(tool_names: Sequence[str],
-                                        scene_refs: Sequence[str]) -> str:
+def build_scene_simulator_system_prompt(
+    tool_names: Sequence[str],
+    scene_refs: Sequence[str],
+    source_refs: Sequence[str] = ()) -> str:
     """The system prompt of the arm with the supplied scene simulator.
 
-    ``scene_refs`` are the agent-visible paths of the scene files. The
+    ``scene_refs`` are the agent-visible paths of the scene files, and
+    ``source_refs`` those of the simulator's source, which the prompt
+    lists for reference after the scene files when there are any. The
     gate, claim-check and predictive-check sections follow the flags
     that turn those switches on, as they do in the other arms' prompt.
     """
@@ -181,6 +185,11 @@ def build_scene_simulator_system_prompt(tool_names: Sequence[str],
                "scene_refs",
                ref_listing="\n".join(f"- `{r}`" for r in scene_refs)),
     ]
+    if source_refs:
+        sections.append(
+            render(_ARM,
+                   "source_refs",
+                   ref_listing="\n".join(f"- `{r}`" for r in source_refs)))
     return "\n\n".join(section.strip() for section in sections)
 
 
@@ -206,10 +215,13 @@ def scene_simulator_query(query: str) -> str:
     return query.replace(shared, own, 1)
 
 
-def build_scene_simulator_claude_md() -> str:
+def build_scene_simulator_claude_md(source: bool = False) -> str:
     """The sandbox CLAUDE.md of this arm: the shared one, with the reference
-    files described as the scene files they are here."""
+    files described as the scene files they are here, and as the simulator's
+    source too when ``source``."""
+    references = ("claude_md_references_source"
+                  if source else "claude_md_references")
     wording = _CLAUDE_MD_WORDING + [
-        (_CLAUDE_MD_REFERENCES, render(_ARM, "claude_md_references"))
+        (_CLAUDE_MD_REFERENCES, render(_ARM, references))
     ]
     return _reworded(build_claude_md(), wording, "sandbox_claude_md.md")

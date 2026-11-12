@@ -161,6 +161,9 @@ def test_config_is_direct_plus_scene_with_the_loaded_scene() -> None:
             **scene[run.env].flags,
             "scene_manifest_loader": True,
             "scene_observed_sizes": True,
+            "continual_provide_skills_reference": False,
+            "continual_provide_level_scenes": True,
+            "continual_provide_simulator_source": True,
         }
         assert run.flags["continual_provide_scene_package"] is True
         assert run.flags["continual_provide_reward_model"] is True
@@ -226,8 +229,21 @@ def test_prompt_is_the_direct_prompt_with_the_simulator_tool(
                     "the engine's defaults where no file sets one",
                     "`evaluate_trajectory(states, actions=None",
                     "the replay runs in the supplied base simulator",
-                    "## Scene files", "scene_manifest.json"):
+                    "## Scene files", "scene_manifest.json",
+                    "`./reference/scene/levels/level_NN.json (one file per "
+                    "level played so far: that level's scene manifest and "
+                    "the exact features each observed object with a static "
+                    "base had as the level began)`",
+                    "The source of this simulator is in these read-only "
+                    "files, for reference:\n\n"
+                    "- `./reference/base_sim/scene_base.py`\n"
+                    "- `./reference/base_sim/pybullet_env.py`\n"
+                    "- `./reference/base_sim/base_env.py`"):
         assert present in prompt, present
+    # The source is listed for reference, and nothing asks to build on it.
+    for absent in ("subclass", "extend", "override", "add a mechanism",
+                   "mechanisms", "your model"):
+        assert absent not in prompt.lower(), absent
     for unnamed in ("No simulator", "file of yours", "no call adds"):
         assert unnamed not in prompt, unnamed
         assert unnamed not in base_simulator_description(reward_model=True)
@@ -277,19 +293,30 @@ def test_run_python_drives_the_supplied_simulator(tmp_path: Any,
             str(q.relative_to(sandbox / "reference"))
             for q in (sandbox / "reference").rglob("*") if q.is_file()
         }
-        # The files of Direct + scene; the simulator loads its own copy,
-        # which also holds the scene of each level played.
+        # The files of Direct + scene with the scene of each level played
+        # and the simulator's source, and no skill reference file; the
+        # simulator loads its own copy of the scene files.
         assert {
-            "skills.md", "scene/scene_manifest.json",
-            "assets/urdf/jug-pixel.urdf"
+            "scene/scene_manifest.json", "scene/levels/level_01.json",
+            "assets/urdf/jug-pixel.urdf", "base_sim/scene_base.py",
+            "base_sim/pybullet_env.py", "base_sim/base_env.py"
         } <= refs
-        assert not any(
-            r.startswith(("base_sim/", "scene/levels/")) for r in refs)
+        assert "skills.md" not in refs
         copy = Path(approach._scene_copy_dir())
         assert sandbox not in copy.parents
-        assert (copy / "scene/levels/level_01.json").is_file()
-        assert (copy / "scene/scene_manifest.json").read_text() == \
-            (sandbox / "reference/scene/scene_manifest.json").read_text()
+        assert not (copy / "base_sim").exists()
+        for scene_file in ("scene/levels/level_01.json",
+                           "scene/scene_manifest.json"):
+            assert (copy / scene_file).read_text() == \
+                (sandbox / "reference" / scene_file).read_text()
+        # The source copies are the agent's to read: the simulator is built
+        # from the harness's own modules, so a sandbox copy that cannot
+        # even load changes nothing below.
+        for source in ("scene_base.py", "pybullet_env.py", "base_env.py"):
+            path = sandbox / "reference/base_sim" / source
+            path.chmod(0o644)
+            path.write_text("raise RuntimeError('a sandbox copy loaded')\n")
+        assert sandbox not in Path(inspect.getfile(SceneBase)).parents
         tools = [t.name for t in approach._tool_context.extra_mcp_tools]
         assert sorted(tools) == sorted(approach._continual_tool_names())
         described = next(t for t in approach._tool_context.extra_mcp_tools

@@ -66,6 +66,12 @@ Use sandbox `python3` with `pickle` and `numpy` to analyze the recorded data and
 
 The `run_python` tool description gives every argument. A rollout is this simulator's prediction and costs no environment steps.
 
+The source of this simulator is in these read-only files, for reference:
+
+- `./reference/base_sim/scene_base.py`
+- `./reference/base_sim/pybullet_env.py`
+- `./reference/base_sim/base_env.py`
+
 ## Interpreting task verdicts
 
 `evaluate_trajectory(states, actions=None, task_idx=None, phys_params=None)` in `run_python` exposes a level's reward model, the current level's by default. It scores a state sequence and returns only `reward`, `solved`, and `note`. The sequence can be a rollout's `states` with its `labels` as `actions`, recorded states, or states that you build with `with_features(state, {"object": {"feature": value}})`. A verdict is only as good as the states you give it. Where evaluation includes a physical replay, the replay runs in the supplied base simulator, and `note` says what it replayed. Only the live environment's `WIN` certifies completion.
@@ -81,6 +87,7 @@ The run is one conversation. A round consists of one harness prompt and your res
 ## Scene files
 
 - `./reference/scene/scene_manifest.json`
+- `./reference/scene/levels/level_NN.json (one file per level played so far: that level's scene manifest and the exact features each observed object with a static base had as the level began)`
 - `./reference/assets/`
 
 These read-only files are a manifest of the scene's bodies (shapes, meshes, joints, colours, and which observed object each body is) and the URDF and mesh files those bodies were loaded from. The manifest records no masses, frictions or damping. `pybullet` is importable in sandbox `python3`; use these files however you find useful.
