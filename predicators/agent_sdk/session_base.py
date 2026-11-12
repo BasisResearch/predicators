@@ -971,6 +971,7 @@ class SandboxSessionManagerBase(BaseAgentSessionManager):
         extra_reference_files: Optional[ReferenceFiles] = None,
         phase: Optional[str] = None,
         config: Optional[SessionConfig] = None,
+        claude_md_content: Optional[str] = None,
     ) -> None:
         super().__init__(system_prompt=system_prompt,
                          log_dir=log_dir,
@@ -978,6 +979,8 @@ class SandboxSessionManagerBase(BaseAgentSessionManager):
                          tool_context=tool_context,
                          config=config)
         self._tool_names = tool_names
+        # The sandbox CLAUDE.md; None is the one every sandbox shares.
+        self._claude_md_content = claude_md_content
         self._extra_reference_files = extra_reference_files or {}
         self._repo_root = str(find_repo_root())
         self._phase = phase
@@ -1015,7 +1018,7 @@ class SandboxSessionManagerBase(BaseAgentSessionManager):
             sandbox_dir=self._sandbox_dir,
             repo_root=self._repo_root,
             extra_reference_files=self._extra_reference_files,
-            claude_md_content=build_claude_md(),
+            claude_md_content=self._claude_md_content or build_claude_md(),
             system_prompt=self._system_prompt,
             log_dir=self._log_dir,
             seed_scratchpad=self._config.use_scratchpad,

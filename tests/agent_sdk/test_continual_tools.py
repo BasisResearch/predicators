@@ -465,7 +465,8 @@ def test_parse_plan_lines_and_formatting(tmp_path: Any) -> None:
     assert "simulator.py" not in free
     assert "`give_up`" in free and "./data/trajectories.pkl" in free
     data = render_data_status(n_episodes=3, n_steps=40)
-    assert "no belief model" in data and "3 (40 steps)" in data
+    assert data.startswith("Recorded episodes so far: 3 (40 steps)")
+    assert "belief" not in data and "arm" not in data
     assert "Skill grammar" in system and "./test_images/" in system
     status = "Your model: simulator.py v2"
     query = build_play_query(kind="first",

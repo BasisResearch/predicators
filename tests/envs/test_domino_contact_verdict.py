@@ -70,4 +70,13 @@ def test_the_goal_text_states_the_rule_in_force() -> None:
     text = goal_text.configured(goal_text.MIN_BLOCK_GOAL_NL)
     assert goal_text.CONTACT_VERIFICATION_NL in text
     assert goal_text.CASCADE_VERIFICATION_NL not in text
+    assert text.endswith("A rehearsal always makes that replay.")
+    # An arm with no rehearsal reads the rule alone.
+    utils.reset_config({
+        "domino_contact_verdict": True,
+        "domino_goal_names_rehearsal": False
+    })
+    plain = goal_text.configured(goal_text.MIN_BLOCK_GOAL_NL)
+    assert plain + goal_text.REHEARSAL_REPLAY_NL == text
+    assert "rehears" not in plain
     utils.reset_config({"domino_contact_verdict": False})

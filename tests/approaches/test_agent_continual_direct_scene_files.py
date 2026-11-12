@@ -89,7 +89,7 @@ def test_boil_gets_the_files_and_only_a_task_prompt(tmp_path: Any,
         prompt = approach._play_system_prompt()
         assert "## Scene files" in prompt
         assert "scene_manifest.json (" in prompt
-        assert "No simulator is supplied." in prompt
+        assert "No simulator" not in prompt
         assert "pybullet_env.py" not in prompt
         assert "environment wrapper" not in prompt
         for absent in ("simulator.py", "RESIDUAL_FEATURES", "sim.fit",
@@ -101,7 +101,8 @@ def test_boil_gets_the_files_and_only_a_task_prompt(tmp_path: Any,
         # its section, and a verdict of the three public keys.
         assert approach._continual_tool_names()[-1] == "evaluate_trajectory"
         assert "## Interpreting task verdicts" in prompt
-        assert "that rule is not checked" in prompt
+        assert "The tool reads only the states you give it" in prompt
+        assert "from a state is not checked" in prompt
         scored = _call(approach, "evaluate_trajectory", states=[{}])
         assert json.loads(scored.split("\n\n", 1)[0]) == {
             "reward": 0.0,

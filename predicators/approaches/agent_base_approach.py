@@ -158,6 +158,11 @@ class AgentBaseApproach(BaseApproach):
         """
         return {"skills.md": "predicators/agent_sdk/prompts/public_skills.md"}
 
+    def _get_sandbox_claude_md(self) -> Optional[str]:
+        """The sandbox ``CLAUDE.md`` of this approach's sessions; None is the
+        one every sandbox shares."""
+        return None
+
     def _get_all_options(self) -> Set[ParameterizedOption]:
         """Return the full set of options available for planning."""
         return self._initial_options
@@ -294,6 +299,7 @@ class AgentBaseApproach(BaseApproach):
                 phase=phase,
                 config=config,
                 query_count_floor=self._resume_query_count,
+                claude_md_content=self._get_sandbox_claude_md(),
             )
         else:
             from claude_agent_sdk import \

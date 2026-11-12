@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, List, Set
+from typing import TYPE_CHECKING, Any, List, Optional, Set
 
 from gym.spaces import Box
 
@@ -98,6 +98,15 @@ class AgentContinualModelFreeMinimalApproach(AgentContinualModelFreeApproach):
         return (f"Recorded episodes so far: {episodes} ({steps} steps), in "
                 "`./data/trajectories.pkl`. Your Python files and journal "
                 "persist across rounds and levels.")
+
+    # The minimal arms keep the query heading and the sandbox CLAUDE.md
+    # that every arm shares.
+
+    def _model_status_heading(self) -> str:
+        return "Model and data"
+
+    def _get_sandbox_claude_md(self) -> Optional[str]:
+        return None
 
     def _build_query(self, session: ProtocolSession, kind: str) -> str:
         query = super()._build_query(session, kind)

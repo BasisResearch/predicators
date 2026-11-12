@@ -52,7 +52,7 @@ Files persist across levels, rounds, compaction, and resume. See `./CLAUDE.md` f
 - `./journal.md`: your durable decision record; `./attempts.md`: the harness's round summary; `./session_logs/`: earlier queries and tool results.
 - `./test_images/`: scene renders named in tool results; open them with `Read`.
 
-Use sandbox `python3` with `pickle` and `numpy` to analyze the recorded data and your own files. No simulator is supplied.
+Use sandbox `python3` with `pickle` and `numpy` to analyze the recorded data and your own files.
 
 ## Run memory
 
