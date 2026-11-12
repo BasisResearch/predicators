@@ -1,7 +1,11 @@
 """Minimal-knowledge agents driven through real continual tools and physics."""
 import asyncio
 import json
+import os
 import pickle
+import re
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -10,11 +14,15 @@ import pytest
 
 from predicators import utils
 from predicators.agent_sdk.primitive_policy import open_primitive_policy
-from predicators.agent_sdk.sandbox_setup import write_pyguard
+from predicators.agent_sdk.sandbox_setup import find_repo_root, pyguard_env, \
+    setup_sandbox_directory, write_pyguard
 from predicators.agent_sdk.session_base import AgentSessionFatalError
 from predicators.agent_sdk.tools.continual_tools import PRIMITIVE_TOOL_NAMES
+from predicators.agent_sdk.tools.sandbox_guard import \
+    SANDBOX_ALLOWED_MODULES_PATTERN
 from predicators.approaches import create_approach
 from predicators.approaches.agent_continual_minimal_approach import \
+    ENGINE_WRAPPER_MODULES, AgentContinualModelBasedMinimalApproach, \
     AgentContinualModelFreeMinimalApproach
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
@@ -295,6 +303,94 @@ def test_restart_after_a_won_level_opens_the_next_level(
     assert "### Round 1" in attempts
     assert "Level 1; cut off by a restart" in attempts
     assert "- win" in attempts
+
+
+def test_engine_wrapper_modules_are_what_the_wrapper_loads(
+        tmp_path: Path) -> None:
+    """The model-based arm's agent imports the engine wrapper in its own
+    python, so its sandbox's guard admits exactly the predicators modules that
+    import loads, and a sandbox without the wrapper admits none of them."""
+    approach = AgentContinualModelBasedMinimalApproach.__new__(
+        AgentContinualModelBasedMinimalApproach)
+    sandbox = tmp_path / "sandbox"
+    setup_sandbox_directory(
+        sandbox_dir=str(sandbox),
+        repo_root=str(find_repo_root()),
+        extra_reference_files=approach._get_sandbox_reference_files(),
+        claude_md_content="rules",
+        system_prompt="rules",
+        log_dir=str(tmp_path / "log"))
+    code = ("import json, sys\n"
+            "from reference.base_sim.pybullet_env import PyBulletEnv\n"
+            "names = sorted(m for m in sys.modules if m == 'predicators'\n"
+            "               or m.startswith('predicators.'))\n"
+            "print('LOADED ' + json.dumps(names) + ' END')\n")
+
+    def loaded(env: Dict[str, str], where: Path) -> List[str]:
+        res = subprocess.run([sys.executable, "-c", code],
+                             cwd=str(where),
+                             env=env,
+                             capture_output=True,
+                             text=True,
+                             check=False,
+                             timeout=300)
+        assert res.returncode == 0, res.stderr[-2000:]
+        # PyBullet prints to stdout too, so the list sits between markers.
+        found = re.search(r"LOADED (\[.*\]) END", res.stdout)
+        assert found is not None, res.stdout[-2000:]
+        return json.loads(found.group(1))
+
+    plain = loaded(dict(os.environ), sandbox)
+    beside = sorted(name for name in plain
+                    if not re.fullmatch(SANDBOX_ALLOWED_MODULES_PATTERN, name))
+    missing = sorted(set(beside) - set(ENGINE_WRAPPER_MODULES))
+    assert not missing, (
+        f"reference/base_sim/pybullet_env.py now loads {missing}, which "
+        "ENGINE_WRAPPER_MODULES (predicators/approaches/"
+        "agent_continual_minimal_approach.py) does not list. The arm's "
+        "agent imports that file in a guarded python, so the import would "
+        "fail there. Add the modules to the list, or remove the import.")
+    stale = sorted(set(ENGINE_WRAPPER_MODULES) - set(beside))
+    assert not stale, (
+        f"ENGINE_WRAPPER_MODULES lists {stale}, which "
+        "reference/base_sim/pybullet_env.py no longer loads; remove them.")
+    # The same import under the sandbox's own guard, which still refuses
+    # what the wrapper does not load.
+    guarded = {**os.environ, **pyguard_env(str(sandbox))}
+    assert loaded(guarded, sandbox) == plain
+    res = subprocess.run([
+        sys.executable, "-c",
+        "import predicators.pybullet_helpers.motion_planning"
+    ],
+                         cwd=str(sandbox),
+                         env=guarded,
+                         capture_output=True,
+                         text=True,
+                         check=False,
+                         timeout=300)
+    assert res.returncode != 0
+    assert ("sandbox guard: predicators.pybullet_helpers.motion_planning is "
+            "not available in the sandbox") in res.stderr, res.stderr
+    # A sandbox whose arm has no wrapper refuses the wrapper's modules.
+    other = tmp_path / "other"
+    (other / "reference").mkdir(parents=True)
+    for part in ("base_sim/base_env.py", "base_sim/pybullet_env.py"):
+        target = other / "reference" / part
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text((sandbox / "reference" / part).read_text())
+    write_pyguard(str(other), str(find_repo_root()))
+    res = subprocess.run([sys.executable, "-c", code],
+                         cwd=str(other),
+                         env={
+                             **os.environ,
+                             **pyguard_env(str(other))
+                         },
+                         capture_output=True,
+                         text=True,
+                         check=False,
+                         timeout=300)
+    assert res.returncode != 0
+    assert "is not available in the sandbox" in res.stderr, res.stderr
 
 
 def test_policy_worker_timeout(tmp_path: Path) -> None:

@@ -79,14 +79,51 @@ def test_validation_unavailable_without_workbench():
         BeliefProbe(ToolContext()).validate()
 
 
+def test_model_file_with_a_withheld_import_is_not_loaded(tmp_path):
+    """The synthesis tools exec ``simulator.py`` in the harness process, so
+    they screen its text first: a predicators module off the sandbox's list is
+    refused by name, and the imports the agent is shown still load."""
+    utils.reset_config({"seed": 0})
+    artifact = tmp_path / "simulator.py"
+    approach = _Workbench()
+    toolkit = create_synthesis_tools(exec_ns={},
+                                     base_pred_triples=[],
+                                     inferred_residual_features={},
+                                     simulator_file=str(artifact),
+                                     versions_dir=str(tmp_path / "versions"),
+                                     approach=cast(SynthesisBackend, approach))
+    sim = BeliefProbe(
+        ToolContext(probe_validation_provider=toolkit.validation_runner))
+    for line, named in [
+        ("from predicators.code_sim_learning.physical_sysid import "
+         "fit_params_rollout\n",
+         "predicators.code_sim_learning.physical_sysid"),
+        ("from predicators.code_sim_learning import parameter_belief\n",
+         "predicators.code_sim_learning.parameter_belief"),
+        ("import predicators.agent_sdk.belief_probe\n",
+         "predicators.agent_sdk.belief_probe"),
+    ]:
+        artifact.write_text(line + _NOOP_SIMULATOR, encoding="utf-8")
+        report = sim.validate()
+        assert "simulator.py was not loaded: sandbox guard: " + named + \
+            " is not available in the sandbox" in report, report
+    artifact.write_text(
+        "from predicators.code_sim_learning.commands import ApplyForce\n"
+        "from predicators.code_sim_learning.fit_space import ParamSpec\n"
+        "from predicators.structs import State\n" + _NOOP_SIMULATOR,
+        encoding="utf-8")
+    assert "trajectory 0: 6 actions, RMS=0, SSE=0" in sim.validate()
+
+
 def test_parameter_free_subclass_uses_public_rollout_tools(
         tmp_path, monkeypatch):
     """A native model needs neither a dummy rule nor a dummy parameter."""
     utils.reset_config({"seed": 0})
     artifact = tmp_path / "simulator.py"
+    # The loader supplies the base class, as every arm's does: a model
+    # file may not import the hidden module that holds it.
     artifact.write_text(
-        "from predicators.envs.pybullet_balloons import PyBulletBalloonsEnv\n"
-        "class Model(PyBulletBalloonsEnv):\n"
+        "class Model(BaseSimulator):\n"
         "    @classmethod\n"
         "    def get_name(cls):\n"
         "        return 'test_parameter_free_model'\n"
@@ -97,6 +134,11 @@ def test_parameter_free_subclass_uses_public_rollout_tools(
         "RESIDUAL_ENV = Model\n",
         encoding="utf-8")
     approach = _Workbench()
+    from predicators.envs.pybullet_balloons import PyBulletBalloonsEnv
+    monkeypatch.setattr(approach,
+                        "_simulator_load_namespace",
+                        lambda: {"BaseSimulator": PyBulletBalloonsEnv},
+                        raising=False)
     monkeypatch.setattr(
         approach,
         "_install_residual_env_cls",
