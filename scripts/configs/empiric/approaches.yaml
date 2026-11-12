@@ -183,12 +183,17 @@ APPROACHES:
   # gates on one, adds a note to one or checks a step against one is left
   # out, and the approach class refuses a config that turns one on. The
   # agent still rolls plans out in its fitted model with `sim`. Parked
-  # like EMPIRIC from assets.
-  from_assets_no_uncertainty_opus:
-    NAME: agent_continual_from_assets_no_uncertainty
+  # like EMPIRIC from assets. The agent reads its run folder's path, which
+  # holds the approach's name and this key, so neither names what the arm
+  # leaves out: "point" stands for a model at one value per parameter.
+  from_assets_point_opus:
+    NAME: agent_continual_from_assets_point
     SKIP: true
     FLAGS:
       agent_sdk_model_name: claude-opus-5
+      # Nothing the agent reads names the noise, a belief, a draw or a
+      # stress test, and its probe has no call built on one.
+      continual_point_values_only: true
       # A test-level step waits for a model that loads and, since its
       # starting values are the agent's guesses, for a fit of the current
       # file. No rehearsal is asked for.

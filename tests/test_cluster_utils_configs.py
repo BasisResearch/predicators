@@ -177,31 +177,33 @@ def test_from_assets_no_uncertainty_arm_runs_only_by_name() -> None:
     """EMPIRIC from assets without explicit uncertainty is parked, and naming
     it runs No uncertainty's flags plus the switches of EMPIRIC from assets
     that act on the fit and the scene, and none that reads a belief or a
-    rehearsal."""
-    assert not any("from_assets_no_uncertainty" in r.experiment_id
+    rehearsal.
+
+    Nothing its agent reads names what the arm leaves out: its key and
+    its approach's name, which the run folder's path holds, name none.
+    """
+    assert not any("from_assets_point" in r.experiment_id
                    for r in _benchmark_runs(round_name="r1"))
     runs = _benchmark_runs(round_name="r1",
                            envs=["domino_high_friction_turn"],
                            approaches=[
                                "no_uncertainty_opus", "from_assets_opus",
-                               "from_assets_no_uncertainty_opus"
+                               "from_assets_point_opus"
                            ],
                            seeds=(0, 1))
     by_arm = {r.experiment_id.split("-", 1)[1]: r for r in runs}
-    arm = by_arm["from_assets_no_uncertainty_opus_r1"]
-    assert arm.approach == "agent_continual_from_assets_no_uncertainty"
+    arm = by_arm["from_assets_point_opus_r1"]
+    assert arm.approach == "agent_continual_from_assets_point"
+    for word in ("uncertain", "nois", "belief"):
+        assert word not in arm.approach + arm.experiment_id, word
     assert arm.flags == {
         **by_arm["no_uncertainty_opus_r1"].flags,
-        "code_sim_learning_prior_spans_bounds":
-        True,
-        "scene_observed_sizes":
-        True,
-        "scene_manifest_loader":
-        True,
-        "continual_restage_velocities":
-        True,
-        "continual_belief_velocities":
-        True,
+        "continual_point_values_only": True,
+        "code_sim_learning_prior_spans_bounds": True,
+        "scene_observed_sizes": True,
+        "scene_manifest_loader": True,
+        "continual_restage_velocities": True,
+        "continual_belief_velocities": True,
     }
     from_assets = by_arm["from_assets_opus_r1"].flags
     assert set(from_assets) - set(arm.flags) == {
