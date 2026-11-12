@@ -74,7 +74,7 @@ APPROACH_DIR = {
     "real_to_sim": "agent_continual_real_to_sim",
     # No learning: its run folder names only what the arm has.
     "from_assets_scene": "agent_continual_from_assets_scene",
-    "from_assets_no_uncertainty": "agent_continual_from_assets_no_uncertainty",
+    "from_assets_point": "agent_continual_from_assets_point",
     "from_assets_declared": "agent_continual_from_assets_declared",
     "direct_base_sim": "agent_continual_direct_base_sim",
 }

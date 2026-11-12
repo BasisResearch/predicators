@@ -17,7 +17,7 @@ parked arm (one the config SKIPs) can be rendered too:
 
     python -m scripts.dump_continual_arm_prompts \
         --config empiric/benchmark.yaml --domain boil \
-        --approaches from_assets_no_uncertainty_opus --out /tmp/review
+        --approaches from_assets_point_opus --out /tmp/review
 """
 import argparse
 import asyncio
