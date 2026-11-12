@@ -10,7 +10,8 @@ from __future__ import annotations
 
 from typing import Any, Iterable, List, Mapping, Sequence
 
-from predicators.agent_sdk.prompt_templates import render
+from predicators.agent_sdk.prompt_templates import load_sections
+from predicators.agent_sdk.prompt_templates import render as _render_shared
 from predicators.code_sim_learning.scene_base import plausible_materials_text
 from predicators.observation_noise import ObservationNoise
 from predicators.settings import CFG
@@ -64,6 +65,22 @@ _RUN_PYTHON_NO_FIT_BLURB = (
 _RUN_PYTHON_BASE_SIMULATOR_BLURB = (
     "code in the sandbox with `sim`, the supplied base simulator "
     "(`sim.reset`, `sim.run`, `sim.state`, ...). Free.")
+
+
+def render(template: str, section: str, **values: str) -> str:
+    """Render ``section`` of ``template``, in the wording the running arm has
+    for it.
+
+    Under ``continual_point_values_only`` (EMPIRIC from assets at one
+    value per parameter) a section of ``play_point.md`` named
+    ``<template>__<section>`` stands in for the shared section and takes
+    the same placeholders. Every other arm renders the shared section.
+    """
+    own = f"{template}__{section}"
+    if CFG.continual_point_values_only and \
+            own in load_sections("play_point"):
+        return _render_shared("play_point", own, **values)
+    return _render_shared(template, section, **values)
 
 
 def build_minimal_play_system_prompt(*, model_based: bool) -> str:

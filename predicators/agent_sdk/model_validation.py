@@ -64,8 +64,10 @@ def replay_report(
         "initial states in fresh simulators; velocities start at rest.",
         "RMS and SSE use the normalized rollout objective, including its "
         "robust and summary terms. Compare candidates on identical "
-        "recordings, scope, and settings; these are predictive errors, "
-        "not success certificates or posterior probabilities.",
+        "recordings, scope, and settings; these are predictive errors, " +
+        # The arm at one value per parameter is told of no probability.
+        ("not success certificates." if CFG.continual_point_values_only else
+         "not success certificates or posterior probabilities."),
     ]
     total_sse, total_count = 0.0, 0
     failed = False
