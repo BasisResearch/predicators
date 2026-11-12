@@ -35,6 +35,7 @@ from predicators.agent_sdk.tools import SYNTHESIS_TOOL_NAMES, \
 from predicators.agent_sdk.tools.digests import render_trajectory_digest
 from predicators.agent_sdk.tools.reward_model import level_task, \
     score_trajectory, trajectory_step_options
+from predicators.agent_sdk.tools.sandbox_guard import model_file_import_refusal
 from predicators.agent_sdk.tools.verdicts import task_evaluator
 from predicators.approaches.agent_base_approach import AgentBaseApproach
 from predicators.approaches.synthesis_validation import \
@@ -540,6 +541,11 @@ class AgentSimLearningApproach(AgentBaseApproach):
     # _rehydrate_from_artifacts.
 
     _save_suffix: str = "AgentSimLearner"
+
+    # Why the last ``simulator.py`` read was not loaded: a predicators
+    # module it names that the sandbox does not offer (see
+    # _model_file_import_refusal). None when the file passed.
+    _model_import_refusal: Optional[str] = None
 
     _CHECKPOINT_SANDBOX_FILES: Tuple[str,
                                      ...] = ("simulator.py", "predicates.py",
@@ -2437,9 +2443,24 @@ class AgentSimLearningApproach(AgentBaseApproach):
             "BaseSimulator": base_simulator_class(getattr(CFG, "env", "")),
         }
 
+    def _model_file_import_refusal(self, code: str) -> Optional[str]:
+        """Why ``simulator.py`` text may not load, for the predicators modules
+        it names; ``None`` when it may.
+
+        The file runs in the harness process, where every module is
+        loaded, so the sandbox's import guard does not see it. Every
+        loader of the file asks here first. An arm whose model file the
+        harness writes itself overrides this.
+        """
+        return model_file_import_refusal(code)
+
     def _simulator_load_failure(self) -> str:
         """What the probe tells the agent when ``./simulator.py`` did not
         load."""
+        if self._model_import_refusal is not None:
+            return ("run_python probe: ./simulator.py was not loaded: "
+                    f"sandbox guard: {self._model_import_refusal}. Remove "
+                    "that import and probe again.")
         return ("run_python probe: ./simulator.py failed to load "
                 "(exec error or missing simulator exports) - "
                 "fix the file and probe again.")
@@ -2477,6 +2498,11 @@ class AgentSimLearningApproach(AgentBaseApproach):
         ns["__file__"] = path
         with open(path, "r", encoding="utf-8") as f:
             code = f.read()
+        self._model_import_refusal = self._model_file_import_refusal(code)
+        if self._model_import_refusal is not None:
+            logger.warning("Simulator file %s not loaded: %s.", path,
+                           self._model_import_refusal)
+            return None, None, None, None
         prev_cwd = os.getcwd()
         try:
             os.chdir(os.path.dirname(path))

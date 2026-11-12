@@ -15,7 +15,8 @@ from predicators.agent_sdk.tools.exploration import ProbeSurface, \
 from predicators.agent_sdk.tools.python_exec import _make_python_exec_tool
 from predicators.agent_sdk.tools.results import _make_coercing_tool, \
     _make_spilling_text_result
-from predicators.agent_sdk.tools.sandbox_guard import agent_traceback
+from predicators.agent_sdk.tools.sandbox_guard import agent_traceback, \
+    model_file_import_refusal
 from predicators.agent_sdk.tools.snapshots import _ArtifactSnapshotter
 
 # A trimmed segment scoring within this factor of the trimming
@@ -514,6 +515,16 @@ def create_synthesis_tools(
                 "ParamSpec": ParamSpec,
                 "BaseSimulator": base_simulator_class(getattr(CFG, "env", ""))
             })
+        # The file runs in this process, past the sandbox's import guard,
+        # so its text is screened for the predicators modules it names.
+        # The bound approach decides (a supplied model is exempt).
+        screen = getattr(approach, "_model_file_import_refusal",
+                         model_file_import_refusal)
+        refusal = screen(raw.decode("utf-8"))
+        if refusal is not None:
+            return None, None, None, None, None, version_tag, (
+                f"[{version_tag}] {path} was not loaded: sandbox guard: "
+                f"{refusal}. Remove that import.")
         try:
             exec(raw.decode("utf-8"), ns)  # pylint: disable=exec-used
         except Exception:  # pylint: disable=broad-except
