@@ -54,11 +54,23 @@ Read those files to inspect the observed scene or the outcome of an execution.
 ## Rules
 
 - Do not read or browse files outside the sandbox.
-  This is enforced for the file tools, for Bash, and for `run_python`: commands or code with absolute or `../` paths that leave the sandbox, or that introspect source, are blocked.
+  This is enforced for __GUARD_SCOPE__: commands or code with absolute or `../` paths that leave the sandbox, or that introspect source, are blocked.
   Every `python3` you start carries the same guard, so scripts cannot import or open the hidden modules either; do not edit `PYTHONPATH` or pass `-S`, `-I` or `-E` to python.
 - Do not modify files in `./reference/`; they are read-only.
 - Do not inspect the predicators source code (`inspect.getsource`, `inspect.getfile`, reading `.py` files from site-packages, or any other route).
   Use the tools and the reference files instead.
 - Do not reach into harness internals from executed code.
-  `State.privileged`, the probe's `_ctx`, and env flags or attributes are hidden environment ground truth and are blocked.
+  __HIDDEN_INTERNALS__ are hidden environment ground truth and are blocked.
   Base your conclusions on observable state features and the documented tool surface only; a conclusion derived from hidden internals is an invalid result.
+
+<!-- section: guard_scope -->
+the file tools, for Bash, and for `run_python`
+
+<!-- section: guard_scope_no_run_python -->
+the file tools and for Bash
+
+<!-- section: hidden_internals -->
+`State.privileged`, the probe's `_ctx`, and env flags or attributes
+
+<!-- section: hidden_internals_no_run_python -->
+`State.privileged` and env flags or attributes

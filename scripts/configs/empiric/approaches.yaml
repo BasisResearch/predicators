@@ -272,6 +272,8 @@ APPROACHES:
       # evaluate_trajectory tool. No engine backs it: a rule that replays
       # physics (the domino push) is not checked, and the note says so.
       continual_provide_reward_model: true
+      # The arm has no rehearsal, so the Domino goal text names none.
+      domino_goal_names_rehearsal: false
   # Model-free with the scene assets EMPIRIC from assets builds from: the
   # scene manifest and the URDF and mesh files as read-only references. Its
   # prompt only asks it to solve the levels; nothing asks for a simulator
@@ -313,6 +315,9 @@ APPROACHES:
       agent_sdk_model_name: claude-opus-5
       continual_provide_scene_package: true
       continual_provide_reward_model: true
+      # The reward model replays nothing here, so the Domino goal text
+      # names no rehearsal that replays.
+      domino_goal_names_rehearsal: false
   # Oracle dynamics: the ground-truth simulator stands in for the learned
   # model, with no automatic execution gate or shadow audit (see
   # docs/comparisons/oracle-repair-notes.md).

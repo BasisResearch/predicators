@@ -9,8 +9,7 @@ You may use PyBullet or other available simulation libraries to build your own p
 Within this conversation you can collect evidence, edit the model, score it on recordings, rehearse plans, and act.
 Use `run_python` to access `trajectories`, `describe_trajectory`, and the `sim` probe.
 `sim.score()` scores world_model.py against recorded skill transitions, and `sim.run` predicts a plan once through that program.
-The harness offers no plan search, repeated-trial rollouts, predicate scoring or renders of predicted states; write any search, sampling or diagnostics you need in your own code.
-The supplied residual-fitting API, physical contact diagnostics, and engine-based evaluator replays are unavailable.
+Write any search, sampling or diagnostics you need in your own code.
 You may implement fitting and diagnostics for your own model.
 An environment win is authoritative; a predicted goal alone cannot certify it.
 Retain programs and your journal across levels and revise them as new evidence arrives.
@@ -19,10 +18,10 @@ Model edits and resets therefore discard stale inferred memory.
 The skill-level model cannot replay raw `env_step` actions; after such actions, current-state memory reconstruction reports this limitation instead of assuming fresh memory.
 
 <!-- section: supplied_nothing -->
-No prepared physical scene or base simulator is supplied underneath this model; there is no phased learning or execution gate.
+You write the whole model, from the scene's bodies to how they move.
 
 <!-- section: supplied_scene_assets -->
-The scene files listed below are supplied, but no base simulator is supplied underneath this model; there is no phased learning or execution gate.
+The scene files listed below describe the scene's bodies, and you write the model that predicts how they move.
 
 <!-- section: reward_model -->
 ## Interpreting task verdicts
@@ -31,8 +30,8 @@ The scene files listed below are supplied, but no base simulator is supplied und
 `evaluate_trajectory` returns only `reward`, `solved`, and `note`.
 `sim.run(...).states` supplies your model's predicted trajectory to score.
 `with_features(state, {"object": {"feature": value}})` returns a copy of a state with those feature values changed, for a sequence you assemble yourself.
-No simulator backs the reward model, so a verdict is only as good as the states you predict.
-Where evaluation includes a physical replay, that rule is not checked: the verdict then reports `solved` False with no success bonus, and its `note` says so.
+The reward model reads only the states you give it, so a verdict is only as good as the states you predict.
+A rule that depends on how the physics plays out from a state is not checked: the verdict then reports `solved` False with no success bonus, and its `note` says so.
 Pass action labels for tasks whose evaluator reads the actions: one `("Skill", ("obj", ...), (param, ...))` per transition, or `None` for an unlabeled transition.
 Only the live environment's `WIN` certifies completion.
 
@@ -58,7 +57,7 @@ This skeleton is a no-op, not a solution.
 Use `option.name`, `option.objects`, `option.params`, and `option.memory` to identify the skill and its arguments.
 Wait can stop on its subgoal, requested step count, or maximum steps; model the duration and its effects.
 Return the same observed objects and features; keep hidden quantities in memory.
-Do not import the task environment, ground-truth mechanisms, or the supplied base simulator, or invoke a real skill inside a prediction.
+Do not import the task environment or ground-truth mechanisms, or invoke a real skill inside a prediction.
 If you use a physics engine, create and manage your own simulation world, explicitly address its client on every call, and release its resources.
 Predictions must not inspect or change the live environment; preserve all model memory needed for reproducible replay in the returned latent state.
 Write `predicates.py` exporting `LEARNED_PREDICATES`, a list of your invented `Predicate` objects.
