@@ -19,7 +19,7 @@ from __future__ import annotations
 import os
 import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from predicators import utils
 from predicators.agent_sdk.base_simulator_probe import \
@@ -27,6 +27,8 @@ from predicators.agent_sdk.base_simulator_probe import \
     build_base_simulator_tool, supplied_scene_class
 from predicators.agent_sdk.sandbox_setup import GeneratedReference, \
     ReferenceFiles, find_repo_root
+from predicators.agent_sdk.scene_simulator_prompts import \
+    scene_manifest_legend
 from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES, \
     play_tool_names
 from predicators.approaches.agent_continual_approach import \
@@ -121,6 +123,10 @@ class AgentContinualDirectBaseSimApproach(AgentContinualModelFreeApproach):
             for path, source in files.items()
             if not path.startswith(_LEVEL_SCENES)
         }
+
+    def _scene_manifest_legend(self, legend: Dict[str, str]) -> Dict[str, str]:
+        # What the supplied simulator does with what an entry describes.
+        return scene_manifest_legend(legend)
 
     def _write_scene_copy(self, files: ReferenceFiles) -> None:
         """Bring the simulator's copy of the scene files up to ``files``."""

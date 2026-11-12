@@ -70,6 +70,7 @@ from predicators.code_sim_learning.config import DEFAULT_NOISE_SIGMA, \
 from predicators.code_sim_learning.fit_space import ParamSpec
 from predicators.code_sim_learning.parameter_belief import ParameterBelief
 from predicators.code_sim_learning.rollout_env import dispose_env
+from predicators.code_sim_learning.scene_manifest import files_only_legend
 from predicators.code_sim_learning.trajectory_prep import \
     compute_residual_scaling
 from predicators.code_sim_learning.utils import LearnedSimulator, \
@@ -1221,6 +1222,10 @@ class AgentContinualModelFreeApproach(ContinualPlayMixin, ScenePackageMixin,
         if CFG.continual_provide_scene_package:
             files.update(self._scene_asset_files())
         return files
+
+    def _scene_manifest_legend(self, legend: Dict[str, str]) -> Dict[str, str]:
+        # The arm reads the scene files and has nothing to build on.
+        return files_only_legend(legend)
 
     def _play_system_prompt(self) -> str:
         if not CFG.continual_provide_scene_package:

@@ -110,6 +110,7 @@ class ScenePackageMixin:
         finally:
             if owned:
                 dispose_env(env)
+        manifest["legend"] = self._scene_manifest_legend(manifest["legend"])
         text = scene_manifest_text(manifest)
         files: ReferenceFiles = {
             "scene/scene_manifest.json":
@@ -125,6 +126,15 @@ class ScenePackageMixin:
         if CFG.scene_manifest_loader:
             files.update(self._level_scene_files(manifest, assets, state))
         return files
+
+    def _scene_manifest_legend(self, legend: Dict[str, str]) -> Dict[str, str]:
+        """The manifest's legend as this arm's files carry it.
+
+        The shared legend tells a reader how to build the scene on the
+        base simulator. An arm that has no base simulator overrides this
+        (:func:`files_only_legend`), so its manifest names none.
+        """
+        return legend
 
     def _level_scene_files(self, manifest: Dict[str, Any], assets: Dict[str,
                                                                         Any],

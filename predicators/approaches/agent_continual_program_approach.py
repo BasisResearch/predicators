@@ -28,6 +28,7 @@ from predicators.approaches.continual_play_mixin import ContinualPlayMixin
 from predicators.approaches.scene_package_mixin import ScenePackageMixin
 from predicators.code_sim_learning.program_world_model import \
     ProgramOptionModel
+from predicators.code_sim_learning.scene_manifest import files_only_legend
 from predicators.observation_noise import ObservationNoise
 from predicators.settings import CFG
 from predicators.structs import LowLevelTrajectory, State
@@ -102,6 +103,10 @@ class AgentContinualProgramWorldModelApproach(ContinualPlayMixin,
         if CFG.continual_provide_scene_package:
             files.update(self._scene_asset_files())
         return files
+
+    def _scene_manifest_legend(self, legend: Dict[str, str]) -> Dict[str, str]:
+        # The arm reads the scene files and writes its whole model.
+        return files_only_legend(legend)
 
     def _play_system_prompt(self) -> str:
         sections = [

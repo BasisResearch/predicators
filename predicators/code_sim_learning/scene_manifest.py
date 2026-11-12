@@ -15,7 +15,8 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, \
+    Tuple, Union
 
 import pybullet as p
 
@@ -88,6 +89,49 @@ LEGEND = {
                          "with p.changeDynamics(body, link, "
                          "collisionMargin=...)"),
 }
+
+# The entries of LEGEND that tell a reader how to build the scene on the
+# base simulator, as a reader who has the files and no base simulator
+# gets them: what the entry's field records, and nothing about a scene
+# of the reader's own.
+_FILES_ONLY_WORDING = {
+    "omitted": ("masses, frictions, restitution and damping are not "
+                "recorded"),
+    "not_listed":
+    "the ground plane, the backdrop walls and the robot",
+    "joints": ("lower_limit and upper_limit are the limits the deployment "
+               "enforces; where the deployment set other limits than its "
+               "URDF file's, the joint also lists the file's as "
+               "urdf_limits"),
+    "hard_stop": ("a joint marked hard_stop: true never leaves its limits: "
+                  "the deployment puts the joint back at its limit, at "
+                  "rest, whenever a push drives it past"),
+    "collision_margin": ("the contact margin the deployment builds a "
+                         "shape's link with; a convex shape's edges are "
+                         "rounded by it, so where two flat surfaces meet "
+                         "edge to edge it can make a curb a slow body "
+                         "cannot climb"),
+}
+
+
+def reworded_legend(legend: Mapping[str, str],
+                    wording: Mapping[str, str]) -> Dict[str, str]:
+    """``legend`` with the entries of ``wording`` in its text.
+
+    An entry of ``wording`` that ``legend`` no longer has is an error:
+    the wording then needs the legend's current entries.
+    """
+    gone = sorted(set(wording) - set(legend))
+    if gone:
+        raise ValueError(f"the scene manifest's legend has no entry {gone}; "
+                         "update the arm's wording to its current entries")
+    return {key: wording.get(key, text) for key, text in legend.items()}
+
+
+def files_only_legend(legend: Mapping[str, str]) -> Dict[str, str]:
+    """The manifest's legend for a reader who has the scene files and no base
+    simulator to build the scene on."""
+    return reworded_legend(legend, _FILES_ONLY_WORDING)
 
 
 @dataclass(frozen=True)

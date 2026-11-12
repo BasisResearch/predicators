@@ -452,6 +452,9 @@ def _agent_texts(arm: str, env_name: str, tmp_path: Any,
         texts["CLAUDE.md"] = (sandbox / "CLAUDE.md").read_text()
         texts["reference/skills.md"] = (sandbox /
                                         "reference/skills.md").read_text()
+        manifest = sandbox / "reference/scene/scene_manifest.json"
+        if manifest.exists():
+            texts["scene manifest"] = manifest.read_text()
         tools = create_mcp_tools(ctx, tool_names=names)
         assert sorted(t.name for t in tools) == sorted(names)
         texts["tools"] = _tool_text(tools)
@@ -492,7 +495,11 @@ def test_arm_reads_nothing_about_what_it_lacks(arm: str, env_name: str,
     assert set(texts) - set(sim_texts) == {
         "system prompt", "CLAUDE.md", "reference/skills.md", "tools",
         "first query", "continuation query", "tool results"
-    }
+    } | (set() if arm == "direct_opus" else {"scene manifest"})
+    # The manifest's legend says what its fields record, and names no
+    # scene of the reader's own to build.
+    assert "SceneBase" not in texts.get("scene manifest", "")
+    assert "your scene" not in texts.get("scene manifest", "")
     assert set(sim_texts) == ({
         "sim: no model file", "sim: names", "sim: documentation",
         "sim: module page", "sim: helpers", "sim: result", "sim: reports",
