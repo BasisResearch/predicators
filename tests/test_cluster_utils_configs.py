@@ -258,6 +258,44 @@ def test_from_assets_no_fitting_arm_runs_only_by_name() -> None:
     }
 
 
+def test_no_learning_arm_runs_only_by_name() -> None:
+    """No learning is parked, and naming it runs EMPIRIC from assets' menu less
+    the switches that act on a model file, a fit or a parameter, with no
+    harness estimate and none named to the agent.
+
+    Its key and its approach's name, which the run folder's path holds,
+    say only that the scene comes from assets.
+    """
+    assert not any("from_assets_scene" in r.experiment_id
+                   for r in _benchmark_runs(round_name="r1"))
+    runs = _benchmark_runs(
+        round_name="r1",
+        envs=["domino_high_friction_turn"],
+        approaches=["from_assets_opus", "from_assets_scene_opus"],
+        seeds=(0, 1))
+    by_arm = {r.experiment_id.split("-", 1)[1]: r for r in runs}
+    arm = by_arm["from_assets_scene_opus_r1"]
+    assert arm.approach == "agent_continual_from_assets_scene"
+    for word in ("learn", "fit", "param", "mechan", "ablat"):
+        assert word not in arm.approach + arm.experiment_id, word
+    dropped = ("continual_require_model_on_test",
+               "code_sim_learning_prior_spans_bounds", "belief_material_lines",
+               "continual_rehearsal_support_note",
+               "continual_rehearsal_speed_note", "continual_fit_reach_check",
+               "continual_fit_bound_note", "belief_segment_temperature",
+               "belief_keep_undeclared_materials")
+    kept = {
+        name: value
+        for name, value in by_arm["from_assets_opus_r1"].flags.items()
+        if name not in dropped
+    }
+    assert arm.flags == {
+        **kept,
+        "agent_sim_learn_declared_params_only": True,
+        "agent_sim_learn_fit_invisible": True,
+    }
+
+
 def test_direct_base_sim_arm_runs_only_by_name() -> None:
     """Direct + base simulator is parked, and naming it runs the flags of
     Direct + scene plus the scene loader that builds its simulator, under its
