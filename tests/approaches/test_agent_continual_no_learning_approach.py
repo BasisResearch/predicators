@@ -16,6 +16,7 @@ from predicators.agent_sdk.scene_simulator_prompts import \
 from predicators.approaches import create_approach
 from predicators.approaches.agent_continual_no_learning_approach import \
     AgentContinualNoLearningApproach, supplied_scene_source
+from predicators.approaches.scene_package_mixin import SIMULATOR_SOURCE_PATHS
 from predicators.code_sim_learning.scene_base import SceneBase
 from predicators.code_sim_learning.scene_manifest import LEGEND
 from predicators.envs import create_new_env
@@ -84,6 +85,12 @@ SKILL_PARAMETER_PHRASES = (
     "this option's parameters",
     "adjust the parameters",
 )
+# The agent-visible paths of the simulator's source, which the prompt and
+# the sandbox CLAUDE.md list for reference. These are taken out before
+# `base_sim` is matched; any other use of the name fails. The source files
+# themselves keep their docstrings, and the scan of the reference files
+# leaves them out.
+SOURCE_PATH_PHRASES = SIMULATOR_SOURCE_PATHS + ("`./reference/base_sim/`", )
 # What ``sim`` offers in this arm, and nothing else.
 SIM_CALLS = {
     "reset", "task", "run", "refine", "belief", "run_async", "gather", "state",
@@ -111,7 +118,7 @@ ACTUATING_SKILL = {
 def _withheld(text: str, asset: bool = False) -> List[str]:
     """What ``text`` holds that this arm's agent must not read; ``asset`` marks
     the text of a URDF or mesh file."""
-    for phrase in SKILL_PARAMETER_PHRASES:
+    for phrase in SKILL_PARAMETER_PHRASES + SOURCE_PATH_PHRASES:
         text = text.replace(phrase, "")
     found = []
     for pattern, _reason in FORBIDDEN:
@@ -347,11 +354,20 @@ def test_notes_and_sandbox_text_name_no_model() -> None:
     assert not _withheld(own), _withheld(own)
     assert "The scene files are in `./reference/`" in own
     assert "The kind is `play`.\n" in own
+    # With the simulator's source, the reference line says so too.
+    with_source = build_scene_simulator_claude_md(source=True)
+    assert not _withheld(with_source), _withheld(with_source)
+    assert "The scene files and the simulator's source are in " \
+        "`./reference/`" in with_source
+    assert "the source of the simulator in `./reference/base_sim/`." \
+        in with_source
     # Every other line is the shared one.
-    changed = [
-        line for line in own.splitlines() if line not in shared.splitlines()
-    ]
-    assert len(changed) == 2, changed
+    for text in (own, with_source):
+        changed = [
+            line for line in text.splitlines()
+            if line not in shared.splitlines()
+        ]
+        assert len(changed) == 2, changed
 
 
 def _agent_reads(approach: Any, message: str) -> Dict[str, str]:
@@ -379,10 +395,10 @@ def test_agent_reads_only_what_the_arm_has(env_name: str, tmp_path: Any,
                                            monkeypatch: Any,
                                            caplog: Any) -> None:
     """On each benchmark domain, with no file written: nothing the agent is
-    sent names what the arm lacks, the sandbox holds the scene files and no
-    simulator source, and ``sim`` starts from the observation and runs a skill
-    in the loaded scene, where a reading that no body pose carries keeps its
-    observed value."""
+    sent names what the arm lacks, the sandbox holds the scene files and the
+    simulator's source (which nothing the simulator loads reads), and ``sim``
+    starts from the observation and runs a skill in the loaded scene, where a
+    reading that no body pose carries keeps its observed value."""
     env, approach = _make(tmp_path,
                           ARM,
                           env_name,
@@ -396,7 +412,8 @@ def test_agent_reads_only_what_the_arm_has(env_name: str, tmp_path: Any,
             assert not _withheld(text), (where, _withheld(text))
         assert "## Simulator and data" in message
         assert "The simulator holds this level's scene" in message
-        assert texts["CLAUDE.md"] == build_scene_simulator_claude_md()
+        assert texts["CLAUDE.md"] == build_scene_simulator_claude_md(
+            source=True)
         tools = [t.name for t in ctx.extra_mcp_tools]
         assert sorted(tools) == sorted(approach._continual_tool_names())
         assert {"run_python", "claims_record", "claims_resolve"} <= set(tools)
@@ -404,7 +421,8 @@ def test_agent_reads_only_what_the_arm_has(env_name: str, tmp_path: Any,
                          if t.name == "run_python").description
         assert described == scene_simulator_description()
 
-        # The scene files, and no simulator source.
+        # The scene files and the simulator's source, as EMPIRIC from
+        # assets has them.
         reference = sandbox / "reference"
         refs = {
             str(q.relative_to(reference))
@@ -413,9 +431,15 @@ def test_agent_reads_only_what_the_arm_has(env_name: str, tmp_path: Any,
         assert {"scene/scene_manifest.json", "scene/levels/level_01.json"
                 } <= refs
         assert any(r.startswith("assets/") for r in refs)
-        assert not any(r.startswith("base_sim/") for r in refs), refs
-        assert all(r.startswith(("scene/", "assets/")) for r in refs), refs
-        for ref in sorted(refs):
+        sources = {
+            "base_sim/scene_base.py", "base_sim/pybullet_env.py",
+            "base_sim/base_env.py"
+        }
+        assert {r for r in refs if r.startswith("base_sim/")} == sources
+        assert all(
+            r.startswith(("scene/", "assets/", "base_sim/"))
+            for r in refs), refs
+        for ref in sorted(refs - sources):
             try:
                 text = (reference / ref).read_text(encoding="utf-8")
             except UnicodeDecodeError:
@@ -428,6 +452,14 @@ def test_agent_reads_only_what_the_arm_has(env_name: str, tmp_path: Any,
         assert (copy / "scene/levels/level_01.json").is_file()
         assert (copy / "scene/scene_manifest.json").read_text() == \
             (reference / "scene/scene_manifest.json").read_text()
+        assert not (copy / "base_sim").exists()
+        # The source copies are the agent's to read: the simulator is built
+        # from the harness's own modules, so a sandbox copy that cannot
+        # even load changes nothing below.
+        for source in sources:
+            (reference / source).chmod(0o644)
+            (reference / source
+             ).write_text("raise RuntimeError('a sandbox copy loaded')\n")
 
         # A reset from the observation and a skill, with no file written.
         out = _python(
@@ -561,6 +593,7 @@ def test_prompt_describes_the_simulator_and_the_workflow(
         "## Simulator workbench",
         "### Interpreting task verdicts",
         "### Scene manifest and assets",
+        "### Simulator source",
     ]
     for present in (
             "ready from the first round",
@@ -577,8 +610,23 @@ def test_prompt_describes_the_simulator_and_the_workflow(
             "./reference/scene/scene_manifest.json (",
             "- `run_python`: code in the sandbox with `sim`, the simulator "
             "of the scene",
+            "### Simulator source\n\n"
+            "- `./reference/base_sim/scene_base.py`\n"
+            "- `./reference/base_sim/pybullet_env.py`\n"
+            "- `./reference/base_sim/base_env.py`\n\n"
+            "These read-only files are the source of the simulator that "
+            "`sim` runs, for reference.",
     ):
         assert present in prompt, present
+    # Without the flag, the prompt lists no source.
+    _, no_source = _make(tmp_path,
+                         ARM,
+                         continual_provide_simulator_source=False)
+    assert not any(
+        path.startswith("base_sim/")
+        for path in no_source._get_sandbox_reference_files())
+    assert no_source._get_agent_system_prompt() == prompt.split(
+        "\n\n### Simulator source")[0]
     description = scene_simulator_description()
     assert not _withheld(description), _withheld(description)
     for call in SIM_CALLS - {"drop", "clear_snapshots"}:
@@ -872,9 +920,21 @@ def test_standalone_model_gets_the_scene_assets(tmp_path: Any) -> None:
     assert "scene/scene_manifest.json" in files
     assert "assets/urdf/jug-pixel.urdf" in files
     assert not any(path.startswith("base_sim/") for path in files)
+    # No skill reference file, and the scene of each level, whose manifest
+    # has the legend of the scene manifest, with no base simulator named.
+    assert "skills.md" not in files
+    level = json.loads(files["scene/levels/level_01.json"].text)
+    manifest = json.loads(files["scene/scene_manifest.json"].text)
+    assert set(level) == {"manifest", "signature"}
+    assert level["manifest"] == manifest
+    assert "SceneBase" not in files["scene/levels/level_01.json"].text
     prompt = approach._get_agent_system_prompt()
     assert "## Scene files" in prompt
     assert "scene_manifest.json (" in prompt
+    assert "- `./reference/scene/levels/level_NN.json (one file per level " \
+        "played so far: that level's scene manifest and the exact features " \
+        "each observed object with a static base had as the level began)`" \
+        in prompt
     assert "The scene files listed below describe the scene's bodies" in \
         prompt
     assert "base simulator" not in prompt
@@ -913,3 +973,45 @@ def test_standalone_run_reads_the_scene_assets(tmp_path: Any,
                                                            approach)).run()
     assert card.end_note == "done"
     assert len(seen) == 1
+
+
+@pytest.mark.parametrize("invent", [False, True])
+def test_standalone_predicates_file_loads_only_with_invention(
+        invent: bool, tmp_path: Any, monkeypatch: Any) -> None:
+    """With ``program_world_model_invent_predicates`` off, as Standalone runs,
+    a predicates.py the agent writes is never loaded or snapshotted, and the
+    prompt names none; on, the same file is loaded."""
+    env, approach = _make(tmp_path,
+                          "standalone_opus",
+                          continual_refuse_training_give_up=False,
+                          program_world_model_invent_predicates=invent)
+    prompt = approach._get_agent_system_prompt()
+    for named in ("predicates.py", "LEARNED_PREDICATES",
+                  "invented predicates"):
+        assert (named in prompt) == invent, named
+
+    def query(_message: str, *_args: Any, **_kwargs: Any) -> Any:
+        sandbox = Path(approach._tool_context.sandbox_dir)
+        (sandbox / "world_model.py").write_text(
+            "LATENT_FEATURES = {}\n"
+            "def initial_latent(obs, rng):\n"
+            "    return {}\n"
+            "def transition(obs, latent, option, rng):\n"
+            "    return obs.copy(), dict(latent), 1\n")
+        (sandbox / "predicates.py").write_text(
+            "LEARNED_PREDICATES = [Predicate('Always', [robot_type], "
+            "lambda s, o: True)]\n")
+        assert "Give-up recorded" in _call(approach, "give_up", note="done")
+        return _result()
+
+    monkeypatch.setattr(approach, "_query_agent_sync", query)
+    approach.prepare_for_continual(Dataset([]))
+    card = ContinualRun(env, approach, create_level_player(env,
+                                                           approach)).run()
+    assert card.end_note == "done"
+    assert approach._program is not None
+    learned = {p.name for p in approach._learned_predicates}
+    assert learned == ({"Always"} if invent else set())
+    if not invent:
+        sandbox = Path(approach._tool_context.sandbox_dir)
+        assert not (sandbox / "predicates_versions").exists()

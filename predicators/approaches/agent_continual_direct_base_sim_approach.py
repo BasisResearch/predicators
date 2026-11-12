@@ -32,6 +32,7 @@ from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES, \
     play_tool_names
 from predicators.approaches.agent_continual_approach import \
     AgentContinualModelFreeApproach
+from predicators.approaches.scene_package_mixin import SIMULATOR_SOURCE_PATHS
 from predicators.option_model import _OptionModelBase, _OracleOptionModel
 from predicators.settings import CFG
 from predicators.structs import LowLevelTrajectory, State
@@ -89,7 +90,10 @@ class AgentContinualDirectBaseSimApproach(AgentContinualModelFreeApproach):
             self._continual_tool_names(),
             base_sim_refs=self._scene_asset_paths(),
             scene_package=True,
-            base_simulator=True)
+            base_simulator=True,
+            simulator_source_refs=(SIMULATOR_SOURCE_PATHS if
+                                   CFG.continual_provide_simulator_source else
+                                   ()))
 
     def _round_was_productive(self, session: ProtocolSession, state: Any,
                               steps_before: int, steps_after: int) -> bool:
@@ -110,18 +114,27 @@ class AgentContinualDirectBaseSimApproach(AgentContinualModelFreeApproach):
         """The files the direct agent with the scene files receives.
 
         The simulator's copy holds them too, with the scene of each
-        level played so far (``scene_manifest_loader``).
+        level played so far (``scene_manifest_loader``). The agent gets
+        the scene of each level under ``continual_provide_level_scenes``,
+        and the simulator's source under
+        ``continual_provide_simulator_source``: copies to read, which
+        the simulator never loads (it is built from the harness's own
+        modules, :func:`supplied_scene_class`).
         """
         files = super()._get_sandbox_reference_files()
         self._write_scene_copy({
             path: source
             for path, source in files.items() if path.startswith(_SCENE_FILES)
         })
-        return {
-            path: source
-            for path, source in files.items()
-            if not path.startswith(_LEVEL_SCENES)
-        }
+        if not CFG.continual_provide_level_scenes:
+            files = {
+                path: source
+                for path, source in files.items()
+                if not path.startswith(_LEVEL_SCENES)
+            }
+        if CFG.continual_provide_simulator_source:
+            files.update(self._simulator_source_files())
+        return files
 
     def _scene_manifest_legend(self, legend: Dict[str, str]) -> Dict[str, str]:
         # What the supplied simulator does with what an entry describes.

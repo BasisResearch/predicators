@@ -155,18 +155,21 @@ def render_tool_list(tool_names: Iterable[str],
     return "\n".join(lines)
 
 
-def build_play_system_prompt(tool_names: Sequence[str],
-                             base_sim_refs: Sequence[str] = (),
-                             model_contract: str = "",
-                             frozen_section: str = "",
-                             frozen_model_supplied: bool = False,
-                             oracle_dynamics: bool = False,
-                             scene_built: bool = False,
-                             scene_package: bool = False,
-                             fit_gate: bool = False,
-                             agent_belief: bool = False,
-                             frozen_scene: bool = False,
-                             base_simulator: bool = False) -> str:
+def build_play_system_prompt(
+    tool_names: Sequence[str],
+    base_sim_refs: Sequence[str] = (),
+    model_contract: str = "",
+    frozen_section: str = "",
+    frozen_model_supplied: bool = False,
+    oracle_dynamics: bool = False,
+    scene_built: bool = False,
+    scene_package: bool = False,
+    fit_gate: bool = False,
+    agent_belief: bool = False,
+    frozen_scene: bool = False,
+    base_simulator: bool = False,
+    simulator_source_refs: Sequence[str] = ()
+) -> str:
     """The system prompt of the run's conversation.
 
     The tool surface selects the variant: an arm with ``run_python``
@@ -217,7 +220,9 @@ def build_play_system_prompt(tool_names: Sequence[str],
     keeps the model-free prompt, with no model workflow, and adds the
     section on that simulator and, under
     ``continual_provide_reward_model``, the one on the reward model in
-    ``run_python``.
+    ``run_python``. ``simulator_source_refs`` are the agent-visible
+    paths of that simulator's source, which its section lists for
+    reference when there are any.
 
     Under ``agent_sim_learn_fit_invisible`` (EMPIRIC from assets without
     harness fitting) every section that names a harness fit gives way to
@@ -428,6 +433,12 @@ def build_play_system_prompt(tool_names: Sequence[str],
     ]
     if base_simulator:
         sections.append(render("play_system", "base_simulator"))
+        if simulator_source_refs:
+            sections.append(
+                render("play_system",
+                       "base_simulator_source",
+                       ref_listing="\n".join(f"- `{r}`"
+                                             for r in simulator_source_refs)))
         if CFG.continual_provide_reward_model:
             sections.append(
                 render("play_system", "reward_model_base_simulator"))

@@ -3005,6 +3005,32 @@ class GlobalSettings:
     # evaluate_trajectory in run_python, where such a rule replays in the
     # supplied simulator. The other arms ignore the flag.
     continual_provide_reward_model = False
+    # Whether the sandbox gets ./reference/skills.md, the public skill
+    # reference that AgentBaseApproach supplies. EMPIRIC from assets and
+    # its ablations do not get it; the rebuttal baselines (Direct, Direct
+    # + scene, Standalone, Direct + base simulator) turn it off to match.
+    continual_provide_skills_reference = True
+    # Whether an arm without the scene loader still gets the scene of
+    # every level played so far, ./reference/scene/levels/level_NN.json:
+    # the level's manifest and the features its observed objects with a
+    # static base had as the level began. The arms with
+    # scene_manifest_loader get the files anyway; this gives them to the
+    # baselines with the scene files (Direct + scene, Standalone, Direct +
+    # base simulator) without the loader's other effects, and lists them
+    # in the prompt's scene file list.
+    continual_provide_level_scenes = False
+    # Whether the arms with a supplied simulator (No learning,
+    # agent_continual_from_assets_scene, and Direct + base simulator)
+    # get the source of that simulator, as EMPIRIC from assets gets it:
+    # ./reference/base_sim/{scene_base,pybullet_env,base_env}.py. The
+    # prompt lists them as the simulator's source, for reference only;
+    # the simulator loads the harness's own modules, never these copies.
+    continual_provide_simulator_source = False
+    # Whether the program world model arms load the agent's predicates.py
+    # (LEARNED_PREDICATES) and tell the agent about it. Off for
+    # Standalone of the rebuttal cohort: it invents no predicate, and
+    # nothing it reads names predicates.py.
+    program_world_model_invent_predicates = True
 
     # Realistic sim gap (predicators/pybullet_helpers/world_gap.py): the
     # live world differs from its nominal description in hidden ways

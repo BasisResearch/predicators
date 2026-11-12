@@ -23,13 +23,16 @@ model.
 A withheld thing is absent for the agent, and nothing it reads names
 one. Its ``sim`` is a :class:`~predicators.agent_sdk.scene_simulator.
 Simulator` that has only the arm's calls, its prompts come from
-``scene_simulator_prompts``, its sandbox holds the scene files and no
-simulator source, and a traceback it is shown leaves out the harness's
-own frames (``agent_sim_learn_fit_invisible``). The agent reads its
-working directory, ``<runs>/<approach name>/<experiment id>/...``, so
-the approach's registered name and its menu key are neutral
-(``agent_continual_from_assets_scene``, ``from_assets_scene_opus``), and
-the class refuses an experiment id that says more.
+``scene_simulator_prompts``, its sandbox holds the scene files (and,
+under ``continual_provide_simulator_source``, the simulator's source,
+listed as that and as nothing to build on), and a traceback it is shown
+leaves out the harness's own frames (``agent_sim_learn_fit_invisible``).
+
+The agent reads its run folder, ``<runs>/<approach name>/<experiment
+id>/...``, as its working directory, so the approach's registered name
+and its menu key are neutral (``agent_continual_from_assets_scene``,
+``from_assets_scene_opus``), and the class refuses an experiment id that
+says more.
 """
 from __future__ import annotations
 
@@ -54,6 +57,7 @@ from predicators.approaches.agent_continual_from_assets_approach import \
     AgentContinualFromAssetsApproach
 from predicators.approaches.agent_continual_frozen_approach import \
     AgentContinualZeroShotApproach
+from predicators.approaches.scene_package_mixin import SIMULATOR_SOURCE_PATHS
 from predicators.settings import CFG
 from predicators.structs import Type
 
@@ -169,7 +173,8 @@ class AgentContinualNoLearningApproach(AgentContinualFromAssetsApproach,
 
     def _get_sandbox_claude_md(self) -> Optional[str]:
         # This arm's own sandbox rules.
-        return build_scene_simulator_claude_md()
+        return build_scene_simulator_claude_md(
+            source=CFG.continual_provide_simulator_source)
 
     # -- The scene files ----------------------------------------------------
 
@@ -179,8 +184,14 @@ class AgentContinualNoLearningApproach(AgentContinualFromAssetsApproach,
         return os.path.join(self._get_log_dir(), "supplied_model", "reference")
 
     def _get_sandbox_reference_files(self) -> ReferenceFiles:
-        """The scene files EMPIRIC from assets receives, and no simulator
-        source; the simulator's copy holds the same files."""
+        """The scene files EMPIRIC from assets receives; the simulator's copy
+        holds the same files.
+
+        Under ``continual_provide_simulator_source`` the agent also gets
+        the simulator's source as EMPIRIC from assets reads it: copies
+        to read, which the simulator never loads (it is built from the
+        harness's own modules, :meth:`_scene_base_class`).
+        """
         files = self._scene_asset_files()
         for path, source in files.items():
             if path.startswith("scene/") and path.endswith(".json"):
@@ -190,6 +201,8 @@ class AgentContinualNoLearningApproach(AgentContinualFromAssetsApproach,
             path: source
             for path, source in files.items() if path.startswith(_SCENE_FILES)
         })
+        if CFG.continual_provide_simulator_source:
+            files.update(self._simulator_source_files())
         return files
 
     def _write_scene_copy(self, files: ReferenceFiles) -> None:
@@ -317,7 +330,10 @@ class AgentContinualNoLearningApproach(AgentContinualFromAssetsApproach,
 
     def _play_system_prompt(self) -> str:
         return build_scene_simulator_system_prompt(
-            self._continual_tool_names(), self._scene_asset_paths())
+            self._continual_tool_names(),
+            self._scene_asset_paths(),
+            source_refs=(SIMULATOR_SOURCE_PATHS
+                         if CFG.continual_provide_simulator_source else ()))
 
     def _model_status(self, session: ProtocolSession) -> str:
         n_eps, n_steps = self._episode_counts(session)

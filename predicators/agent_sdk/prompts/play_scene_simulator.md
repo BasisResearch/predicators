@@ -110,9 +110,19 @@ __REF_LISTING__
 These read-only files are the manifest of the scene's bodies (shapes, meshes, joints, joint limits, colours, and which observed object each body is) and the URDF and mesh files the simulator loads them from.
 `reference/scene/levels/` holds the manifest of every level played so far, and the simulator loads the scene a state belongs to.
 
+<!-- section: source_refs -->
+### Simulator source
+
+__REF_LISTING__
+
+These read-only files are the source of the simulator that `sim` runs, for reference.
+
 <!-- section: status -->
 The simulator holds this level's scene and is ready in `run_python`.
 Recorded episodes so far: __N_EPISODES__ (__N_STEPS__ steps), in `./data/trajectories.pkl`.
 
 <!-- section: claude_md_references -->
 The scene files are in `./reference/`: the manifest of the scene's bodies and the URDF and mesh files they were loaded from.
+
+<!-- section: claude_md_references_source -->
+The scene files and the simulator's source are in `./reference/`: the manifest of the scene's bodies, the URDF and mesh files they were loaded from, and the source of the simulator in `./reference/base_sim/`.
