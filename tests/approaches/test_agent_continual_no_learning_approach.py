@@ -182,7 +182,9 @@ def test_standalone_model_gets_the_scene_assets(tmp_path: Any) -> None:
     prompt = approach._get_agent_system_prompt()
     assert "## Scene files" in prompt
     assert "scene_manifest.json (" in prompt
-    assert "no base simulator is supplied" in prompt
+    assert "The scene files listed below describe the scene's bodies" in \
+        prompt
+    assert "base simulator" not in prompt
     assert "No prepared physical scene" not in prompt
     assert "pybullet_env.py" not in prompt
 

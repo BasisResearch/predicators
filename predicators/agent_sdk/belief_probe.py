@@ -2433,8 +2433,11 @@ class _ProbeCore:
         judge.
         """
         if not self._ctx.probe_engine_available:
-            raise ValueError("Engine evaluator replay is unavailable for a "
-                             "standalone program model.")
+            # The standalone model's session: the refusal names the flag
+            # the caller passed, and nothing the session lacks.
+            raise ValueError(
+                f"{flag} is not part of `sim` in this session: the "
+                "run_python description lists what `sim` offers here.")
         if not self._pristine:
             raise ValueError(
                 f"{flag} needs the task's unmodified initial state (call "
@@ -2768,14 +2771,17 @@ class _ProbeCore:
             return self._run_rehearsal(plan_text, render, seed)
         if not self._ctx.probe_engine_available and (solved or contacts
                                                      or physics_sweep):
-            raise ValueError("Engine diagnostics are unavailable for a "
-                             "standalone program model.")
+            # As above: the refusal names the flags the caller passed.
+            raise ValueError(
+                "sim.run takes no `solved`, `contacts` or `physics_sweep` "
+                "flag in this session: the run_python description lists "
+                "what `sim` offers here.")
         if trials < 1:
             raise ValueError(f"trials must be >= 1, got {trials}")
         if trials > 1 and "trials" in self._ctx.probe_disabled:
             raise RuntimeError(
-                "sim.run(trials>1) is unavailable in this session: run a "
-                "plan once per call.")
+                "sim.run runs a plan once per call in this session: leave "
+                "`trials` out.")
         if belief_draws > 0:
             self._require_available("belief")
         if "render" in self._ctx.probe_disabled:

@@ -121,7 +121,7 @@ def test_model_free_arm_has_no_model_surface(tmp_path: Any) -> None:
     prompt = approach._get_agent_system_prompt()  # pylint: disable=protected-access
     assert "`learn_run`" not in prompt and "`run_python`" not in prompt
     assert "`sim`" not in prompt and "## Learning" not in prompt
-    assert "No simulator is supplied" in prompt and "`give_up`" in prompt
+    assert "No simulator" not in prompt and "`give_up`" in prompt
     assert "model memory" not in prompt and "candidate models" not in prompt
     assert "`handoff`" not in prompt and "### Conversation rounds" in prompt
     # The reward model is the rebuttal arms' flag: off, nothing of it shows.
@@ -157,7 +157,8 @@ def test_play_loop_with_a_scripted_model_free_agent(tmp_path: Any) -> None:
         assert names == MODEL_FREE_TOOLS
         if n == 1:
             assert "first conversation round of the run" in message
-            assert "no belief model" in message
+            assert "## Recorded data\n\nRecorded episodes so far" in message
+            assert "belief" not in message and "This arm" not in message
             assert "Your model" not in message
             assert "not expressible in your predicates" in message
             assert "Goal: Boil" in message
@@ -227,8 +228,9 @@ def test_reward_model_tool_of_the_direct_agent(tmp_path: Any) -> None:
     assert "## Interpreting task verdicts" in prompt
     assert "- `evaluate_trajectory`: a level's reward model" in prompt
     assert "returns only `reward`, `solved`, and `note`" in prompt
-    assert "that rule is not checked" in prompt
-    assert "No simulator is supplied" in prompt
+    assert "The tool reads only the states you give it" in prompt
+    assert "from a state is not checked" in prompt
+    assert "No simulator" not in prompt
     for absent in ("`run_python`", "`sim`", "is_goal_state", "physics_sweep",
                    "sim.run", "simulator.py"):
         assert absent not in prompt, absent

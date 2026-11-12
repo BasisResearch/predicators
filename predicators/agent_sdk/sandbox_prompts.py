@@ -16,9 +16,19 @@ __all__ = [
 _BUILTIN_TOOLS_STR = ", ".join(BUILTIN_TOOLS)
 
 
-def build_claude_md() -> str:
-    """The CLAUDE.md content written into every agent sandbox."""
-    return render("sandbox_claude_md", "body") + "\n"
+def build_claude_md(run_python: bool = True) -> str:
+    """The CLAUDE.md content written into an agent sandbox.
+
+    ``run_python`` False is the sandbox of the direct agent, whose
+    session has the file tools and Bash: its rules name those alone.
+    """
+    variant = "" if run_python else "_no_run_python"
+    return render("sandbox_claude_md",
+                  "body",
+                  guard_scope=render("sandbox_claude_md",
+                                     "guard_scope" + variant),
+                  hidden_internals=render("sandbox_claude_md",
+                                          "hidden_internals" + variant)) + "\n"
 
 
 def build_sandbox_system_prompt(

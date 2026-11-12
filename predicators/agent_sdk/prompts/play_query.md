@@ -23,7 +23,7 @@ __CONTEXT__
 
 __OBSERVATION__
 
-## Model and data
+## __MODEL_HEADING__
 
 __MODEL__
 
@@ -66,7 +66,7 @@ __CONTEXT__
 
 __OBSERVATION__
 
-## Model and data
+## __MODEL_HEADING__
 
 __MODEL__
 
@@ -101,7 +101,6 @@ Choose the next action from this state and carry it out with the tools, followin
 (empty: no round has acted in the environment yet)
 
 <!-- section: learning_model_free -->
-This arm has no belief model.
 Recorded episodes so far: __N_EPISODES__ (__N_STEPS__ steps), in `./data/trajectories.pkl`.
 
 <!-- section: no_world_model -->
@@ -109,7 +108,7 @@ No world model yet: write `./world_model.py` in `run_python` and check it with `
 Recorded episodes so far: __N_EPISODES__ (__N_STEPS__ steps), in `./data/trajectories.pkl`.
 
 <!-- section: world_model_status -->
-Current file: `world_model.py` __WORLD_MODEL_VERSION__; `sim.run` and `sim.refine` predict with it.
+Current file: `world_model.py` __WORLD_MODEL_VERSION__; `sim.run` predicts with it.
 Recorded episodes so far: __N_EPISODES__ (__N_STEPS__ steps), in `./data/trajectories.pkl`.
 
 <!-- section: no_model -->
