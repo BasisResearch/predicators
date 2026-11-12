@@ -130,8 +130,8 @@ _BASE_SIMULATOR: Patterns = [
 ]
 
 FORBIDDEN: Dict[str, Patterns] = {
-    "mf_opus": _EVERY_ARM + _DIRECT + _NO_SCENE_FILES,
-    "mf_scene_package_opus": _EVERY_ARM + _DIRECT,
+    "direct_opus": _EVERY_ARM + _DIRECT + _NO_SCENE_FILES,
+    "direct_scene_opus": _EVERY_ARM + _DIRECT,
     "standalone_opus": _EVERY_ARM + _STANDALONE,
     "direct_base_sim_opus": _EVERY_ARM + _BASE_SIMULATOR,
 }
@@ -151,16 +151,16 @@ _ALLOWED = (
 # renders it. Direct + base simulator has its golden in its own test file
 # (continual_system_direct_base_sim).
 _GOLDENS = {
-    "mf_opus": "continual_system_direct",
-    "mf_scene_package_opus": "continual_system_direct_scene",
+    "direct_opus": "continual_system_direct",
+    "direct_scene_opus": "continual_system_direct_scene",
     "standalone_opus": "continual_system_standalone",
 }
 
 # A heading that each arm's text must contain, so a render that lost a
 # part cannot pass.
 _PRESENT = {
-    "mf_opus": "## Recorded data",
-    "mf_scene_package_opus": "## Scene files",
+    "direct_opus": "## Recorded data",
+    "direct_scene_opus": "## Scene files",
     "standalone_opus": "## Model files",
     "direct_base_sim_opus": "## Supplied base simulator",
 }
@@ -322,7 +322,7 @@ def test_patterns_catch_the_wording_they_replace() -> None:
     """Each arm's table matches the sentences this file was written against,
     and leaves the allowed phrases alone."""
     old = {
-        "mf_opus": [
+        "direct_opus": [
             "No simulator is supplied.",
             "No simulator backs it. Free.",
             "This arm has no belief model.",
@@ -331,7 +331,7 @@ def test_patterns_catch_the_wording_they_replace() -> None:
             "the probe's `_ctx`",
             "## Scene files",
         ],
-        "mf_scene_package_opus": [
+        "direct_scene_opus": [
             "No simulator backs this tool, so a verdict is only as good",
             "the engine wrapper",
         ],
@@ -358,7 +358,7 @@ def test_patterns_catch_the_wording_they_replace() -> None:
             assert not _violations(arm, {"allowed": phrase}), (arm, phrase)
     # Legitimate text that the tables must leave alone.
     kept = {
-        "mf_opus":
+        "direct_opus":
         "a level's reward model on a state sequence you predict",
         "standalone_opus":
         "A predicate inferred from model memory is a "
@@ -383,7 +383,7 @@ def test_notes_and_helper_text_name_nothing_withheld() -> None:
         "helper documentation": pydoc.plain(pydoc.render_doc(helper)),
     }
     assert "that rule was not checked" in REPLAY_UNCHECKED_NOTE
-    for arm in ("mf_opus", "mf_scene_package_opus", "standalone_opus"):
+    for arm in ("direct_opus", "direct_scene_opus", "standalone_opus"):
         assert not _violations(arm, unchecked), _violations(arm, unchecked)
     status = render("play_query",
                     "world_model_status",
