@@ -11,8 +11,17 @@ def exec_code_safely(code: str, context: Dict[str, Any],
     """Execute code in the given context and return the expected variable.
 
     Returns (result, None) on success, or (None, error_message) on
-    failure.
+    failure. The code runs in the harness process, past the sandbox's
+    import guard, so its text is screened first for predicators modules
+    the sandbox does not offer.
     """
+    # Imported here: the tools package imports this module.
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.agent_sdk.tools.sandbox_guard import \
+        agent_code_import_refusal
+    refusal = agent_code_import_refusal(code)
+    if refusal is not None:
+        return None, f"sandbox guard: {refusal}"
     try:
         exec(code, context)  # pylint: disable=exec-used
     except Exception:  # pylint: disable=broad-except

@@ -27,6 +27,34 @@ from predicators.structs import ParameterizedOption, Predicate, Task, Type
 if TYPE_CHECKING:
     from predicators.run.continual import ProtocolSession
 
+# The predicators modules the engine wrapper loads beside the ones every
+# sandbox's python may import (sandbox_guard.SANDBOX_ALLOWED_MODULES).
+# The model-based arm's agent is told to import the wrapper in its own
+# python (prompts/play_minimal.md), so its sandbox's guard admits them,
+# and no other arm's does. The arm's tests recompute the list.
+ENGINE_WRAPPER_MODULES = (
+    "predicators.code_sim_learning.commands",
+    "predicators.code_sim_learning.fit_space",
+    "predicators.code_sim_learning.model_state",
+    "predicators.code_sim_learning.utils",
+    "predicators.pybullet_helpers.camera",
+    "predicators.pybullet_helpers.ikfast",
+    "predicators.pybullet_helpers.ikfast.load",
+    "predicators.pybullet_helpers.ikfast.utils",
+    "predicators.pybullet_helpers.inverse_kinematics",
+    "predicators.pybullet_helpers.link",
+    "predicators.pybullet_helpers.objects",
+    "predicators.pybullet_helpers.real_robot_bridge",
+    "predicators.pybullet_helpers.robots",
+    "predicators.pybullet_helpers.robots.fetch",
+    "predicators.pybullet_helpers.robots.mobile_fetch",
+    "predicators.pybullet_helpers.robots.panda",
+    "predicators.pybullet_helpers.robots.single_arm",
+    "predicators.pybullet_helpers.settle",
+    "predicators.pybullet_helpers.studio_visuals",
+    "predicators.pybullet_helpers.world_gap",
+)
+
 
 class AgentContinualModelFreeMinimalApproach(AgentContinualModelFreeApproach):
     """Choose raw actions from experience, optionally with code as policy."""
@@ -104,9 +132,10 @@ class AgentContinualModelBasedMinimalApproach(
             original, "from reference.base_sim.base_env import BaseEnv\n")
         return {
             "base_sim/pybullet_env.py":
-            GeneratedReference(
-                source, "predicators/envs/pybullet_env.py, its BaseEnv "
-                "import pointed at reference/base_sim"),
+            GeneratedReference(source,
+                               "predicators/envs/pybullet_env.py, its BaseEnv "
+                               "import pointed at reference/base_sim",
+                               imports=ENGINE_WRAPPER_MODULES),
             "base_sim/base_env.py":
             str(package / "envs" / "base_env.py"),
         }
