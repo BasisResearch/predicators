@@ -72,7 +72,8 @@ APPROACH_DIR = {
     "no_fitting": "agent_continual_no_fitting",
     "no_uncertainty": "agent_continual_no_uncertainty",
     "real_to_sim": "agent_continual_real_to_sim",
-    "no_learning": "agent_continual_no_learning",
+    # No learning: its run folder names only what the arm has.
+    "from_assets_scene": "agent_continual_from_assets_scene",
     "from_assets_no_uncertainty": "agent_continual_from_assets_no_uncertainty",
     "from_assets_declared": "agent_continual_from_assets_declared",
     "direct_base_sim": "agent_continual_direct_base_sim",
