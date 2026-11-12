@@ -307,10 +307,10 @@ def _screen_text_for_sandbox_escape(
                     "sandbox; use the MCP tools and ./reference/ files")
     hidden = _SANDBOX_HIDDEN_STATE_RE.search(text)
     if hidden is not None:
+        # The text names no element an arm may lack.
         return (f"'{hidden.group(0)}' accesses harness-internal state "
-                "that carries hidden environment ground truth; the "
-                "belief model must be learned from observable features "
-                "and the documented probe/tool surface only")
+                "that carries hidden environment ground truth; use the "
+                "observable features and the documented tools only")
     unavailable = agent_code_import_refusal(text)
     if unavailable is not None:
         return unavailable
