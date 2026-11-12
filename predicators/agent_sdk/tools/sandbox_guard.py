@@ -175,7 +175,7 @@ def _scrub_host_paths(text: str) -> str:
     return text
 
 
-def agent_traceback() -> str:
+def agent_traceback(hide_harness_frames: bool = False) -> str:
     """The traceback of the exception being handled, as an agent is shown it:
     host path prefixes scrubbed.
 
@@ -184,11 +184,13 @@ def agent_traceback() -> str:
     what that arm's agent must not read. The agent's frames, the
     libraries' and the error itself stay.
 
-    ``continual_point_values_only`` leaves the harness's frames out too.
+    ``continual_point_values_only`` leaves the harness's frames out too,
+    and so does ``hide_harness_frames``, for a tool of an arm that no
+    flag marks.
     """
     # pylint: disable-next=import-outside-toplevel
     from predicators.settings import CFG
-    if not (CFG.agent_sim_learn_fit_invisible
+    if not (hide_harness_frames or CFG.agent_sim_learn_fit_invisible
             or CFG.continual_point_values_only):
         return _scrub_host_paths(traceback.format_exc())
     # _HOST_REPO_ROOT is the harness's package directory.

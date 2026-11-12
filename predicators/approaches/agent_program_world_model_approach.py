@@ -92,8 +92,7 @@ class AgentProgramWorldModelApproach(AgentSimPredicateInventionApproach):
     ) -> None:
         """Install this session's tools, probe, and snapshot hooks."""
         # pylint: disable=import-outside-toplevel
-        from predicators.agent_sdk.belief_probe import _check_time_budget, \
-            build_probe_namespace
+        from predicators.agent_sdk.belief_probe import _check_time_budget
 
         # pylint: enable=import-outside-toplevel
         ctx = self._tool_context
@@ -125,15 +124,25 @@ class AgentProgramWorldModelApproach(AgentSimPredicateInventionApproach):
         ctx.probe_fit_provider = None
         ctx.probe_validation_provider = None
         ctx.probe_residuals_provider = None
-        probe_ns = build_probe_namespace(ctx)
-        exec_ns["sim"] = probe_ns["sim"]
-        exec_ns["BeliefProbe"] = probe_ns["BeliefProbe"]
+        exec_ns.update(self._program_probe_names())
         self._learning_mode = True
         targets = self._build_write_snapshot_targets(
             wm_paths["world_model_file"], wm_paths["versions_dir"],
             extra_paths)
         ctx.extra_session_hooks = self._build_synthesis_session_hooks(
             targets, paths.base)
+
+    def _program_probe_names(self) -> Dict[str, Any]:
+        """The probe names this session's ``run_python`` binds: ``sim`` and its
+        class, for more independent instances.
+
+        The session's providers are installed on the tool context before
+        this is called. An arm with a narrower probe binds its own.
+        """
+        # pylint: disable-next=import-outside-toplevel
+        from predicators.agent_sdk.belief_probe import build_probe_namespace
+        probe_ns = build_probe_namespace(self._tool_context)
+        return {"sim": probe_ns["sim"], "BeliefProbe": probe_ns["BeliefProbe"]}
 
     def _program_tool_overrides(self) -> Dict[str, Any]:
         """Keyword overrides for the program-synthesis toolkit (none here; an
