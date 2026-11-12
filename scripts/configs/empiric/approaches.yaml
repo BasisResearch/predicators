@@ -202,6 +202,57 @@ APPROACHES:
       # estimates a speed here, so a rollout from an observation starts at
       # rest.
       continual_belief_velocities: true
+  # No harness fitting, on EMPIRIC from assets: the agent writes its model
+  # as EMPIRIC from assets does (mechanisms and declared parameters, under
+  # the scene loader), and the harness estimates nothing. The model runs
+  # at the values its declarations give, and a rehearsal draws each
+  # parameter around its declared value, inside its declared range (as the
+  # No fitting arm does). Nothing tells the agent that a
+  # harness fit exists (it may fit in its own sandbox code). The rest is
+  # EMPIRIC from assets' menu, less the switches that act on a harness
+  # fit: the range-spanning prior, the material lines, the segment
+  # temperatures, the reach check and the bound note. Parked like EMPIRIC
+  # from assets. The agent reads its run folder's path, which holds the
+  # approach's name and this key, so neither names a fit: "declared" stands
+  # for a model at its declared values.
+  from_assets_declared_opus:
+    NAME: agent_continual_from_assets_declared
+    SKIP: true
+    FLAGS:
+      agent_sdk_model_name: claude-opus-5
+      continual_require_model_on_test: true
+      # No harness estimation: each declaration's init_value is the value
+      # the deployed model runs, and its [lo, hi] bounds the rehearsal
+      # draws of that parameter.
+      agent_sim_learn_declared_params_only: true
+      # Nothing the agent reads names a harness fit, and its probe has no
+      # fit entry point.
+      agent_sim_learn_fit_invisible: true
+      continual_rehearsal_gate: true
+      continual_rehearsal_notes_gate: true
+      continual_rehearsal_safe_plan: true
+      continual_rehearsal_still_start: true
+      continual_restage_velocities: true
+      # A rehearsal scores its rollout at the declared values, where the
+      # planning model runs, as it scores a draw.
+      continual_rehearsal_mean_verdict: true
+      continual_rehearsal_win_first: true
+      # A request whose outcome lies outside its rehearsal's draws is
+      # reported; the draws stay as the declarations give them.
+      continual_predictive_check: true
+      continual_belief_velocities: true
+      continual_rehearsal_game_over: true
+      continual_rehearsal_support_note: true
+      continual_rehearsal_speed_note: true
+      scene_observed_sizes: true
+      continual_belief_window: 64
+      continual_pooled_level_init: true
+      continual_practise_after_reset: true
+      continual_claim_check: true
+      # Undeclared engine materials keep the scene's own values in every
+      # draw; the draws cover the declared parameters.
+      belief_keep_undeclared_materials: true
+      scene_manifest_loader: true
   # Model-free: the same agent with the model-side machinery switched
   # off, so the two differ only in the model.
   mf_opus:
