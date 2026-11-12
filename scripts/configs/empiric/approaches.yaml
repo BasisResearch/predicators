@@ -281,6 +281,27 @@ APPROACHES:
     FLAGS:
       <<: *mf_flags
       continual_provide_scene_package: true
+  # Direct + base simulator: Direct + scene with one more tool, the
+  # domain-general base simulator with each level's scene loaded from its
+  # manifest and asset files, as the base of EMPIRIC from assets loads it.
+  # The agent can run the robot's skills in it from an observed state and
+  # read the states it predicts, at the loaded physical values or at
+  # values it names, so it can fit them with its own code. The arm has no
+  # model file, no harness fit, no belief and no gate, and no interface for
+  # adding mechanisms to the simulator. The level's reward model is a
+  # helper beside the simulator, and a rule that replays physics replays
+  # in it. Parked like EMPIRIC from assets.
+  direct_base_sim_opus:
+    NAME: agent_continual_direct_base_sim
+    SKIP: true
+    FLAGS:
+      <<: *mf_flags
+      continual_provide_scene_package: true
+      # The simulator's scene, as EMPIRIC from assets has it: the harness
+      # loads every level's bodies from its scene manifest, and a box or
+      # sphere body takes each level's observed size.
+      scene_manifest_loader: true
+      scene_observed_sizes: true
   # Standalone: the agent writes and owns a program world model, with no
   # harness fitting. It receives the scene assets Direct + scene receives,
   # and no base simulator. It scores the states its model predicts with the
