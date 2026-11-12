@@ -101,6 +101,11 @@ class ToolContext:
     # has no such attribute and ``dir(sim)`` leaves it out (the arm with
     # the agent's own parameter belief has no ``fit``).
     probe_absent: FrozenSet[str] = frozenset()
+    # The session's ``sim`` is a simulator the harness supplies and the
+    # agent cannot change: a gate's refusal and a check's report then speak
+    # of that simulator and its draws of the state, and of nothing the
+    # agent could edit or estimate.
+    supplied_simulator: bool = False
     # Synthesis-session loader behind ``sim.predicates()``: it reloads
     # the agent-authored predicates.py fresh, installs the result into
     # the approach so refinement sees the draft, and returns the report
