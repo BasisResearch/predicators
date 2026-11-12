@@ -2928,6 +2928,15 @@ class GlobalSettings:
     # from it, so sampling and perturbed rollouts are untouched and
     # only estimation is removed.
     agent_sim_learn_declared_params_only = False
+    # With agent_sim_learn_declared_params_only, for an arm whose agent
+    # must not learn that a harness fit exists: the prompts, the tool
+    # descriptions, the probe's reports and its refusals say only what
+    # the model runs at (its declared values and ranges). They name no
+    # harness fit and nothing withheld. The arm's class also gives the
+    # agent a probe without the fit entry points
+    # (agent_continual_from_assets_declared), and a traceback shown to
+    # the agent leaves out the harness's own frames.
+    agent_sim_learn_fit_invisible = False
     # Program world model arm (agent_program_world_model, paper arm C4 in
     # the form of Pinductor): the belief over the program's hidden state
     # is a particle set of this size (drawn from the program's
