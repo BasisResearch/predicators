@@ -12,6 +12,7 @@ from predicators.agent_sdk.prompt_templates import render
 from predicators.agent_sdk.sandbox_setup import ReferenceFiles
 from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES
 from predicators.agent_sdk.tools.program_synthesis import \
+    STANDALONE_NO_RECORDINGS_HINT, STANDALONE_PROBE_ABSENT, \
     STANDALONE_PROBE_DISABLED, STANDALONE_REWARD_MODEL_DESCRIPTION, \
     STANDALONE_RUN_PYTHON_DESCRIPTION, CandidateLoader
 from predicators.agent_sdk.tools.reward_model import \
@@ -46,6 +47,7 @@ class AgentContinualProgramWorldModelApproach(ContinualPlayMixin,
         # A program must be written before any simulated prediction.
         self._option_model = None
         self._tool_context.probe_engine_available = False
+        self._tool_context.probe_absent = STANDALONE_PROBE_ABSENT
 
     @classmethod
     def get_name(cls) -> str:
@@ -64,12 +66,18 @@ class AgentContinualProgramWorldModelApproach(ContinualPlayMixin,
         description = STANDALONE_RUN_PYTHON_DESCRIPTION
         if CFG.continual_provide_reward_model:
             description += STANDALONE_REWARD_MODEL_DESCRIPTION
-        return {"run_python_description": description}
+        return {
+            "run_python_description": description,
+            "no_recordings_hint": STANDALONE_NO_RECORDINGS_HINT,
+        }
 
     def _program_probe_disabled(self) -> FrozenSet[str]:
         # Close to WorldCoder: score the program on the data and roll a
         # plan through it once; plan search, repeated trials, predicate
         # scoring and engine renders of predicted states are withheld.
+        # The withheld calls are also absent from ``sim``
+        # (STANDALONE_PROBE_ABSENT), so the agent meets no refusal that
+        # names one.
         return STANDALONE_PROBE_DISABLED
 
     def _get_sandbox_reference_files(self) -> ReferenceFiles:

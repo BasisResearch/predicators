@@ -1323,6 +1323,10 @@ class GlobalSettings:
     # round 31's seed 4 was rejected as "owed to the robot's body" though
     # only a fingertip touched the green. Rehearsals always replay.
     domino_contact_verdict = False
+    # Whether the Domino goal text under domino_contact_verdict adds that
+    # a rehearsal always makes the replay. An arm with no rehearsal of the
+    # harness turns it off, and its goal text states the rule alone.
+    domino_goal_names_rehearsal = True
     # Start->target distance (metres) sampled per min-block task, uniformly
     # from [lo, hi]. Choose a range that lands K* in {1, 2} at the true
     # friction (calibrate with the reach probe). Two scalars (not a tuple) so

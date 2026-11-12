@@ -41,6 +41,7 @@ from predicators.agent_sdk.belief_probe import ProbeBudgetExceeded
 from predicators.agent_sdk.fit_status import format_fit_status
 from predicators.agent_sdk.predictive_check import MAX_INFLATION
 from predicators.agent_sdk.preflight_audit import PreflightAudit
+from predicators.agent_sdk.sandbox_prompts import build_claude_md
 from predicators.agent_sdk.sandbox_setup import ReferenceFiles
 from predicators.agent_sdk.speed_support import RecordedSpeeds, \
     SwitchFeatures, recorded_speeds, scored_bodies, switch_features
@@ -1168,6 +1169,10 @@ class AgentContinualModelFreeApproach(ContinualPlayMixin, ScenePackageMixin,
     ``continual_provide_reward_model`` it also has the
     ``evaluate_trajectory`` tool: the level's reward model on states the
     agent predicts, with no engine behind it.
+
+    Nothing the agent reads names what the arm leaves out: its prompt,
+    its tools, its queries and its sandbox ``CLAUDE.md`` describe what it
+    has (``tests/approaches/test_baseline_arm_wording.py``).
     """
 
     _save_suffix = "AgentContinualModelFree"
@@ -1215,6 +1220,17 @@ class AgentContinualModelFreeApproach(ContinualPlayMixin, ScenePackageMixin,
             self._continual_tool_names(),
             base_sim_refs=self._scene_asset_paths(),
             scene_package=True)
+
+    # -- What the agent reads about its data and its sandbox ---------------
+
+    def _model_status_heading(self) -> str:
+        # The status block holds the recorded data and nothing else.
+        return "Recorded data"
+
+    def _get_sandbox_claude_md(self) -> Optional[str]:
+        # The sandbox rules name the tools this session has.
+        return build_claude_md(
+            run_python="run_python" in self._continual_tool_names())
 
     # -- Parent-specific overrides ---------------------------------------
 
