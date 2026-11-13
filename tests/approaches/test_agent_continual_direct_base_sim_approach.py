@@ -8,11 +8,12 @@ from typing import Any, Callable, Dict, List
 
 import pytest
 
-from predicators.agent_sdk.base_simulator_probe import \
-    BASE_SIMULATOR_PROBE_ABSENT, BaseSimulatorProbe, \
-    base_simulator_description
-from predicators.agent_sdk.belief_probe import ProbeResult, _ProbeCore
+from predicators.agent_sdk.base_simulator_probe import BaseSimulator, \
+    BaseSimulatorProbe, base_simulator_description
+from predicators.agent_sdk.belief_probe import _ProbeCore
 from predicators.agent_sdk.play_prompts import build_play_system_prompt
+from predicators.agent_sdk.probe_results import ProbeResult
+from predicators.agent_sdk.rollout_probe import _RolloutCore
 from predicators.agent_sdk.tools.context import ToolContext
 from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES, \
     REWARD_MODEL_TOOL_NAMES
@@ -45,6 +46,13 @@ SIM_CALLS = {
     "reset", "run", "run_async", "gather", "state", "atoms", "render",
     "snapshot", "restore", "drop", "clear_snapshots", "params"
 }
+# The probe core's calls and rollout modes, which the probe behind this
+# arm's ``sim`` does not have: the reports on a model file and the calls
+# that load one, the belief and its draws, plan search and policies.
+PROBE_CORE_ONLY = ("belief", "run_points", "run_policy", "suggest_probes",
+                   "refine", "score", "validate", "predicates",
+                   "check_restore", "task", "_run_joint_draws",
+                   "_run_rehearsal", "_run_belief_draws")
 # The features the engine reads from a body; every other feature of an
 # object is kept from the state a rollout starts from.
 ENGINE_FEATURES = {
@@ -256,15 +264,37 @@ def test_prompt_is_the_direct_prompt_with_the_simulator_tool(
         assert "\u2014" not in text
     assert "evaluate_trajectory" not in base_simulator_description(
         reward_model=False)
-    # The query's model line is the direct agent's.
-    assert approach._tool_context.probe_absent == BASE_SIMULATOR_PROBE_ABSENT
+    # The arm's probe lacks the other arms' calls by its class: the
+    # session withholds nothing from it.
+    assert not approach._tool_context.probe_absent
+    assert not approach._tool_context.probe_disabled
+
+
+def test_probe_has_no_belief_or_rehearsal_code() -> None:
+    """The arm's probe is the rollout core alone: the probe core's belief,
+    draws, rehearsal, plan search and model reports are not attributes of it or
+    of the ``sim`` over it."""
+    assert issubclass(BaseSimulatorProbe, _RolloutCore)
+    assert not issubclass(BaseSimulatorProbe, _ProbeCore)
+    probe = BaseSimulatorProbe(ToolContext())
+    for holder in (BaseSimulatorProbe, BaseSimulator, probe,
+                   BaseSimulator(probe)):
+        for name in PROBE_CORE_ONLY:
+            assert not hasattr(holder, name), (holder, name)
+    # The names are the probe core's, so the check cannot pass on a typo.
+    for name in PROBE_CORE_ONLY:
+        assert hasattr(_ProbeCore, name), name
+    # One rollout per call: ``run`` takes no trial, sweep or draw mode.
+    assert list(inspect.signature(BaseSimulatorProbe.run).parameters) == [
+        "self", "plan_text", "render", "contacts", "seed", "phys_params"
+    ]
 
 
 def test_rollout_notes_name_no_model(monkeypatch: Any) -> None:
-    """A rollout note of the probe core that advises a model change comes back
-    without that advice."""
+    """A rollout note of the rollout core that advises a model change comes
+    back without that advice."""
     advice = "or revise the modeled dynamics"
-    assert advice in inspect.getsource(_ProbeCore.run)
+    assert advice in inspect.getsource(_RolloutCore._run_once)
     note = ("step 0 (Wait) ran to its step cap (120 actions). Inspect the "
             "final state and subgoal report to decide whether to wait "
             f"longer {advice}.")
@@ -272,7 +302,7 @@ def test_rollout_notes_name_no_model(monkeypatch: Any) -> None:
     def run(_self: Any, _plan: str, **_kwargs: Any) -> ProbeResult:
         return ProbeResult([], False, [], State({}), [note])
 
-    monkeypatch.setattr(_ProbeCore, "run", run)
+    monkeypatch.setattr(_RolloutCore, "run", run)
     result = BaseSimulatorProbe(ToolContext()).run("Wait(robot:robot)[]")
     assert result.notes == [note.replace(f" {advice}", "")]
     assert result.notes[0].endswith("whether to wait longer.")
@@ -328,7 +358,10 @@ def test_run_python_drives_the_supplied_simulator(tmp_path: Any,
             _python(
                 approach, "print(json.dumps([n for n in dir(sim) "
                 "if not n.startswith('_')]))")) == SIM_CALLS
-        absent = sorted(BASE_SIMULATOR_PROBE_ABSENT | {"fit", "residuals"})
+        absent = sorted(
+            {name
+             for name in PROBE_CORE_ONLY if not name.startswith("_")}
+            | {"fit", "residuals"})
         assert _python(
             approach, "print(json.dumps([hasattr(sim, n) for n in "
             f"{absent!r}]))") == [False] * len(absent)

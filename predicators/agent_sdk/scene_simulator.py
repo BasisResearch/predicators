@@ -26,9 +26,11 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
 import numpy as np
 
-from predicators.agent_sdk.belief_probe import Modifications, \
-    ProbeBeliefState, ProbeGatherResult, ProbeJointResult, ProbeRefineResult, \
-    ProbeResult, _counts_game_over, _ProbeCore, _StrLikeResult
+from predicators.agent_sdk.belief_probe import ProbeBeliefState, \
+    ProbeJointResult, _counts_game_over, _ProbeCore
+from predicators.agent_sdk.probe_results import ProbeGatherResult, \
+    ProbeRefineResult, ProbeResult, _StrLikeResult
+from predicators.agent_sdk.rollout_probe import Modifications
 from predicators.agent_sdk.tools.context import ToolContext
 from predicators.agent_sdk.tools.python_exec import _make_python_exec_tool
 from predicators.agent_sdk.tools.results import _make_coercing_tool, \

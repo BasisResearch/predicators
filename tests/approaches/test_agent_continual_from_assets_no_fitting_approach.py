@@ -359,8 +359,8 @@ def test_probe_has_no_fit_entry_point(tmp_path: Any) -> None:
     except ValueError:
         shown = agent_traceback()
         full = traceback.format_exc()
-    assert "belief_probe.py" in full and "in restore" in full
-    assert "belief_probe.py" not in shown and "in restore" not in shown
+    assert "rollout_probe.py" in full and "in restore" in full
+    assert "rollout_probe.py" not in shown and "in restore" not in shown
     assert "test_agent_continual_from_assets_no_fitting_approach.py" in shown
     assert shown.rstrip().endswith(full.rstrip().splitlines()[-1])
     # The other arms' probe and tracebacks are the ones they had.

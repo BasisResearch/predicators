@@ -908,8 +908,8 @@ def test_probe_has_no_call_built_on_a_belief() -> None:
     except ValueError:
         shown = agent_traceback()
         full = traceback.format_exc()
-    assert "belief_probe.py" in full and "in restore" in full
-    assert "belief_probe.py" not in shown and "point_probe.py" not in shown
+    assert "rollout_probe.py" in full and "in restore" in full
+    assert "rollout_probe.py" not in shown and "point_probe.py" not in shown
     assert "test_agent_continual_from_assets_no_uncertainty_approach.py" \
         in shown
     assert shown.rstrip().endswith(full.rstrip().splitlines()[-1])

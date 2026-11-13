@@ -14,9 +14,10 @@ from __future__ import annotations
 import inspect
 from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
-from predicators.agent_sdk.belief_probe import BeliefProbe, Modifications
+from predicators.agent_sdk.belief_probe import BeliefProbe
 from predicators.agent_sdk.probe_results import ProbeGatherResult, \
     ProbeRefineResult, ProbeResult, ProbeTrialsResult
+from predicators.agent_sdk.rollout_probe import Modifications
 from predicators.agent_sdk.tools.context import ToolContext
 from predicators.structs import State
 
