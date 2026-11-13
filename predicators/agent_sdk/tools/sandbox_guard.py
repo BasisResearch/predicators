@@ -42,9 +42,8 @@ SANDBOX_INTROSPECTION = ("getsource", "inspect.getfile", "site-packages")
 # sim. A ``sim`` that is a facade keeps the full probe in ``_probe``,
 # with every call the facade leaves out, so that name is screened too.
 # Word-boundary regexes so e.g. ``budget_ctx`` never matches.
-_SANDBOX_HIDDEN_STATE_RE = re.compile(
-    r"\bprivileged\b|\b_ctx\b|\b_probe\b|"
-    r"\b_skip_domain_specific_dynamics\b")
+_SANDBOX_HIDDEN_STATE_RE = re.compile(r"\bprivileged\b|\b_ctx\b|\b_probe\b|"
+                                      r"\b_skip_domain_specific_dynamics\b")
 # Hidden-implementation predicators imports inside agent-executed
 # Python: the exec runs in-process, so ``from predicators.envs... import
 # ...`` would hand the agent the real env classes and ground-truth
