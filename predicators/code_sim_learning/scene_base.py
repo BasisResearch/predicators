@@ -57,6 +57,8 @@ _ROBOT_ATTRIBUTES = ("robot_base_pos", "robot_base_orn", "robot_init_roll",
                      "grasp_partner_tol", "_finger_action_tol")
 _CAMERA_ATTRIBUTES = ("_camera_distance", "_camera_yaw", "_camera_pitch",
                       "_camera_target", "_camera_fov")
+# A body's base position, base orientation and joint positions.
+_BodyPose = Tuple[Tuple[float, ...], Tuple[float, ...], Tuple[float, ...]]
 
 # The engine's material properties of a body, offered for fitting as
 # ``<group>_<property>``: property -> (fit box lo, hi, scale, meaning).
@@ -208,11 +210,21 @@ class SceneBase(PyBulletEnv):
     under the observed object names. Objects the observation lists
     without a body of their own (a virtual reading) are returned as
     ``None`` under their name, and their features round-trip through
-    the feature store. Features a body does not carry in its pose
-    (a joint-backed switch reading, a level, a flag) are the
-    subclass's: override ``_set_domain_specific_state`` and
+    the feature store. A scene may load bodies for more objects than a
+    level names (a body for every balloon any level shows): each reset
+    puts a body the state does not name back where
+    ``initialize_pybullet`` left it, at rest. Features a body does not
+    carry in its pose (a joint-backed switch reading, a level, a flag)
+    are the subclass's: override ``_set_domain_specific_state`` and
     ``_get_domain_specific_feature`` and call ``super()`` for the rest.
-    Mechanisms go in ``_domain_specific_step``.
+    Mechanisms go in ``_domain_specific_step``. Commands the step queues
+    act on the next action from the state the step left. A rollout that
+    starts from a state (a fresh scene, a reset or a jump) runs the step
+    once on that state before its first action, so that action runs
+    with the commands that state implies, as every later action does,
+    and none that a step queued for another state. So the step must
+    leave a state that a step already left as it is, apart from the
+    commands it queues.
 
     The engine's material properties are fittable parameters named
     ``<group>_<property>`` (``MATERIALS``): a group is an observed type
@@ -234,6 +246,12 @@ class SceneBase(PyBulletEnv):
     # same pose (as the real Bridge env declares it).
     _ORIENTATION_EULER_TRIPLES: ClassVar[Tuple[Tuple[str, str, str], ...]] = \
         PyBulletEnv._ORIENTATION_EULER_TRIPLES + (("roll", "pitch", "yaw"), )
+    # A rollout from another state must not run the commands this scene's
+    # step queued for the state it left (see PyBulletEnv.simulate), and
+    # its first action runs with the commands the step queues for its own
+    # start (see PyBulletEnv._step_once).
+    _drop_step_commands_at_jumps: ClassVar[bool] = True
+    _step_restored_states: ClassVar[bool] = True
     _scene_types: ClassVar[Tuple[Type, ...]] = ()
     _robot_home_orn: ClassVar[Optional[Quaternion]] = None
     _asset_dir: ClassVar[str] = ""
@@ -258,6 +276,9 @@ class SceneBase(PyBulletEnv):
         self._body_baseline: Dict[Tuple[int, str], float] = {}
         # Values set on undeclared materials (a rehearsal draw's).
         self._sampled_materials: Dict[str, float] = {}
+        # Each loaded body as initialize_pybullet left it (see
+        # _park_unnamed_bodies).
+        self._build_poses: Dict[str, _BodyPose] = {}
         # The damping the scene's own code sets while it is built, which
         # PyBullet cannot report back.
         with _recording_damping() as damping:
@@ -319,6 +340,51 @@ class SceneBase(PyBulletEnv):
 
     def _store_pybullet_bodies(self, pybullet_bodies: Dict[str, Any]) -> None:
         self._scene_bodies = dict(pybullet_bodies)
+        self._build_poses = {
+            name: self._body_pose(body)
+            for name, body in self._scene_bodies.items()
+            if isinstance(body, int)
+        }
+
+    def _body_pose(self, body: int) -> _BodyPose:
+        """A body's base position and orientation and its joints' positions."""
+        client = self._physics_client_id
+        position, orientation = p.getBasePositionAndOrientation(
+            body, physicsClientId=client)
+        joints = tuple(
+            float(p.getJointState(body, joint, physicsClientId=client)[0])
+            for joint in range(p.getNumJoints(body, physicsClientId=client)))
+        return tuple(position), tuple(orientation), joints
+
+    def _park_unnamed_bodies(self, state: State) -> None:
+        """Put each loaded body ``state`` does not name back where
+        ``initialize_pybullet`` left it, at rest.
+
+        Only the bodies a state names are placed by it. After a state
+        with more objects (a level with four balloons, then a level with
+        two), the bodies only the first state named would otherwise stay
+        where its rollout left them, inside the scene: a reset must
+        build the world a fresh scene builds for the same state.
+        """
+        client = self._physics_client_id
+        named = {obj.name for obj in state}
+        for name, (position, orientation, joints) in self._build_poses.items():
+            body = self._scene_bodies.get(name)
+            if name in named or not isinstance(body, int):
+                continue
+            p.resetBasePositionAndOrientation(body,
+                                              position,
+                                              orientation,
+                                              physicsClientId=client)
+            p.resetBaseVelocity(body, [0.0, 0.0, 0.0], [0.0, 0.0, 0.0],
+                                physicsClientId=client)
+            num_joints = p.getNumJoints(body, physicsClientId=client)
+            for joint, value in enumerate(joints[:num_joints]):
+                p.resetJointState(body,
+                                  joint,
+                                  value,
+                                  0.0,
+                                  physicsClientId=client)
 
     @property
     def bodies(self) -> Dict[str, Any]:
@@ -359,6 +425,7 @@ class SceneBase(PyBulletEnv):
                 f"The scene loads no body for {missing}. Return each one's "
                 "body id from initialize_pybullet under its observed name, "
                 "or None under that name for an object with no body.")
+        self._park_unnamed_bodies(rebound)
         unfit = (self._fit_body_sizes(rebound)
                  if CFG.scene_observed_sizes else [])
         super()._set_state(rebound)
