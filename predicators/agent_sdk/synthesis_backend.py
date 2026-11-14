@@ -77,6 +77,7 @@ class SynthesisBackend(Protocol):
         coverage: Optional[Tuple[int, int]] = None,
         belief: Optional[Any] = None,
         reach: Optional[str] = None,
+        bounds: Optional[str] = None,
     ) -> None:
         """Deploy a canonical ``sim.fit`` result to the candidate probe.
 

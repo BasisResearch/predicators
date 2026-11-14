@@ -863,6 +863,7 @@ class AgentSimLearningApproach(AgentBaseApproach):
         coverage: Optional[Tuple[int, int]] = None,
         belief: Optional[ParameterBelief] = None,
         reach: Optional[str] = None,
+        bounds: Optional[str] = None,
     ) -> None:
         """Deploy a canonical ``sim.fit`` result to the candidate probe.
 
@@ -892,7 +893,9 @@ class AgentSimLearningApproach(AgentBaseApproach):
         :meth:`parameter_belief` serves it while the file is unchanged
         and checkpoints carry it. ``reach`` is the fit's reach-check
         reminder for rehearsals of this file (see
-        :func:`~predicators.code_sim_learning.reach.reach_reminder`).
+        :func:`~predicators.code_sim_learning.reach.reach_reminder`), and
+        ``bounds`` its reminder of the parameters at a declared bound (see
+        :func:`~predicators.code_sim_learning.identifiability.bound_reminder`).
         """
         digest = None
         if os.path.isfile(simulator_file):
@@ -926,6 +929,7 @@ class AgentSimLearningApproach(AgentBaseApproach):
         state["sigma_points"] = list(sigma_points or [])
         state["belief"] = belief.to_dict() if belief is not None else None
         state["reach"] = reach
+        state["bounds"] = bounds
         # A refit of unchanged content keeps the version and digest that
         # key the cached beliefs, so drop them: the joint draws must come
         # from this fit's belief, not the last one's.

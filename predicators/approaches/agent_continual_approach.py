@@ -362,6 +362,8 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
                                          if check else None)
         ctx.reach_note_provider = (self._reach_note
                                    if CFG.continual_fit_reach_check else None)
+        ctx.bound_note_provider = (self._bound_note
+                                   if CFG.continual_fit_bound_note else None)
         probe_ns = build_probe_namespace(ctx)
         exec_ns["sim"] = probe_ns["sim"]
         exec_ns["BeliefProbe"] = probe_ns["BeliefProbe"]
@@ -511,6 +513,7 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
         ctx.recorded_ranges_provider = None
         ctx.prediction_basis_provider = None
         ctx.reach_note_provider = None
+        ctx.bound_note_provider = None
         ctx.skill_preflight = None
         ctx.execution_audit = None
         ctx.probe_param_status = None
@@ -595,8 +598,18 @@ class AgentContinualApproach(ContinualPlayMixin, ScenePackageMixin,
     def _reach_note(self) -> Optional[str]:
         """The reach check of the canonical fit, when that fit ran on
         ``simulator.py`` as it is now; None otherwise."""
+        return self._fit_note("reach")
+
+    def _bound_note(self) -> Optional[str]:
+        """The canonical fit's parameters at a declared bound, when that fit
+        ran on ``simulator.py`` as it is now; None otherwise."""
+        return self._fit_note("bounds")
+
+    def _fit_note(self, key: str) -> Optional[str]:
+        """The canonical fit's reminder under ``key``, when that fit ran on
+        ``simulator.py`` as it is now; None otherwise."""
         state = self._probe_fit_state()
-        note = state.get("reach")
+        note = state.get(key)
         digest = self._current_simulator_digest()
         if not note or digest is None or state.get("digest") != digest:
             return None

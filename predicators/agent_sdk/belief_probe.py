@@ -2326,6 +2326,10 @@ class BeliefProbe:
             reach = ctx.reach_note_provider()
             if reach:
                 result.notes.append(reach)
+        if ctx.bound_note_provider is not None:
+            bound = ctx.bound_note_provider()
+            if bound:
+                result.notes.append(bound)
         _log_rehearsal(ctx, plan_text, result)
         if result.from_observation and ctx.current_observation is not None:
             # What the rehearsal gate lets through: this plan, from this
