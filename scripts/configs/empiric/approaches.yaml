@@ -28,6 +28,17 @@ APPROACHES:
       # Its model is the agent's own, so a test-level step waits for a
       # rehearsal of the plan on the joint belief from the observation.
       continual_rehearsal_gate: true
+      # That step also waits until the agent has been shown its rehearsal's
+      # notes: agents often print only a report's first line or the fields
+      # they parse, and both round 27 losses had a warning left unprinted.
+      continual_rehearsal_notes_gate: true
+      # A rehearsal scores its rollout at the fit's point estimate, where
+      # the planning model runs, as it scores a draw, and says when that
+      # rollout loses, or solves, where no draw does.
+      continual_rehearsal_mean_verdict: true
+      # On a test level it acts on the rehearsed plan with the highest
+      # P-hat; cost only breaks ties.
+      continual_rehearsal_win_first: true
       # A request whose outcome lies outside its rehearsal's draws widens
       # the fitted program's belief.
       continual_predictive_check: true

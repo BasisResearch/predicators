@@ -564,6 +564,66 @@ def test_a_draw_is_judged_where_its_episode_first_ends():
     assert collector.line_of(3) == 1
 
 
+def _overrun_probe(frictions):
+    """A probe on the current observation whose task ends unsolved once the
+    block stops short of the goal, scored by the engine's evaluator."""
+    ctx, _, _, _ = _joint_ctx(frictions)
+    ctx.probe_engine_available = True
+    assert ctx.current_task is not None
+    ctx.current_task = Task(ctx.current_task.init,
+                            ctx.current_task.goal,
+                            evaluator=_OverrunEvaluator(
+                                {GroundAtom(_ReachedHi, [_block])}))
+    sim = BeliefProbe(ctx)
+    _on_observation(sim, ctx)
+    return sim, ctx
+
+
+def test_a_rehearsal_says_when_its_point_estimate_loses_where_no_draw_does():
+    """Under continual_rehearsal_mean_verdict the rollout from the belief mean,
+    at the point estimate, is scored as a draw is, and the report says when it
+    ends the episode in GAME_OVER, or solves it, and no scored draw does.
+
+    Every draw's friction here sits in the model's hole, where Move does
+    nothing, while the point estimate's friction (0.4746) moves the
+    block: a point estimate the draws leave out.
+    """
+    in_hole = (0.495, 0.5, 0.505, 0.499)
+    sim, ctx = _overrun_probe(in_hole)
+    utils.update_config({"continual_rehearsal_mean_verdict": True})
+    # Stopping at 0.6 ends the episode unsolved, at the point estimate only.
+    res = sim.run("Move(block0:block)[0.6]", render=False)
+    assert [d["lost"] for d in res.draws] == [False] * 4
+    assert res.mean_verdict == {"solved": False, "lost": True}
+    assert ("NOTE: The rollout from the belief mean, at the fit's point "
+            "estimate (the values the planning model runs at), ends the "
+            "episode in GAME_OVER, but none of the 4 draws the task's "
+            "evaluator scored does") in repr(res)
+    # The live rehearsal keeps the report's notes, for the notes gate.
+    assert ctx.live_rehearsals[-1].notes == res.notes
+    assert any(
+        n.startswith("The rollout from the belief mean, at the fit's")
+        for n in ctx.live_rehearsals[-1].notes)
+    # Reaching 0.95 solves it at the point estimate only.
+    _on_observation(sim, ctx)
+    res = sim.run(_PLAN, render=False)
+    assert [d["solved"] for d in res.draws] == [False] * 4
+    assert res.mean_verdict == {"solved": True, "lost": False}
+    assert "solves the task, but none of the 4 draws" in repr(res)
+    # A draw that loses as the point estimate does: no note.
+    sim, ctx = _overrun_probe((0.3, ) + in_hole[1:])
+    utils.update_config({"continual_rehearsal_mean_verdict": True})
+    res = sim.run("Move(block0:block)[0.6]", render=False)
+    assert [d["lost"] for d in res.draws] == [True, False, False, False]
+    assert res.mean_verdict == {"solved": False, "lost": True}
+    assert "The rollout from the belief mean" not in repr(res)
+    # Without the flag the mean rollout is not scored.
+    sim, ctx = _overrun_probe(in_hole)
+    res = sim.run("Move(block0:block)[0.6]", render=False)
+    assert res.mean_verdict is None
+    assert "The rollout from the belief mean" not in repr(res)
+
+
 def test_a_draw_whose_skill_fails_partway_is_scored_on_what_it_did(
         monkeypatch):
     """A draw whose skill failed after it moved the world is scored on the

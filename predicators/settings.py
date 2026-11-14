@@ -143,6 +143,28 @@ class GlobalSettings:
     # request whose share is larger is refused, charging nothing. 0 lets
     # every rehearsed request through (the default).
     continual_rehearsal_game_over_gate = 0.0
+    # Whether a joint rehearsal's report also scores its rollout from the
+    # belief mean, at the fit's point estimate (the values the planning
+    # model runs at), with the task's evaluator as it scores a draw, and
+    # says so when that rollout ends the episode in GAME_OVER, or solves
+    # it, and no scored draw does. A point estimate at the edge of the
+    # belief (a value at its bound, a fit cut short) can then predict a
+    # loss that every draw misses.
+    continual_rehearsal_mean_verdict = False
+    # Whether the rehearsal gate on a test level also refuses, once and
+    # charging nothing, a request whose rehearsal's report ended with notes
+    # that no run_python output showed in full, and shows them in the
+    # refusal, so the request sent again runs. Agents often print only a
+    # report's first line or the fields they parse (round 27's Fan seed 0
+    # and Domino seed 0 both lost on a step whose rehearsal warned, in a
+    # note their code never printed).
+    continual_rehearsal_notes_gate = False
+    # Whether a rehearsal-gated arm's prompt tells the agent to act, on a
+    # test level, on the plan whose rehearsal from the current observation
+    # has the highest P-hat, with cost (pieces, steps, reward terms) only
+    # breaking ties. Round 29's Domino seed 1 pushed at P-hat 0.81 over a
+    # plan near 0.93 with one more blue, to save a blue.
+    continual_rehearsal_win_first = False
     # Whether a joint rehearsal's report names the scored features its
     # rollout from the belief mean drives past the range the recordings
     # show, by more than twice their declared observation noise: no
