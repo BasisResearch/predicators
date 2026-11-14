@@ -24,6 +24,7 @@ from predicators.code_sim_learning.identifiability import Verdict, \
 from predicators.code_sim_learning.physical_sysid import \
     fit_params_rollout_trimmed
 from predicators.code_sim_learning.trajectory_prep import truncate_settled_tail
+from predicators.code_sim_learning.utils import stamp_physical_spec_scales
 from predicators.structs import Action, Object, State, Type
 
 _DOMINO_TYPE = Type("domino", ["x"])
@@ -864,7 +865,7 @@ def test_pin_all_physical_params_env_without_registry():
     assert env.applied == {"k": 1.0}
 
 
-def test_apply_identified_reverts_params_dropped_from_declaration():
+def test_apply_identified_reverts_params_dropped_from_declaration(monkeypatch):
     """Regression for run_20260707_112310: an intermediate artifact applied
     lateral_friction 1.9993, the final artifact declared only rolling_friction,
     and the planner silently kept 1.9993.
@@ -879,8 +880,12 @@ def test_apply_identified_reverts_params_dropped_from_declaration():
     approach._base_env = env
     approach._identified_physical_params = {}
     approach._baseline_param_cache = None
-    approach._make_planning_base_env = \
-        lambda use_gui=False: _LiveStickyEnv(_REGISTRY)
+    # Patched through monkeypatch: pylint reads a plain assignment as the
+    # approach's own attribute and then types the method's fresh envs in
+    # the approach module as this stub.
+    monkeypatch.setattr(approach,
+                        "_make_planning_base_env",
+                        lambda use_gui=False: _LiveStickyEnv(_REGISTRY))
     apply = approach._apply_identified_physical_params
 
     apply({"lateral_friction": 1.9993, "rolling_friction": 0.007})
@@ -2500,3 +2505,39 @@ def test_basins_are_measured_from_the_point_the_recordings_favour():
     alone = physical_sysid._select_basins(points, zs, finals, costs, gaps, 0,
                                           False, np.array([1.0]))
     assert [(b[0]["k"], b[2]) for b in alone] == [(0.1, 1.0)]
+
+
+def test_plausible_widening_keeps_a_log_scale_box_positive():
+    """A registry's plausible range widens a declared box, but a log-scale box
+    keeps its positive low end when that range starts at zero; a linear box,
+    and a log box whose plausible range starts above zero, widen."""
+
+    class _Registry:
+
+        @staticmethod
+        def get_physical_param_info():
+            """Two engine materials with plausible ranges."""
+            return {
+                "ball_rolling_friction": {
+                    "plausible": (0.0, 0.1)
+                },
+                "ball_mass": {
+                    "plausible": (0.01, 2.0)
+                },
+            }
+
+    specs = [
+        ParamSpec("ball_rolling_friction", 3e-5, lo=1e-7, hi=3e-3,
+                  scale="log"),
+        ParamSpec("ball_mass", 0.05, lo=0.04, hi=0.6, scale="log"),
+    ]
+    stamped = stamp_physical_spec_scales(specs, _Registry())
+    assert [(s.name, s.lo, s.hi, s.scale) for s in stamped] == [
+        ("ball_rolling_friction", 1e-7, 0.1, "log"),
+        ("ball_mass", 0.01, 2.0, "log"),
+    ]
+    linear = stamp_physical_spec_scales(
+        [ParamSpec("ball_rolling_friction", 3e-5, lo=1e-7, hi=3e-3)],
+        _Registry())
+    assert (linear[0].lo, linear[0].hi, linear[0].scale) == (0.0, 0.1,
+                                                             "linear")
