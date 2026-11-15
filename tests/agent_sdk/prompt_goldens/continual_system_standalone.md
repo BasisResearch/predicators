@@ -12,13 +12,13 @@ You are an autonomous agent learning to act in a physical environment with initi
 
 ## Reading observations
 
-Object features and renders describe the observed scene. `[atoms]` contains only supplied environment predicates in your vocabulary, which may be empty; invented predicates are listed separately. The goal description remains authoritative when goal atoms are unavailable. A predicate inferred from model memory is a belief, not a measured fact.
+Object features and renders describe the observed scene. `[atoms]` contains supplied environment predicates in your vocabulary, which may be empty. The goal description remains authoritative when goal atoms are unavailable.
 
 ## Observation noise
 
 Gaussian observation noise on every non-robot object: positions (x, y, z) sigma 0.0125 m; orientations (rot, roll, pitch, yaw) sigma 0.05 rad; scalar readings (bubbling_level, water_volume, spilled_level and any declared sensor feature) sigma 0.07 in the reading's own units, additive and unclipped, so a level can read outside its nominal range; discrete features, switch states and the robot's own state are exact; one draw per env step, so re-reading an observation without stepping returns the same values.
 
-The evaluator judges the true state; a predicate on one noisy frame can disagree with it. Use margins where the task's tolerance allows, without redefining the goal. Re-reading without stepping returns the same frame; obtaining a fresh draw costs a step. Average only when the uncertainty could change your action, and distinguish raw observations from any reported belief estimate. Recorded features carry the same noise.
+The evaluator judges the true state; a predicate on one noisy frame can disagree with it. Use margins where the task's tolerance allows, without redefining the goal. Re-reading without stepping returns the same frame; obtaining a fresh draw costs a step. Average only when the uncertainty could change your action. Recorded features carry the same noise.
 
 ## Modeling and acting
 
@@ -53,7 +53,7 @@ Files persist across levels, rounds, compaction, and resume. See `./CLAUDE.md` f
 - `./journal.md`: your durable decision record; `./attempts.md`: the harness's round summary; `./session_logs/`: earlier queries and tool results.
 - `./test_images/`: scene renders named in tool results; open them with `Read`.
 
-Keep world_model.py, predicates.py, and journal.md.
+Keep world_model.py and journal.md.
 
 ## Run memory
 
@@ -80,7 +80,7 @@ def transition(obs, latent, option, rng):
     return obs.copy(), dict(latent), 1
 ```
 
-This skeleton is a no-op, not a solution. Use `option.name`, `option.objects`, `option.params`, and `option.memory` to identify the skill and its arguments. Wait can stop on its subgoal, requested step count, or maximum steps; model the duration and its effects. Return the same observed objects and features; keep hidden quantities in memory. Do not import the task environment or ground-truth mechanisms, or invoke a real skill inside a prediction. If you use a physics engine, create and manage your own simulation world, explicitly address its client on every call, and release its resources. Predictions must not inspect or change the live environment; preserve all model memory needed for reproducible replay in the returned latent state. Write `predicates.py` exporting `LEARNED_PREDICATES`, a list of your invented `Predicate` objects. The loader provides `State`, `Predicate`, `np`, and types named `<name>_type`. Predicates may read `state.latent` when it is present and must tolerate its absence in observations.
+This skeleton is a no-op, not a solution. Use `option.name`, `option.objects`, `option.params`, and `option.memory` to identify the skill and its arguments. Wait can stop on its subgoal, requested step count, or maximum steps; model the duration and its effects. Return the same observed objects and features; keep hidden quantities in memory. Do not import the task environment or ground-truth mechanisms, or invoke a real skill inside a prediction. If you use a physics engine, create and manage your own simulation world, explicitly address its client on every call, and release its resources. Predictions must not inspect or change the live environment; preserve all model memory needed for reproducible replay in the returned latent state.
 
 ## Interpreting task verdicts
 
@@ -89,6 +89,7 @@ This skeleton is a no-op, not a solution. Use `option.name`, `option.objects`, `
 ## Scene files
 
 - `./reference/scene/scene_manifest.json`
+- `./reference/scene/levels/level_NN.json (one file per level played so far: that level's scene manifest and the exact features each observed object with a static base had as the level began)`
 - `./reference/assets/`
 
 These read-only files are a manifest of the scene's bodies (shapes, meshes, joints, colours, and which observed object each body is) and the URDF and mesh files those bodies were loaded from. The manifest records no masses, frictions or damping. `pybullet` is importable in sandbox `python3`; use these files however you find useful.

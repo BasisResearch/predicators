@@ -8,10 +8,14 @@ names the missing thing and tells the agent that it plays a reduced arm.
 For each arm and each benchmark domain, this file builds the arm from the
 benchmark config, plays two scripted rounds, and collects what the agent
 is sent: the system prompt with the sandbox suffix, the sandbox
-``CLAUDE.md``, the skills reference, every tool's description and input
-schema, the first query and the continuation query, and the tool results
-of those rounds with their status lines. No pattern of the table below
-may match that text.
+``CLAUDE.md``, every reference file but the asset files and the
+simulator's source, every tool's description and input schema, the first
+query and the continuation query, and the tool results of those rounds
+with their status lines. No pattern of the table below may match that
+text. No arm has the skill reference file, as EMPIRIC from assets has
+none. The source of Direct + base simulator's simulator keeps its own
+docstrings: the prompt lists it for reference, and the scan leaves it
+out.
 
 The Standalone agent also holds a ``sim`` object, so the session asks
 Python about it as the agent can: its documentation, its class and
@@ -39,6 +43,7 @@ from predicators.agent_sdk.tools.reward_model import REPLAY_UNCHECKED_NOTE, \
 from predicators.agent_sdk.world_model_probe import PlanPrediction, \
     WorldModelProbe
 from predicators.approaches import create_approach
+from predicators.approaches.scene_package_mixin import SIMULATOR_SOURCE_PATHS
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
 from predicators.run.continual import ContinualRun
@@ -111,6 +116,9 @@ _NO_SCENE_FILES: Patterns = [
 # harness fit, and none of the probe's other calls.
 _STANDALONE: Patterns = [
     (r"base simulator", "the arm has no base simulator"),
+    (r"belief", "the arm shows no belief"),
+    (r"predicates\.py|LEARNED_PREDICATES|\binvent(ed|s|ion|ing)?\b",
+     "the arm invents no predicate"),
     # The agent's own fitting is the one legitimate use (see _ALLOWED).
     (r"\bfit(s|ted|ting)?\b", "the arm has no harness fit"),
     (r"(plan|parameter) search|repeated-trial|predicate scoring",
@@ -163,8 +171,6 @@ FORBIDDEN: Dict[str, Patterns] = {
 # Legitimate text that a pattern above would match. Each phrase is removed
 # before the patterns run, so the patterns stay strict everywhere else.
 _ALLOWED = (
-    # The skills reference, on the environment's own grasp.
-    "the simulated grasp ignores the force limit",
     # The goal atoms of a level can be absent from the vocabulary.
     "when goal atoms are unavailable",
     # Standalone: the fitting is the agent's own code for its own model.
@@ -179,6 +185,13 @@ _GOLDENS = {
     "direct_scene_opus": "continual_system_direct_scene",
     "standalone_opus": "continual_system_standalone",
 }
+
+# The reference files the scan leaves out: the URDF and mesh data, and
+# the simulator's source (Direct + base simulator), which keeps its own
+# docstrings and which the prompt lists for reference.
+_UNSCANNED_REFERENCES = ("assets/", "base_sim/")
+SIMULATOR_SOURCE_PATHS_IN_REFERENCE = tuple(path[len("./reference/"):]
+                                            for path in SIMULATOR_SOURCE_PATHS)
 
 # A heading that each arm's text must contain, so a render that lost a
 # part cannot pass.
@@ -450,8 +463,16 @@ def _agent_texts(arm: str, env_name: str, tmp_path: Any,
         texts["first query"] = message
         sandbox = Path(ctx.sandbox_dir)
         texts["CLAUDE.md"] = (sandbox / "CLAUDE.md").read_text()
-        texts["reference/skills.md"] = (sandbox /
-                                        "reference/skills.md").read_text()
+        reference = sandbox / "reference"
+        refs = sorted(
+            str(p.relative_to(reference)) for p in reference.rglob("*")
+            if p.is_file()) if reference.is_dir() else []
+        texts["reference listing"] = "\n".join(refs)
+        for ref in refs:
+            # The asset files are URDF and mesh data, and the simulator's
+            # source is listed for reference with its own docstrings.
+            if not ref.startswith(_UNSCANNED_REFERENCES):
+                texts[f"reference/{ref}"] = (reference / ref).read_text()
         tools = create_mcp_tools(ctx, tool_names=names)
         assert sorted(t.name for t in tools) == sorted(names)
         texts["tools"] = _tool_text(tools)
@@ -489,10 +510,31 @@ def test_arm_reads_nothing_about_what_it_lacks(arm: str, env_name: str,
     schemas, queries, or the tool results of two scripted rounds."""
     texts = _agent_texts(arm, env_name, tmp_path, monkeypatch)
     sim_texts = {k: v for k, v in texts.items() if k.startswith("sim: ")}
-    assert set(texts) - set(sim_texts) == {
-        "system prompt", "CLAUDE.md", "reference/skills.md", "tools",
-        "first query", "continuation query", "tool results"
+    refs = texts.pop("reference listing").split()
+    scene_files = {
+        "reference/scene/scene_manifest.json",
+        "reference/scene/levels/level_01.json"
     }
+    assert set(texts) - set(sim_texts) == {
+        "system prompt", "CLAUDE.md", "tools", "first query",
+        "continuation query", "tool results"
+    } | (set() if arm == "direct_opus" else scene_files)
+    assert "skills.md" not in refs
+    # Direct + base simulator has its simulator's source, as EMPIRIC
+    # from assets has it; the others have no simulator source.
+    sources = {r for r in refs if r.startswith("base_sim/")}
+    assert sources == (set(SIMULATOR_SOURCE_PATHS_IN_REFERENCE)
+                       if arm == "direct_base_sim_opus" else set())
+    # The manifest's legend says what its fields record, and names no
+    # scene of the reader's own to build, in each level's file too.
+    for name in scene_files & set(texts):
+        assert "SceneBase" not in texts[name], name
+        assert "your scene" not in texts[name], name
+    if arm != "direct_opus":
+        level = json.loads(texts["reference/scene/levels/level_01.json"])
+        assert set(level) == {"manifest", "signature"}
+        manifest = json.loads(texts["reference/scene/scene_manifest.json"])
+        assert level["manifest"]["legend"] == manifest["legend"]
     assert set(sim_texts) == ({
         "sim: no model file", "sim: names", "sim: documentation",
         "sim: module page", "sim: helpers", "sim: result", "sim: reports",
@@ -503,7 +545,6 @@ def test_arm_reads_nothing_about_what_it_lacks(arm: str, env_name: str,
     assert "## Run rules" in prompt and "## Sandbox Environment" in prompt
     assert "# Predicators Agent Sandbox" in texts["CLAUDE.md"]
     assert "## Rules" in texts["CLAUDE.md"]
-    assert "# Skill API" in texts["reference/skills.md"]
     assert "env_observe: " in texts["tools"]
     assert "first conversation round" in texts["first query"]
     assert "[ledger]" in texts["continuation query"]
@@ -555,6 +596,11 @@ def test_patterns_catch_the_wording_they_replace() -> None:
             "the engine wrapper",
         ],
         "standalone_opus": [
+            "Keep world_model.py, predicates.py, and journal.md.",
+            "invented predicates are listed separately",
+            "[belief] each object smoothed over the frames it rested "
+            "through (value+-spread):",
+            "distinguish raw observations from any reported belief estimate",
             "no base simulator is supplied underneath this model",
             "there is no phased learning or execution gate",
             "The harness offers no plan search",
@@ -594,8 +640,8 @@ def test_patterns_catch_the_wording_they_replace() -> None:
         "direct_opus":
         "a level's reward model on a state sequence you predict",
         "standalone_opus":
-        "A predicate inferred from model memory is a "
-        "belief, not a measured fact.",
+        "Keep world_model.py and journal.md. The scene files listed below "
+        "describe the scene's bodies.",
         "direct_base_sim_opus":
         "It contains no hidden mechanism. One draw "
         "per env step; `sim.render(label)` and the others read, draw, save "

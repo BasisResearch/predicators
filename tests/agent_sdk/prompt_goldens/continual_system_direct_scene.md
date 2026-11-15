@@ -70,6 +70,7 @@ The run is one conversation. A round consists of one harness prompt and your res
 ## Scene files
 
 - `./reference/scene/scene_manifest.json`
+- `./reference/scene/levels/level_NN.json (one file per level played so far: that level's scene manifest and the exact features each observed object with a static base had as the level began)`
 - `./reference/assets/`
 
 These read-only files are a manifest of the scene's bodies (shapes, meshes, joints, colours, and which observed object each body is) and the URDF and mesh files those bodies were loaded from. The manifest records no masses, frictions or damping. `pybullet` is importable in sandbox `python3`; use these files however you find useful.

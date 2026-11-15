@@ -11,6 +11,7 @@ from predicators.agent_sdk.belief_probe import _ProbeCore
 from predicators.agent_sdk.play_prompts import render_tool_list
 from predicators.agent_sdk.prompt_templates import render
 from predicators.agent_sdk.sandbox_setup import ReferenceFiles
+from predicators.agent_sdk.tools import _SnapshotTarget
 from predicators.agent_sdk.tools.continual_tools import CONTINUAL_TOOL_NAMES
 from predicators.agent_sdk.tools.program_synthesis import \
     STANDALONE_NO_RECORDINGS_HINT, STANDALONE_PROBE_ABSENT, \
@@ -28,6 +29,7 @@ from predicators.approaches.continual_play_mixin import ContinualPlayMixin
 from predicators.approaches.scene_package_mixin import ScenePackageMixin
 from predicators.code_sim_learning.program_world_model import \
     ProgramOptionModel
+from predicators.code_sim_learning.scene_manifest import files_only_legend
 from predicators.observation_noise import ObservationNoise
 from predicators.settings import CFG
 from predicators.structs import LowLevelTrajectory, State
@@ -93,6 +95,39 @@ class AgentContinualProgramWorldModelApproach(ContinualPlayMixin,
         # no name for a probe class.
         return {"sim": WorldModelProbe(_ProbeCore(self._tool_context))}
 
+    # -- Invented predicates (program_world_model_invent_predicates) -------
+    # Off, the arm invents no predicate: the agent's predicates.py is
+    # never loaded, scored or snapshotted, and nothing the agent reads
+    # names it.
+
+    def _install_extra_synthesis_surfaces(self, exec_ns: Dict[str, Any],
+                                          base_pred_triples: List[Any],
+                                          inferred_hint: Dict[str, List[str]],
+                                          extra_paths: Dict[str, str]) -> None:
+        if CFG.program_world_model_invent_predicates:
+            super()._install_extra_synthesis_surfaces(exec_ns,
+                                                      base_pred_triples,
+                                                      inferred_hint,
+                                                      extra_paths)
+
+    def _build_write_snapshot_targets(
+            self, simulator_file: str, versions_dir: str,
+            extra_paths: Dict[str, str]) -> List[_SnapshotTarget]:
+        targets = super()._build_write_snapshot_targets(
+            simulator_file, versions_dir, extra_paths)
+        if CFG.program_world_model_invent_predicates:
+            return targets
+        return [t for t in targets if t.artifact_name != "predicates"]
+
+    def _post_synthesis_loading(self, extra_paths: Dict[str, str],
+                                specs: List[Any]) -> None:
+        if CFG.program_world_model_invent_predicates:
+            super()._post_synthesis_loading(extra_paths, specs)
+
+    def _rehydrate_extra_artifacts(self, base: str) -> None:
+        if CFG.program_world_model_invent_predicates:
+            super()._rehydrate_extra_artifacts(base)
+
     def _get_sandbox_reference_files(self) -> ReferenceFiles:
         files = {
             key: value
@@ -103,19 +138,33 @@ class AgentContinualProgramWorldModelApproach(ContinualPlayMixin,
             files.update(self._scene_asset_files())
         return files
 
+    def _scene_manifest_legend(self, legend: Dict[str, str]) -> Dict[str, str]:
+        # The arm reads the scene files and writes its whole model.
+        return files_only_legend(legend)
+
     def _play_system_prompt(self) -> str:
+        invent = CFG.program_world_model_invent_predicates
         sections = [
             render("play_system", "identity_model_free"),
             render("play_system", "protocol"),
-            render("play_system", "observations")
+            # With no invented predicate, the reading of the atoms the
+            # direct arms have.
+            render("play_system",
+                   "observations" if invent else "observations_model_free")
         ]
         noise = ObservationNoise.from_cfg()
         if noise.enabled and noise.declared:
+            # With no belief shown, the noise text the direct arms have,
+            # which names no belief estimate.
             sections.append(
-                render("play_system",
-                       "observation_noise",
-                       noise_line=noise.describe() + "."))
+                render(
+                    "play_system",
+                    "observation_noise" if CFG.continual_uncertainty_decisions
+                    else "observation_noise_model_free",
+                    noise_line=noise.describe() + "."))
         scene = CFG.continual_provide_scene_package
+        kept_files = ("Keep world_model.py, predicates.py, and journal.md."
+                      if invent else "Keep world_model.py and journal.md.")
         sections += [
             render(
                 "play_program",
@@ -129,13 +178,13 @@ class AgentContinualProgramWorldModelApproach(ContinualPlayMixin,
                 tool_list=f"- `run_python`: {STANDALONE_RUN_PYTHON_BLURB}\n" +
                 render_tool_list(CONTINUAL_TOOL_NAMES)),
             render("play_system", "grammar"),
-            render("play_system",
-                   "sandbox",
-                   model_files=
-                   "Keep world_model.py, predicates.py, and journal.md."),
+            render("play_system", "sandbox", model_files=kept_files),
             render("play_system", "journal_model_free"),
             render("play_system", "context"),
-            render("play_program", "contract"),
+            # The contract's last paragraph ends with predicates.py's.
+            render("play_program", "contract") +
+            (" " +
+             render("play_program", "contract_predicates") if invent else ""),
         ]
         if CFG.continual_provide_reward_model:
             sections.append(render("play_program", "reward_model"))

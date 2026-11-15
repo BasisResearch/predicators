@@ -117,3 +117,11 @@ The run is one conversation. A round consists of one harness prompt and your res
 - `./reference/assets/ (58 URDF and mesh files, named in the manifest)`
 
 These read-only files are the manifest of the scene's bodies (shapes, meshes, joints, joint limits, colours, and which observed object each body is) and the URDF and mesh files the simulator loads them from. `reference/scene/levels/` holds the manifest of every level played so far, and the simulator loads the scene a state belongs to.
+
+### Simulator source
+
+- `./reference/base_sim/scene_base.py`
+- `./reference/base_sim/pybullet_env.py`
+- `./reference/base_sim/base_env.py`
+
+These read-only files are the source of the simulator that `sim` runs, for reference.

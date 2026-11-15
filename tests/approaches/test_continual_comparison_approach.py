@@ -35,16 +35,32 @@ CONFIG = "empiric/benchmark.yaml"
 ARM_COUNT = 7
 CLASS_COUNT = 6
 SEEDS = set(range(5))
-# Comparison arms outside the benchmark. Their menu entries set only the
-# model, like the standalone arm's, so they reuse its run config.
+# Comparison arms outside the benchmark. They reuse the standalone arm's
+# run config, less what the standalone entry sets for that arm alone.
 UNBENCHMARKED = ("agent_continual_scene_only", "agent_continual_zero_shot")
+# The flags the standalone entry sets for that arm alone (no belief shown,
+# no invented predicates, no skill reference file, the scene of each
+# level). The arms above keep the values EMPIRIC has, or the defaults.
+_STANDALONE_ONLY = ("continual_uncertainty_decisions",
+                    "continual_belief_frame",
+                    "program_world_model_invent_predicates",
+                    "continual_provide_skills_reference",
+                    "continual_provide_level_scenes")
 
 
 def _arm_config(domain: str, approach: str) -> SingleSeedRunConfig:
     """The benchmark run config of ``approach`` on ``domain``."""
     if approach in UNBENCHMARKED:
         base = _arm_config(domain, "agent_continual_program_world_model")
-        return dataclasses.replace(base, approach=approach)
+        shared = _arm_config(domain, "agent_continual").flags
+        flags = {
+            key: value
+            for key, value in base.flags.items() if key not in _STANDALONE_ONLY
+        }
+        flags.update(
+            {key: shared[key]
+             for key in _STANDALONE_ONLY if key in shared})
+        return dataclasses.replace(base, approach=approach, flags=flags)
     cfg = next(c for c in generate_run_configs(CONFIG, False)
                if c.env == f"pybullet_{domain}" and c.approach == approach)
     assert isinstance(cfg, SingleSeedRunConfig)

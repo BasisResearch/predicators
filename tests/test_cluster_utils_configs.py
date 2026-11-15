@@ -55,11 +55,28 @@ def test_benchmark_is_seven_arms_on_five_settings() -> None:
         assert not flags["code_sim_learning_carry_posterior"]
         assert flags["belief_joint_draws"] == (
             0 if run.approach == "agent_continual_no_uncertainty" else 16)
+        if run.approach != "agent_continual_program_world_model":
+            # The settings of the rebuttal baselines are off the default
+            # arms (absent from their flags, so at their defaults).
+            for name in ("continual_provide_skills_reference",
+                         "continual_provide_level_scenes",
+                         "continual_provide_simulator_source",
+                         "program_world_model_invent_predicates"):
+                assert name not in flags, name
         if run.approach == "agent_continual_model_free":
             assert not flags["agent_planner_use_simulator"]
             assert not flags["continual_uncertainty_decisions"]
             assert bool(flags.get("continual_provide_scene_package")) == (
                 "mf_scene_package" in run.experiment_id)
+        elif run.approach == "agent_continual_program_world_model":
+            # Standalone: no belief shown, no invented predicate, no
+            # skill reference file, and the scene of each level.
+            assert not flags["continual_uncertainty_decisions"]
+            assert not flags["continual_belief_frame"]
+            assert not flags["program_world_model_invent_predicates"]
+            assert not flags["continual_provide_skills_reference"]
+            assert flags["continual_provide_level_scenes"]
+            assert flags["continual_provide_scene_package"]
         elif run.approach == "agent_continual_no_fitting":
             assert flags["agent_sim_learn_declared_params_only"]
             assert flags["continual_uncertainty_decisions"]
@@ -296,6 +313,8 @@ def test_no_learning_arm_runs_only_by_name() -> None:
         **kept,
         "agent_sim_learn_declared_params_only": True,
         "agent_sim_learn_fit_invisible": True,
+        # The simulator's source, listed for reference only.
+        "continual_provide_simulator_source": True,
     }
 
 
@@ -320,6 +339,10 @@ def test_direct_base_sim_arm_runs_only_by_name() -> None:
         **by_arm["mf_scene_package_opus_r1"].flags,
         "scene_manifest_loader": True,
         "scene_observed_sizes": True,
+        # What EMPIRIC from assets reads, less the skill reference file.
+        "continual_provide_skills_reference": False,
+        "continual_provide_level_scenes": True,
+        "continual_provide_simulator_source": True,
     }
     assert arm.flags["continual_raw_step_limit"] is True
     assert arm.flags["continual_refuse_training_give_up"] is True
@@ -342,11 +365,22 @@ def test_direct_arms_run_under_a_neutral_name() -> None:
                            ],
                            seeds=(0, 1))
     by_arm = {r.experiment_id.split("-", 1)[1]: r for r in runs}
+    # Neither has the skill reference file, as EMPIRIC from assets has
+    # none; Direct + scene also reads the scene of each level.
+    extra = {
+        "direct_opus_r1": {
+            "continual_provide_skills_reference": False
+        },
+        "direct_scene_opus_r1": {
+            "continual_provide_skills_reference": False,
+            "continual_provide_level_scenes": True,
+        },
+    }
     for new, old in (("direct_opus_r1", "mf_opus_r1"),
                      ("direct_scene_opus_r1", "mf_scene_package_opus_r1")):
         assert by_arm[new].approach == "agent_continual_direct"
         assert by_arm[old].approach == "agent_continual_model_free"
-        assert by_arm[new].flags == by_arm[old].flags
+        assert by_arm[new].flags == {**by_arm[old].flags, **extra[new]}
         assert not re.search(r"model|free|\bmf\b|baseline|ablat",
                              by_arm[new].approach + " " + new)
 

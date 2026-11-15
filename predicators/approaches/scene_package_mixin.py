@@ -29,6 +29,21 @@ if TYPE_CHECKING:  # pragma: no cover
     from predicators.agent_sdk.tools.context import ToolContext
     from predicators.structs import Task
 
+# Agent-visible paths of the simulator's source
+# (ScenePackageMixin._simulator_source_files), as a prompt lists them.
+SIMULATOR_SOURCE_PATHS = (
+    "./reference/base_sim/scene_base.py",
+    "./reference/base_sim/pybullet_env.py",
+    "./reference/base_sim/base_env.py",
+)
+
+# The prompt's list entry of the per-level scene files, for the arms that
+# get them under continual_provide_level_scenes: what one file holds.
+_LEVEL_SCENES_ENTRY = (
+    "./reference/scene/levels/level_NN.json (one file per level played so "
+    "far: that level's scene manifest and the exact features each observed "
+    "object with a static base had as the level began)")
+
 
 class ScenePackageMixin:
     """Builds the scene package for an agent approach's sandbox."""
@@ -96,6 +111,22 @@ class ScenePackageMixin:
         files.update(self._scene_asset_files())
         return files
 
+    def _simulator_source_files(self) -> ReferenceFiles:
+        """Sandbox reference path -> the source of the scene simulator, as
+        EMPIRIC from assets reads it: the scene base and the engine wrapper
+        under it, their imports pointed at the copies beside them.
+
+        They are copies to read. A simulator the harness builds loads
+        the harness's own modules, so no edit of these files reaches it.
+        """
+        package = Path(__file__).resolve().parents[1]
+        return {
+            "base_sim/base_env.py": str(package / "envs" / "base_env.py"),
+            "base_sim/pybullet_env.py":
+            self._standalone_source("pybullet_env.py"),
+            "base_sim/scene_base.py": self._standalone_source("scene_base.py"),
+        }
+
     def _scene_asset_files(self) -> ReferenceFiles:
         """Sandbox reference path -> the scene manifest of the level being
         played and the asset files its bodies were loaded from.
@@ -110,6 +141,7 @@ class ScenePackageMixin:
         finally:
             if owned:
                 dispose_env(env)
+        manifest["legend"] = self._scene_manifest_legend(manifest["legend"])
         text = scene_manifest_text(manifest)
         files: ReferenceFiles = {
             "scene/scene_manifest.json":
@@ -122,9 +154,18 @@ class ScenePackageMixin:
         })
         self._scene_package_summary = (len(manifest["bodies"]), len(assets))
         self._record_level_manifest(text)
-        if CFG.scene_manifest_loader:
+        if CFG.scene_manifest_loader or CFG.continual_provide_level_scenes:
             files.update(self._level_scene_files(manifest, assets, state))
         return files
+
+    def _scene_manifest_legend(self, legend: Dict[str, str]) -> Dict[str, str]:
+        """The manifest's legend as this arm's files carry it.
+
+        The shared legend tells a reader how to build the scene on the
+        base simulator. An arm that has no base simulator overrides this
+        (:func:`files_only_legend`), so its manifest names none.
+        """
+        return legend
 
     def _level_scene_files(self, manifest: Dict[str, Any], assets: Dict[str,
                                                                         Any],
@@ -221,4 +262,8 @@ class ScenePackageMixin:
             bodies, files = self._scene_package_summary
             manifest += f" ({bodies} bodies)"
             assets += f" ({files} URDF and mesh files, named in the manifest)"
-        return [manifest, assets]
+        if not CFG.continual_provide_level_scenes:
+            return [manifest, assets]
+        # The arms that get the scene of each level by this flag alone
+        # read what one level's file holds here.
+        return [manifest, _LEVEL_SCENES_ENTRY, assets]

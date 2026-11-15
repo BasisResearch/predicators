@@ -174,6 +174,9 @@ APPROACHES:
       continual_claim_check: true
       # The harness loads every level's bodies from its scene manifest.
       scene_manifest_loader: true
+      # The source of the simulator, as EMPIRIC from assets reads it,
+      # listed for reference only.
+      continual_provide_simulator_source: true
   # No uncertainty, from assets: EMPIRIC from assets with no explicit
   # uncertainty. The agent writes its model as in EMPIRIC from assets and
   # the harness fits its parameters, to the raw noisy observations; every
@@ -314,17 +317,23 @@ APPROACHES:
   # and mf_scene_package_opus under a class and menu keys that say nothing
   # of what the arms leave out, because the agent can read its run
   # folder's path. Parked like EMPIRIC from assets.
+  # Neither has the skill reference file, as EMPIRIC from assets has
+  # none; Direct + scene also reads the scene of each level played so
+  # far, as EMPIRIC from assets does.
   direct_opus:
     NAME: agent_continual_direct
     SKIP: true
     FLAGS:
       <<: *mf_flags
+      continual_provide_skills_reference: false
   direct_scene_opus:
     NAME: agent_continual_direct
     SKIP: true
     FLAGS:
       <<: *mf_flags
       continual_provide_scene_package: true
+      continual_provide_skills_reference: false
+      continual_provide_level_scenes: true
   # Direct + base simulator: Direct + scene with one more tool, the
   # domain-general base simulator with each level's scene loaded from its
   # manifest and asset files, as the base of EMPIRIC from assets loads it.
@@ -346,6 +355,12 @@ APPROACHES:
       # sphere body takes each level's observed size.
       scene_manifest_loader: true
       scene_observed_sizes: true
+      # What EMPIRIC from assets reads, less the skill reference file it
+      # does not have: the scene of each level played so far, and the
+      # simulator's source, listed for reference only.
+      continual_provide_skills_reference: false
+      continual_provide_level_scenes: true
+      continual_provide_simulator_source: true
   # Standalone: the agent writes and owns a program world model, with no
   # harness fitting. It receives the scene assets Direct + scene receives,
   # and no base simulator. It scores the states its model predicts with the
@@ -360,6 +375,17 @@ APPROACHES:
       # The reward model replays nothing here, so the Domino goal text
       # names no rehearsal that replays.
       domino_goal_names_rehearsal: false
+      # No belief over the observation, as in the direct arms: the
+      # observation is the raw noisy frame and shows no belief block.
+      continual_uncertainty_decisions: false
+      continual_belief_frame: false
+      # The model is the agent's world_model.py alone: no invented
+      # predicates (predicates.py).
+      program_world_model_invent_predicates: false
+      # As EMPIRIC from assets: no skill reference file, and the scene of
+      # each level played so far.
+      continual_provide_skills_reference: false
+      continual_provide_level_scenes: true
   # Oracle dynamics: the ground-truth simulator stands in for the learned
   # model, with no automatic execution gate or shadow audit (see
   # docs/comparisons/oracle-repair-notes.md).

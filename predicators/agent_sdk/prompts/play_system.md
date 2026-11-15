@@ -472,6 +472,11 @@ A rollout is set by its start state, its plan, its physical values and its plann
 The `run_python` tool description gives every argument.
 A rollout is this simulator's prediction and costs no environment steps.
 
+<!-- section: base_simulator_source -->
+The source of this simulator is in these read-only files, for reference:
+
+__REF_LISTING__
+
 <!-- section: reward_model_base_simulator -->
 ## Interpreting task verdicts
 
