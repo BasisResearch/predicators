@@ -173,6 +173,60 @@ def test_agent_belief_arm_runs_only_by_name() -> None:
     }
 
 
+def test_from_assets_no_uncertainty_arm_runs_only_by_name() -> None:
+    """EMPIRIC from assets without explicit uncertainty is parked, and naming
+    it runs No uncertainty's flags plus the switches of EMPIRIC from assets
+    that act on the fit and the scene, and none that reads a belief or a
+    rehearsal."""
+    assert not any("from_assets_no_uncertainty" in r.experiment_id
+                   for r in _benchmark_runs(round_name="r1"))
+    runs = _benchmark_runs(round_name="r1",
+                           envs=["domino_high_friction_turn"],
+                           approaches=[
+                               "no_uncertainty_opus", "from_assets_opus",
+                               "from_assets_no_uncertainty_opus"
+                           ],
+                           seeds=(0, 1))
+    by_arm = {r.experiment_id.split("-", 1)[1]: r for r in runs}
+    arm = by_arm["from_assets_no_uncertainty_opus_r1"]
+    assert arm.approach == "agent_continual_from_assets_no_uncertainty"
+    assert arm.flags == {
+        **by_arm["no_uncertainty_opus_r1"].flags,
+        "code_sim_learning_prior_spans_bounds":
+        True,
+        "scene_observed_sizes":
+        True,
+        "scene_manifest_loader":
+        True,
+        "continual_restage_velocities":
+        True,
+        "continual_belief_velocities":
+        True,
+    }
+    from_assets = by_arm["from_assets_opus_r1"].flags
+    assert set(from_assets) - set(arm.flags) == {
+        "continual_rehearsal_gate",
+        "continual_rehearsal_notes_gate",
+        "continual_rehearsal_safe_plan",
+        "continual_rehearsal_still_start",
+        "continual_rehearsal_mean_verdict",
+        "continual_rehearsal_win_first",
+        "continual_practise_after_reset",
+        "continual_claim_check",
+        "continual_predictive_check",
+        "belief_material_lines",
+        "continual_rehearsal_game_over",
+        "continual_rehearsal_support_note",
+        "continual_rehearsal_speed_note",
+        "continual_fit_reach_check",
+        "continual_fit_bound_note",
+        "belief_segment_temperature",
+        "continual_belief_window",
+        "continual_pooled_level_init",
+        "belief_keep_undeclared_materials",
+    }
+
+
 def test_benchmark_subsets_and_rounds() -> None:
     """--envs, --approaches and --seeds pick a subset; --round names every
     experiment id."""
