@@ -258,6 +258,34 @@ def test_from_assets_no_fitting_arm_runs_only_by_name() -> None:
     }
 
 
+def test_direct_base_sim_arm_runs_only_by_name() -> None:
+    """Direct + base simulator is parked, and naming it runs the flags of
+    Direct + scene plus the scene loader that builds its simulator, under its
+    own approach class and the shared rules of the world."""
+    assert not any("direct_base_sim" in r.experiment_id
+                   for r in _benchmark_runs(round_name="r1"))
+    runs = _benchmark_runs(
+        round_name="r1",
+        envs=["domino_high_friction_turn"],
+        approaches=["mf_scene_package_opus", "direct_base_sim_opus"],
+        seeds=(0, 1))
+    by_arm = {r.experiment_id.split("-", 1)[1]: r for r in runs}
+    assert set(by_arm) == {
+        "mf_scene_package_opus_r1", "direct_base_sim_opus_r1"
+    }
+    arm = by_arm["direct_base_sim_opus_r1"]
+    assert arm.approach == "agent_continual_direct_base_sim"
+    assert arm.flags == {
+        **by_arm["mf_scene_package_opus_r1"].flags,
+        "scene_manifest_loader": True,
+        "scene_observed_sizes": True,
+    }
+    assert arm.flags["continual_raw_step_limit"] is True
+    assert arm.flags["continual_refuse_training_give_up"] is True
+    assert arm.flags["continual_record_until_rest"] is True
+    assert arm.flags["continual_wall_clock_hours"] == 48.0
+
+
 def test_benchmark_subsets_and_rounds() -> None:
     """--envs, --approaches and --seeds pick a subset; --round names every
     experiment id."""
