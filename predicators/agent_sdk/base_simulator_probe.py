@@ -20,8 +20,9 @@ from typing import Type as TypingType
 
 import numpy as np
 
-from predicators.agent_sdk.belief_probe import Modifications, \
-    ProbeGatherResult, ProbeResult, _check_time_budget, _ProbeCore
+from predicators.agent_sdk.probe_results import ProbeGatherResult, ProbeResult
+from predicators.agent_sdk.rollout_probe import Modifications, \
+    _check_time_budget, _RolloutCore
 from predicators.agent_sdk.tools.context import ToolContext
 from predicators.agent_sdk.tools.python_exec import _make_python_exec_tool
 from predicators.agent_sdk.tools.results import _make_coercing_tool, \
@@ -34,17 +35,6 @@ from predicators.code_sim_learning.scene_base import SceneBase, \
 from predicators.settings import CFG
 from predicators.structs import Action, LowLevelTrajectory, State, Type, \
     step_option_labels
-
-# The probe core's calls that the probe behind this arm's ``sim`` does not
-# have either: the reports on a model file and the calls that load one,
-# the belief and its draws, plan search and policies. (The core has no
-# harness fit.)
-BASE_SIMULATOR_PROBE_ABSENT = frozenset({
-    "score", "validate", "predicates", "check_restore", "task", "belief",
-    "suggest_probes", "refine", "run_policy", "run_points"
-})
-# The ``run`` modes that probe refuses.
-BASE_SIMULATOR_PROBE_DISABLED = frozenset({"trials", "belief"})
 
 # A rollout note's advice to change a model: this arm has none.
 _MODEL_ADVICE = " or revise the modeled dynamics"
@@ -76,14 +66,16 @@ def supplied_scene_class(env_name: str, types: Iterable[Type],
     return SuppliedScene
 
 
-class BaseSimulatorProbe(_ProbeCore):
+class BaseSimulatorProbe(_RolloutCore):
     """The probe behind this arm's ``sim``, over the supplied world.
 
     The world is the one behind the session's option model, which the
-    harness built (:func:`supplied_scene_class`). ``reset`` also takes a
-    recorded state, ``run`` is one rollout that can name physical
-    values, and ``params`` lists the values the loaded scene has. The
-    agent holds a :class:`BaseSimulator` over it, never the probe.
+    harness built (:func:`supplied_scene_class`). It is the rollout core
+    alone, so it has no call of another arm to withhold. ``reset`` also
+    takes a recorded state, ``run`` is one rollout that can name
+    physical values, and ``params`` lists the values the loaded scene
+    has. The agent holds a :class:`BaseSimulator` over it, never the
+    probe.
     """
 
     def _scene(self) -> Any:
@@ -187,10 +179,7 @@ class BaseSimulatorProbe(_ProbeCore):
                 {name: loaded[name]["value"]
                  for name in values})
 
-    # A narrower signature than the probe core's: this arm has one
-    # rollout per call, and none of the trial, sweep or draw modes.
-    def run(  # type: ignore[override]  # pylint: disable=arguments-differ
-            self,
+    def run(self,
             plan_text: str,
             render: bool = True,
             contacts: bool = False,
@@ -215,7 +204,6 @@ class BaseSimulatorProbe(_ProbeCore):
                                  render=render,
                                  contacts=contacts,
                                  seed=seed)
-        assert isinstance(result, ProbeResult)
         result.notes[:] = [
             note.replace(_MODEL_ADVICE, "") for note in result.notes
         ]

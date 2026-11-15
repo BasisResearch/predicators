@@ -23,7 +23,6 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from predicators import utils
 from predicators.agent_sdk.base_simulator_probe import \
-    BASE_SIMULATOR_PROBE_ABSENT, BASE_SIMULATOR_PROBE_DISABLED, \
     build_base_simulator_tool, supplied_scene_class
 from predicators.agent_sdk.sandbox_setup import GeneratedReference, \
     ReferenceFiles, find_repo_root
@@ -69,8 +68,6 @@ class AgentContinualDirectBaseSimApproach(AgentContinualModelFreeApproach):
         self._base_simulator: Optional[_OracleOptionModel] = None
         # The recording as ``run_python`` holds it, kept current in place.
         self._recording: List[LowLevelTrajectory] = []
-        self._tool_context.probe_absent = BASE_SIMULATOR_PROBE_ABSENT
-        self._tool_context.probe_disabled = BASE_SIMULATOR_PROBE_DISABLED
 
     @classmethod
     def get_name(cls) -> str:

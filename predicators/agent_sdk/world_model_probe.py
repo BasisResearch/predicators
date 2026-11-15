@@ -11,8 +11,9 @@ import dataclasses
 import weakref
 from typing import Any, Dict, List, Optional, Union
 
-from predicators.agent_sdk.belief_probe import Modifications, _ProbeCore
+from predicators.agent_sdk.belief_probe import _ProbeCore
 from predicators.agent_sdk.probe_results import ProbeResult
+from predicators.agent_sdk.rollout_probe import Modifications
 
 # The agent that holds a WorldModelProbe can read everything this module
 # documents: help(sim), the class and module names behind type(sim), the

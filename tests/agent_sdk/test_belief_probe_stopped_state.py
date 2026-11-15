@@ -10,8 +10,9 @@ from gym.spaces import Box
 
 from predicators import utils
 from predicators.agent_sdk.belief_probe import BeliefProbe, ProbeJointResult, \
-    ProbeResult, _flag_changes, _motion_failures
+    ProbeResult
 from predicators.agent_sdk.plan_execution import execute_plan_forward
+from predicators.agent_sdk.rollout_probe import _flag_changes, _motion_failures
 from predicators.agent_sdk.tools import ToolContext
 from predicators.observation_belief import BeliefFrame
 from predicators.structs import Action, GroundAtom, LowLevelTrajectory, \
