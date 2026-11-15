@@ -88,6 +88,12 @@ APPROACHES:
       # stands without the counterfactual replay, which only re-rolls a
       # knife-edge link when there is no arm contact to remove.
       domino_contact_verdict: true
+      # After a reset of a training level it has not won, a skill request
+      # waits for the model and a rehearsal, as on a test level.
+      continual_practise_after_reset: true
+      # At set points a skill request waits for a record of the belief the
+      # step leans on, its direct tests, a rival and a separating experiment.
+      continual_claim_check: true
   # EMPIRIC from assets with the agent's own parameter belief: the agent
   # builds its scene as in EMPIRIC from assets, the harness fits nothing,
   # and the agent estimates its parameters by any method and supplies their
