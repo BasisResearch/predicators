@@ -44,6 +44,7 @@ def _make_python_exec_tool(
     budget_ctx: Optional[ToolContext] = None,
     call_timeout_s: Optional[float] = None,
     output_observer: Optional[Callable[[str], None]] = None,
+    hide_harness_frames: bool = False,
 ) -> Any:
     """Build a code-execution MCP tool over a persistent namespace.
 
@@ -76,6 +77,9 @@ def _make_python_exec_tool(
     ``output_observer``, when given, sees the text of each result a call
     of the code returns, as the agent is given it (for a spilled output,
     the preview).
+
+    ``hide_harness_frames`` leaves the harness's own frames out of the
+    traceback of an error in the code (see ``agent_traceback``).
     """
     # pylint: disable=import-outside-toplevel
     import io
@@ -223,7 +227,7 @@ def _make_python_exec_tool(
                 "results so partial progress survives a stop.")
             return _given(f"{prefix}TIME BUDGET: {msg}{_footer()}")
         except Exception:  # pylint: disable=broad-except
-            tb = agent_traceback()
+            tb = agent_traceback(hide_harness_frames)
             partial = captured.getvalue()
             prefix = f"{partial}\n" if partial else ""
             return _given(f"{prefix}Error:\n{tb}{_footer()}")

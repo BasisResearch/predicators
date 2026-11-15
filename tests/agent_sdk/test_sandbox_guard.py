@@ -92,6 +92,8 @@ def test_screen_blocks_hidden_state_access(tmp_path) -> None:
             "e = sim._ctx.env",
             "getattr(sim, '_ctx').env.cure_threshold",
             "sim._probe.belief()",
+            "sys.modules[type(sim).__module__]._PROBES[sim]",
+            "type(sim).run.__globals__",
             "e._skip_domain_specific_dynamics = False",
     ]:
         assert _screen_text_for_sandbox_escape(text, sandbox) is not None, text
