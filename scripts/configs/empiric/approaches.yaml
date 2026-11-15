@@ -310,6 +310,21 @@ APPROACHES:
     FLAGS:
       <<: *mf_flags
       continual_provide_scene_package: true
+  # The Direct agent and Direct + scene of the rebuttal cohort: mf_opus
+  # and mf_scene_package_opus under a class and menu keys that say nothing
+  # of what the arms leave out, because the agent can read its run
+  # folder's path. Parked like EMPIRIC from assets.
+  direct_opus:
+    NAME: agent_continual_direct
+    SKIP: true
+    FLAGS:
+      <<: *mf_flags
+  direct_scene_opus:
+    NAME: agent_continual_direct
+    SKIP: true
+    FLAGS:
+      <<: *mf_flags
+      continual_provide_scene_package: true
   # Direct + base simulator: Direct + scene with one more tool, the
   # domain-general base simulator with each level's scene loaded from its
   # manifest and asset files, as the base of EMPIRIC from assets loads it.

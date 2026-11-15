@@ -1,6 +1,7 @@
 """The experiment config loader and the EMPIRIC benchmark config: includes,
 parked entries, rounds and launch subsets."""
 import os
+import re
 from typing import Any, Dict, List
 
 import pytest
@@ -324,6 +325,30 @@ def test_direct_base_sim_arm_runs_only_by_name() -> None:
     assert arm.flags["continual_refuse_training_give_up"] is True
     assert arm.flags["continual_record_until_rest"] is True
     assert arm.flags["continual_wall_clock_hours"] == 48.0
+
+
+def test_direct_arms_run_under_a_neutral_name() -> None:
+    """The cohort's Direct agent and Direct + scene are parked, and naming them
+    runs the flags of ``mf_opus`` and ``mf_scene_package_opus`` under an
+    approach name and menu keys that say nothing of what the arms leave out."""
+    assert not any("direct_opus" in r.experiment_id
+                   or "direct_scene_opus" in r.experiment_id
+                   for r in _benchmark_runs(round_name="r1"))
+    runs = _benchmark_runs(round_name="r1",
+                           envs=["domino_high_friction_turn"],
+                           approaches=[
+                               "mf_opus", "mf_scene_package_opus",
+                               "direct_opus", "direct_scene_opus"
+                           ],
+                           seeds=(0, 1))
+    by_arm = {r.experiment_id.split("-", 1)[1]: r for r in runs}
+    for new, old in (("direct_opus_r1", "mf_opus_r1"),
+                     ("direct_scene_opus_r1", "mf_scene_package_opus_r1")):
+        assert by_arm[new].approach == "agent_continual_direct"
+        assert by_arm[old].approach == "agent_continual_model_free"
+        assert by_arm[new].flags == by_arm[old].flags
+        assert not re.search(r"model|free|\bmf\b|baseline|ablat",
+                             by_arm[new].approach + " " + new)
 
 
 def test_benchmark_subsets_and_rounds() -> None:

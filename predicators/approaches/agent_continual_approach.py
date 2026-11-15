@@ -18,6 +18,9 @@ the approach class that holds their machinery:
   and skill tools, sandbox and journal, but no belief model, no ``sim``
   and no ``run_python``. What it knows comes from the recorded data and
   the real environment.
+* ``AgentContinualDirectApproach`` (``agent_continual_direct``) is that
+  same baseline under a name that says nothing of what the arm leaves
+  out: the agent can read its run folder's path.
 
 Neither arm starts with a predicate: the observation is the object
 features and a render, the goal is its natural-language description,
@@ -1253,3 +1256,20 @@ class AgentContinualModelFreeApproach(ContinualPlayMixin, ScenePackageMixin,
     def _load_extra_save_state(self, save_dict: Dict[str, Any]) -> None:
         super()._load_extra_save_state(save_dict)
         self._load_continual_save_state(save_dict)
+
+
+class AgentContinualDirectApproach(AgentContinualModelFreeApproach):
+    """The Direct agent of the rebuttal cohort: ``AgentContinualModelFree``
+    under a neutral name.
+
+    The agent's working directory sits under a folder named after the
+    approach and the menu key, and the agent can read that path. The
+    parent's name says what the arm leaves out, so this class changes
+    the name and nothing else.
+    """
+
+    _save_suffix = "AgentContinualDirect"
+
+    @classmethod
+    def get_name(cls) -> str:
+        return "agent_continual_direct"
