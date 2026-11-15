@@ -18,14 +18,16 @@ from predicators.agent_sdk.tools.verdicts import evaluate_states_with, \
     task_evaluator
 from predicators.structs import Action, State, Task, step_option_labels
 
-# The note of a verdict whose replay rule had no simulator to run on.
+# The note of a verdict whose replay rule had no simulator to run on. The
+# agent reads it, so it says what the verdict read and names no simulator.
 REPLAY_UNCHECKED_NOTE = (
-    "This level's reward model has a rule that replays physics, and this "
-    "helper has no simulator to replay on, so that rule was not checked. "
-    "The goal holds at the end of the sequence and no rule that needs no "
-    "replay was broken. An unchecked rule earns no success credit here: "
-    "solved is False and the reward has no success bonus. Only the real "
-    "environment checks that rule.")
+    "This level's reward model has a rule that depends on how the physics "
+    "plays out from a state of the sequence. This verdict reads only the "
+    "states it was given, so that rule was not checked. The goal holds at "
+    "the end of the sequence and no rule that reads the states alone was "
+    "broken. An unchecked rule earns no success credit here: solved is "
+    "False and the reward has no success bonus. Only the real environment "
+    "checks that rule.")
 
 # Where the tool's scored sequence can start.
 PREDICTION_STARTS = ("observation", "episode", "initial")
@@ -165,10 +167,11 @@ def make_engine_free_evaluate_trajectory_fn(
         ``actions``: the recorded ``Action`` objects, or one label per
         transition, ``(option_name, (object_name, ...), (param, ...))``,
         ``None`` for a transition you do not attribute to a skill; omit
-        for no labels. Returns ``{"reward", "solved", "note"}``. No
-        simulator backs this helper. A rule that replays physics is not
-        checked: the verdict then has ``solved`` False and no success
-        bonus, and ``note`` says so ("" otherwise).
+        for no labels. Returns ``{"reward", "solved", "note"}``. The
+        helper reads only the states you give it. A rule that depends on
+        how the physics plays out from a state is not checked: the
+        verdict then has ``solved`` False and no success bonus, and
+        ``note`` says so ("" otherwise).
         """
         return score_trajectory(
             task_of(task_idx),

@@ -39,9 +39,11 @@ SANDBOX_INTROSPECTION = ("getsource", "inspect.getfile", "site-packages")
 # counters off ``s.privileged``; run_20260819_183252 seed2 did
 # ``sim._ctx.env`` to read ``cure_threshold`` and flipped
 # ``_skip_domain_specific_dynamics`` to run true dynamics in its belief
-# sim. Word-boundary regexes so e.g. ``budget_ctx`` never matches.
-_SANDBOX_HIDDEN_STATE_RE = re.compile(
-    r"\bprivileged\b|\b_ctx\b|\b_skip_domain_specific_dynamics\b")
+# sim. A ``sim`` that is a facade keeps the full probe in ``_probe``,
+# with every call the facade leaves out, so that name is screened too.
+# Word-boundary regexes so e.g. ``budget_ctx`` never matches.
+_SANDBOX_HIDDEN_STATE_RE = re.compile(r"\bprivileged\b|\b_ctx\b|\b_probe\b|"
+                                      r"\b_skip_domain_specific_dynamics\b")
 # Hidden-implementation predicators imports inside agent-executed
 # Python: the exec runs in-process, so ``from predicators.envs... import
 # ...`` would hand the agent the real env classes and ground-truth
@@ -181,10 +183,13 @@ def agent_traceback() -> str:
     left out, since their file and function names and source lines name
     what that arm's agent must not read. The agent's frames, the
     libraries' and the error itself stay.
+
+    ``continual_point_values_only`` leaves the harness's frames out too.
     """
     # pylint: disable-next=import-outside-toplevel
     from predicators.settings import CFG
-    if not CFG.agent_sim_learn_fit_invisible:
+    if not (CFG.agent_sim_learn_fit_invisible
+            or CFG.continual_point_values_only):
         return _scrub_host_paths(traceback.format_exc())
     # _HOST_REPO_ROOT is the harness's package directory.
     package = _HOST_REPO_ROOT + os.sep
@@ -301,10 +306,10 @@ def _screen_text_for_sandbox_escape(
                     "sandbox; use the MCP tools and ./reference/ files")
     hidden = _SANDBOX_HIDDEN_STATE_RE.search(text)
     if hidden is not None:
+        # The text names no element an arm may lack.
         return (f"'{hidden.group(0)}' accesses harness-internal state "
-                "that carries hidden environment ground truth; the "
-                "belief model must be learned from observable features "
-                "and the documented probe/tool surface only")
+                "that carries hidden environment ground truth; use the "
+                "observable features and the documented tools only")
     unavailable = agent_code_import_refusal(text)
     if unavailable is not None:
         return unavailable

@@ -1323,6 +1323,10 @@ class GlobalSettings:
     # round 31's seed 4 was rejected as "owed to the robot's body" though
     # only a fingertip touched the green. Rehearsals always replay.
     domino_contact_verdict = False
+    # Whether the Domino goal text under domino_contact_verdict adds that
+    # a rehearsal always makes the replay. An arm with no rehearsal of the
+    # harness turns it off, and its goal text states the rule alone.
+    domino_goal_names_rehearsal = True
     # Start->target distance (metres) sampled per min-block task, uniformly
     # from [lo, hi]. Choose a range that lands K* in {1, 2} at the true
     # friction (calibrate with the reach probe). Two scalars (not a tuple) so
@@ -2939,6 +2943,16 @@ class GlobalSettings:
     # (agent_continual_from_assets_declared), and a traceback shown to
     # the agent leaves out the harness's own frames.
     agent_sim_learn_fit_invisible = False
+    # With continual_uncertainty_decisions off and the observation noise
+    # undeclared, for an arm whose agent must not learn that the harness
+    # can represent uncertainty: the prompts, the tool descriptions, the
+    # probe's reports and its refusals say what the model runs at (the
+    # latest observation and one fitted value per parameter). They name
+    # no noise, belief, draw or stress test, and nothing withheld. The
+    # arm's class also gives the agent a probe without the calls built on
+    # a belief (agent_continual_from_assets_point), and a traceback shown
+    # to the agent leaves out the harness's own frames.
+    continual_point_values_only = False
     # Program world model arm (agent_program_world_model, paper arm C4 in
     # the form of Pinductor): the belief over the program's hidden state
     # is a particle set of this size (drawn from the program's

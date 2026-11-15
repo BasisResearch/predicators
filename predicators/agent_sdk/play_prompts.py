@@ -10,7 +10,8 @@ from __future__ import annotations
 
 from typing import Any, Iterable, List, Mapping, Sequence
 
-from predicators.agent_sdk.prompt_templates import render
+from predicators.agent_sdk.prompt_templates import load_sections
+from predicators.agent_sdk.prompt_templates import render as _render_shared
 from predicators.code_sim_learning.scene_base import plausible_materials_text
 from predicators.observation_noise import ObservationNoise
 from predicators.settings import CFG
@@ -52,7 +53,7 @@ TOOL_BLURBS = {
     "(`sim.fit`, `sim.residuals`, `sim.run`, `sim.refine`, ...). Free.",
     "evaluate_trajectory":
     "a level's reward model on a state sequence you predict: `reward`, "
-    "`solved` and a `note`. No simulator backs it. Free.",
+    "`solved` and a `note`. It reads only the states you give it. Free.",
 }
 # The run_python blurb of the arms whose probe never fits (frozen
 # dynamics, no harness fitting).
@@ -64,6 +65,22 @@ _RUN_PYTHON_NO_FIT_BLURB = (
 _RUN_PYTHON_BASE_SIMULATOR_BLURB = (
     "code in the sandbox with `sim`, the supplied base simulator "
     "(`sim.reset`, `sim.run`, `sim.state`, ...). Free.")
+
+
+def render(template: str, section: str, **values: str) -> str:
+    """Render ``section`` of ``template``, in the wording the running arm has
+    for it.
+
+    Under ``continual_point_values_only`` (EMPIRIC from assets at one
+    value per parameter) a section of ``play_point.md`` named
+    ``<template>__<section>`` stands in for the shared section and takes
+    the same placeholders. Every other arm renders the shared section.
+    """
+    own = f"{template}__{section}"
+    if CFG.continual_point_values_only and \
+            own in load_sections("play_point"):
+        return _render_shared("play_point", own, **values)
+    return _render_shared(template, section, **values)
 
 
 def build_minimal_play_system_prompt(*, model_based: bool) -> str:
@@ -154,8 +171,8 @@ def build_play_system_prompt(tool_names: Sequence[str],
 
     The tool surface selects the variant: an arm with ``run_python``
     keeps and uses a belief model in the sandbox (``sim``); the model-
-    free arm has neither, and its prompt says so instead of describing
-    tools it does not have. ``base_sim_refs`` are the read-only base-
+    free arm has neither, and its prompt names neither: it describes
+    what the arm has. ``base_sim_refs`` are the read-only base-
     simulator source paths, listed for the model arm, and
     ``model_contract`` is the rendered contract of its model files
     (:func:`build_model_contract`), placed after the model section.
@@ -688,25 +705,37 @@ def _join_contract(parts: List[str]) -> str:
 
 
 def render_data_status(*, n_episodes: int, n_steps: int) -> str:
-    """The learning-status block of an arm without a belief model."""
+    """The status block of the direct agent: its recorded data."""
     return render("play_query",
                   "learning_model_free",
                   n_episodes=str(n_episodes),
                   n_steps=str(n_steps))
 
 
-def build_play_query(*, kind: str, round_number: int, level_number: int,
-                     levels_total: int, goal_nl: str,
-                     goal_atoms: Sequence[str], ledger: str, context: str,
-                     observation: str, skills: str, predicates: str,
-                     types: str, model: str, journal: str,
-                     attempts: str) -> str:
+def build_play_query(*,
+                     kind: str,
+                     round_number: int,
+                     level_number: int,
+                     levels_total: int,
+                     goal_nl: str,
+                     goal_atoms: Sequence[str],
+                     ledger: str,
+                     context: str,
+                     observation: str,
+                     skills: str,
+                     predicates: str,
+                     types: str,
+                     model: str,
+                     journal: str,
+                     attempts: str,
+                     model_heading: str = "Model and data") -> str:
     """The message that opens one round of the run's conversation.
 
     ``kind`` is ``first`` (the run's first message), ``level`` (a new
     level in the same conversation), ``continue`` (the agent stopped
     before the level was settled) or ``resumed`` (after a preemption). A
     continuation is short: the conversation already holds the level.
+    ``model_heading`` is the heading of the status block ``model``.
     """
     assert kind in ("first", "level", "continue", "resumed"), kind
     if kind == "first":
@@ -724,6 +753,7 @@ def build_play_query(*, kind: str, round_number: int, level_number: int,
                       ledger=ledger,
                       context=context,
                       observation=observation,
+                      model_heading=model_heading,
                       model=model,
                       instructions=instructions)
     return render(
@@ -742,6 +772,7 @@ def build_play_query(*, kind: str, round_number: int, level_number: int,
         skills=skills,
         predicates=predicates,
         types=types,
+        model_heading=model_heading,
         model=model,
         journal=journal or render("play_query", "no_journal"),
         attempts=attempts or render("play_query", "no_attempts"),

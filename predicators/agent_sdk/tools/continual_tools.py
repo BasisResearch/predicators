@@ -748,10 +748,20 @@ def build_continual_tools(
         lost = _lost_draws(match)
         if lost == 0 or _safer_than_waiting(match):
             return None
+        head = (f"Test level: {lost} of the {len(match.rehearsal.lost_lines)} "
+                "draws of this plan's rehearsal end the episode in GAME_OVER, "
+                "and a GAME_OVER ends a test level. ")
+        if ctx.supplied_simulator:
+            # The draws differ in their start state and planner seed alone.
+            return _error_result(
+                head + "A lost draw is a start the observations still allow. "
+                "Find a plan no draw loses, or settle what separates the "
+                "lost draws: frames of the scene at rest narrow where its "
+                "bodies are. While the scene moves, a plan that loses fewer "
+                "draws than a rehearsal of Wait lines alone passes. Nothing "
+                "was charged." + _footer())
         return _error_result(
-            f"Test level: {lost} of the {len(match.rehearsal.lost_lines)} "
-            "draws of this plan's rehearsal end the episode in GAME_OVER, "
-            "and a GAME_OVER ends a test level. A lost draw is a world the "
+            head + "A lost draw is a world the "
             "data still allow. Find a plan no draw loses, or settle what "
             "separates the lost draws: repair the model if it is wrong "
             "there, or collect data that rules their parameters out. While "
@@ -970,6 +980,14 @@ def build_continual_tools(
             f"over these {check.num_features} features).")
         point = (rehearsal.mean_states[line - 1]
                  if len(rehearsal.mean_states) >= line else None)
+        if ctx.supplied_simulator:
+            # The draws differ in their start state and planner seed alone,
+            # and nothing changes the simulator.
+            return text + (
+                " The draws vary the start state and the planner seed, and "
+                "they stay as they are: the simulator did not predict this "
+                "step, so weigh that before you rely on its rehearsal of a "
+                "step like it.")
         if CFG.agent_sim_learn_fit_invisible:
             # This arm's draws follow the agent's declarations alone.
             if point is not None and point_predicts(frame, point, check.missed,
@@ -1690,9 +1708,10 @@ def build_continual_tools(
         "[...]} in place of the two arguments. `task_idx` indexes the "
         "levels reached so far and scores from that level's initial state; "
         "omit it for the current level. Returns {\"reward\", \"solved\", "
-        "\"note\"}. No simulator backs this tool. A rule that replays "
-        "physics is not checked: the verdict then has solved false and no "
-        "success bonus, and `note` says so.", {
+        "\"note\"}. The tool reads only the states you give it. A rule "
+        "that depends on how the physics plays out from a state is not "
+        "checked: the verdict then has solved false and no success bonus, "
+        "and `note` says so.", {
             "type": "object",
             "properties": {
                 "states": {

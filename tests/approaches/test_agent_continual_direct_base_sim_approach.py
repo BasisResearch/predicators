@@ -213,23 +213,24 @@ def test_prompt_is_the_direct_prompt_with_the_simulator_tool(
         line for line in direct["Tools"].splitlines()
         if "`evaluate_trajectory`" not in line
     ]
-    assert mine["Working files"] == direct["Working files"].replace(
-        "No simulator is supplied.",
-        "`run_python` runs code beside the supplied base simulator, which "
+    assert mine["Working files"] == direct["Working files"] + (
+        " `run_python` runs code beside the supplied base simulator, which "
         "the section below describes.")
     assert ("- `run_python`: code in the sandbox with `sim`, the supplied "
             "base simulator") in prompt
     for present in ("`sim.reset(current=True)`", "`sim.run(plan_text)`",
                     "`sim.params()`", "phys_params={name: value}",
                     "It contains no hidden mechanism.",
-                    "It loads no file of yours",
+                    "A rollout is set by its start state, its plan, its "
+                    "physical values and its planner seed.",
                     "the engine's defaults where no file sets one",
                     "`evaluate_trajectory(states, actions=None",
                     "the replay runs in the supplied base simulator",
                     "## Scene files", "scene_manifest.json"):
         assert present in prompt, present
-    assert "No simulator is supplied" not in prompt
-    assert "No simulator backs" not in prompt
+    for unnamed in ("No simulator", "file of yours", "no call adds"):
+        assert unnamed not in prompt, unnamed
+        assert unnamed not in base_simulator_description(reward_model=True)
     _check_golden("continual_system_direct_base_sim", prompt)
     description = base_simulator_description(reward_model=True)
     for text in (prompt, description):
@@ -269,7 +270,8 @@ def test_run_python_drives_the_supplied_simulator(tmp_path: Any,
     env, approach = _make(tmp_path, continual_refuse_training_give_up=False)
 
     def script(message: str) -> None:
-        assert "This arm has no belief model." in message
+        assert "## Recorded data\n\nRecorded episodes so far: 0" in message
+        assert "This arm" not in message and "## Model and data" not in message
         sandbox = Path(approach._tool_context.sandbox_dir)
         refs = {
             str(q.relative_to(sandbox / "reference"))

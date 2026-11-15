@@ -437,7 +437,6 @@ __MODEL_FILES__
 
 <!-- section: sandbox_model_free_files -->
 Use sandbox `python3` with `pickle` and `numpy` to analyze the recorded data and your own files.
-No simulator is supplied.
 
 <!-- section: reward_model_model_free -->
 ## Interpreting task verdicts
@@ -446,8 +445,8 @@ The `evaluate_trajectory` tool exposes a level's reward model, the current level
 It scores a state sequence that you predict and returns only `reward`, `solved`, and `note`.
 The sequence is a start state followed by your predicted states; give each predicted state as the feature values that change from the state before it, `{"object": {"feature": value}}`.
 `start` selects the latest observation, the current episode's recording up to it, or the level's initial state.
-No simulator backs this tool, so a verdict is only as good as the states you predict.
-Where evaluation includes a physical replay, that rule is not checked: the verdict then reports `solved` false with no success bonus, and its `note` says so.
+The tool reads only the states you give it, so a verdict is only as good as the states you predict.
+A rule that depends on how the physics plays out from a state is not checked: the verdict then reports `solved` false with no success bonus, and its `note` says so.
 Pass action labels for tasks whose evaluator reads the actions: one `["Skill", ["obj", ...], [param, ...]]` per predicted state, or `null` for an unlabeled transition.
 Only the live environment's `WIN` certifies completion.
 
@@ -463,7 +462,7 @@ It contains the robot, the skills with their real controllers, and the scene's b
 The manifest records no masses, frictions, restitution or damping: a body loaded from a URDF file has the file's masses, a moving body built from shapes has the mass of its volume at 1000 kg/m^3, and the other material values are the engine's defaults where no file sets one.
 It contains no hidden mechanism.
 It reads each body's pose, colour and held flag from the engine, so a colour reads as the loaded body's; every other feature (a switch reading, a level, a flag) keeps the value of the state that a rollout starts from.
-It loads no file of yours, and no call adds forces, attachments, state or step code to it.
+A rollout is set by its start state, its plan, its physical values and its planner seed.
 
 - `sim.reset(current=True)` starts from the latest observation, `sim.reset()` from the level's initial observation, and `sim.reset(state=s)` from a recorded state such as `trajectories[i].states[t]`.
 - `sim.run(plan_text)` runs a skill plan from the current state and returns the predicted states (`states`, `line_states`, `final_state`).
@@ -635,7 +634,7 @@ The base loads every body of the manifest itself; read the manifest to learn the
 __REF_LISTING__
 
 These read-only files are a manifest of the scene's bodies (shapes, meshes, joints, colours, and which observed object each body is) and the URDF and mesh files those bodies were loaded from.
-The manifest records no masses, frictions or damping, and the files omit hidden dynamics, task generation and goal semantics.
+The manifest records no masses, frictions or damping.
 `pybullet` is importable in sandbox `python3`; use these files however you find useful.
 
 <!-- section: journal -->

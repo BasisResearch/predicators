@@ -78,8 +78,9 @@ def test_screen_blocks_escapes(tmp_path) -> None:
 def test_screen_blocks_hidden_state_access(tmp_path) -> None:
     """Executed code cannot reach hidden env ground truth: recorded states'
     ``privileged`` channel, the probe's ``_ctx`` (whose ``env`` is the live
-    real env), or the hidden-dynamics kill switch (exploits observed in
-    run_20260819_183137 seed1 and run_20260819_183252 seed2).
+    real env), the full probe a facade ``sim`` holds in ``_probe``, or the
+    hidden-dynamics kill switch (exploits observed in run_20260819_183137 seed1
+    and run_20260819_183252 seed2).
 
     Python-only: the Bash hook does not screen these tokens (a shell
     command cannot reach in-process objects, and grepping old session
@@ -90,6 +91,7 @@ def test_screen_blocks_hidden_state_access(tmp_path) -> None:
             "print(s.privileged)",
             "e = sim._ctx.env",
             "getattr(sim, '_ctx').env.cure_threshold",
+            "sim._probe.belief()",
             "e._skip_domain_specific_dynamics = False",
     ]:
         assert _screen_text_for_sandbox_escape(text, sandbox) is not None, text
@@ -99,6 +101,7 @@ def test_screen_blocks_hidden_state_access(tmp_path) -> None:
             "budget_ctx = 3",
             "print('privilege separation')",
             "ctx = make_ctx()",
+            "my_probe = 1",
     ]:
         assert _screen_text_for_sandbox_escape(text, sandbox) is None, text
 

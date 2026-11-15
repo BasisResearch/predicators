@@ -29,14 +29,20 @@ CONTACT_VERIFICATION_NL = (
     "or a fingertip touches one other than the green, your push is replayed "
     "with every robot link except the fingertips made intangible, and the "
     "built layout must still cascade to the goal - topples that needed the "
-    "arm's body earn nothing. A rehearsal always makes that replay.")
+    "arm's body earn nothing.")
+
+# What that rule adds for an agent that rehearses its plans
+# (CFG.domino_goal_names_rehearsal).
+REHEARSAL_REPLAY_NL = " A rehearsal always makes that replay."
 
 
 def configured(goal_nl: str) -> str:
     """``goal_nl`` with the verification rule this run enforces."""
     if CFG.domino_contact_verdict:
-        return goal_nl.replace(CASCADE_VERIFICATION_NL,
-                               CONTACT_VERIFICATION_NL)
+        rule = CONTACT_VERIFICATION_NL
+        if CFG.domino_goal_names_rehearsal:
+            rule += REHEARSAL_REPLAY_NL
+        return goal_nl.replace(CASCADE_VERIFICATION_NL, rule)
     return goal_nl
 
 

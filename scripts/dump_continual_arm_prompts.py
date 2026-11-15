@@ -17,7 +17,7 @@ parked arm (one the config SKIPs) can be rendered too:
 
     python -m scripts.dump_continual_arm_prompts \
         --config empiric/benchmark.yaml --domain boil \
-        --approaches from_assets_no_uncertainty_opus --out /tmp/review
+        --approaches from_assets_point_opus --out /tmp/review
 """
 import argparse
 import asyncio
@@ -136,6 +136,8 @@ def dump_arm(cfg: RunConfig, seed: int, work_dir: str, out_dir: str) -> str:
     static_tools = create_mcp_tools(agent._tool_context,
                                     tool_names=agent._continual_tool_names())
     references = agent._get_sandbox_reference_files()
+    # The arm's own CLAUDE.md, or the one every sandbox shares.
+    claude_md = agent._get_sandbox_claude_md() or build_claude_md()
     # pylint: enable=protected-access
     dynamic = [
         t for t in round_tools[0]
@@ -156,7 +158,7 @@ def dump_arm(cfg: RunConfig, seed: int, work_dir: str, out_dir: str) -> str:
         "",
         "# Sandbox CLAUDE.md",
         "",
-        build_claude_md().strip(),
+        claude_md.strip(),
         "",
         "# Reference files",
         "",
