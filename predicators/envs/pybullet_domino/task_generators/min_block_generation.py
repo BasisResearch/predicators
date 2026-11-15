@@ -789,8 +789,9 @@ def _make_turn_task(env: "PyBulletDominoComposedEnv",
                     "at the true friction - the believed planner could "
                     "truly succeed within budget.", k_true, recheck_round)
                 return None
-    return _finish_min_block_task(env, comp, staged, k_true,
-                                  goal_text.MIN_BLOCK_GOAL_NL)
+    return _finish_min_block_task(
+        env, comp, staged, k_true,
+        goal_text.configured(goal_text.MIN_BLOCK_GOAL_NL))
 
 
 # ── Heavy-block (immovable obstacle) tasks ───────────────────
@@ -1003,8 +1004,9 @@ def _make_heavy_straight_task(
     logging.info(
         "Heavy straight task differentiates: believed through-gray k=%d, "
         "true dead, swerve K*=%d.", k_bel, k_true)
-    return _finish_min_block_task(env, comp, staged, num_blues,
-                                  goal_text.HEAVY_GOAL_NL)
+    return _finish_min_block_task(
+        env, comp, staged, num_blues,
+        goal_text.configured(goal_text.HEAVY_GOAL_NL))
 
 
 # Blueprint memo for the turn variant: the believed-physics corner
@@ -1294,5 +1296,6 @@ def _make_heavy_turn_task(
     logging.info(
         "Heavy turn task differentiates: believed gray-corner k=%d, lure "
         "dead at true physics, detour K*=%d.", k_bel, k_true)
-    return _finish_min_block_task(env, comp, staged, num_blues,
-                                  goal_text.HEAVY_GOAL_NL)
+    return _finish_min_block_task(
+        env, comp, staged, num_blues,
+        goal_text.configured(goal_text.HEAVY_GOAL_NL))
