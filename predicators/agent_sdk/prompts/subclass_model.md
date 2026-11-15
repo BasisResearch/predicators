@@ -54,7 +54,7 @@ Declare learnable constants in the class's `AGENT_PARAM_SPECS` and read their cu
 The base offers the engine materials of your bodies as parameters: for every observed type whose objects have bodies, `<type>_mass` (total mass, with inertia scaled to it), `<type>_lateral_friction`, `<type>_spinning_friction` (resistance to twisting about a contact), `<type>_rolling_friction`, `<type>_restitution`, `<type>_linear_damping` and `<type>_angular_damping`; and `support_lateral_friction`, `support_spinning_friction`, `support_rolling_friction` and `support_restitution` for the static bodies you load without an observed name.
 Declare any of these names in `AGENT_PARAM_SPECS` to make it a parameter of your model: the base sets it on every body of its group after each reset and whenever its value changes, so do not also set it in your own code.
 __UNDECLARED_MATERIALS__
-Declare `RESIDUAL_FEATURES` on the class or module as `{type_name: [feature_name, ...]}` to select the observed quantities the fit scores your scene on: the poses that forces and contacts move and the readings your mechanisms change.
+Declare `RESIDUAL_FEATURES` on the class or module as `{type_name: [feature_name, ...]}` to select the observed quantities __FEATURE_SCORER__ your scene on: the poses that forces and contacts move and the readings your mechanisms change.
 The deployment gate requires it; an empty one scores every feature of the scene's objects that the recorded data shows changing.
 Export only `RESIDUAL_ENV` as the dynamics implementation.
 
@@ -105,7 +105,7 @@ Declare learnable constants in the class's `AGENT_PARAM_SPECS` and read their cu
 The base offers the engine materials of the bodies as parameters: for every observed type whose objects have bodies, `<type>_mass` (total mass, with inertia scaled to it), `<type>_lateral_friction`, `<type>_spinning_friction` (resistance to twisting about a contact), `<type>_rolling_friction`, `<type>_restitution`, `<type>_linear_damping` and `<type>_angular_damping`; and `support_lateral_friction`, `support_spinning_friction`, `support_rolling_friction` and `support_restitution` for the static bodies no observation names (a type whose bodies are all static has the four contact properties only).
 Declare any of these names in `AGENT_PARAM_SPECS` to make it a parameter of your model: the base sets it on every body of its group after each reset and whenever its value changes, so do not also set it in your own code.
 __UNDECLARED_MATERIALS__
-Declare `RESIDUAL_FEATURES` on the class or module as `{type_name: [feature_name, ...]}` to select the observed quantities the fit scores your scene on: the poses that forces and contacts move and the readings your mechanisms change.
+Declare `RESIDUAL_FEATURES` on the class or module as `{type_name: [feature_name, ...]}` to select the observed quantities __FEATURE_SCORER__ your scene on: the poses that forces and contacts move and the readings your mechanisms change.
 The deployment gate requires it; an empty one scores every feature of the scene's objects that the recorded data shows changing.
 Export only `RESIDUAL_ENV` as the dynamics implementation.
 
@@ -279,7 +279,7 @@ Do not implement a physical joint by repeatedly writing the follower's pose.
 Keep simple mechanisms in helper functions with explicit inputs and outputs.
 Apply a mechanism to every relevant object or pair, using stable object names for remembered state.
 Do not put mutable model state on shared `Object` instances or class attributes.
-Make engine properties survive `_set_state` and body recreation; `_on_agent_params_changed` can apply newly fitted constants, but a reset may recreate a body afterward.
+Make engine properties survive `_set_state` and body recreation; `_on_agent_params_changed` can apply __CHANGED_CONSTANTS__, but a reset may recreate a body afterward.
 Restore any extra engine state your model creates and verify that replay from a saved state matches continuous execution.
 If inferred memory creates attachments or other persistent engine effects, implement `restore_model_state(self)` to realize them immediately after reset, before controller initiation and motion planning.
 The hook must be idempotent: do not step physics, advance counters, snap poses, or infer new joints there.

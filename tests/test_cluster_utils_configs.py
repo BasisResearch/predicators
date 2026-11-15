@@ -227,6 +227,37 @@ def test_from_assets_no_uncertainty_arm_runs_only_by_name() -> None:
     }
 
 
+def test_from_assets_no_fitting_arm_runs_only_by_name() -> None:
+    """EMPIRIC from assets without harness fitting is parked, and naming it
+    runs EMPIRIC from assets' menu less the switches that act on a harness fit,
+    with declared parameters only and no fit named to the agent: its key and
+    its approach's name, which the run folder's path holds, name none."""
+    assert not any("from_assets_declared" in r.experiment_id
+                   for r in _benchmark_runs(round_name="r1"))
+    runs = _benchmark_runs(
+        round_name="r1",
+        envs=["domino_high_friction_turn"],
+        approaches=["from_assets_opus", "from_assets_declared_opus"],
+        seeds=(0, 1))
+    by_arm = {r.experiment_id.split("-", 1)[1]: r for r in runs}
+    arm = by_arm["from_assets_declared_opus_r1"]
+    assert arm.approach == "agent_continual_from_assets_declared"
+    assert "fit" not in arm.approach + arm.experiment_id
+    dropped = ("code_sim_learning_prior_spans_bounds", "belief_material_lines",
+               "continual_fit_reach_check", "continual_fit_bound_note",
+               "belief_segment_temperature")
+    kept = {
+        name: value
+        for name, value in by_arm["from_assets_opus_r1"].flags.items()
+        if name not in dropped
+    }
+    assert arm.flags == {
+        **kept,
+        "agent_sim_learn_declared_params_only": True,
+        "agent_sim_learn_fit_invisible": True,
+    }
+
+
 def test_benchmark_subsets_and_rounds() -> None:
     """--envs, --approaches and --seeds pick a subset; --round names every
     experiment id."""

@@ -34,7 +34,7 @@ import os
 import re
 import time
 from typing import TYPE_CHECKING, Any, Callable, Dict, FrozenSet, List, \
-    Optional, Sequence, Set, Tuple, Union
+    Optional, Sequence, Set, Tuple, TypeVar, Union
 
 from predicators import utils
 from predicators.agent_sdk.config import RefinementConfig, ToolSurfaceConfig
@@ -503,6 +503,17 @@ def _grounded_steps(sketch_steps: Any) -> List[Any]:
     return grounded
 
 
+def _planning_values() -> str:
+    """What a report calls the values the planning model runs at: the fit's
+    point estimate, or the declared values in the arm whose text names no
+    harness fit (``agent_sim_learn_fit_invisible``)."""
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.settings import CFG
+    if CFG.agent_sim_learn_fit_invisible:
+        return "the declared values"
+    return "the fit's point estimate"
+
+
 def _mean_disagreement_note(result: "ProbeJointResult") -> str:
     """Under ``continual_rehearsal_mean_verdict``, the note for a mean rollout
     whose verdict no scored draw shares: it ends the episode in GAME_OVER and
@@ -517,7 +528,7 @@ def _mean_disagreement_note(result: "ProbeJointResult") -> str:
     scored = [d for d in result.draws if d.get("solved") is not None]
     if verdict is None or not scored:
         return ""
-    lead = ("The rollout from the belief mean, at the fit's point estimate "
+    lead = (f"The rollout from the belief mean, at {_planning_values()} "
             "(the values the planning model runs at), ")
     if verdict["lost"] and not any(d.get("lost") for d in scored):
         return (f"{lead}ends the episode in GAME_OVER, but none of the "
@@ -709,11 +720,15 @@ def _faster_than_recorded(ctx: "ToolContext",
                 (type_name, pattern) in top else "no recording has this")
         parts.append(f"{name} at {speed:.4g} per step with {switched} on "
                      f"({seen})")
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.settings import CFG
+    then = ("check the model against what that plan records"
+            if CFG.agent_sim_learn_fit_invisible else "refit")
     return ("The rollout from the belief mean moves " + "; ".join(parts) +
             ". No recording tests the model at that speed, so its prediction "
             "there can be off by more than the draws' spread. If a failure "
             "there cannot be undone, first run a plan that stays safe if the "
-            "model is wrong at that speed, then refit.")
+            f"model is wrong at that speed, then {then}.")
 
 
 def _counts_game_over() -> bool:
@@ -808,9 +823,9 @@ class ProbeJointResult(_StrLikeResult):
     scored, else goal reached), ``num_actions``, ``failure`` and
     ``planner_seed``. ``p_hat`` is the fraction of successful draws and
     ``stderr`` its standard error; ``mean`` is the step-by-step rollout
-    from the belief mean at the fit's point estimate, the values the
-    planning model runs at. Only the mean rollout advances the current
-    state, and its fields (``final_state``, ``steps``, ``goal_reached``,
+    from the belief mean at the values the planning model runs at (the
+    point estimate). Only the mean rollout advances the current state,
+    and its fields (``final_state``, ``steps``, ``goal_reached``,
     ``final_atoms``) read through, as on a single rollout's result.
     """
     draws: List[Dict[str, Any]]
@@ -932,8 +947,8 @@ class ProbeJointResult(_StrLikeResult):
                      if n_ not in mean_notes)
         if self.mean is not None:
             lines.append("")
-            lines.append("Step-by-step rollout from the belief mean at the "
-                         "fit's point estimate (the values the planning "
+            lines.append("Step-by-step rollout from the belief mean at "
+                         f"{_planning_values()} (the values the planning "
                          "model runs at):")
             lines.append(repr(self.mean))
         return "\n".join(lines)
@@ -978,13 +993,24 @@ class ProbeBeliefState(_StrLikeResult):
         return "\n".join(lines)
 
 
+def _reference_point() -> str:
+    """A physics sweep's name for its reference point: the fitted values, or
+    the declared values in the arm whose text names no harness fit."""
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.settings import CFG
+    if CFG.agent_sim_learn_fit_invisible:
+        return "declared values"
+    return "fitted params"
+
+
 @dataclasses.dataclass(repr=False)
 class ProbeSweepResult(_StrLikeResult):
     """Outcome of one ``BeliefProbe.run(..., physics_sweep=True)`` call.
 
     ``points`` holds one dict per sweep point in ascending-sigma order
     (``params`` - the physical-parameter override dict, ``None`` for
-    the fitted-values reference point run first; ``goal_reached``,
+    the reference point at the planning model's values, run first;
+    ``goal_reached``,
     ``num_actions``, ``failure``). ``successes`` counts goal-reaching
     points. Each point runs once on a fresh env at the BASE
     motion-planner seed, so its outcome is a deterministic measurement
@@ -1004,7 +1030,7 @@ class ProbeSweepResult(_StrLikeResult):
             "deterministic measurement, not a sample)"
         ]
         for p in self.points:
-            desc = ("fitted params" if p["params"] is None else ", ".join(
+            desc = (_reference_point() if p["params"] is None else ", ".join(
                 f"{k}={v:.4g}" for k, v in sorted(p["params"].items())))
             if p["failure"]:
                 line = f"  {desc}: FAILED - {p['failure']}"
@@ -1015,8 +1041,12 @@ class ProbeSweepResult(_StrLikeResult):
                         f"({p['num_actions']} actions)")
             lines.append(line)
         if self.successes < n:
+            # pylint: disable-next=import-outside-toplevel
+            from predicators.settings import CFG
+            owner = ("declared"
+                     if CFG.agent_sim_learn_fit_invisible else "identified")
             lines.append(
-                "  the plan fails INSIDE the identified-parameter "
+                f"  the plan fails INSIDE the {owner}-parameter "
                 "uncertainty range. The real environment may sit at any "
                 "of these points (success can be non-monotonic: passing "
                 "neighbors do NOT cover the points between them) - add "
@@ -1406,7 +1436,13 @@ def _skill_record(ctx: Any) -> Optional[Dict[str, Tuple[int, int]]]:
         return None
 
 
-class BeliefProbe:
+_Probe = TypeVar("_Probe", bound="_ProbeCore")
+
+
+# The core of the probe classes: every call but the harness fit's entry
+# points, which BeliefProbe adds. An agent can read the docstrings of the
+# core's public calls (help(sim)), so they name no harness fit.
+class _ProbeCore:
     """Stateful exploration handle over the belief simulator.
 
     Typical loop::
@@ -1449,8 +1485,8 @@ class BeliefProbe:
         self._next_snapshot_id = 1
         self._refine_calls = 0
         self._belief_draw_calls = 0
-        self._instance_id = BeliefProbe._next_instance_id
-        BeliefProbe._next_instance_id += 1
+        self._instance_id = _ProbeCore._next_instance_id
+        _ProbeCore._next_instance_id += 1
         # True while the current state IS the task's unmodified initial
         # state (no mods, no rollout since reset). Gates require_solved:
         # the task evaluator's staging rules reference the true init, so
@@ -1503,10 +1539,10 @@ class BeliefProbe:
                 "omit it for the current level.")
         return ctx.train_tasks[task_idx]
 
-    def reset(self,
+    def reset(self: _Probe,
               task_idx: Optional[int] = None,
               mods: Optional[Modifications] = None,
-              current: bool = False) -> "BeliefProbe":
+              current: bool = False) -> _Probe:
         """Set the current state to a task's initial state, optionally with
         object-feature overrides applied to a copy.
 
@@ -1604,7 +1640,7 @@ class BeliefProbe:
         self._snapshots[sid] = (self._require_state().copy(), self._pristine)
         return sid
 
-    def restore(self, snapshot_id: int) -> "BeliefProbe":
+    def restore(self: _Probe, snapshot_id: int) -> _Probe:
         """Set the current state back to a snapshot."""
         self._require_state()  # follow a task change before restoring
         if snapshot_id not in self._snapshots:
@@ -1615,12 +1651,12 @@ class BeliefProbe:
         self._pristine = pristine
         return self
 
-    def drop(self, snapshot_id: int) -> "BeliefProbe":
+    def drop(self: _Probe, snapshot_id: int) -> _Probe:
         """Free a banked snapshot (they otherwise live for the session)."""
         self._snapshots.pop(snapshot_id, None)
         return self
 
-    def clear_snapshots(self) -> "BeliefProbe":
+    def clear_snapshots(self: _Probe) -> _Probe:
         """Free every banked snapshot."""
         self._snapshots.clear()
         return self
@@ -1661,38 +1697,6 @@ class BeliefProbe:
                                      is not None),
             current_level=task_idx is None)
 
-    def fit(self,
-            traj_idxs: Optional[List[int]] = None,
-            fixed: Optional[Dict[str, float]] = None,
-            path: Optional[str] = None) -> str:
-        """Fit the candidate simulator's parameters and return the report.
-
-        Synthesis sessions only (at solve time the deployed belief
-        model is fixed). With no arguments this is the CANONICAL fit -
-        the same fit the probe deploys for ``run``/``refine``, on the
-        full data - and, when ``simulator.py`` declares
-        ``AGENT_PARAM_SPECS`` on its subclass, the identified values are applied
-        to the planning base env. Passing ``traj_idxs`` (fit only those
-        trajectories' data) or ``fixed`` (pin parameters at given
-        values) makes the fit EXPLORATORY: a diagnostic report only -
-        nothing is published or applied, and the probe keeps running
-        the canonical fit. On the system-ID path ``traj_idxs`` is a
-        cross-trajectory consistency check (subset fits that disagree
-        mean heterogeneous data); ``fixed`` is rejected there - pin by
-        narrowing the param's declared bounds. Reports SSE at
-        init vs post-fit, fitted values with deltas, and (system-ID
-        path) per-parameter identifiability. The fit is the expensive
-        probe call; use deliberately.
-        """
-        ctx = self._ctx
-        _check_time_budget(ctx)
-        provider = ctx.probe_fit_provider
-        if provider is None:
-            raise RuntimeError(
-                "sim.fit is unavailable in this session: fitting happens "
-                "during learning; the solve-time belief model is fixed.")
-        return provider(path=path, traj_idxs=traj_idxs, fixed=fixed)
-
     def score(self,
               traj_idxs: Optional[List[int]] = None,
               num_particles: Optional[int] = None,
@@ -1721,14 +1725,14 @@ class BeliefProbe:
                  params: Optional[Dict[str, float]] = None) -> str:
         """Replay recorded actions at the current model's deployed parameters.
 
-        No fitting, segment rejection, or real actions. Returns errors
-        for every selected full trajectory, including ones a fit
-        rejected. ``traj_idxs`` indexes the available recordings, never
-        unseen tasks. ``params`` optionally overrides named
-        rule/physical values for this diagnostic only, e.g. estimates
-        from an exploratory subset fit. Exclude validation data from
-        fitting and model design to call it held out. Errors are not a
-        success certificate for a future plan.
+        It changes no parameter value, drops no recording and takes no
+        real action. Returns errors for every selected full trajectory.
+        ``traj_idxs`` indexes the available recordings, never unseen
+        tasks. ``params`` optionally overrides named rule/physical
+        values for this diagnostic only, e.g. estimates from a subset of
+        the recordings. Keep validation data out of parameter estimation
+        and model design to call it held out. Errors are not a success
+        certificate for a future plan.
         """
         ctx = self._ctx
         _check_time_budget(ctx)
@@ -1770,52 +1774,19 @@ class BeliefProbe:
                 f"{name}.py surface to load.")
         return loader
 
-    def residuals(self,
-                  max_transitions: int = 100,
-                  abs_tol: float = 1e-4,
-                  rel_tol: float = 1e-3,
-                  num_worst_examples: int = 3,
-                  fit_params: bool = False,
-                  path: Optional[str] = None,
-                  rollout: bool = False,
-                  sweep_num_points: int = 6,
-                  sweep_params: Optional[Union[str, List[str]]] = None,
-                  phys_params: Optional[Dict[str, float]] = None) -> str:
-        """Per-feature residual report for the current simulator rules.
-
-        Synthesis sessions only. Loads the current simulator fresh from
-        ``simulator.py`` and reports, per feature in RESIDUAL_FEATURES,
-        mismatch counts, mean/max abs error, improvement over the
-        no-rule baseline (negative = the rules hurt), and the worst-N
-        example transitions - the fast inner loop for finding where the
-        rules disagree with the data. Uses init_value params unless
-        ``fit_params=True`` (LM-fits first; diagnostic only, nothing
-        published). Tolerance: ``|pred - obs| > rel_tol * |obs| +
-        abs_tol``. Snapshots the simulator file and tags the report
-        ``[cycle_XXX_vers_YYY]``. ``path`` scores a DIFFERENT simulator
-        file than the canonical one - use it to compare rule-set
-        candidates side by side.
-
-        ``rollout=True`` switches to the OPEN-LOOP report: free-running
-        replay of each recorded trajectory (errors compound, which the
-        teacher-forced default structurally cannot see). It is the only
-        residual view that can implicate or exonerate a physical
-        parameter; consult it before deciding the parameter
-        declaration either way. Two mutually exclusive opt-ins probe
-        the parameters themselves:
-
-        * ``sweep_params`` - a list of env-registry parameter names, or
-          ``"all"`` - sweeps each named parameter alone across its
-          plausible range (``sweep_num_points`` candidates each) and
-          reports whether the data is explained materially better at
-          another value. Slow: one fresh-env rollout per candidate per
-          motion segment, so name the suspects (or pass ``"all"`` once
-          before the declaration decision) rather than sweeping in a
-          loop.
-        * ``phys_params`` - ``{name: value}`` - scores the data at ONE
-          hypothesized point and reports the SSE ratio vs the baseline;
-          the cheap composable primitive for your own targeted sweeps.
-        """
+    def _residuals(self,
+                   max_transitions: int = 100,
+                   abs_tol: float = 1e-4,
+                   rel_tol: float = 1e-3,
+                   num_worst_examples: int = 3,
+                   fit_params: bool = False,
+                   path: Optional[str] = None,
+                   rollout: bool = False,
+                   sweep_num_points: int = 6,
+                   sweep_params: Optional[Union[str, List[str]]] = None,
+                   phys_params: Optional[Dict[str, float]] = None) -> str:
+        """The report behind ``residuals``, for every argument a probe class
+        offers."""
         ctx = self._ctx
         _check_time_budget(ctx)
         provider = ctx.probe_residuals_provider
@@ -2534,7 +2505,7 @@ class BeliefProbe:
                    seed: Optional[int] = None) -> List[Dict[str, Any]]:
         """Run ``plan_text`` from the current state once per point of physical
         parameter values, each on a fresh env at those values with every other
-        value at the fit.
+        value at the planning model's.
 
         The runs share the start state and the planner seed, so two of
         them differ in their parameters alone. Returns one record per
@@ -2652,8 +2623,8 @@ class BeliefProbe:
         a fresh env and a planner seed per draw) and reports the success
         estimate P-hat with its standard error, each draw's outcome and
         the parameter ranges on which draws fail, followed by a
-        step-by-step rollout from the belief mean at the fit's point
-        estimate, with contacts, which advances the current state.
+        step-by-step rollout from the belief mean at the planning
+        model's values, with contacts, which advances the current state.
         ``draws=0`` runs only that single rollout: from the belief mean
         when the probe sits on the last real observation, else from the
         probe's state. ``draws=K`` is the rehearsal, and any other count
@@ -2726,13 +2697,13 @@ class BeliefProbe:
         +-1-sigma uncertainty range of the identified physical
         parameters - each on
         a fresh env at the base motion-planner seed, plus once at the
-        fitted values, and returns a ``ProbeSweepResult`` with
-        per-point outcomes. The
-        fitted values carry real uncertainty and the true environment
+        planning model's values, and returns a ``ProbeSweepResult`` with
+        per-point outcomes. Those
+        values carry real uncertainty and the true environment
         may sit anywhere in the range - and success can be
         NON-MONOTONIC in a physical parameter (a cascade that topples
         just above and just below some friction can fail exactly at
-        it), so ``trials=`` at the fitted values CANNOT see this. A
+        it), so ``trials=`` at those values CANNOT see this. A
         design near a feasibility boundary (e.g. the minimal block
         count) is exactly where such holes live: sweep it and add
         margin until EVERY point passes before executing it for real.
@@ -2820,7 +2791,7 @@ class BeliefProbe:
                 "physics_sweep=True is its own mode: it varies the PHYSICS "
                 "per rollout (one deterministic rollout per parameter "
                 "point), while trials/solved/contacts measure the plan at "
-                "the fitted values. Run them as separate calls.")
+                f"the {_reference_point()}. Run them as separate calls.")
         if belief_draws < 0:
             raise ValueError(f"belief_draws must be >= 0, got {belief_draws}")
         if belief_draws > 0 and (trials > 1 or solved or contacts
@@ -2911,6 +2882,11 @@ class BeliefProbe:
             self._option_model()
             provider = ctx.physics_margin_provider
             sweep_points = list(provider() or []) if provider else []
+            if not sweep_points and CFG.agent_sim_learn_fit_invisible:
+                raise ValueError(
+                    "physics_sweep=True, but the model declares no "
+                    "physical parameter with a range to sweep. Rehearse "
+                    "the plan with sim.run(plan) instead.")
             if not sweep_points:
                 raise ValueError(
                     "physics_sweep=True, but no identified physical "
@@ -3567,7 +3543,7 @@ class BeliefProbe:
         immediately.
 
         Launch several independent runs, keep working (edit the model,
-        fit, think - even across ``run_python`` calls, handles survive
+        think - even across ``run_python`` calls, handles survive
         in the namespace), then collect with ``gather``. Two semantic
         differences from ``run``: the session state does NOT advance
         (the child executes on a forked copy - a measurement, not
@@ -4131,6 +4107,152 @@ class BeliefProbe:
         return self._state
 
 
+class BeliefProbe(_ProbeCore):
+    """The probe with the harness fit's entry points: ``fit``, and the
+    ``fit_params`` and ``sweep_params`` modes of ``residuals``."""
+
+    def fit(self,
+            traj_idxs: Optional[List[int]] = None,
+            fixed: Optional[Dict[str, float]] = None,
+            path: Optional[str] = None) -> str:
+        """Fit the candidate simulator's parameters and return the report.
+
+        Synthesis sessions only (at solve time the deployed belief
+        model is fixed). With no arguments this is the CANONICAL fit -
+        the same fit the probe deploys for ``run``/``refine``, on the
+        full data - and, when ``simulator.py`` declares
+        ``AGENT_PARAM_SPECS`` on its subclass, the identified values are applied
+        to the planning base env. Passing ``traj_idxs`` (fit only those
+        trajectories' data) or ``fixed`` (pin parameters at given
+        values) makes the fit EXPLORATORY: a diagnostic report only -
+        nothing is published or applied, and the probe keeps running
+        the canonical fit. On the system-ID path ``traj_idxs`` is a
+        cross-trajectory consistency check (subset fits that disagree
+        mean heterogeneous data); ``fixed`` is rejected there - pin by
+        narrowing the param's declared bounds. Reports SSE at
+        init vs post-fit, fitted values with deltas, and (system-ID
+        path) per-parameter identifiability. The fit is the expensive
+        probe call; use deliberately.
+        """
+        ctx = self._ctx
+        _check_time_budget(ctx)
+        provider = ctx.probe_fit_provider
+        if provider is None:
+            raise RuntimeError(
+                "sim.fit is unavailable in this session: fitting happens "
+                "during learning; the solve-time belief model is fixed.")
+        return provider(path=path, traj_idxs=traj_idxs, fixed=fixed)
+
+    def residuals(self,
+                  max_transitions: int = 100,
+                  abs_tol: float = 1e-4,
+                  rel_tol: float = 1e-3,
+                  num_worst_examples: int = 3,
+                  fit_params: bool = False,
+                  path: Optional[str] = None,
+                  rollout: bool = False,
+                  sweep_num_points: int = 6,
+                  sweep_params: Optional[Union[str, List[str]]] = None,
+                  phys_params: Optional[Dict[str, float]] = None) -> str:
+        """Per-feature residual report for the current simulator rules.
+
+        Synthesis sessions only. Loads the current simulator fresh from
+        ``simulator.py`` and reports, per feature in RESIDUAL_FEATURES,
+        mismatch counts, mean/max abs error, improvement over the
+        no-rule baseline (negative = the rules hurt), and the worst-N
+        example transitions - the fast inner loop for finding where the
+        rules disagree with the data. Uses init_value params unless
+        ``fit_params=True`` (LM-fits first; diagnostic only, nothing
+        published). Tolerance: ``|pred - obs| > rel_tol * |obs| +
+        abs_tol``. Snapshots the simulator file and tags the report
+        ``[cycle_XXX_vers_YYY]``. ``path`` scores a DIFFERENT simulator
+        file than the canonical one - use it to compare rule-set
+        candidates side by side.
+
+        ``rollout=True`` switches to the OPEN-LOOP report: free-running
+        replay of each recorded trajectory (errors compound, which the
+        teacher-forced default structurally cannot see). It is the only
+        residual view that can implicate or exonerate a physical
+        parameter; consult it before deciding the parameter
+        declaration either way. Two mutually exclusive opt-ins probe
+        the parameters themselves:
+
+        * ``sweep_params`` - a list of env-registry parameter names, or
+          ``"all"`` - sweeps each named parameter alone across its
+          plausible range (``sweep_num_points`` candidates each) and
+          reports whether the data is explained materially better at
+          another value. Slow: one fresh-env rollout per candidate per
+          motion segment, so name the suspects (or pass ``"all"`` once
+          before the declaration decision) rather than sweeping in a
+          loop.
+        * ``phys_params`` - ``{name: value}`` - scores the data at ONE
+          hypothesized point and reports the SSE ratio vs the baseline;
+          the cheap composable primitive for your own targeted sweeps.
+        """
+        return self._residuals(max_transitions=max_transitions,
+                               abs_tol=abs_tol,
+                               rel_tol=rel_tol,
+                               num_worst_examples=num_worst_examples,
+                               fit_params=fit_params,
+                               path=path,
+                               rollout=rollout,
+                               sweep_num_points=sweep_num_points,
+                               sweep_params=sweep_params,
+                               phys_params=phys_params)
+
+
+# The probe under agent_sim_learn_fit_invisible: the core's calls, with a
+# ``residuals`` that takes the core's arguments alone. It has no ``fit``,
+# and an agent can read its docstrings, so they name none.
+class DeclaredValuesProbe(_ProbeCore):
+    """Stateful exploration handle over your simulator, which runs at the
+    values its declarations give."""
+
+    def residuals(self,
+                  max_transitions: int = 100,
+                  abs_tol: float = 1e-4,
+                  rel_tol: float = 1e-3,
+                  num_worst_examples: int = 3,
+                  path: Optional[str] = None,
+                  rollout: bool = False,
+                  phys_params: Optional[Dict[str, float]] = None) -> str:
+        """Residual report for the current simulator at its declared values.
+
+        Loads the current simulator fresh from ``simulator.py`` and
+        reports where it disagrees with the recorded data. Snapshots the
+        simulator file and tags the report ``[cycle_XXX_vers_YYY]``.
+        ``path`` scores a DIFFERENT simulator file than the canonical
+        one - use it to compare candidates side by side.
+
+        A model that is a ``RESIDUAL_ENV`` subclass gets the OPEN-LOOP
+        report: free-running replay of each recorded trajectory, where
+        errors compound. ``rollout=True`` asks for it by name.
+        ``phys_params`` - ``{name: value}`` - scores the data at ONE
+        hypothesized point and reports the SSE ratio vs the declared
+        values; the cheap composable primitive for your own targeted
+        sweeps. For a rule-form model the default report is per
+        transition: per feature in RESIDUAL_FEATURES, mismatch counts,
+        mean/max abs error and the worst-N example transitions, with the
+        tolerance ``|pred - obs| > rel_tol * |obs| + abs_tol``.
+        """
+        return self._residuals(max_transitions=max_transitions,
+                               abs_tol=abs_tol,
+                               rel_tol=rel_tol,
+                               num_worst_examples=num_worst_examples,
+                               fit_params=False,
+                               path=path,
+                               rollout=rollout,
+                               sweep_num_points=6,
+                               sweep_params=None,
+                               phys_params=phys_params)
+
+
+# The agent knows its probe as a BeliefProbe, whichever class serves it, so
+# the class's own errors (an unknown attribute or keyword) name that.
+DeclaredValuesProbe.__name__ = DeclaredValuesProbe.__qualname__ = "BeliefProbe"
+DeclaredValuesProbe.residuals.__qualname__ = "BeliefProbe.residuals"
+
+
 def build_probe_namespace(ctx: "ToolContext") -> Dict[str, Any]:
     """The persistent ``run_python`` namespace (solve sessions).
 
@@ -4151,7 +4273,13 @@ def build_probe_namespace(ctx: "ToolContext") -> Dict[str, Any]:
 
     # pylint: disable-next=import-outside-toplevel
     from predicators.agent_sdk.tools.digests import render_trajectory_digest
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.settings import CFG
     all_trajs = list(ctx.offline_trajectories) + list(ctx.online_trajectories)
+    probe_cls: Callable[["ToolContext"],
+                        _ProbeCore] = (DeclaredValuesProbe
+                                       if CFG.agent_sim_learn_fit_invisible
+                                       else BeliefProbe)
 
     def describe_trajectory(traj_idx: int,
                             include_states: bool = True,
@@ -4166,8 +4294,8 @@ def build_probe_namespace(ctx: "ToolContext") -> Dict[str, Any]:
                                         max_timesteps=max_timesteps)
 
     return {
-        "sim": BeliefProbe(ctx),
-        "BeliefProbe": lambda: BeliefProbe(ctx),
+        "sim": probe_cls(ctx),
+        "BeliefProbe": lambda: probe_cls(ctx),
         "np": np,
         "trajectories": all_trajs,
         "describe_trajectory": describe_trajectory,
