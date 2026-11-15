@@ -47,8 +47,8 @@ def _arm_flags(env_name: str) -> Dict[str, Any]:
     return flags
 
 
-def _make(tmp_path: Any, env_name: str) -> Any:
-    _config(tmp_path, **_arm_flags(env_name))
+def _make(tmp_path: Any, env_name: str, **overrides: Any) -> Any:
+    _config(tmp_path, **{**_arm_flags(env_name), **overrides})
     env = create_new_env(env_name, do_cache=False, use_gui=False)
     approach = create_approach("agent_continual", env.predicates,
                                get_gt_options(env.get_name()), env.types,
@@ -82,7 +82,10 @@ def test_boil_plays_on_the_twin_with_the_package(tmp_path: Any,
                                                  monkeypatch: Any) -> None:
     """The references reach the sandbox and the prompt, and sim still runs on
     the domain twin before any model is written."""
-    env, approach = _make(tmp_path, "pybullet_boil")
+    # The scripted session ends with give_up on its training level.
+    env, approach = _make(tmp_path,
+                          "pybullet_boil",
+                          continual_refuse_training_give_up=False)
     seen: List[str] = []
 
     def query(message: str, *_args: Any, **_kwargs: Any) -> Any:

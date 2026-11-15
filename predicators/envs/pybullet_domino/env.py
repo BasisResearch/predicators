@@ -20,8 +20,9 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 import numpy as np
 import pybullet as p
 
-from predicators.envs.pybullet_domino.cascade_certificate import StepOption, \
-    check_cascade_legitimacy, count_movable_blocks_used
+from predicators.envs.pybullet_domino.cascade_certificate import \
+    NO_PROBE_REASON, StepOption, check_cascade_legitimacy, \
+    count_movable_blocks_used
 from predicators.envs.pybullet_domino.components.ball_component import \
     BallComponent
 from predicators.envs.pybullet_domino.components.base_component import \
@@ -66,7 +67,9 @@ class DominoEvaluator(TaskEvaluator):
     env pass it per call as ``sim_env`` (``BaseEnv`` passes the true
     env, the sandbox's verdict path passes the agent's belief env) and
     the probe binding never outlives the call. Without a ``sim_env``
-    the certificate runs its pure state/action rules only.
+    the certificate runs its pure state/action rules only, and a
+    goal-reaching sequence that passes them fails closed:
+    ``replay_unchecked`` tells that case from a broken rule.
     """
 
     def __init__(self,
@@ -87,8 +90,10 @@ class DominoEvaluator(TaskEvaluator):
         # sim cost. Identity-keyed (never content-keyed): only reused
         # while the SAME states/labels objects with the SAME length are
         # scored.
+        # It also keeps the replay note and whether the replay rule went
+        # unchecked for want of a ``sim_env``.
         self._certify_memo: Optional[Tuple[Tuple[int, ...], Tuple[bool, str],
-                                           str]] = None
+                                           str, bool]] = None
 
     def reward(self,
                states: Sequence[State],
@@ -161,7 +166,9 @@ class DominoEvaluator(TaskEvaluator):
             step_options,
             probe=probe_and_note if probe is not None else None,
             clean_push=clean_push)
-        self._certify_memo = (key, verdict, replays[-1] if replays else "")
+        unchecked = probe is None and verdict == (False, NO_PROBE_REASON)
+        self._certify_memo = (key, verdict, replays[-1] if replays else "",
+                              unchecked)
         return verdict
 
     def verdict_note(self,
@@ -173,6 +180,16 @@ class DominoEvaluator(TaskEvaluator):
         self._certify(states, step_options, sim_env=sim_env)
         assert self._certify_memo is not None
         return self._certify_memo[2]
+
+    def replay_unchecked(self,
+                         states: Sequence[State],
+                         step_options: Optional[Sequence[StepOption]],
+                         sim_env: Optional[Any] = None) -> bool:
+        """Whether the sequence reached the counterfactual push rule with no
+        ``sim_env`` to replay on, so the rule was not checked."""
+        self._certify(states, step_options, sim_env=sim_env)
+        assert self._certify_memo is not None
+        return self._certify_memo[3]
 
     def offline_metrics(
             self, states: Sequence[State],

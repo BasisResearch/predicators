@@ -93,6 +93,16 @@ Make the draws as wide as the recordings leave each parameter, and keep together
 A refused `PARAM_DRAWS` (the model status says why), or none, leaves every rehearsal draw at your declared values.
 Values and draws take effect when the file reloads.
 
+<!-- section: intro_scene_only -->
+## Model API reference
+
+Load the scene in `./simulator.py`, and write optional monitoring predicates in `./predicates.py`.
+
+<!-- section: intro_scene_only_loaded -->
+## Model API reference
+
+Write `./simulator.py` for the scene the base loads, and write optional monitoring predicates in `./predicates.py`.
+
 <!-- section: intro_supplied -->
 ## Predicate API reference
 

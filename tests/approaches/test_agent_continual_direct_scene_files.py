@@ -1,4 +1,4 @@
-"""The direct agent with the agentic real-to-sim arm's scene files."""
+"""The direct agent with the scene assets, and no engine wrapper."""
 import json
 from pathlib import Path
 from typing import Any, Dict, List
@@ -58,6 +58,7 @@ def test_config_is_the_direct_agent_with_the_scene_files() -> None:
     for run in runs:
         assert run.approach == "agent_continual_model_free"
         assert run.flags["continual_provide_scene_package"] is True
+        assert run.flags["continual_provide_reward_model"] is True
         assert run.flags["agent_planner_use_simulator"] is False
         assert "continual_require_model_on_test" not in run.flags
         assert "agent_sim_provide_base_sim_source" not in run.flags
@@ -67,7 +68,8 @@ def test_boil_gets_the_files_and_only_a_task_prompt(tmp_path: Any,
                                                     monkeypatch: Any) -> None:
     """The files reach the sandbox and the prompt lists them, while the prompt
     asks for no simulator, model, fit or gate and the tools have no probe."""
-    env, approach = _make(tmp_path)
+    # The scripted session ends with give_up on its training level.
+    env, approach = _make(tmp_path, continual_refuse_training_give_up=False)
     seen: List[str] = []
 
     def query(message: str, *_args: Any, **_kwargs: Any) -> Any:
@@ -77,11 +79,9 @@ def test_boil_gets_the_files_and_only_a_task_prompt(tmp_path: Any,
             str(q.relative_to(sandbox / "reference"))
             for q in (sandbox / "reference").rglob("*") if q.is_file())
         assert "skills.md" in refs
-        assert "base_sim/pybullet_env.py" in refs
-        assert "base_sim/base_env.py" in refs
         assert "scene/scene_manifest.json" in refs
         assert "assets/urdf/jug-pixel.urdf" in refs
-        assert "base_sim/scene_base.py" not in refs
+        assert not any(r.startswith("base_sim/") for r in refs)
         assert not any("pybullet_boil" in r for r in refs)
         manifest = json.loads(
             (sandbox / "reference/scene/scene_manifest.json").read_text())
@@ -90,11 +90,24 @@ def test_boil_gets_the_files_and_only_a_task_prompt(tmp_path: Any,
         assert "## Scene files" in prompt
         assert "scene_manifest.json (" in prompt
         assert "No simulator is supplied." in prompt
+        assert "pybullet_env.py" not in prompt
+        assert "environment wrapper" not in prompt
         for absent in ("simulator.py", "RESIDUAL_FEATURES", "sim.fit",
                        "sim.validate", "SceneBase", "require a fitted model",
                        "run_python"):
             assert absent not in prompt, absent
         assert "run_python" not in approach._continual_tool_names()
+        # The level's reward model, with no engine behind it: the tool and
+        # its section, and a verdict of the three public keys.
+        assert approach._continual_tool_names()[-1] == "evaluate_trajectory"
+        assert "## Interpreting task verdicts" in prompt
+        assert "that rule is not checked" in prompt
+        scored = _call(approach, "evaluate_trajectory", states=[{}])
+        assert json.loads(scored.split("\n\n", 1)[0]) == {
+            "reward": 0.0,
+            "solved": False,
+            "note": ""
+        }
         assert "Give-up recorded" in _call(approach, "give_up", note="done")
         return _result()
 
@@ -112,3 +125,14 @@ def test_flag_off_keeps_the_direct_agent_unchanged(tmp_path: Any) -> None:
     _, approach = _make(tmp_path, continual_provide_scene_package=False)
     assert set(approach._get_sandbox_reference_files()) == {"skills.md"}
     assert "## Scene files" not in approach._play_system_prompt()
+
+
+def test_reward_model_flag_off_keeps_the_arm_unchanged(tmp_path: Any) -> None:
+    """Without the reward-model flag the arm has no ``evaluate_trajectory``
+    tool and its prompt does not mention one."""
+    _, approach = _make(tmp_path, continual_provide_reward_model=False)
+    assert "evaluate_trajectory" not in approach._continual_tool_names()
+    prompt = approach._play_system_prompt()
+    assert "evaluate_trajectory" not in prompt
+    assert "## Interpreting task verdicts" not in prompt
+    assert "## Scene files" in prompt
