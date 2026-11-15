@@ -16,9 +16,10 @@ import pytest
 
 from predicators import utils
 from predicators.agent_sdk.belief_probe import BeliefProbe, ProbeJointResult, \
-    ProbeResult, _beyond_recordings, _line_states, _outcome_leads, \
-    _separating_ranges
+    ProbeResult, _beyond_recordings, _faster_than_recorded, _line_states, \
+    _outcome_leads, _separating_ranges
 from predicators.agent_sdk.plan_execution import StepOutcome
+from predicators.agent_sdk.speed_support import SPEED_WINDOW
 from predicators.agent_sdk.tools.verdicts import task_evaluator
 from predicators.structs import Action, GroundAtom, LowLevelTrajectory, \
     Object, State, Task, TaskEvaluator, Type
@@ -253,6 +254,47 @@ def test_rehearsal_names_draws_that_did_not_start_from_their_state():
     _on_observation(sim, ctx)
     assert "did not start from the state" not in sim.run(_PLAN,
                                                          render=False).text
+    utils.reset_config({})
+
+
+def test_speed_note_names_bodies_faster_than_recorded():
+    """A rollout that moves a scored body faster than the recordings show under
+    its switch pattern is named with that top speed, however the positions
+    compare; a pattern no recording has says so, a speed within the noise
+    margin is not named, and without the provider there is no note."""
+    ctx, _, _, _ = _joint_ctx()
+    switch_type = Type("switch", ["is_on"])
+    switch = Object("switch0", switch_type)
+    ctx.scored_features_provider = lambda: {"block": ["x"]}
+    switches = {("switch", "is_on")}
+    ctx.recorded_speeds_provider = lambda: (switches, {
+        ("block", frozenset()): 0.01,
+    })
+
+    def rollout(speed: float, on: float = 0.0) -> List[State]:
+        return [
+            State({
+                _block: np.array([speed * i], dtype=np.float32),
+                switch: np.array([on], dtype=np.float32)
+            }) for i in range(SPEED_WINDOW + 1)
+        ]
+
+    utils.reset_config({
+        "continual_obs_noise_position": 0.005,
+        "continual_obs_noise_declared": True,
+    })
+    note = _faster_than_recorded(ctx, rollout(0.03))
+    assert note is not None
+    assert "block0 at 0.03 per step with no switch on" in note
+    assert "the top recorded speed is 0.01" in note
+    assert "first run a plan that stays safe" in note
+    # Two sigmas of a speed over ten steps: 0.0014 per step.
+    assert _faster_than_recorded(ctx, rollout(0.011)) is None
+    unseen = _faster_than_recorded(ctx, rollout(0.03, 1.0))
+    assert unseen is not None
+    assert "with switch0.is_on on (no recording has this)" in unseen
+    ctx.recorded_speeds_provider = None
+    assert _faster_than_recorded(ctx, rollout(0.03)) is None
     utils.reset_config({})
 
 

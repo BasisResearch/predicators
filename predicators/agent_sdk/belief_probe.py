@@ -33,8 +33,8 @@ import logging
 import os
 import re
 import time
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, \
-    Sequence, Set, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, FrozenSet, List, \
+    Optional, Sequence, Set, Tuple, Union
 
 from predicators import utils
 from predicators.agent_sdk.config import RefinementConfig, ToolSurfaceConfig
@@ -642,6 +642,61 @@ def _beyond_recordings(ctx: "ToolContext",
     return ("The rollout from the belief mean takes " + "; ".join(parts) +
             ". No recording tests the model there, so its prediction there "
             "can be off by more than the draws' spread.")
+
+
+def _faster_than_recorded(ctx: "ToolContext",
+                          states: Sequence[State]) -> Optional[str]:
+    """Under ``continual_rehearsal_speed_note``, the scored bodies the rollout
+    from the belief mean moves faster than any recording shows them moving
+    under the same switch pattern; None when there are none.
+
+    A pattern no recording shows counts as a top speed of zero. The
+    margin is the data's own: a speed read from two noisy positions is
+    about as well tested within two of its sigmas.
+    """
+    # pylint: disable=import-outside-toplevel
+    from predicators.agent_sdk.speed_support import SPEED_WINDOW, \
+        scored_bodies, window_speeds
+    from predicators.observation_noise import ObservationNoise
+
+    # pylint: enable=import-outside-toplevel
+    if ctx.recorded_speeds_provider is None or \
+            ctx.scored_features_provider is None or not states:
+        return None
+    recorded = ctx.recorded_speeds_provider()
+    features = ctx.scored_features_provider()
+    if recorded is None or not features:
+        return None
+    switches, top = recorded
+    noise = ObservationNoise.from_cfg()
+    worst: Dict[Tuple[str, FrozenSet[str]], Tuple[float, float, float]] = {}
+    bodies = scored_bodies(features)
+    for obj, pattern, speed in window_speeds(states, bodies, switches):
+        sigma = (noise.feature_sigma(obj.type, bodies[obj.type.name][0])
+                 if noise.declared else 0.0)
+        record = top.get((obj.type.name, pattern), 0.0)
+        margin = max(_SUPPORT_SIGMAS * sigma * 2.0**0.5 / SPEED_WINDOW,
+                     _SUPPORT_EXACT * record)
+        key = (obj.name, pattern)
+        if speed > record + margin and speed - record > worst.get(
+                key, (0.0, 0.0, 0.0))[0]:
+            worst[key] = (speed - record, speed, record)
+    if not worst:
+        return None
+    named = sorted(worst.items(), key=lambda kv: -kv[1][0])[:_SUPPORT_NAMED]
+    parts = []
+    for (name, pattern), (_gap, speed, record) in named:
+        switched = ", ".join(sorted(pattern)) or "no switch"
+        type_name = next(o.type.name for o in states[0] if o.name == name)
+        seen = (f"the top recorded speed is {record:.4g}" if
+                (type_name, pattern) in top else "no recording has this")
+        parts.append(f"{name} at {speed:.4g} per step with {switched} on "
+                     f"({seen})")
+    return ("The rollout from the belief mean moves " + "; ".join(parts) +
+            ". No recording tests the model at that speed, so its prediction "
+            "there can be off by more than the draws' spread. If a failure "
+            "there cannot be undone, first run a plan that stays safe if the "
+            "model is wrong at that speed, then refit.")
 
 
 def _counts_game_over() -> bool:
@@ -2485,6 +2540,9 @@ class BeliefProbe:
             beyond = _beyond_recordings(ctx, result.mean.states)
             if beyond:
                 result.notes.append(beyond)
+            faster = _faster_than_recorded(ctx, result.mean.states)
+            if faster:
+                result.notes.append(faster)
             if CFG.continual_rehearsal_mean_verdict:
                 result.mean_verdict = self._score_rollout(
                     result.mean, result.from_observation)
